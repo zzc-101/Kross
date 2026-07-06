@@ -6,13 +6,21 @@ import {
   type TraceEvent,
   agentResultSchema
 } from '../domain';
+import {
+  InMemoryContextManager,
+  type ContextManager,
+  type ContextSnapshot
+} from '../context/contextManager';
 import type { LlmClient, LlmResponse } from '../llm/types';
 import { detectMode } from '../modes/modeDetector';
+import { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
   llmClient?: LlmClient;
+  contextManager?: ContextManager;
+  toolGateway?: ToolGateway;
   createRunId?: () => string;
   now?: () => Date;
 }
@@ -25,17 +33,33 @@ export interface AgentRunInput {
   };
 }
 
+export interface ContextInspectionInput {
+  requestedMode: AgentMode;
+  currentUserInput?: string;
+}
+
+export interface ContextInspection extends ContextSnapshot {
+  mode: Exclude<AgentMode, 'auto'>;
+}
+
 export type AgentRuntimeEvent = TraceEvent;
+
+const PLANNER_SYSTEM_PROMPT =
+  '你是本地 agent 的规划器。请基于模式和用户目标给出简短、可执行的计划。需要工具时，只能基于可用工具清单提出调用意图，不要编造工具。';
 
 export class AgentRuntime extends EventEmitter {
   private readonly createRunId: () => string;
   private readonly now: () => Date;
+  private readonly contextManager: ContextManager;
+  private readonly toolGateway: ToolGateway | undefined;
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
     this.createRunId =
       options.createRunId ?? (() => `run-${Date.now().toString(36)}`);
     this.now = options.now ?? (() => new Date());
+    this.contextManager = options.contextManager ?? new InMemoryContextManager();
+    this.toolGateway = options.toolGateway;
   }
 
   async run(input: AgentRunInput): Promise<AgentResult> {
@@ -98,14 +122,15 @@ export class AgentRuntime extends EventEmitter {
           summary: '跨仓库计划等待确认，当前运行已取消',
           report: {
             changedFiles: [],
-        evidence: [
-          ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
-          '已在执行前触发确认门'
-        ],
+            evidence: [
+              ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
+              '已在执行前触发确认门'
+            ],
             risks: []
           }
         });
         await this.record(runId, 'run.completed', { ...cancelled });
+        this.appendConversation(input.input, cancelled.summary);
         return cancelled;
       }
 
@@ -148,8 +173,33 @@ export class AgentRuntime extends EventEmitter {
       summary: result.summary
     });
     await this.record(runId, 'run.completed', { ...result });
+    this.appendConversation(input.input, result.summary);
 
     return result;
+  }
+
+  inspectContext(input: ContextInspectionInput): ContextInspection {
+    const currentUserInput = input.currentUserInput ?? '';
+    const mode =
+      input.requestedMode === 'auto'
+        ? currentUserInput.trim().length > 0
+          ? detectMode({
+              requestedMode: input.requestedMode,
+              input: currentUserInput
+            }).mode
+          : 'normal'
+        : input.requestedMode;
+    const snapshot = this.contextManager.build({
+      systemPrompt: PLANNER_SYSTEM_PROMPT,
+      currentUserInput,
+      mode,
+      tools: this.toolGateway?.listTools() ?? []
+    });
+
+    return {
+      ...snapshot,
+      mode
+    };
   }
 
   private async createPlannerSuggestion(
@@ -162,22 +212,29 @@ export class AgentRuntime extends EventEmitter {
     }
 
     try {
+      const context = this.contextManager.build({
+        systemPrompt: PLANNER_SYSTEM_PROMPT,
+        currentUserInput: goal,
+        mode,
+        tools: this.toolGateway?.listTools() ?? []
+      });
+
+      await this.record(runId, 'context.built', {
+        includedSources: context.includedSources,
+        droppedSources: context.droppedSources,
+        estimatedChars: context.estimatedChars,
+        report: context.report
+      });
+
       const response = await this.options.llmClient.complete({
-        messages: [
-          {
-            role: 'system',
-            content:
-              '你是本地 agent 的规划器。请基于模式和用户目标给出简短、可执行的计划，不要执行工具。'
-          },
-          {
-            role: 'user',
-            content: `模式：${mode}\n用户目标：${goal}`
-          }
-        ],
+        messages: context.messages,
         maxTokens: 800,
         temperature: 0.2,
         metadata: {
-          purpose: 'planner'
+          purpose: 'planner',
+          includedSources: context.includedSources,
+          droppedSources: context.droppedSources,
+          contextReport: context.report
         }
       });
 
@@ -195,6 +252,17 @@ export class AgentRuntime extends EventEmitter {
       });
       return undefined;
     }
+  }
+
+  private appendConversation(userInput: string, assistantOutput: string): void {
+    this.contextManager.appendConversation({
+      role: 'user',
+      content: userInput
+    });
+    this.contextManager.appendConversation({
+      role: 'assistant',
+      content: assistantOutput
+    });
   }
 
   private async record(

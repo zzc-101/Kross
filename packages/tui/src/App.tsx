@@ -5,6 +5,10 @@ import TextInput from 'ink-text-input';
 import {
   AgentRuntime,
   type AgentMode,
+  type ConfigImportController,
+  type ConfigImportPrompt,
+  type ContextInspection,
+  type ExternalAgentSource,
   type TraceEvent,
   type TraceStore
 } from '@kross/core';
@@ -17,6 +21,8 @@ interface Message {
 
 export interface AppProps {
   runtime?: AgentRuntime;
+  createRuntime?: () => AgentRuntime;
+  configImportController?: ConfigImportController;
   initialMode?: AgentMode;
   projectName?: string;
   onReady?: (api: AppTestApi) => void;
@@ -28,21 +34,43 @@ export interface AppTestApi {
 
 export function App({
   runtime,
+  createRuntime,
+  configImportController,
   initialMode = 'auto',
   projectName = 'local',
   onReady
 }: AppProps) {
-  const agentRuntime = useMemo(() => runtime ?? createMemoryRuntime(), [runtime]);
+  const initialImportPrompt = useMemo(
+    () => configImportController?.getPrompt(),
+    [configImportController]
+  );
+  const [runtimeGeneration, setRuntimeGeneration] = useState(0);
+  const agentRuntime = useMemo(
+    () => runtime ?? createRuntime?.() ?? createMemoryRuntime(),
+    [createRuntime, runtime, runtimeGeneration]
+  );
+  const [importPrompt, setImportPrompt] = useState<ConfigImportPrompt | undefined>(
+    initialImportPrompt
+  );
   const [mode, setMode] = useState<AgentMode>(initialMode);
   const [input, setInput] = useState('');
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);
-  const [messages, setMessages] = useState<Message[]>([
+  const [messages, setMessages] = useState<Message[]>(() => [
     {
       id: 1,
       from: 'agent',
       text: 'Welcome. 输入任务，或输入 /help 查看命令。'
-    }
+    },
+    ...(initialImportPrompt
+      ? [
+          {
+            id: 2,
+            from: 'agent' as const,
+            text: formatImportPrompt(initialImportPrompt)
+          }
+        ]
+      : [])
   ]);
   const processingRef = useRef(false);
   const queueRef = useRef<string[]>([]);
@@ -85,7 +113,19 @@ export function App({
     setInput('');
     append('user', `> ${trimmed}`);
 
-    if (handleCommand(trimmed, append, setMode)) {
+    if (
+      handleCommand(
+        trimmed,
+        append,
+        setMode,
+        agentRuntime,
+        mode,
+        importPrompt,
+        configImportController,
+        setImportPrompt,
+        () => setRuntimeGeneration((current) => current + 1)
+      )
+    ) {
       return;
     }
 
@@ -108,7 +148,14 @@ export function App({
     } finally {
       processingRef.current = false;
     }
-  }, [append, runTurn]);
+  }, [
+    agentRuntime,
+    append,
+    configImportController,
+    importPrompt,
+    mode,
+    runTurn
+  ]);
 
   useEffect(() => {
     onReady?.({ submit });
@@ -125,7 +172,7 @@ export function App({
           Welcome | project: {projectName} | mode: {mode} | status: {status}
           {queueLength > 0 ? ` | 队列：${queueLength}` : ''}
         </Text>
-        <Text dimColor>/help for help, /status for setup, /mode to switch mode</Text>
+        <Text dimColor>/help for help, /context for context, /mode to switch mode</Text>
       </Box>
 
       <Box flexDirection="column" marginTop={1}>
@@ -137,7 +184,7 @@ export function App({
       </Box>
 
       <Box marginTop={1}>
-        <Text dimColor>/help  /mode auto|normal|cross-repo  /trace  /diff</Text>
+        <Text dimColor>/help  /context  /mode auto|normal|cross-repo  /trace  /diff</Text>
       </Box>
 
       <Box>
@@ -174,7 +221,13 @@ function createMemoryRuntime(): AgentRuntime {
 function handleCommand(
   value: string,
   append: (from: Message['from'], text: string) => void,
-  setMode: (mode: AgentMode) => void
+  setMode: (mode: AgentMode) => void,
+  runtime: AgentRuntime,
+  mode: AgentMode,
+  importPrompt: ConfigImportPrompt | undefined,
+  configImportController: ConfigImportController | undefined,
+  setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void,
+  refreshRuntime: () => void
 ): boolean {
   if (!value.startsWith('/')) {
     return false;
@@ -183,13 +236,38 @@ function handleCommand(
   if (value === '/help') {
     append(
       'agent',
-      '可用命令：/mode auto|normal|cross-repo，/trace，/diff，/help，/status'
+      '可用命令：/context，/import claude|codex|skip，/mode auto|normal|cross-repo，/trace，/diff，/help，/status'
     );
     return true;
   }
 
   if (value === '/status') {
     append('agent', '当前运行在本地 TUI。模型、trace 和 registry 状态会在后续版本展开。');
+    return true;
+  }
+
+  if (value === '/context') {
+    append(
+      'agent',
+      formatContextInspection(
+        runtime.inspectContext({
+          requestedMode: mode,
+          currentUserInput: ''
+        })
+      )
+    );
+    return true;
+  }
+
+  if (value === '/import' || value.startsWith('/import ')) {
+    handleImportCommand({
+      value,
+      append,
+      importPrompt,
+      configImportController,
+      setImportPrompt,
+      refreshRuntime
+    });
     return true;
   }
 
@@ -215,6 +293,111 @@ function handleCommand(
 
 function isAgentMode(value: string): value is AgentMode {
   return value === 'auto' || value === 'normal' || value === 'cross-repo';
+}
+
+function handleImportCommand(input: {
+  value: string;
+  append: (from: Message['from'], text: string) => void;
+  importPrompt: ConfigImportPrompt | undefined;
+  configImportController: ConfigImportController | undefined;
+  setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void;
+  refreshRuntime: () => void;
+}): void {
+  if (!input.configImportController || !input.importPrompt) {
+    input.append('agent', '当前没有可导入的 Claude Code 或 Codex 配置。');
+    return;
+  }
+
+  const target = input.value.replace('/import', '').trim();
+  if (target.length === 0) {
+    input.append('agent', formatImportUsage(input.importPrompt));
+    return;
+  }
+  if (target === 'skip') {
+    const result = input.configImportController.skip();
+    input.setImportPrompt(undefined);
+    input.append('agent', `已跳过配置导入。记录已保存到 ${result.configPath}`);
+    return;
+  }
+  if (!isExternalAgentSource(target)) {
+    input.append('agent', formatImportUsage(input.importPrompt));
+    return;
+  }
+
+  try {
+    const result = input.configImportController.importSource(target);
+    input.setImportPrompt(undefined);
+    input.refreshRuntime();
+    input.append(
+      'agent',
+      [
+        `已导入 ${result.candidate.displayName} 配置。`,
+        `配置文件: ${result.configPath}`,
+        `provider: ${result.config.llm?.provider}`,
+        `model: ${result.config.llm?.model}`,
+        `baseUrl: ${result.config.llm?.baseUrl ?? '默认'}`
+      ].join('\n')
+    );
+  } catch (error) {
+    input.append(
+      'agent',
+      error instanceof Error ? error.message : `导入失败：${String(error)}`
+    );
+  }
+}
+
+function isExternalAgentSource(value: string): value is ExternalAgentSource {
+  return value === 'claude' || value === 'codex';
+}
+
+function formatImportPrompt(prompt: ConfigImportPrompt): string {
+  const sources = prompt.candidates.map((candidate) => candidate.displayName);
+  if (prompt.candidates.length === 1) {
+    const candidate = prompt.candidates[0];
+    return [
+      `检测到 ${candidate?.displayName} 配置。`,
+      `输入 /import ${candidate?.source} 一键导入，或输入 /import skip 跳过。`
+    ].join('\n');
+  }
+
+  return [
+    `检测到 ${sources.join(' 和 ')} 配置。`,
+    '请选择一个导入：/import claude 或 /import codex；也可以输入 /import skip 跳过。'
+  ].join('\n');
+}
+
+function formatImportUsage(prompt: ConfigImportPrompt): string {
+  const commands = prompt.candidates
+    .map((candidate) => `/import ${candidate.source}`)
+    .join(' | ');
+  return `用法：${commands} | /import skip`;
+}
+
+function formatContextInspection(snapshot: ContextInspection): string {
+  const sectionLines = Object.entries(snapshot.report.sections)
+    .map(([section, chars]) => `- ${section}: ${chars}`)
+    .join('\n');
+  const contributorLines = snapshot.report.contributors
+    .slice()
+    .sort((left, right) => right.injectedChars - left.injectedChars)
+    .slice(0, 6)
+    .map(
+      (contributor) =>
+        `- ${contributor.title} [${contributor.section}/${contributor.status}]: ${contributor.injectedChars}/${contributor.rawChars}`
+    )
+    .join('\n');
+
+  return [
+    'Context',
+    `mode: ${snapshot.mode}`,
+    `总字符: ${snapshot.estimatedChars}`,
+    `included sources: ${snapshot.includedSources.length}`,
+    `dropped sources: ${snapshot.droppedSources.length}`,
+    'sections:',
+    sectionLines,
+    'contributors:',
+    contributorLines.length > 0 ? contributorLines : '- none'
+  ].join('\n');
 }
 
 class InMemoryTraceStore implements TraceStore {

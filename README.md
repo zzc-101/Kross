@@ -9,6 +9,31 @@
 - 普通模式具备最小运行闭环：解析目标、生成计划、记录 trace、返回报告。
 - 跨仓库模式已经具备入口和确认门：检测到前后端/管理端/跨系统联动后，在执行前暂停等待确认。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
+- Context Manager：把 system prompt、对话历史、工作区/trace/memory 等上下文源、工具清单、技能 metadata、工具结果摘要组装为 LLM messages，并按字符预算裁剪低优先级上下文。
+- Tool Gateway：统一注册工具、暴露工具 metadata、校验工具入参、阻断高风险工具的未授权调用，并把工具调用事件写入 trace。
+- 首次配置导入：首次进入 TUI 时，如果本机检测到 Claude Code 或 Codex 配置，会提示通过 `/import claude`、`/import codex` 或 `/import skip` 导入/跳过；导入后保存到 `~/.kross/config.json`。
+
+## 上下文系统
+
+Kross 的上下文系统目前是本地内存版，目标是先把普通 agent 需要的上下文生命周期抽出来，后续再替换成持久化、检索和跨子代理共享实现。
+
+已实现：
+
+- 会话历史：保留最近多轮 user/assistant 消息，规划阶段自动带入模型请求。
+- 上下文源：支持 workspace、repo、trace、memory、user、skill、tool-result、compaction 等来源类型，并按优先级和字符预算选择进入 prompt。
+- 工具清单：Tool Gateway 注册的工具会以 metadata 形式进入上下文，让模型知道可用能力，但真实调用仍由 gateway 校验和执行。
+- 技能清单：默认只注入技能名称、描述和位置，不把完整 `SKILL.md` 正文塞进 prompt；真正触发技能时再加载正文。
+- 工具结果摘要：保留工具原始输出在 trace 中，prompt 里只放 summary，避免大段命令输出持续污染上下文。
+- 历史压缩：支持把旧对话压成“仅供参考”的摘要，并保留最近 N 条消息，避免旧摘要覆盖最新用户指令。
+- 上下文报告：每次 build 都会产出 section 大小、contributors、included/dropped sources，并写入 `context.built` trace event。
+- `/context` 命令：在 TUI 中查看当前会话上下文状态，包括模式、总字符数、各 section 占用、included/dropped sources 和主要 contributors。
+
+尚未实现：
+
+- 自动触发 compaction 或 clearing。
+- embedding/FTS 语义检索和跨 session memory restore。
+- 子代理之间的共享 context store。
+- 基于真实 token tokenizer 的精确预算，目前仍是字符估算。
 
 ## 运行
 
@@ -18,6 +43,20 @@ npm run dev
 ```
 
 默认不配置模型也能启动 TUI，会使用本地占位 planner。配置模型后，runtime 会在规划阶段调用 LLM，并把调用结果写入 trace。
+
+### 配置优先级
+
+模型配置优先级如下：
+
+1. 环境变量：`AGENT_LLM_PROVIDER` + 对应的 `OPENAI_*` 或 `ANTHROPIC_*`。
+2. Kross 配置：`~/.kross/config.json`，可由首次启动的 `/import` 命令生成。
+3. 未配置：TUI 仍可启动，但普通 agent 回复会提示缺少模型配置。
+
+导入规则：
+
+- Codex：读取 `~/.codex/config.toml`、`~/.codex/auth.json` 和 `OPENAI_*` 环境变量，保存 OpenAI-compatible 的 `baseUrl`、默认模型和 API key。
+- Claude Code：读取 `~/.claude/settings.json`、`~/.claude.json` 和 `ANTHROPIC_*` 环境变量，保存 Anthropic-compatible 的 `baseUrl`、默认模型和 API key。
+- 如果两者都可导入，TUI 会要求二选一。
 
 ### OpenAI-compatible 协议
 
@@ -59,10 +98,12 @@ npm run typecheck
 
 ```text
 packages/core
+  context          对话历史、上下文源、工具清单和 LLM messages 组装
   domain           共享协议和 zod schema
   llm              OpenAI-compatible / Anthropic-compatible 模型协议适配
   modes            normal / cross-repo 模式检测
   runtime          agent run 生命周期和事件流
+  tools            Tool Gateway、工具注册、权限和入参校验
   trace            JSONL trace 存储
 
 packages/tui

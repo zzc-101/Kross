@@ -1,3 +1,5 @@
+export * from './context/contextManager';
+export * from './config/configImport';
 export * from './domain';
 export * from './llm/anthropicProtocolClient';
 export * from './llm/createLlmClient';
@@ -5,4 +7,5 @@ export * from './llm/openAiProtocolClient';
 export * from './llm/types';
 export * from './modes/modeDetector';
 export * from './runtime/agentRuntime';
+export * from './tools/toolGateway';
 export * from './trace/traceStore';

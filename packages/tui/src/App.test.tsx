@@ -1,10 +1,14 @@
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { render } from 'ink-testing-library';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { App } from './App';
 import {
   AgentRuntime,
+  createConfigImportController,
   type LlmClient,
   type LlmRequest,
   type LlmResponse,
@@ -118,6 +122,121 @@ describe('App', () => {
     expect(lastFrame()).toContain('cross-repo');
     expect(lastFrame()).toContain('等待确认');
   });
+
+  it('shows current context status with /context', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('第一轮回复')
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('第一轮');
+    await waitUntil(() => lastFrame()?.includes('第一轮回复') === true);
+    await submit?.('/context');
+
+    expect(lastFrame()).toContain('Context');
+    expect(lastFrame()).toContain('总字符');
+    expect(lastFrame()).toContain('history');
+    expect(lastFrame()).toContain('contributors');
+  });
+
+  it('prompts to import Claude Code or Codex config on first launch and saves the chosen config', async () => {
+    const homeDir = createTempHome();
+    try {
+      mkdirSync(join(homeDir, '.codex'), { recursive: true });
+      mkdirSync(join(homeDir, '.claude'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.codex/config.toml'),
+        [
+          'model = "gpt-5-codex"',
+          '',
+          '[model_providers.openai]',
+          'base_url = "https://codex.example/v1"'
+        ].join('\n')
+      );
+      writeFileSync(
+        join(homeDir, '.claude/settings.json'),
+        JSON.stringify({ model: 'claude-sonnet-4-5' })
+      );
+      let submit: ((value: string) => Promise<void>) | undefined;
+      const { lastFrame } = render(
+        <App
+          configImportController={createConfigImportController({
+            homeDir,
+            env: {
+              OPENAI_API_KEY: 'codex-key',
+              ANTHROPIC_API_KEY: 'claude-key'
+            },
+            pathEnv: ''
+          })}
+          onReady={(api) => (submit = api.submit)}
+        />
+      );
+
+      await waitUntil(() => submit !== undefined);
+      expect(lastFrame()).toContain('检测到 Claude Code 和 Codex 配置');
+      expect(lastFrame()).toContain('/import claude');
+      expect(lastFrame()).toContain('/import codex');
+
+      await submit?.('/import codex');
+
+      expect(lastFrame()).toContain('已导入 Codex 配置');
+      expect(
+        JSON.parse(readFileSync(join(homeDir, '.kross/config.json'), 'utf8'))
+      ).toMatchObject({
+        llm: {
+          provider: 'openai',
+          apiKey: 'codex-key',
+          model: 'gpt-5-codex',
+          baseUrl: 'https://codex.example/v1'
+        },
+        setup: {
+          importedFrom: 'codex'
+        }
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('can skip the first-launch config import prompt', async () => {
+    const homeDir = createTempHome();
+    try {
+      mkdirSync(join(homeDir, '.codex'), { recursive: true });
+      writeFileSync(join(homeDir, '.codex/config.toml'), 'model = "gpt-5-codex"\n');
+      let submit: ((value: string) => Promise<void>) | undefined;
+      const { lastFrame } = render(
+        <App
+          configImportController={createConfigImportController({
+            homeDir,
+            env: { OPENAI_API_KEY: 'codex-key' },
+            pathEnv: ''
+          })}
+          onReady={(api) => (submit = api.submit)}
+        />
+      );
+
+      await waitUntil(() => submit !== undefined);
+      expect(lastFrame()).toContain('/import codex');
+
+      await submit?.('/import skip');
+
+      expect(lastFrame()).toContain('已跳过配置导入');
+      expect(
+        JSON.parse(readFileSync(join(homeDir, '.kross/config.json'), 'utf8'))
+      ).toMatchObject({
+        setup: {
+          importPromptDismissedAt: expect.any(String)
+        }
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
 });
 
 class InMemoryTraceStore implements TraceStore {
@@ -185,4 +304,8 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+}
+
+function createTempHome(): string {
+  return mkdtempSync(join(tmpdir(), 'kross-tui-home-'));
 }
