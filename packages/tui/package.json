@@ -1,0 +1,12 @@
+{
+  "name": "@kross/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agent": "./src/main.tsx"
+  },
+  "dependencies": {
+    "@kross/core": "file:../core"
+  }
+}

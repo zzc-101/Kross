@@ -1,0 +1,188 @@
+import React from 'react';
+import { describe, expect, it } from 'vitest';
+import { render } from 'ink-testing-library';
+
+import { App } from './App';
+import {
+  AgentRuntime,
+  type LlmClient,
+  type LlmRequest,
+  type LlmResponse,
+  type LlmStreamChunk,
+  type TraceEvent,
+  type TraceStore
+} from '@kross/core';
+
+describe('App', () => {
+  it('renders a Claude Code style full-width chat shell', () => {
+    const { lastFrame } = render(<App />);
+
+    expect(lastFrame()).toContain('Kross');
+    expect(lastFrame()).toContain('Welcome');
+    expect(lastFrame()).toContain('mode: auto');
+    expect(lastFrame()).toContain('/help');
+    expect(lastFrame()).toContain('>');
+    expect(lastFrame()).not.toContain('Task Tree');
+    expect(lastFrame()).not.toContain('Conversation');
+  });
+
+  it('shows a submitted message in conversation history', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('给巡检任务增加任务来源字段');
+    await waitUntil(() => lastFrame()?.includes('> 给巡检任务增加任务来源字段') === true);
+
+    expect(lastFrame()).toContain('> 给巡检任务增加任务来源字段');
+  });
+
+  it('responds with LLM text and returns to waiting input', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('你好，我在。')
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('nihao');
+    await waitUntil(() => lastFrame()?.includes('你好，我在。') === true);
+
+    expect(lastFrame()).toContain('status: ready');
+    expect(lastFrame()).toContain('Agent');
+    expect(lastFrame()).toContain('你好，我在。');
+  });
+
+  it('shows model configuration guidance instead of fake completion text', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('nihao');
+    await waitUntil(() => lastFrame()?.includes('未配置模型') === true);
+
+    expect(lastFrame()).toContain('未配置模型');
+    expect(lastFrame()).not.toContain('最小规划闭环');
+  });
+
+  it('shows usage for incomplete slash commands', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('/mode');
+
+    expect(lastFrame()).toContain('用法：/mode auto|normal|cross-repo');
+    expect(lastFrame()).not.toContain('最小规划闭环');
+  });
+
+  it('queues messages submitted while a response is running', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const llmClient = new DelayedLlmClient();
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    const first = submit?.('first');
+    await waitUntil(() => llmClient.requests.length === 1);
+    await submit?.('second');
+
+    expect(lastFrame()).toContain('队列：1');
+
+    llmClient.resolveNext('first done');
+    await waitUntil(() => llmClient.requests.length === 2);
+    llmClient.resolveNext('second done');
+    await first;
+    await waitUntil(() => lastFrame()?.includes('second done') === true);
+
+    expect(lastFrame()).toContain('first done');
+    expect(lastFrame()).toContain('second done');
+  });
+
+  it('shows cross-repo approval status for linkage requests', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('给巡检任务增加任务来源字段，前后端联动');
+    await waitUntil(() => lastFrame()?.includes('等待确认') === true);
+
+    expect(lastFrame()).toContain('cross-repo');
+    expect(lastFrame()).toContain('等待确认');
+  });
+});
+
+class InMemoryTraceStore implements TraceStore {
+  readonly events: TraceEvent[] = [];
+
+  async append(event: TraceEvent): Promise<void> {
+    this.events.push(event);
+  }
+
+  async readRun(runId: string): Promise<TraceEvent[]> {
+    return this.events.filter((event) => event.runId === runId);
+  }
+}
+
+class FakeLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+
+  constructor(private readonly text: string) {}
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    return {
+      provider: this.provider,
+      model: request.model ?? 'fake-model',
+      text: this.text,
+      raw: {}
+    };
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'done' };
+  }
+}
+
+class DelayedLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly requests: LlmRequest[] = [];
+  private readonly resolvers: Array<(value: LlmResponse) => void> = [];
+
+  complete(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request);
+    return new Promise((resolve) => {
+      this.resolvers.push(resolve);
+    });
+  }
+
+  resolveNext(text: string): void {
+    const resolve = this.resolvers.shift();
+    resolve?.({
+      provider: this.provider,
+      model: 'fake-model',
+      text,
+      raw: {}
+    });
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'done' };
+  }
+}
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
