@@ -159,6 +159,254 @@ describe('AgentRuntime', () => {
     expect(llmClient.requests[0]?.messages[0]?.content).toContain('读取文件内容');
   });
 
+  it('only exposes tools enabled for the detected mode', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new FakeLlmClient('ok');
+    const toolGateway = new ToolGateway();
+    toolGateway.register({
+      name: 'cross.repo.scan',
+      description: '扫描多仓库影响面',
+      risk: 'read',
+      inputSchema: z.object({}),
+      enabled: ({ mode }) => mode === 'cross-repo',
+      execute: async () => ({ content: 'ok' })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      contextManager: new InMemoryContextManager(),
+      toolGateway
+    });
+
+    await runtime.run({
+      input: '解释一下 README',
+      requestedMode: 'auto'
+    });
+    await runtime.run({
+      input: '给字段做前后端联动',
+      requestedMode: 'auto'
+    });
+
+    expect(llmClient.requests[0]?.messages[0]?.content).not.toContain(
+      'cross.repo.scan'
+    );
+    expect(llmClient.requests[1]?.messages[0]?.content).toContain(
+      'cross.repo.scan'
+    );
+  });
+
+  it('executes model tool calls and asks the LLM for a final answer with tool output', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new ToolCallingLlmClient();
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'math.add',
+      description: '加法',
+      risk: 'read',
+      parameters: {
+        type: 'object',
+        properties: {
+          a: { type: 'number' },
+          b: { type: 'number' }
+        },
+        required: ['a', 'b']
+      },
+      inputSchema: z.object({ a: z.number(), b: z.number() }),
+      execute: async ({ input }) => ({
+        content: String(input.a + input.b),
+        summary: `${input.a} + ${input.b} = ${input.a + input.b}`
+      })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      contextManager: new InMemoryContextManager(),
+      toolGateway
+    });
+
+    const result = await runtime.run({
+      input: '计算 1 + 2',
+      requestedMode: 'auto'
+    });
+
+    expect(result.summary).toBe('结果是 3');
+    expect(llmClient.requests[0]?.tools).toEqual([
+      expect.objectContaining({
+        name: 'math.add',
+        parameters: expect.objectContaining({ type: 'object' })
+      })
+    ]);
+    expect(llmClient.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'tool',
+          toolCallId: 'call-1',
+          name: 'math.add',
+          content: '3'
+        })
+      ])
+    );
+    expect(traceStore.events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'llm.tool_calls.received',
+        'tool_call.started',
+        'tool_call.completed',
+        'llm.tool_followup.completed'
+      ])
+    );
+  });
+
+  it('continues tool-call iterations until the model returns a final text answer', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new MultiStepToolCallingLlmClient();
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'math.add',
+      description: '加法',
+      risk: 'read',
+      parameters: { type: 'object', properties: {} },
+      inputSchema: z.object({ a: z.number(), b: z.number() }),
+      execute: async ({ input }) => ({ content: String(input.a + input.b) })
+    });
+    toolGateway.register({
+      name: 'math.double',
+      description: '翻倍',
+      risk: 'read',
+      parameters: { type: 'object', properties: {} },
+      inputSchema: z.object({ value: z.number() }),
+      execute: async ({ input }) => ({ content: String(input.value * 2) })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      contextManager: new InMemoryContextManager(),
+      toolGateway
+    });
+
+    const result = await runtime.run({
+      input: '先算 1+2 再翻倍',
+      requestedMode: 'auto'
+    });
+
+    expect(result.summary).toBe('最终结果是 6');
+    expect(llmClient.requests).toHaveLength(3);
+    expect(llmClient.requests[2]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'tool',
+          toolCallId: 'call-2',
+          name: 'math.double',
+          content: '6'
+        })
+      ])
+    );
+  });
+
+  it('pauses for approval on risky tool calls and resumes when approved', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new WriteToolCallingLlmClient();
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.write',
+      description: '写文件',
+      risk: 'write',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          content: { type: 'string' }
+        },
+        required: ['path', 'content']
+      },
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async ({ input }) => ({
+        content: `wrote ${input.path}`,
+        summary: `wrote ${input.path}`
+      })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      contextManager: new InMemoryContextManager(),
+      toolGateway
+    });
+
+    const pending = await runtime.run({
+      input: '写 README',
+      requestedMode: 'auto'
+    });
+
+    expect(pending.status).toBe('approval-required');
+    expect(pending.pendingApproval).toMatchObject({
+      runId: pending.runId,
+      toolCallId: 'write-1',
+      toolName: 'fs.write',
+      risk: 'write'
+    });
+    expect(llmClient.requests).toHaveLength(1);
+
+    const resumed = await runtime.resolveToolApproval({
+      runId: pending.runId,
+      approved: true
+    });
+
+    expect(resumed.status).toBe('completed');
+    expect(resumed.summary).toBe('写入完成');
+    expect(llmClient.requests).toHaveLength(2);
+    expect(traceStore.events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'tool_call.approval_required',
+        'tool_call.started',
+        'tool_call.completed',
+        'llm.tool_followup.completed'
+      ])
+    );
+  });
+
+  it('resumes with a rejected observation when risky tool approval is denied', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new WriteToolCallingLlmClient('已取消写入');
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.write',
+      description: '写文件',
+      risk: 'write',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async () => ({ content: 'should not run' })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      contextManager: new InMemoryContextManager(),
+      toolGateway
+    });
+
+    const pending = await runtime.run({
+      input: '写 README',
+      requestedMode: 'auto'
+    });
+    const resumed = await runtime.resolveToolApproval({
+      runId: pending.runId,
+      approved: false
+    });
+
+    expect(resumed.status).toBe('completed');
+    expect(resumed.summary).toBe('已取消写入');
+    expect(llmClient.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'tool',
+          toolCallId: 'write-1',
+          name: 'fs.write',
+          content: expect.stringContaining('rejected by user')
+        })
+      ])
+    );
+    expect(traceStore.events.map((event) => event.type)).toContain(
+      'tool_call.rejected'
+    );
+  });
+
   it('records a context report before planner LLM calls', async () => {
     const traceStore = new InMemoryTraceStore();
     const llmClient = new FakeLlmClient('ok');
@@ -262,6 +510,116 @@ class FakeLlmClient implements LlmClient {
       text: this.text,
       raw: { ok: true },
       usage: { inputTokens: 10, outputTokens: 8, totalTokens: 18 }
+    };
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'done' };
+  }
+}
+
+class ToolCallingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly requests: LlmRequest[] = [];
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request);
+    if (this.requests.length === 1) {
+      return {
+        provider: this.provider,
+        model: 'fake-model',
+        text: '',
+        raw: {},
+        toolCalls: [
+          {
+            id: 'call-1',
+            name: 'math.add',
+            input: { a: 1, b: 2 }
+          }
+        ]
+      };
+    }
+
+    return {
+      provider: this.provider,
+      model: 'fake-model',
+      text: '结果是 3',
+      raw: {}
+    };
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'done' };
+  }
+}
+
+class MultiStepToolCallingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly requests: LlmRequest[] = [];
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request);
+    if (this.requests.length === 1) {
+      return {
+        provider: this.provider,
+        model: 'fake-model',
+        text: '',
+        raw: {},
+        toolCalls: [{ id: 'call-1', name: 'math.add', input: { a: 1, b: 2 } }]
+      };
+    }
+    if (this.requests.length === 2) {
+      return {
+        provider: this.provider,
+        model: 'fake-model',
+        text: '',
+        raw: {},
+        toolCalls: [{ id: 'call-2', name: 'math.double', input: { value: 3 } }]
+      };
+    }
+
+    return {
+      provider: this.provider,
+      model: 'fake-model',
+      text: '最终结果是 6',
+      raw: {}
+    };
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'done' };
+  }
+}
+
+class WriteToolCallingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly requests: LlmRequest[] = [];
+
+  constructor(private readonly finalText = '写入完成') {}
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request);
+    if (this.requests.length === 1) {
+      return {
+        provider: this.provider,
+        model: 'fake-model',
+        text: '',
+        raw: {},
+        toolCalls: [
+          {
+            id: 'write-1',
+            name: 'fs.write',
+            input: { path: 'README.md', content: 'hello' }
+          }
+        ]
+      };
+    }
+
+    return {
+      provider: this.provider,
+      model: 'fake-model',
+      text: this.finalText,
+      raw: {}
     };
   }
 

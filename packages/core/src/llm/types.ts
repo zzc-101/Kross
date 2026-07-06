@@ -3,16 +3,41 @@ import { z } from 'zod';
 export const llmProviderSchema = z.enum(['openai', 'anthropic']);
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
 
-export const llmRoleSchema = z.enum(['system', 'user', 'assistant']);
+export const llmRoleSchema = z.enum(['system', 'user', 'assistant', 'tool']);
 export type LlmRole = z.infer<typeof llmRoleSchema>;
 
-export interface LlmMessage {
-  role: LlmRole;
+export type LlmMessage =
+  | LlmChatMessage
+  | LlmToolMessage;
+
+export interface LlmChatMessage {
+  role: Exclude<LlmRole, 'tool'>;
   content: string;
+  toolCalls?: LlmToolCall[];
+}
+
+export interface LlmToolMessage {
+  role: 'tool';
+  toolCallId: string;
+  name: string;
+  content: string;
+}
+
+export interface LlmToolDefinition {
+  name: string;
+  description: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface LlmToolCall {
+  id: string;
+  name: string;
+  input: unknown;
 }
 
 export interface LlmRequest {
   messages: LlmMessage[];
+  tools?: LlmToolDefinition[];
   model?: string;
   maxTokens?: number;
   temperature?: number;
@@ -31,6 +56,7 @@ export interface LlmResponse {
   model: string;
   text: string;
   raw: unknown;
+  toolCalls?: LlmToolCall[];
   usage?: LlmUsage;
 }
 

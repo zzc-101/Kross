@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 
 import {
@@ -9,6 +9,7 @@ import {
   type ConfigImportPrompt,
   type ContextInspection,
   type ExternalAgentSource,
+  type PendingToolApproval,
   type TraceEvent,
   type TraceStore
 } from '@kross/core';
@@ -30,6 +31,7 @@ export interface AppProps {
 
 export interface AppTestApi {
   submit: (value: string) => Promise<void>;
+  chooseToolApproval: (approved: boolean) => Promise<void>;
 }
 
 export function App({
@@ -56,6 +58,8 @@ export function App({
   const [input, setInput] = useState('');
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);
+  const [pendingToolApproval, setPendingToolApproval] = useState<PendingToolApproval | undefined>();
+  const [approvalSelection, setApprovalSelection] = useState<'approve' | 'reject'>('approve');
   const [messages, setMessages] = useState<Message[]>(() => [
     {
       id: 1,
@@ -100,9 +104,55 @@ export function App({
       return;
     }
 
+    if (result.status === 'approval-required' && result.pendingApproval) {
+      setStatus('approval-required');
+      setPendingToolApproval(result.pendingApproval);
+      setApprovalSelection('approve');
+      append('agent', result.summary);
+      return;
+    }
+
     append('agent', result.summary);
     setStatus('ready');
   }, [agentRuntime, append, mode]);
+
+  const chooseToolApproval = useCallback(async (approved: boolean) => {
+    if (!pendingToolApproval) {
+      return;
+    }
+
+    setStatus('responding');
+    const result = await agentRuntime.resolveToolApproval({
+      runId: pendingToolApproval.runId,
+      approved
+    });
+    setPendingToolApproval(undefined);
+    append('agent', approved ? '已批准工具调用，继续执行。' : '已拒绝工具调用，继续让模型调整方案。');
+    append('agent', result.summary);
+    setStatus('ready');
+  }, [agentRuntime, append, pendingToolApproval]);
+
+  useInput((inputKey, key) => {
+    if (!pendingToolApproval) {
+      return;
+    }
+
+    if (key.leftArrow || key.rightArrow || inputKey.toLowerCase() === 'tab') {
+      setApprovalSelection((current) => (current === 'approve' ? 'reject' : 'approve'));
+      return;
+    }
+    if (inputKey.toLowerCase() === 'a') {
+      void chooseToolApproval(true);
+      return;
+    }
+    if (inputKey.toLowerCase() === 'r') {
+      void chooseToolApproval(false);
+      return;
+    }
+    if (key.return) {
+      void chooseToolApproval(approvalSelection === 'approve');
+    }
+  });
 
   const submit = useCallback(async (value: string) => {
     const trimmed = value.trim();
@@ -158,8 +208,8 @@ export function App({
   ]);
 
   useEffect(() => {
-    onReady?.({ submit });
-  }, [onReady, submit]);
+    onReady?.({ submit, chooseToolApproval });
+  }, [chooseToolApproval, onReady, submit]);
 
   return (
     <Box flexDirection="column">
@@ -181,16 +231,52 @@ export function App({
         {messages.map((message) => (
           <MessageLine key={message.id} message={message} />
         ))}
+        {pendingToolApproval ? (
+          <ApprovalPanel
+            approval={pendingToolApproval}
+            selection={approvalSelection}
+          />
+        ) : null}
       </Box>
 
       <Box marginTop={1}>
         <Text dimColor>/help  /context  /mode auto|normal|cross-repo  /trace  /diff</Text>
       </Box>
 
-      <Box>
-        <Text>{'> '}</Text>
-        <TextInput value={input} onChange={setInput} onSubmit={submit} />
+      {pendingToolApproval ? null : (
+        <Box>
+          <Text>{'> '}</Text>
+          <TextInput value={input} onChange={setInput} onSubmit={submit} />
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function ApprovalPanel({
+  approval,
+  selection
+}: {
+  approval: PendingToolApproval;
+  selection: 'approve' | 'reject';
+}) {
+  return (
+    <Box borderStyle="round" flexDirection="column" paddingX={1} marginTop={1}>
+      <Text color="yellow" bold>需要确认工具调用</Text>
+      <Text>tool: {approval.toolName}</Text>
+      <Text>risk: {approval.risk}</Text>
+      <Text>input: {approval.inputPreview}</Text>
+      {approval.reason ? <Text>reason: {approval.reason}</Text> : null}
+      <Box marginTop={1}>
+        <Text color={selection === 'approve' ? 'green' : undefined}>
+          {selection === 'approve' ? '❯ ' : '  '}Approve
+        </Text>
+        <Text>  </Text>
+        <Text color={selection === 'reject' ? 'red' : undefined}>
+          {selection === 'reject' ? '❯ ' : '  '}Reject
+        </Text>
       </Box>
+      <Text dimColor>←/→ 切换，Enter 确认；也可按 a/r。</Text>
     </Box>
   );
 }

@@ -14,8 +14,10 @@ import {
   type LlmResponse,
   type LlmStreamChunk,
   type TraceEvent,
-  type TraceStore
+  type TraceStore,
+  ToolGateway
 } from '@kross/core';
+import { z } from 'zod';
 
 describe('App', () => {
   it('renders a Claude Code style full-width chat shell', () => {
@@ -237,6 +239,49 @@ describe('App', () => {
       rmSync(homeDir, { recursive: true, force: true });
     }
   });
+
+  it('shows selectable approval options for risky tool calls and resumes after approval', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    let chooseToolApproval: ((approved: boolean) => Promise<void>) | undefined;
+    const llmClient = new WriteToolCallingLlmClient();
+    const toolGateway = new ToolGateway({ traceStore: new InMemoryTraceStore() });
+    toolGateway.register({
+      name: 'fs.write',
+      description: '写文件',
+      risk: 'write',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async ({ input }) => ({ content: `wrote ${input.path}` })
+    });
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient,
+      toolGateway
+    });
+    const { lastFrame } = render(
+      <App
+        runtime={runtime}
+        onReady={(api) => {
+          submit = api.submit;
+          chooseToolApproval = api.chooseToolApproval;
+        }}
+      />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('写 README');
+    await waitUntil(() => lastFrame()?.includes('需要确认工具调用') === true);
+
+    expect(lastFrame()).toContain('fs.write');
+    expect(lastFrame()).toContain('Approve');
+    expect(lastFrame()).toContain('Reject');
+    expect(lastFrame()).not.toContain('/approve');
+
+    await chooseToolApproval?.(true);
+    await waitUntil(() => lastFrame()?.includes('写入完成') === true);
+
+    expect(lastFrame()).toContain('status: ready');
+    expect(lastFrame()).toContain('写入完成');
+  });
 });
 
 class InMemoryTraceStore implements TraceStore {
@@ -290,6 +335,41 @@ class DelayedLlmClient implements LlmClient {
       text,
       raw: {}
     });
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'done' };
+  }
+}
+
+class WriteToolCallingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly requests: LlmRequest[] = [];
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request);
+    if (this.requests.length === 1) {
+      return {
+        provider: this.provider,
+        model: 'fake-model',
+        text: '',
+        raw: {},
+        toolCalls: [
+          {
+            id: 'write-1',
+            name: 'fs.write',
+            input: { path: 'README.md', content: 'hello' }
+          }
+        ]
+      };
+    }
+
+    return {
+      provider: this.provider,
+      model: 'fake-model',
+      text: '写入完成',
+      raw: {}
+    };
   }
 
   async *stream(): AsyncIterable<LlmStreamChunk> {

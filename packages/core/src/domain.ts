@@ -73,12 +73,23 @@ export const agentReportSchema = z.object({
 });
 export type AgentReport = z.infer<typeof agentReportSchema>;
 
+export const pendingToolApprovalSchema = z.object({
+  runId: z.string().min(1),
+  toolCallId: z.string().min(1),
+  toolName: z.string().min(1),
+  risk: z.string().min(1),
+  reason: z.string().optional(),
+  inputPreview: z.string()
+});
+export type PendingToolApproval = z.infer<typeof pendingToolApprovalSchema>;
+
 export const agentResultSchema = z.object({
   runId: z.string().min(1),
   mode: agentModeSchema.exclude(['auto']),
-  status: z.enum(['completed', 'failed', 'cancelled']),
+  status: z.enum(['completed', 'failed', 'cancelled', 'approval-required']),
   summary: z.string(),
-  report: agentReportSchema
+  report: agentReportSchema,
+  pendingApproval: pendingToolApprovalSchema.optional()
 });
 export type AgentResult = z.infer<typeof agentResultSchema>;
 

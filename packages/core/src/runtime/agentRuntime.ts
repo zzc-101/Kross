@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import {
   type AgentMode,
   type AgentResult,
+  type PendingToolApproval,
   type TraceEvent,
   agentResultSchema
 } from '../domain';
@@ -11,9 +12,19 @@ import {
   type ContextManager,
   type ContextSnapshot
 } from '../context/contextManager';
-import type { LlmClient, LlmResponse } from '../llm/types';
+import type {
+  LlmClient,
+  LlmMessage,
+  LlmResponse,
+  LlmToolDefinition
+} from '../llm/types';
 import { detectMode } from '../modes/modeDetector';
-import { ToolGateway } from '../tools/toolGateway';
+import {
+  ToolGateway,
+  ToolPermissionError,
+  type ToolMetadata,
+  type ToolResult
+} from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 
 export interface AgentRuntimeOptions {
@@ -21,6 +32,7 @@ export interface AgentRuntimeOptions {
   llmClient?: LlmClient;
   contextManager?: ContextManager;
   toolGateway?: ToolGateway;
+  maxToolIterations?: number;
   createRunId?: () => string;
   now?: () => Date;
 }
@@ -31,6 +43,11 @@ export interface AgentRunInput {
   approvals?: {
     plan?: boolean;
   };
+}
+
+export interface ResolveToolApprovalInput {
+  runId: string;
+  approved: boolean;
 }
 
 export interface ContextInspectionInput {
@@ -44,6 +61,24 @@ export interface ContextInspection extends ContextSnapshot {
 
 export type AgentRuntimeEvent = TraceEvent;
 
+type PlannerOutcome =
+  | { kind: 'response'; response: LlmResponse }
+  | { kind: 'approval'; result: AgentResult }
+  | undefined;
+
+interface PendingToolSession {
+  runId: string;
+  mode: Exclude<AgentMode, 'auto'>;
+  call: NonNullable<LlmResponse['toolCalls']>[number];
+  messages: LlmMessage[];
+  tools: ToolMetadata[];
+  iteration: number;
+}
+
+type ToolCallExecutionOutcome =
+  | { kind: 'result'; result: ToolResult }
+  | { kind: 'approval'; result: AgentResult };
+
 const PLANNER_SYSTEM_PROMPT =
   '你是本地 agent 的规划器。请基于模式和用户目标给出简短、可执行的计划。需要工具时，只能基于可用工具清单提出调用意图，不要编造工具。';
 
@@ -52,6 +87,7 @@ export class AgentRuntime extends EventEmitter {
   private readonly now: () => Date;
   private readonly contextManager: ContextManager;
   private readonly toolGateway: ToolGateway | undefined;
+  private readonly pendingToolSessions = new Map<string, PendingToolSession>();
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
@@ -77,11 +113,19 @@ export class AgentRuntime extends EventEmitter {
 
     await this.record(runId, 'mode.detected', { ...detection });
 
-    const plannerSuggestion = await this.createPlannerSuggestion(
+    const plannerOutcome = await this.createPlannerSuggestion(
       runId,
       input.input,
       detection.mode
     );
+    if (plannerOutcome?.kind === 'approval') {
+      await this.record(runId, 'run.awaiting_approval', {
+        pendingApproval: plannerOutcome.result.pendingApproval
+      });
+      return plannerOutcome.result;
+    }
+    const plannerSuggestion =
+      plannerOutcome?.kind === 'response' ? plannerOutcome.response : undefined;
 
     const plan = createPlan(input.input, detection.mode, plannerSuggestion?.text);
     await this.record(runId, 'plan.created', plan);
@@ -193,7 +237,7 @@ export class AgentRuntime extends EventEmitter {
       systemPrompt: PLANNER_SYSTEM_PROMPT,
       currentUserInput,
       mode,
-      tools: this.toolGateway?.listTools() ?? []
+      tools: this.toolGateway?.listTools({ mode }) ?? []
     });
 
     return {
@@ -202,21 +246,71 @@ export class AgentRuntime extends EventEmitter {
     };
   }
 
+  async resolveToolApproval(input: ResolveToolApprovalInput): Promise<AgentResult> {
+    const session = this.pendingToolSessions.get(input.runId);
+    if (!session) {
+      throw new Error(`No pending tool approval for run: ${input.runId}`);
+    }
+    this.pendingToolSessions.delete(input.runId);
+
+    const toolMessage = input.approved
+      ? await this.executeApprovedToolCall(session)
+      : await this.createRejectedToolMessage(session);
+    const messages: LlmMessage[] = [
+      ...session.messages,
+      toolMessage
+    ];
+    const response = await this.options.llmClient!.complete({
+      messages,
+      tools: toLlmTools(session.tools),
+      maxTokens: 800,
+      temperature: 0.2,
+      metadata: {
+        purpose: 'planner-tool-followup',
+        approvalResolved: input.approved,
+        iteration: session.iteration
+      }
+    });
+    const finalResponse = await this.continueToolLoop({
+      runId: session.runId,
+      response,
+      messages,
+      tools: session.tools,
+      iteration: session.iteration
+    });
+    const result = agentResultSchema.parse({
+      runId: session.runId,
+      mode: session.mode,
+      status: 'completed',
+      summary: finalResponse.text,
+      report: {
+        changedFiles: [],
+        evidence: ['工具审批已处理，planner LLM 已返回最终回复'],
+        risks: []
+      }
+    });
+
+    await this.record(session.runId, 'run.completed', { ...result });
+    this.appendConversation('[tool approval]', result.summary);
+    return result;
+  }
+
   private async createPlannerSuggestion(
     runId: string,
     goal: string,
     mode: Exclude<AgentMode, 'auto'>
-  ): Promise<LlmResponse | undefined> {
+  ): Promise<PlannerOutcome> {
     if (!this.options.llmClient) {
       return undefined;
     }
 
     try {
+      const availableTools = this.toolGateway?.listTools({ mode }) ?? [];
       const context = this.contextManager.build({
         systemPrompt: PLANNER_SYSTEM_PROMPT,
         currentUserInput: goal,
         mode,
-        tools: this.toolGateway?.listTools() ?? []
+        tools: availableTools
       });
 
       await this.record(runId, 'context.built', {
@@ -228,6 +322,7 @@ export class AgentRuntime extends EventEmitter {
 
       const response = await this.options.llmClient.complete({
         messages: context.messages,
+        tools: toLlmTools(availableTools),
         maxTokens: 800,
         temperature: 0.2,
         metadata: {
@@ -242,16 +337,282 @@ export class AgentRuntime extends EventEmitter {
         provider: response.provider,
         model: response.model,
         textPreview: response.text.slice(0, 240),
-        usage: response.usage
+        usage: response.usage,
+        toolCallCount: response.toolCalls?.length ?? 0
       });
 
-      return response;
+      if (response.toolCalls?.length && this.toolGateway) {
+        return this.runToolFollowup({
+          runId,
+          mode,
+          initialResponse: response,
+          messages: context.messages,
+          tools: availableTools
+        });
+      }
+
+      return { kind: 'response', response };
     } catch (error) {
       await this.record(runId, 'llm.planner.failed', {
         message: error instanceof Error ? error.message : String(error)
       });
       return undefined;
     }
+  }
+
+  private async runToolFollowup(input: {
+    runId: string;
+    mode: Exclude<AgentMode, 'auto'>;
+    initialResponse: LlmResponse;
+    messages: LlmMessage[];
+    tools: ToolMetadata[];
+  }): Promise<PlannerOutcome> {
+    await this.record(input.runId, 'llm.tool_calls.received', {
+      count: input.initialResponse.toolCalls?.length ?? 0,
+      calls: input.initialResponse.toolCalls?.map((call) => ({
+        id: call.id,
+        name: call.name
+      }))
+    });
+
+    const toolMessages: LlmMessage[] = [];
+    for (const call of input.initialResponse.toolCalls ?? []) {
+      const result = await this.callToolOrPause({
+        runId: input.runId,
+        mode: input.mode,
+        call,
+        messages: [
+          ...input.messages,
+          {
+            role: 'assistant',
+            content: input.initialResponse.text,
+            toolCalls: input.initialResponse.toolCalls
+          }
+        ],
+        tools: input.tools,
+        iteration: 1
+      });
+      if (result.kind === 'approval') {
+        return result;
+      }
+      this.contextManager.recordToolResult({
+        id: call.id,
+        toolName: call.name,
+        inputPreview: JSON.stringify(call.input).slice(0, 200),
+        output: result.result.content,
+        summary: result.result.summary
+      });
+      toolMessages.push({
+        role: 'tool',
+        toolCallId: call.id,
+        name: call.name,
+        content: result.result.content
+      });
+    }
+
+    const response = await this.options.llmClient!.complete({
+      messages: [
+        ...input.messages,
+        {
+          role: 'assistant',
+          content: input.initialResponse.text,
+          toolCalls: input.initialResponse.toolCalls
+        },
+        ...toolMessages
+      ],
+      tools: toLlmTools(input.tools),
+      maxTokens: 800,
+      temperature: 0.2,
+      metadata: {
+        purpose: 'planner-tool-followup',
+        toolCallCount: toolMessages.length
+      }
+    });
+
+    const finalResponse = await this.continueToolLoop({
+      ...input,
+      messages: [
+        ...input.messages,
+        {
+          role: 'assistant',
+          content: input.initialResponse.text,
+          toolCalls: input.initialResponse.toolCalls
+        },
+        ...toolMessages
+      ],
+      response,
+      iteration: 1
+    });
+    return { kind: 'response', response: finalResponse };
+  }
+
+  private async continueToolLoop(input: {
+    runId: string;
+    response: LlmResponse;
+    messages: LlmMessage[];
+    tools: ToolMetadata[];
+    iteration: number;
+  }): Promise<LlmResponse> {
+    await this.record(input.runId, 'llm.tool_followup.completed', {
+      provider: input.response.provider,
+      model: input.response.model,
+      textPreview: input.response.text.slice(0, 240),
+      usage: input.response.usage,
+      toolCallCount: input.response.toolCalls?.length ?? 0,
+      iteration: input.iteration
+    });
+
+    const maxIterations = this.options.maxToolIterations ?? 4;
+    if (!input.response.toolCalls?.length || input.iteration >= maxIterations) {
+      return input.response;
+    }
+
+    const toolMessages: LlmMessage[] = [];
+    for (const call of input.response.toolCalls) {
+      const result = await this.toolGateway!.call({
+        runId: input.runId,
+        name: call.name,
+        input: call.input,
+        returnErrors: true
+      });
+      this.contextManager.recordToolResult({
+        id: call.id,
+        toolName: call.name,
+        inputPreview: JSON.stringify(call.input).slice(0, 200),
+        output: result.content,
+        summary: result.summary
+      });
+      toolMessages.push({
+        role: 'tool',
+        toolCallId: call.id,
+        name: call.name,
+        content: result.content
+      });
+    }
+
+    const nextMessages: LlmMessage[] = [
+      ...input.messages,
+      {
+        role: 'assistant',
+        content: input.response.text,
+        toolCalls: input.response.toolCalls
+      },
+      ...toolMessages
+    ];
+    const response = await this.options.llmClient!.complete({
+      messages: nextMessages,
+      tools: toLlmTools(input.tools),
+      maxTokens: 800,
+      temperature: 0.2,
+      metadata: {
+        purpose: 'planner-tool-followup',
+        toolCallCount: toolMessages.length,
+        iteration: input.iteration + 1
+      }
+    });
+
+    return this.continueToolLoop({
+      ...input,
+      messages: nextMessages,
+      response,
+      iteration: input.iteration + 1
+    });
+  }
+
+  private async callToolOrPause(input: PendingToolSession): Promise<ToolCallExecutionOutcome> {
+    try {
+      const result = await this.toolGateway!.call({
+        runId: input.runId,
+        name: input.call.name,
+        input: input.call.input,
+        returnErrors: true
+      });
+      return { kind: 'result', result };
+    } catch (error) {
+      if (error instanceof ToolPermissionError) {
+        return {
+          kind: 'approval',
+          result: this.createPendingToolApprovalResult(input, error)
+        };
+      }
+      throw error;
+    }
+  }
+
+  private async executeApprovedToolCall(session: PendingToolSession): Promise<LlmMessage> {
+    const result = await this.toolGateway!.call({
+      runId: session.runId,
+      name: session.call.name,
+      input: session.call.input,
+      approved: true,
+      returnErrors: true
+    });
+    this.contextManager.recordToolResult({
+      id: session.call.id,
+      toolName: session.call.name,
+      inputPreview: JSON.stringify(session.call.input).slice(0, 200),
+      output: result.content,
+      summary: result.summary
+    });
+
+    return {
+      role: 'tool',
+      toolCallId: session.call.id,
+      name: session.call.name,
+      content: result.content
+    };
+  }
+
+  private async createRejectedToolMessage(session: PendingToolSession): Promise<LlmMessage> {
+    const content = `Tool ${session.call.name} rejected by user.`;
+    await this.record(session.runId, 'tool_call.rejected', {
+      toolName: session.call.name,
+      toolCallId: session.call.id,
+      input: session.call.input
+    });
+    this.contextManager.recordToolResult({
+      id: session.call.id,
+      toolName: session.call.name,
+      inputPreview: JSON.stringify(session.call.input).slice(0, 200),
+      output: content,
+      summary: 'rejected by user'
+    });
+
+    return {
+      role: 'tool',
+      toolCallId: session.call.id,
+      name: session.call.name,
+      content
+    };
+  }
+
+  private createPendingToolApprovalResult(
+    session: PendingToolSession,
+    error: ToolPermissionError
+  ): AgentResult {
+    const metadata = session.tools.find((tool) => tool.name === session.call.name);
+    const pendingApproval: PendingToolApproval = {
+      runId: session.runId,
+      toolCallId: session.call.id,
+      toolName: session.call.name,
+      risk: metadata?.risk ?? error.risk,
+      reason: error.reason,
+      inputPreview: JSON.stringify(session.call.input).slice(0, 500)
+    };
+    this.pendingToolSessions.set(session.runId, session);
+
+    return agentResultSchema.parse({
+      runId: session.runId,
+      mode: session.mode,
+      status: 'approval-required',
+      summary: `需要确认工具调用：${session.call.name}`,
+      pendingApproval,
+      report: {
+        changedFiles: [],
+        evidence: ['模型请求了需要用户确认的工具调用'],
+        risks: [`${pendingApproval.risk} tool requires approval`]
+      }
+    });
   }
 
   private appendConversation(userInput: string, assistantOutput: string): void {
@@ -308,4 +669,16 @@ function createPlan(
     llmSuggestion,
     steps: ['理解目标', '探索当前 workspace', '执行修改或回答', '验收并记录 trace']
   };
+}
+
+function toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined {
+  if (tools.length === 0) {
+    return undefined;
+  }
+
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters
+  }));
 }

@@ -78,6 +78,81 @@ describe('AnthropicProtocolClient', () => {
 
     expect(chunks).toEqual(['你', '好']);
   });
+
+  it('sends tool definitions and parses Anthropic tool_use blocks', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const client = new AnthropicProtocolClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://anthropic.example/v1',
+      model: 'claude-test',
+      fetch: async (url, init) => {
+        calls.push({ url, init });
+        return jsonResponse({
+          model: 'claude-test',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu-1',
+              name: 'math.add',
+              input: { a: 1, b: 2 }
+            }
+          ]
+        });
+      }
+    });
+
+    const result = await client.complete({
+      messages: [
+        { role: 'user', content: '计算 1 + 2' },
+        {
+          role: 'tool',
+          toolCallId: 'toolu-prev',
+          name: 'math.add',
+          content: '3'
+        }
+      ],
+      tools: [
+        {
+          name: 'math.add',
+          description: '加法',
+          parameters: {
+            type: 'object',
+            properties: { a: { type: 'number' }, b: { type: 'number' } },
+            required: ['a', 'b']
+          }
+        }
+      ]
+    });
+
+    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
+      tools: [
+        {
+          name: 'math.add',
+          description: '加法',
+          input_schema: expect.objectContaining({ type: 'object' })
+        }
+      ],
+      messages: expect.arrayContaining([
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'toolu-prev',
+              content: '3'
+            }
+          ]
+        }
+      ])
+    });
+    expect(result.toolCalls).toEqual([
+      {
+        id: 'toolu-1',
+        name: 'math.add',
+        input: { a: 1, b: 2 }
+      }
+    ]);
+  });
 });
 
 function jsonResponse(body: unknown): Response {

@@ -4,33 +4,46 @@ import type { TraceEvent } from '../domain';
 import type { TraceStore } from '../trace/traceStore';
 
 export type ToolRisk = 'read' | 'write' | 'execute' | 'network';
+export type ToolApprovalAction = 'allow' | 'ask' | 'deny';
 
 export interface ToolMetadata {
   name: string;
   description: string;
   risk: ToolRisk;
+  category?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface ToolListContext {
+  mode?: string;
 }
 
 export interface ToolExecutionContext<TInput> {
   runId: string;
   toolName: string;
   input: TInput;
+  signal: AbortSignal;
 }
 
 export interface ToolResult {
-  status: 'completed';
+  status: 'completed' | 'failed';
   content: string;
+  summary: string;
   data?: unknown;
 }
 
 export interface ToolHandlerResult {
   status?: 'completed';
   content: string;
+  summary?: string;
   data?: unknown;
 }
 
 export interface ToolDefinition<TInput = unknown> extends ToolMetadata {
   inputSchema: z.ZodType<TInput>;
+  timeoutMs?: number;
+  enabled?: (context: ToolListContext) => boolean;
+  summarize?: (result: ToolHandlerResult) => string;
   execute(context: ToolExecutionContext<TInput>): Promise<ToolHandlerResult>;
 }
 
@@ -39,19 +52,41 @@ export interface ToolCallInput {
   name: string;
   input: unknown;
   approved?: boolean;
+  returnErrors?: boolean;
 }
+
+export interface ToolApprovalDecision {
+  action: ToolApprovalAction;
+  reason?: string;
+}
+
+export interface ToolApprovalPolicyContext<TInput = unknown> {
+  tool: ToolMetadata;
+  input: TInput;
+}
+
+export type ToolApprovalPolicy = (
+  context: ToolApprovalPolicyContext
+) => ToolApprovalDecision;
 
 export interface ToolGatewayOptions {
   traceStore?: TraceStore;
   now?: () => Date;
+  approvalPolicy?: ToolApprovalPolicy;
+  defaultTimeoutMs?: number;
+  maxSummaryChars?: number;
 }
 
 export class ToolGateway {
   private readonly tools = new Map<string, ToolDefinition>();
   private readonly now: () => Date;
+  private readonly approvalPolicy: ToolApprovalPolicy;
+  private readonly maxSummaryChars: number;
 
   constructor(private readonly options: ToolGatewayOptions = {}) {
     this.now = options.now ?? (() => new Date());
+    this.approvalPolicy = options.approvalPolicy ?? defaultApprovalPolicy;
+    this.maxSummaryChars = options.maxSummaryChars ?? 240;
   }
 
   register<TInput>(definition: ToolDefinition<TInput>): void {
@@ -61,11 +96,15 @@ export class ToolGateway {
     this.tools.set(definition.name, definition as ToolDefinition);
   }
 
-  listTools(): ToolMetadata[] {
-    return [...this.tools.values()].map(({ name, description, risk }) => ({
+  listTools(context: ToolListContext = {}): ToolMetadata[] {
+    return [...this.tools.values()]
+      .filter((tool) => tool.enabled?.(context) ?? true)
+      .map(({ name, description, risk, category, parameters }) => ({
       name,
       description,
-      risk
+      risk,
+      category,
+      parameters
     }));
   }
 
@@ -75,15 +114,27 @@ export class ToolGateway {
       throw new ToolNotFoundError(input.name);
     }
 
-    if (requiresApproval(definition.risk) && input.approved !== true) {
+    const parsedInput = parseInput(definition, input.input);
+    const approval = this.approvalPolicy({
+      tool: toMetadata(definition),
+      input: parsedInput
+    });
+    if (approval.action === 'deny') {
+      await this.record(input.runId, 'tool_call.denied', {
+        toolName: input.name,
+        risk: definition.risk,
+        reason: approval.reason
+      });
+      throw new ToolPermissionError(input.name, definition.risk, approval.reason);
+    }
+    if (approval.action === 'ask' && input.approved !== true) {
       await this.record(input.runId, 'tool_call.approval_required', {
         toolName: input.name,
-        risk: definition.risk
+        risk: definition.risk,
+        reason: approval.reason
       });
-      throw new ToolPermissionError(input.name, definition.risk);
+      throw new ToolPermissionError(input.name, definition.risk, approval.reason);
     }
-
-    const parsedInput = parseInput(definition, input.input);
 
     await this.record(input.runId, 'tool_call.started', {
       toolName: input.name,
@@ -92,26 +143,39 @@ export class ToolGateway {
     });
 
     try {
-      const rawResult = await definition.execute({
+      const rawResult = await executeWithTimeout(definition, {
         runId: input.runId,
         toolName: input.name,
         input: parsedInput
-      });
+      }, this.options.defaultTimeoutMs);
       const result: ToolResult = {
+        ...rawResult,
         status: 'completed',
-        ...rawResult
+        summary: summarizeResult(definition, rawResult, this.maxSummaryChars)
       };
       await this.record(input.runId, 'tool_call.completed', {
         toolName: input.name,
         status: result.status,
-        contentPreview: result.content.slice(0, 240)
+        contentPreview: result.content.slice(0, 240),
+        summary: result.summary
       });
       return result;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failed: ToolResult = {
+        status: 'failed',
+        content: `Tool ${input.name} failed: ${message}`,
+        summary: `failed: ${message}`
+      };
       await this.record(input.runId, 'tool_call.failed', {
         toolName: input.name,
-        message: error instanceof Error ? error.message : String(error)
+        status: failed.status,
+        message,
+        summary: failed.summary
       });
+      if (input.returnErrors === true) {
+        return failed;
+      }
       throw error;
     }
   }
@@ -148,10 +212,25 @@ export class ToolNotFoundError extends Error {
 export class ToolPermissionError extends Error {
   constructor(
     readonly toolName: string,
-    readonly risk: ToolRisk
+    readonly risk: ToolRisk,
+    readonly reason?: string
   ) {
-    super(`Tool requires approval: ${toolName} (${risk})`);
+    super(
+      reason
+        ? `Tool blocked: ${toolName} (${risk}) - ${reason}`
+        : `Tool requires approval: ${toolName} (${risk})`
+    );
     this.name = 'ToolPermissionError';
+  }
+}
+
+export class ToolTimeoutError extends Error {
+  constructor(
+    readonly toolName: string,
+    readonly timeoutMs: number
+  ) {
+    super(`Tool timed out: ${toolName} after ${timeoutMs}ms`);
+    this.name = 'ToolTimeoutError';
   }
 }
 
@@ -163,10 +242,6 @@ export class ToolValidationError extends Error {
     super(`Invalid input for tool: ${toolName}`);
     this.name = 'ToolValidationError';
   }
-}
-
-function requiresApproval(risk: ToolRisk): boolean {
-  return risk !== 'read';
 }
 
 function parseInput<TInput>(
@@ -181,4 +256,64 @@ function parseInput<TInput>(
     }
     throw error;
   }
+}
+
+function defaultApprovalPolicy(context: ToolApprovalPolicyContext): ToolApprovalDecision {
+  return context.tool.risk === 'read'
+    ? { action: 'allow' }
+    : { action: 'ask', reason: `${context.tool.risk} tool requires approval` };
+}
+
+function toMetadata(definition: ToolDefinition): ToolMetadata {
+  const { name, description, risk, category, parameters } = definition;
+  return {
+    name,
+    description,
+    risk,
+    category,
+    parameters
+  };
+}
+
+async function executeWithTimeout<TInput>(
+  definition: ToolDefinition<TInput>,
+  context: Omit<ToolExecutionContext<TInput>, 'signal'>,
+  defaultTimeoutMs?: number
+): Promise<ToolHandlerResult> {
+  const timeoutMs = definition.timeoutMs ?? defaultTimeoutMs;
+  const controller = new AbortController();
+  const execution = definition.execute({
+    ...context,
+    signal: controller.signal
+  });
+
+  if (timeoutMs === undefined) {
+    return execution;
+  }
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      execution,
+      new Promise<ToolHandlerResult>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new ToolTimeoutError(definition.name, timeoutMs));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+function summarizeResult(
+  definition: ToolDefinition,
+  result: ToolHandlerResult,
+  maxChars: number
+): string {
+  const summary = result.summary ?? definition.summarize?.(result) ?? result.content;
+  return summary.length > maxChars ? `${summary.slice(0, maxChars)}...` : summary;
 }

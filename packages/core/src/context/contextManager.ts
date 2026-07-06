@@ -219,9 +219,7 @@ function renderTools(tools: ToolMetadata[]): string {
     return '';
   }
 
-  const lines = tools.map(
-    (tool) => `- ${tool.name} [${tool.risk}]: ${tool.description}`
-  );
+  const lines = tools.map(renderTool);
   return ['Available tools:', ...lines].join('\n');
 }
 
@@ -319,7 +317,7 @@ function buildReport(input: {
     )
   ];
   const toolContributors = input.tools.map((tool) => {
-    const rendered = `${tool.name} [${tool.risk}]: ${tool.description}`;
+    const rendered = renderTool(tool);
     return {
       id: `tool:${tool.name}`,
       section: 'tools' as const,
@@ -369,6 +367,16 @@ function buildReport(input: {
     sections,
     contributors
   };
+}
+
+function renderTool(tool: ToolMetadata): string {
+  const details = [
+    `risk: ${tool.risk}`,
+    tool.category ? `category: ${tool.category}` : undefined,
+    tool.parameters ? `parameters: ${JSON.stringify(tool.parameters)}` : undefined
+  ].filter(Boolean);
+
+  return `- ${tool.name} (${details.join('; ')}): ${tool.description}`;
 }
 
 function sourceContributor(

@@ -39,6 +39,38 @@ describe('InMemoryContextManager', () => {
     expect(snapshot.includedSources).toEqual(['repo-summary']);
   });
 
+  it('renders tool categories and input schemas for model planning', () => {
+    const manager = new InMemoryContextManager();
+
+    const snapshot = manager.build({
+      systemPrompt: '你是 Kross。',
+      currentUserInput: '读取 README',
+      mode: 'normal',
+      tools: [
+        {
+          name: 'fs.read',
+          description: '读取文件',
+          risk: 'read',
+          category: 'filesystem',
+          parameters: {
+            type: 'object',
+            properties: { path: { type: 'string' } },
+            required: ['path']
+          }
+        }
+      ]
+    });
+
+    expect(snapshot.messages[0]?.content).toContain('category: filesystem');
+    expect(snapshot.messages[0]?.content).toContain('"path"');
+    expect(snapshot.report.contributors).toContainEqual(
+      expect.objectContaining({
+        id: 'tool:fs.read',
+        section: 'tools'
+      })
+    );
+  });
+
   it('keeps recent conversation history between turns', () => {
     const manager = new InMemoryContextManager();
 
