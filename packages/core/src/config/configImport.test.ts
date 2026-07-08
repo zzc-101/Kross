@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createConfigImportController,
+  createLlmClientFromKrossConfig,
   discoverExternalAgentConfigs,
   loadKrossConfig,
   saveImportedAgentConfig
@@ -88,6 +89,178 @@ describe('config import', () => {
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
+  });
+
+  it('discovers Claude Code auth token and prefers API model over UI alias', () => {
+    const homeDir = createTempHome();
+    try {
+      mkdirSync(join(homeDir, '.claude'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.claude/settings.json'),
+        JSON.stringify({
+          model: 'sonnet',
+          env: {
+            ANTHROPIC_AUTH_TOKEN: 'claude-auth-token',
+            ANTHROPIC_BASE_URL: 'https://ark.example/api/coding',
+            ANTHROPIC_MODEL: 'GLM-4.5',
+            ANTHROPIC_DEFAULT_SONNET_MODEL: 'GLM-4.5[1M]'
+          }
+        })
+      );
+
+      const candidates = discoverExternalAgentConfigs({
+        homeDir,
+        env: {},
+        pathEnv: ''
+      });
+
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0]).toMatchObject({
+        source: 'claude',
+        config: {
+          provider: 'anthropic',
+          authToken: 'claude-auth-token',
+          baseUrl: 'https://ark.example/api/coding',
+          model: 'GLM-4.5'
+        }
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves Claude Code model aliases through default model env values', () => {
+    const homeDir = createTempHome();
+    try {
+      mkdirSync(join(homeDir, '.claude'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.claude/settings.json'),
+        JSON.stringify({
+          model: 'sonnet',
+          env: {
+            ANTHROPIC_AUTH_TOKEN: 'claude-auth-token',
+            ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-real'
+          }
+        })
+      );
+
+      const candidates = discoverExternalAgentConfigs({
+        homeDir,
+        env: {},
+        pathEnv: ''
+      });
+
+      expect(candidates[0]?.config.model).toBe('claude-sonnet-real');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reoffers import when saved Kross config is missing credentials', () => {
+    const homeDir = createTempHome();
+    try {
+      mkdirSync(join(homeDir, '.kross'), { recursive: true });
+      mkdirSync(join(homeDir, '.claude'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.kross/config.json'),
+        JSON.stringify({
+          llm: {
+            provider: 'anthropic',
+            model: 'sonnet',
+            baseUrl: 'https://ark.example/api/coding'
+          }
+        })
+      );
+      writeFileSync(
+        join(homeDir, '.claude/settings.json'),
+        JSON.stringify({
+          model: 'sonnet',
+          env: {
+            ANTHROPIC_AUTH_TOKEN: 'claude-auth-token',
+            ANTHROPIC_MODEL: 'GLM-4.5'
+          }
+        })
+      );
+
+      const controller = createConfigImportController({ homeDir, env: {}, pathEnv: '' });
+
+      expect(controller.getPrompt()?.candidates.map((candidate) => candidate.source)).toEqual([
+        'claude'
+      ]);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows explicit import to replace an existing usable config', () => {
+    const homeDir = createTempHome();
+    try {
+      mkdirSync(join(homeDir, '.kross'), { recursive: true });
+      mkdirSync(join(homeDir, '.claude'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.kross/config.json'),
+        JSON.stringify({
+          llm: {
+            provider: 'openai',
+            apiKey: 'old-key',
+            model: 'old-model'
+          }
+        })
+      );
+      writeFileSync(
+        join(homeDir, '.claude/settings.json'),
+        JSON.stringify({
+          model: 'sonnet',
+          env: {
+            ANTHROPIC_AUTH_TOKEN: 'claude-auth-token',
+            ANTHROPIC_MODEL: 'GLM-4.5'
+          }
+        })
+      );
+
+      const controller = createConfigImportController({ homeDir, env: {}, pathEnv: '' });
+      expect(controller.getPrompt()).toBeUndefined();
+
+      const result = controller.importSource('claude');
+
+      expect(result.config.llm).toMatchObject({
+        provider: 'anthropic',
+        authToken: 'claude-auth-token',
+        model: 'GLM-4.5'
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('creates an Anthropic client from saved auth token config', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const client = createLlmClientFromKrossConfig(
+      {
+        llm: {
+          provider: 'anthropic',
+          authToken: 'saved-token',
+          model: 'GLM-4.5',
+          baseUrl: 'https://ark.example/api/coding'
+        }
+      },
+      async (url, init) => {
+        calls.push({ url, init });
+        return new Response(
+          JSON.stringify({ content: [{ type: 'text', text: 'ok' }] }),
+          { headers: { 'content-type': 'application/json' } }
+        );
+      }
+    );
+
+    await client?.complete({
+      messages: [{ role: 'user', content: 'hi' }]
+    });
+
+    expect(client).toBeDefined();
+    expect(calls[0]?.init.headers).toMatchObject({
+      authorization: 'Bearer saved-token'
+    });
   });
 
   it('saves an imported candidate as Kross config and suppresses future prompts', () => {

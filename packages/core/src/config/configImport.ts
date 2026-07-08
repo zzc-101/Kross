@@ -17,6 +17,7 @@ export type ExternalAgentSource = 'claude' | 'codex';
 export interface ImportedLlmConfig {
   provider: LlmProvider;
   apiKey?: string;
+  authToken?: string;
   baseUrl?: string;
   model: string;
   anthropicVersion?: string;
@@ -100,7 +101,10 @@ export function createConfigImportController(
   return {
     getPrompt() {
       const existing = loadKrossConfig(options);
-      if (existing?.llm || existing?.setup?.importPromptDismissedAt) {
+      if (
+        isUsableImportedLlmConfig(existing?.llm) ||
+        existing?.setup?.importPromptDismissedAt
+      ) {
         return undefined;
       }
 
@@ -108,8 +112,9 @@ export function createConfigImportController(
       return candidates.length > 0 ? { candidates } : undefined;
     },
     importSource(source) {
-      const prompt = this.getPrompt();
-      const candidate = prompt?.candidates.find((item) => item.source === source);
+      const candidate = discoverExternalAgentConfigs(options).find(
+        (item) => item.source === source
+      );
       if (!candidate) {
         throw new Error(`No importable config for source: ${source}`);
       }
@@ -179,13 +184,24 @@ export function createLlmClientFromKrossConfig(
   fetch?: LlmFetch
 ): LlmClient | undefined {
   const llm = config?.llm;
-  if (!llm?.apiKey || !llm.model) {
+  if (!isUsableImportedLlmConfig(llm)) {
     return undefined;
+  }
+
+  if (llm.provider === 'openai') {
+    return createLlmClient({
+      provider: llm.provider,
+      apiKey: llm.apiKey,
+      model: llm.model,
+      baseUrl: llm.baseUrl,
+      fetch
+    });
   }
 
   return createLlmClient({
     provider: llm.provider,
     apiKey: llm.apiKey,
+    authToken: llm.authToken,
     model: llm.model,
     baseUrl: llm.baseUrl,
     anthropicVersion: llm.anthropicVersion,
@@ -287,15 +303,34 @@ function discoverClaudeCodeConfig(
     return undefined;
   }
 
-  const model = firstString(
-    valueFromJson(settings, 'model'),
-    valueFromJson(settingsEnv, 'ANTHROPIC_MODEL'),
+  const configuredModel = firstString(
     options.env?.ANTHROPIC_MODEL,
+    valueFromJson(settingsEnv, 'ANTHROPIC_MODEL')
+  );
+  const uiModel = firstString(
+    valueFromJson(settings, 'model'),
     valueFromJson(root, 'model')
   );
+  const model =
+    configuredModel ??
+    resolveClaudeCodeModelAlias(uiModel, options.env, settingsEnv) ??
+    uiModel;
   if (!model) {
     return undefined;
   }
+
+  const apiKey = firstString(
+    options.env?.ANTHROPIC_API_KEY,
+    valueFromJson(settingsEnv, 'ANTHROPIC_API_KEY'),
+    valueFromJson(settings, 'apiKey'),
+    valueFromJson(settings, 'api_key')
+  );
+  const authToken = firstString(
+    options.env?.ANTHROPIC_AUTH_TOKEN,
+    valueFromJson(settingsEnv, 'ANTHROPIC_AUTH_TOKEN'),
+    valueFromJson(settings, 'authToken'),
+    valueFromJson(settings, 'auth_token')
+  );
 
   return {
     source: 'claude',
@@ -304,12 +339,8 @@ function discoverClaudeCodeConfig(
     detectedFrom,
     config: {
       provider: 'anthropic',
-      apiKey: firstString(
-        options.env?.ANTHROPIC_API_KEY,
-        valueFromJson(settingsEnv, 'ANTHROPIC_API_KEY'),
-        valueFromJson(settings, 'apiKey'),
-        valueFromJson(settings, 'api_key')
-      ),
+      apiKey,
+      authToken,
       baseUrl:
         firstString(
           valueFromJson(settingsEnv, 'ANTHROPIC_BASE_URL'),
@@ -410,6 +441,38 @@ function valueFromJson(source: unknown, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function resolveClaudeCodeModelAlias(
+  model: string | undefined,
+  env: Record<string, string | undefined> | undefined,
+  settingsEnv: Record<string, unknown> | undefined
+): string | undefined {
+  const alias = model?.trim().toLowerCase();
+  if (!alias || !['haiku', 'sonnet', 'opus'].includes(alias)) {
+    return undefined;
+  }
+
+  const envKey = `ANTHROPIC_DEFAULT_${alias.toUpperCase()}_MODEL`;
+  const envNameKey = `${envKey}_NAME`;
+  return firstString(
+    env?.[envKey],
+    env?.[envNameKey],
+    valueFromJson(settingsEnv, envKey),
+    valueFromJson(settingsEnv, envNameKey)
+  );
+}
+
+function isUsableImportedLlmConfig(
+  config: ImportedLlmConfig | undefined
+): config is ImportedLlmConfig & ({ provider: 'openai'; apiKey: string } | { provider: 'anthropic' }) {
+  if (!config?.model) {
+    return false;
+  }
+  if (config.provider === 'openai') {
+    return Boolean(config.apiKey);
+  }
+  return Boolean(config.apiKey || config.authToken);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -417,5 +480,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isCandidate(
   candidate: ExternalAgentConfigCandidate | undefined
 ): candidate is ExternalAgentConfigCandidate {
-  return candidate !== undefined;
+  return candidate !== undefined && isUsableImportedLlmConfig(candidate.config);
 }
