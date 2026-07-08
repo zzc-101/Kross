@@ -66,6 +66,10 @@ export type LlmStreamChunk =
       text: string;
     }
   | {
+      type: 'tool-call';
+      call: LlmToolCall;
+    }
+  | {
       type: 'done';
     };
 
@@ -78,7 +82,8 @@ export interface LlmClient {
 export type LlmFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 export interface BaseLlmClientConfig {
-  apiKey: string;
+  apiKey?: string;
+  authToken?: string;
   baseUrl?: string;
   model: string;
   fetch?: LlmFetch;
@@ -86,6 +91,7 @@ export interface BaseLlmClientConfig {
 
 export interface OpenAiProtocolClientConfig extends BaseLlmClientConfig {
   provider?: 'openai';
+  apiKey: string;
 }
 
 export interface AnthropicProtocolClientConfig extends BaseLlmClientConfig {

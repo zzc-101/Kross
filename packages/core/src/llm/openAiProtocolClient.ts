@@ -36,8 +36,24 @@ interface OpenAiChatResponse {
 
 interface OpenAiStreamResponse {
   choices?: Array<{
-    delta?: { content?: string | null };
+    delta?: {
+      content?: string | null;
+      tool_calls?: Array<{
+        index?: number;
+        id?: string;
+        function?: {
+          name?: string;
+          arguments?: string;
+        };
+      }>;
+    };
   }>;
+}
+
+interface StreamingToolCallAccumulator {
+  id?: string;
+  name?: string;
+  argumentsText: string;
 }
 
 export class OpenAiProtocolClient implements LlmClient {
@@ -83,19 +99,38 @@ export class OpenAiProtocolClient implements LlmClient {
 
     await ensureOk(this.provider, response);
 
+    const pendingToolCalls = new Map<number, StreamingToolCallAccumulator>();
+
     for await (const event of parseSse(response)) {
       if (event.data === '[DONE]') {
+        yield* flushToolCalls(pendingToolCalls);
         yield { type: 'done' };
         return;
       }
 
       const parsed = JSON.parse(event.data) as OpenAiStreamResponse;
-      const text = parsed.choices?.[0]?.delta?.content;
+      const delta = parsed.choices?.[0]?.delta;
+      const text = delta?.content;
       if (text) {
         yield { type: 'text-delta', text };
       }
+      for (const fragment of delta?.tool_calls ?? []) {
+        const index = fragment.index ?? 0;
+        const accumulator = pendingToolCalls.get(index) ?? { argumentsText: '' };
+        if (fragment.id) {
+          accumulator.id = fragment.id;
+        }
+        if (fragment.function?.name) {
+          accumulator.name = fragment.function.name;
+        }
+        if (fragment.function?.arguments) {
+          accumulator.argumentsText += fragment.function.arguments;
+        }
+        pendingToolCalls.set(index, accumulator);
+      }
     }
 
+    yield* flushToolCalls(pendingToolCalls);
     yield { type: 'done' };
   }
 
@@ -175,6 +210,27 @@ function parseToolCalls(raw: OpenAiChatResponse): LlmToolCall[] | undefined {
     }));
 
   return calls && calls.length > 0 ? calls : undefined;
+}
+
+function* flushToolCalls(
+  pending: Map<number, StreamingToolCallAccumulator>
+): Iterable<LlmStreamChunk> {
+  const indices = [...pending.keys()].sort((left, right) => left - right);
+  for (const index of indices) {
+    const accumulator = pending.get(index);
+    if (!accumulator?.id || !accumulator.name) {
+      continue;
+    }
+    yield {
+      type: 'tool-call',
+      call: {
+        id: accumulator.id,
+        name: accumulator.name,
+        input: parseToolArguments(accumulator.argumentsText || undefined)
+      }
+    };
+  }
+  pending.clear();
 }
 
 function parseToolArguments(value: string | undefined): unknown {

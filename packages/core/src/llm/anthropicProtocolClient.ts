@@ -31,10 +31,27 @@ interface AnthropicMessageResponse {
 
 interface AnthropicStreamResponse {
   type?: string;
+  index?: number;
+  content_block?: {
+    type?: string;
+    id?: string;
+    name?: string;
+  };
   delta?: {
     type?: string;
     text?: string;
+    partial_json?: string;
   };
+  error?: {
+    type?: string;
+    message?: string;
+  };
+}
+
+interface StreamingToolUseAccumulator {
+  id: string;
+  name: string;
+  inputJson: string;
 }
 
 export class AnthropicProtocolClient implements LlmClient {
@@ -91,6 +108,8 @@ export class AnthropicProtocolClient implements LlmClient {
 
     await ensureOk(this.provider, response);
 
+    const pendingToolUses = new Map<number, StreamingToolUseAccumulator>();
+
     for await (const event of parseSse(response)) {
       if (event.event === 'message_stop') {
         yield { type: 'done' };
@@ -98,6 +117,49 @@ export class AnthropicProtocolClient implements LlmClient {
       }
 
       const parsed = JSON.parse(event.data) as AnthropicStreamResponse;
+      if (parsed.type === 'error' || parsed.error) {
+        throw new Error(
+          `anthropic stream error: ${parsed.error?.message ?? 'unknown error'}`
+        );
+      }
+      if (
+        parsed.type === 'content_block_start' &&
+        parsed.content_block?.type === 'tool_use' &&
+        parsed.content_block.id &&
+        parsed.content_block.name
+      ) {
+        pendingToolUses.set(parsed.index ?? 0, {
+          id: parsed.content_block.id,
+          name: parsed.content_block.name,
+          inputJson: ''
+        });
+        continue;
+      }
+      if (
+        parsed.type === 'content_block_delta' &&
+        parsed.delta?.type === 'input_json_delta'
+      ) {
+        const accumulator = pendingToolUses.get(parsed.index ?? 0);
+        if (accumulator) {
+          accumulator.inputJson += parsed.delta.partial_json ?? '';
+        }
+        continue;
+      }
+      if (parsed.type === 'content_block_stop') {
+        const accumulator = pendingToolUses.get(parsed.index ?? 0);
+        if (accumulator) {
+          pendingToolUses.delete(parsed.index ?? 0);
+          yield {
+            type: 'tool-call',
+            call: {
+              id: accumulator.id,
+              name: accumulator.name,
+              input: parseToolUseInput(accumulator.inputJson)
+            }
+          };
+        }
+        continue;
+      }
       if (
         parsed.type === 'content_block_delta' &&
         parsed.delta?.type === 'text_delta' &&
@@ -111,15 +173,33 @@ export class AnthropicProtocolClient implements LlmClient {
   }
 
   private url(): string {
-    return joinUrl(this.baseUrl, '/messages');
+    return joinUrl(
+      this.baseUrl,
+      baseUrlIncludesVersion(this.baseUrl) ? '/messages' : '/v1/messages'
+    );
   }
 
   private headers(): Record<string, string> {
-    return {
+    const headers: Record<string, string> = {
       'anthropic-version': this.anthropicVersion,
-      'content-type': 'application/json',
-      'x-api-key': this.config.apiKey
+      'content-type': 'application/json'
     };
+
+    if (this.config.authToken) {
+      return {
+        ...headers,
+        authorization: `Bearer ${this.config.authToken}`
+      };
+    }
+
+    if (this.config.apiKey) {
+      return {
+        ...headers,
+        'x-api-key': this.config.apiKey
+      };
+    }
+
+    throw new Error('Anthropic protocol requires apiKey or authToken');
   }
 
   private body(request: LlmRequest, stream: boolean): Record<string, unknown> {
@@ -226,4 +306,19 @@ function parseToolCalls(raw: AnthropicMessageResponse): LlmToolCall[] | undefine
     }));
 
   return calls && calls.length > 0 ? calls : undefined;
+}
+
+function parseToolUseInput(inputJson: string): unknown {
+  if (inputJson.trim().length === 0) {
+    return {};
+  }
+  try {
+    return JSON.parse(inputJson);
+  } catch {
+    return inputJson;
+  }
+}
+
+function baseUrlIncludesVersion(baseUrl: string): boolean {
+  return /\/v\d+\/?$/.test(baseUrl);
 }

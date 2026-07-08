@@ -72,6 +72,66 @@ describe('OpenAiProtocolClient', () => {
     expect(chunks).toEqual(['你', '好']);
   });
 
+  it('parses streamed tool call fragments into complete tool-call chunks', async () => {
+    const client = new OpenAiProtocolClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      model: 'gpt-test',
+      fetch: async () =>
+        new Response(
+          [
+            `data: ${JSON.stringify({
+              choices: [
+                {
+                  delta: {
+                    content: '先算一下',
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: 'call-1',
+                        function: { name: 'math.add', arguments: '{"a":' }
+                      }
+                    ]
+                  }
+                }
+              ]
+            })}`,
+            '',
+            `data: ${JSON.stringify({
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      { index: 0, function: { arguments: '1,"b":2}' } }
+                    ]
+                  }
+                }
+              ]
+            })}`,
+            '',
+            'data: [DONE]',
+            ''
+          ].join('\n')
+        )
+    });
+
+    const chunks = [];
+    for await (const chunk of client.stream({
+      messages: [{ role: 'user', content: '计算 1 + 2' }]
+    })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      { type: 'text-delta', text: '先算一下' },
+      {
+        type: 'tool-call',
+        call: { id: 'call-1', name: 'math.add', input: { a: 1, b: 2 } }
+      },
+      { type: 'done' }
+    ]);
+  });
+
   it('sends tool definitions and parses OpenAI tool calls', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const client = new OpenAiProtocolClient({

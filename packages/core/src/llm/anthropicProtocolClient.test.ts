@@ -46,6 +46,57 @@ describe('AnthropicProtocolClient', () => {
     });
   });
 
+  it('uses bearer authorization when an Anthropic auth token is configured', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const client = new AnthropicProtocolClient({
+      authToken: 'test-token',
+      baseUrl: 'https://anthropic.example/v1',
+      model: 'claude-test',
+      fetch: async (url, init) => {
+        calls.push({ url, init });
+        return jsonResponse({
+          id: 'msg-1',
+          content: [{ type: 'text', text: 'ok' }]
+        });
+      }
+    });
+
+    await client.complete({
+      messages: [{ role: 'user', content: '打招呼' }]
+    });
+
+    expect(calls[0]?.init.headers).toMatchObject({
+      authorization: 'Bearer test-token'
+    });
+    expect(calls[0]?.init.headers).not.toMatchObject({
+      'x-api-key': expect.any(String)
+    });
+  });
+
+  it('adds the Anthropic v1 path when baseUrl omits it', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const client = new AnthropicProtocolClient({
+      authToken: 'test-token',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding',
+      model: 'glm-test',
+      fetch: async (url, init) => {
+        calls.push({ url, init });
+        return jsonResponse({
+          id: 'msg-1',
+          content: [{ type: 'text', text: 'ok' }]
+        });
+      }
+    });
+
+    await client.complete({
+      messages: [{ role: 'user', content: '打招呼' }]
+    });
+
+    expect(calls[0]?.url).toBe(
+      'https://ark.cn-beijing.volces.com/api/coding/v1/messages'
+    );
+  });
+
   it('streams text deltas from Anthropic SSE responses', async () => {
     const client = new AnthropicProtocolClient({
       apiKey: 'test-key',
@@ -77,6 +128,77 @@ describe('AnthropicProtocolClient', () => {
     }
 
     expect(chunks).toEqual(['你', '好']);
+  });
+
+  it('parses streamed tool_use blocks into complete tool-call chunks', async () => {
+    const client = new AnthropicProtocolClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://anthropic.example/v1',
+      model: 'claude-test',
+      fetch: async () =>
+        new Response(
+          [
+            'event: content_block_delta',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"先算一下"}}',
+            '',
+            'event: content_block_start',
+            'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu-1","name":"math.add"}}',
+            '',
+            'event: content_block_delta',
+            'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"a\\":1,"}}',
+            '',
+            'event: content_block_delta',
+            'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\\"b\\":2}"}}',
+            '',
+            'event: content_block_stop',
+            'data: {"type":"content_block_stop","index":1}',
+            '',
+            'event: message_stop',
+            'data: {"type":"message_stop"}',
+            ''
+          ].join('\n')
+        )
+    });
+
+    const chunks = [];
+    for await (const chunk of client.stream({
+      messages: [{ role: 'user', content: '计算 1 + 2' }]
+    })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      { type: 'text-delta', text: '先算一下' },
+      {
+        type: 'tool-call',
+        call: { id: 'toolu-1', name: 'math.add', input: { a: 1, b: 2 } }
+      },
+      { type: 'done' }
+    ]);
+  });
+
+  it('surfaces streamed Anthropic error events instead of silently ending', async () => {
+    const client = new AnthropicProtocolClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://anthropic.example/v1',
+      model: 'claude-test',
+      fetch: async () =>
+        new Response(
+          [
+            'event: error',
+            'data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+            ''
+          ].join('\n')
+        )
+    });
+
+    await expect(async () => {
+      for await (const chunk of client.stream({
+        messages: [{ role: 'user', content: '打招呼' }]
+      })) {
+        void chunk;
+      }
+    }).rejects.toThrow('Overloaded');
   });
 
   it('sends tool definitions and parses Anthropic tool_use blocks', async () => {

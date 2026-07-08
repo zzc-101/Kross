@@ -34,14 +34,18 @@ export function createLlmClientFromEnv(
 
   if (provider === 'anthropic') {
     const apiKey = env.ANTHROPIC_API_KEY;
+    const authToken = env.ANTHROPIC_AUTH_TOKEN;
     const model = env.ANTHROPIC_MODEL;
-    if (!apiKey || !model) {
-      throw new Error('Anthropic 协议需要配置 ANTHROPIC_API_KEY 和 ANTHROPIC_MODEL');
+    if ((!apiKey && !authToken) || !model) {
+      throw new Error(
+        'Anthropic 协议需要配置 ANTHROPIC_MODEL，并提供 ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN'
+      );
     }
 
     return createLlmClient({
       provider,
       apiKey,
+      authToken,
       model,
       baseUrl: env.ANTHROPIC_BASE_URL,
       anthropicVersion: env.ANTHROPIC_VERSION,
