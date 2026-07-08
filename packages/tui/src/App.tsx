@@ -5,6 +5,7 @@ import TextInput from 'ink-text-input';
 import {
   AgentRuntime,
   type AgentMode,
+  type AgentResult,
   type ConfigImportController,
   type ConfigImportPrompt,
   type ContextInspection,
@@ -47,10 +48,21 @@ export function App({
     [configImportController]
   );
   const [runtimeGeneration, setRuntimeGeneration] = useState(0);
-  const agentRuntime = useMemo(
-    () => runtime ?? createRuntime?.() ?? createMemoryRuntime(),
-    [createRuntime, runtime, runtimeGeneration]
-  );
+  // 运行时创建可能因环境变量/配置不完整而抛错（例如只配了 AGENT_LLM_PROVIDER
+  // 却缺少 key/model），这里兜底回退到未配置模型的本地 runtime，避免 TUI 启动即崩溃。
+  const { runtime: agentRuntime, error: runtimeError } = useMemo(() => {
+    try {
+      return {
+        runtime: runtime ?? createRuntime?.() ?? createMemoryRuntime(),
+        error: undefined
+      };
+    } catch (error) {
+      return {
+        runtime: createMemoryRuntime(),
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }, [createRuntime, runtime, runtimeGeneration]);
   const [importPrompt, setImportPrompt] = useState<ConfigImportPrompt | undefined>(
     initialImportPrompt
   );
@@ -76,27 +88,65 @@ export function App({
         ]
       : [])
   ]);
+  const nextMessageIdRef = useRef(initialImportPrompt ? 3 : 2);
   const processingRef = useRef(false);
   const queueRef = useRef<string[]>([]);
 
   const append = useCallback((from: Message['from'], text: string) => {
+    const id = nextMessageIdRef.current;
+    nextMessageIdRef.current += 1;
     setMessages((current) => [
       ...current,
       {
-        id: current.length + 1,
+        id,
         from,
         text
       }
     ]);
+    return id;
+  }, []);
+
+  const updateMessage = useCallback((id: number, text: string) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id ? { ...message, text } : message
+      )
+    );
   }, []);
 
   const runTurn = useCallback(async (prompt: string) => {
     setStatus('responding');
-    const result = await agentRuntime.run({
-      input: prompt,
-      requestedMode: mode,
-      approvals: { plan: false }
-    });
+    let streamedMessageId: number | undefined;
+    let streamedText = '';
+    let result: AgentResult | undefined;
+
+    try {
+      for await (const event of agentRuntime.runStreaming({
+        input: prompt,
+        requestedMode: mode,
+        approvals: { plan: false }
+      })) {
+        if (event.type === 'text-delta') {
+          streamedText += event.text;
+          if (streamedMessageId === undefined) {
+            streamedMessageId = append('agent', streamedText);
+          } else {
+            updateMessage(streamedMessageId, streamedText);
+          }
+        } else {
+          result = event.result;
+        }
+      }
+    } catch (error) {
+      append('agent', `运行出错：${error instanceof Error ? error.message : String(error)}`);
+      setStatus('ready');
+      return;
+    }
+
+    if (!result) {
+      setStatus('ready');
+      return;
+    }
 
     if (result.mode === 'cross-repo' && result.status === 'cancelled') {
       setStatus('waiting-approval');
@@ -112,9 +162,13 @@ export function App({
       return;
     }
 
-    append('agent', result.summary);
+    if (streamedMessageId !== undefined) {
+      updateMessage(streamedMessageId, result.summary);
+    } else {
+      append('agent', result.summary);
+    }
     setStatus('ready');
-  }, [agentRuntime, append, mode]);
+  }, [agentRuntime, append, mode, updateMessage]);
 
   const chooseToolApproval = useCallback(async (approved: boolean) => {
     if (!pendingToolApproval) {
@@ -122,12 +176,30 @@ export function App({
     }
 
     setStatus('responding');
-    const result = await agentRuntime.resolveToolApproval({
-      runId: pendingToolApproval.runId,
-      approved
-    });
     setPendingToolApproval(undefined);
     append('agent', approved ? '已批准工具调用，继续执行。' : '已拒绝工具调用，继续让模型调整方案。');
+
+    let result: AgentResult;
+    try {
+      result = await agentRuntime.resolveToolApproval({
+        runId: pendingToolApproval.runId,
+        approved
+      });
+    } catch (error) {
+      append('agent', `处理审批时出错：${error instanceof Error ? error.message : String(error)}`);
+      setStatus('ready');
+      return;
+    }
+
+    // 模型可能在同一轮里继续请求其他高风险工具，需要再次进入审批。
+    if (result.status === 'approval-required' && result.pendingApproval) {
+      setStatus('approval-required');
+      setPendingToolApproval(result.pendingApproval);
+      setApprovalSelection('approve');
+      append('agent', result.summary);
+      return;
+    }
+
     append('agent', result.summary);
     setStatus('ready');
   }, [agentRuntime, append, pendingToolApproval]);
@@ -223,6 +295,11 @@ export function App({
           {queueLength > 0 ? ` | 队列：${queueLength}` : ''}
         </Text>
         <Text dimColor>/help for help, /context for context, /mode to switch mode</Text>
+        {runtimeError ? (
+          <Text color="red">
+            模型配置加载失败：{runtimeError}（已回退为未配置模型的本地运行时）
+          </Text>
+        ) : null}
       </Box>
 
       <Box flexDirection="column" marginTop={1}>
@@ -389,7 +466,7 @@ function handleImportCommand(input: {
   setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void;
   refreshRuntime: () => void;
 }): void {
-  if (!input.configImportController || !input.importPrompt) {
+  if (!input.configImportController) {
     input.append('agent', '当前没有可导入的 Claude Code 或 Codex 配置。');
     return;
   }
@@ -421,7 +498,10 @@ function handleImportCommand(input: {
         `配置文件: ${result.configPath}`,
         `provider: ${result.config.llm?.provider}`,
         `model: ${result.config.llm?.model}`,
-        `baseUrl: ${result.config.llm?.baseUrl ?? '默认'}`
+        `baseUrl: ${result.config.llm?.baseUrl ?? '默认'}`,
+        `credential: ${
+          result.config.llm?.apiKey || result.config.llm?.authToken ? '已配置' : '未配置'
+        }`
       ].join('\n')
     );
   } catch (error) {
@@ -452,10 +532,11 @@ function formatImportPrompt(prompt: ConfigImportPrompt): string {
   ].join('\n');
 }
 
-function formatImportUsage(prompt: ConfigImportPrompt): string {
-  const commands = prompt.candidates
-    .map((candidate) => `/import ${candidate.source}`)
-    .join(' | ');
+function formatImportUsage(prompt: ConfigImportPrompt | undefined): string {
+  const commands =
+    prompt?.candidates.length
+      ? prompt.candidates.map((candidate) => `/import ${candidate.source}`).join(' | ')
+      : '/import claude | /import codex';
   return `用法：${commands} | /import skip`;
 }
 

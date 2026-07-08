@@ -20,10 +20,20 @@ describe('createRuntimeOptionsFromEnv', () => {
   });
 
   it('omits LLM client when provider env is not configured', () => {
-    const options = createRuntimeOptionsFromEnv('/tmp/local-agent', {});
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-runtime-home-'));
+    try {
+      const options = createRuntimeOptionsFromEnv(
+        '/tmp/local-agent',
+        {},
+        undefined,
+        { homeDir }
+      );
 
-    expect(options.traceStore).toBeDefined();
-    expect(options.llmClient).toBeUndefined();
+      expect(options.traceStore).toBeDefined();
+      expect(options.llmClient).toBeUndefined();
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 
   it('uses saved Kross config when provider env is not configured', async () => {

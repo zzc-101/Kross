@@ -62,6 +62,32 @@ describe('App', () => {
     expect(lastFrame()).toContain('你好，我在。');
   });
 
+  it('renders streaming deltas before the final response completes', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const llmClient = new ControlledStreamingLlmClient();
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    const submission = submit?.('nihao');
+
+    await waitUntil(() => lastFrame()?.includes('流') === true);
+    expect(lastFrame()).toContain('流');
+    expect(lastFrame()).not.toContain('流式完成');
+
+    llmClient.releaseFinalChunk();
+    await submission;
+    await waitUntil(() => lastFrame()?.includes('流式完成') === true);
+
+    expect(lastFrame()).toContain('status: ready');
+    expect(lastFrame()).toContain('流式完成');
+  });
+
   it('shows model configuration guidance instead of fake completion text', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);
@@ -205,6 +231,69 @@ describe('App', () => {
     }
   });
 
+  it('can explicitly reimport config when the first-launch prompt is hidden', async () => {
+    const homeDir = createTempHome();
+    try {
+      mkdirSync(join(homeDir, '.kross'), { recursive: true });
+      mkdirSync(join(homeDir, '.claude'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.kross/config.json'),
+        JSON.stringify({
+          llm: {
+            provider: 'openai',
+            apiKey: 'old-key',
+            model: 'old-model'
+          }
+        })
+      );
+      writeFileSync(
+        join(homeDir, '.claude/settings.json'),
+        JSON.stringify({
+          model: 'sonnet',
+          env: {
+            ANTHROPIC_AUTH_TOKEN: 'claude-token',
+            ANTHROPIC_MODEL: 'GLM-4.5',
+            ANTHROPIC_BASE_URL: 'https://ark.example/api/coding'
+          }
+        })
+      );
+      let submit: ((value: string) => Promise<void>) | undefined;
+      const { lastFrame } = render(
+        <App
+          configImportController={createConfigImportController({
+            homeDir,
+            env: {},
+            pathEnv: ''
+          })}
+          onReady={(api) => (submit = api.submit)}
+        />
+      );
+
+      await waitUntil(() => submit !== undefined);
+      expect(lastFrame()).not.toContain('请选择一个导入');
+
+      await submit?.('/import claude');
+
+      expect(lastFrame()).toContain('已导入 Claude Code 配置');
+      expect(lastFrame()).toContain('credential: 已配置');
+      expect(
+        JSON.parse(readFileSync(join(homeDir, '.kross/config.json'), 'utf8'))
+      ).toMatchObject({
+        llm: {
+          provider: 'anthropic',
+          authToken: 'claude-token',
+          model: 'GLM-4.5',
+          baseUrl: 'https://ark.example/api/coding'
+        },
+        setup: {
+          importedFrom: 'claude'
+        }
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('can skip the first-launch config import prompt', async () => {
     const homeDir = createTempHome();
     try {
@@ -311,33 +400,53 @@ class FakeLlmClient implements LlmClient {
   }
 
   async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'text-delta', text: this.text };
     yield { type: 'done' };
+  }
+}
+
+class ControlledStreamingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  private release: (() => void) | undefined;
+
+  async complete(): Promise<LlmResponse> {
+    throw new Error('complete should not be used for streaming chat');
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'text-delta', text: '流' };
+    await new Promise<void>((resolve) => {
+      this.release = resolve;
+    });
+    yield { type: 'text-delta', text: '式完成' };
+    yield { type: 'done' };
+  }
+
+  releaseFinalChunk(): void {
+    this.release?.();
   }
 }
 
 class DelayedLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   readonly requests: LlmRequest[] = [];
-  private readonly resolvers: Array<(value: LlmResponse) => void> = [];
+  private readonly resolvers: Array<(value: string) => void> = [];
 
-  complete(request: LlmRequest): Promise<LlmResponse> {
-    this.requests.push(request);
-    return new Promise((resolve) => {
-      this.resolvers.push(resolve);
-    });
+  async complete(): Promise<LlmResponse> {
+    throw new Error('complete should not be used for streaming chat');
   }
 
   resolveNext(text: string): void {
     const resolve = this.resolvers.shift();
-    resolve?.({
-      provider: this.provider,
-      model: 'fake-model',
-      text,
-      raw: {}
-    });
+    resolve?.(text);
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    this.requests.push(request);
+    const text = await new Promise<string>((resolve) => {
+      this.resolvers.push(resolve);
+    });
+    yield { type: 'text-delta', text };
     yield { type: 'done' };
   }
 }
@@ -348,22 +457,6 @@ class WriteToolCallingLlmClient implements LlmClient {
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     this.requests.push(request);
-    if (this.requests.length === 1) {
-      return {
-        provider: this.provider,
-        model: 'fake-model',
-        text: '',
-        raw: {},
-        toolCalls: [
-          {
-            id: 'write-1',
-            name: 'fs.write',
-            input: { path: 'README.md', content: 'hello' }
-          }
-        ]
-      };
-    }
-
     return {
       provider: this.provider,
       model: 'fake-model',
@@ -372,7 +465,22 @@ class WriteToolCallingLlmClient implements LlmClient {
     };
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    this.requests.push(request);
+    if (this.requests.length === 1) {
+      yield {
+        type: 'tool-call',
+        call: {
+          id: 'write-1',
+          name: 'fs.write',
+          input: { path: 'README.md', content: 'hello' }
+        }
+      };
+      yield { type: 'done' };
+      return;
+    }
+
+    yield { type: 'text-delta', text: '写入完成' };
     yield { type: 'done' };
   }
 }
