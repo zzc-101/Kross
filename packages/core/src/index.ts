@@ -8,5 +8,6 @@ export * from './llm/types';
 export * from './modes/modeDetector';
 export * from './runtime/agentRuntime';
 export * from './tools/toolGateway';
+export * from './tools/permissionModes';
 export * from './tools/builtin';
 export * from './trace/traceStore';

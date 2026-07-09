@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
-import { Spinner } from '@inkjs/ui';
-import TextInput from 'ink-text-input';
+import { Box, useInput } from 'ink';
 
 import {
   AgentRuntime,
+  nextPermissionMode,
+  isPermissionMode,
   type AgentMode,
   type AgentResult,
   type ConfigImportController,
@@ -12,15 +12,23 @@ import {
   type ContextInspection,
   type ExternalAgentSource,
   type PendingToolApproval,
+  type PermissionMode,
   type TraceEvent,
   type TraceStore
 } from '@kross/core';
 
-interface Message {
-  id: number;
-  from: 'user' | 'agent';
-  text: string;
-}
+import {
+  ApprovalPanel,
+  Composer,
+  filterSlashCommands,
+  formatSlashHelp,
+  HeaderBar,
+  MessageList,
+  SessionTip,
+  SlashSuggest,
+  ThinkingIndicator,
+  type ChatMessage
+} from './ui';
 
 export interface AppProps {
   runtime?: AgentRuntime;
@@ -68,13 +76,19 @@ export function App({
     initialImportPrompt
   );
   const [mode, setMode] = useState<AgentMode>(initialMode);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() =>
+    agentRuntime.getPermissionMode()
+  );
   const [input, setInput] = useState('');
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);
   const [pendingToolApproval, setPendingToolApproval] = useState<PendingToolApproval | undefined>();
   const [awaitingReply, setAwaitingReply] = useState(false);
+  const [loadingVariant, setLoadingVariant] = useState<'thinking' | 'tool'>('thinking');
+  const [streamingMessageId, setStreamingMessageId] = useState<number | undefined>();
   const [approvalSelection, setApprovalSelection] = useState<'approve' | 'reject'>('approve');
-  const [messages, setMessages] = useState<Message[]>(() => [
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       id: 1,
       from: 'agent',
@@ -94,7 +108,20 @@ export function App({
   const processingRef = useRef(false);
   const queueRef = useRef<string[]>([]);
 
-  const append = useCallback((from: Message['from'], text: string) => {
+  useEffect(() => {
+    setPermissionMode(agentRuntime.getPermissionMode());
+  }, [agentRuntime]);
+
+  const slashSuggestions = useMemo(
+    () => filterSlashCommands(input),
+    [input]
+  );
+
+  useEffect(() => {
+    setSlashSelectedIndex(0);
+  }, [input]);
+
+  const append = useCallback((from: ChatMessage['from'], text: string) => {
     const id = nextMessageIdRef.current;
     nextMessageIdRef.current += 1;
     setMessages((current) => [
@@ -108,6 +135,13 @@ export function App({
     return id;
   }, []);
 
+  const cyclePermissionMode = useCallback(() => {
+    const next = nextPermissionMode(permissionMode);
+    agentRuntime.setPermissionMode(next);
+    setPermissionMode(next);
+    append('agent', `已切换权限模式：${next}（shift+tab）`);
+  }, [agentRuntime, append, permissionMode]);
+
   const updateMessage = useCallback((id: number, text: string) => {
     setMessages((current) =>
       current.map((message) =>
@@ -119,6 +153,8 @@ export function App({
   const runTurn = useCallback(async (prompt: string) => {
     setStatus('responding');
     setAwaitingReply(true);
+    setLoadingVariant('thinking');
+    setStreamingMessageId(undefined);
     let streamedMessageId: number | undefined;
     let streamedText = '';
     let result: AgentResult | undefined;
@@ -134,23 +170,27 @@ export function App({
           if (streamedMessageId === undefined) {
             setAwaitingReply(false);
             streamedMessageId = append('agent', streamedText);
+            setStreamingMessageId(streamedMessageId);
           } else {
             updateMessage(streamedMessageId, streamedText);
           }
         } else {
           result = event.result;
           setAwaitingReply(false);
+          setStreamingMessageId(undefined);
         }
       }
     } catch (error) {
       append('agent', `运行出错：${error instanceof Error ? error.message : String(error)}`);
       setStatus('ready');
       setAwaitingReply(false);
+      setStreamingMessageId(undefined);
       return;
     }
 
     if (!result) {
       setStatus('ready');
+      setStreamingMessageId(undefined);
       return;
     }
 
@@ -182,6 +222,8 @@ export function App({
     }
 
     setStatus('responding');
+    setAwaitingReply(true);
+    setLoadingVariant('tool');
     setPendingToolApproval(undefined);
     append('agent', approved ? '已批准工具调用，继续执行。' : '已拒绝工具调用，继续让模型调整方案。');
 
@@ -194,12 +236,14 @@ export function App({
     } catch (error) {
       append('agent', `处理审批时出错：${error instanceof Error ? error.message : String(error)}`);
       setStatus('ready');
+      setAwaitingReply(false);
       return;
     }
 
     // 模型可能在同一轮里继续请求其他高风险工具，需要再次进入审批。
     if (result.status === 'approval-required' && result.pendingApproval) {
       setStatus('approval-required');
+      setAwaitingReply(false);
       setPendingToolApproval(result.pendingApproval);
       setApprovalSelection('approve');
       append('agent', result.summary);
@@ -207,28 +251,64 @@ export function App({
     }
 
     append('agent', result.summary);
+    setAwaitingReply(false);
     setStatus('ready');
   }, [agentRuntime, append, pendingToolApproval]);
 
   useInput((inputKey, key) => {
-    if (!pendingToolApproval) {
+    if (key.shift && key.tab && !pendingToolApproval) {
+      cyclePermissionMode();
       return;
     }
 
-    if (key.leftArrow || key.rightArrow || inputKey.toLowerCase() === 'tab') {
-      setApprovalSelection((current) => (current === 'approve' ? 'reject' : 'approve'));
+    if (pendingToolApproval) {
+      if (key.leftArrow || key.rightArrow || inputKey.toLowerCase() === 'tab') {
+        setApprovalSelection((current) => (current === 'approve' ? 'reject' : 'approve'));
+        return;
+      }
+      if (inputKey.toLowerCase() === 'a') {
+        void chooseToolApproval(true);
+        return;
+      }
+      if (inputKey.toLowerCase() === 'r') {
+        void chooseToolApproval(false);
+        return;
+      }
+      if (key.return) {
+        void chooseToolApproval(approvalSelection === 'approve');
+      }
       return;
     }
-    if (inputKey.toLowerCase() === 'a') {
-      void chooseToolApproval(true);
+
+    if (slashSuggestions.length === 0) {
       return;
     }
-    if (inputKey.toLowerCase() === 'r') {
-      void chooseToolApproval(false);
+
+    if (key.escape) {
+      setInput('');
       return;
     }
-    if (key.return) {
-      void chooseToolApproval(approvalSelection === 'approve');
+
+    if (key.upArrow) {
+      setSlashSelectedIndex((current) =>
+        current <= 0 ? slashSuggestions.length - 1 : current - 1
+      );
+      return;
+    }
+
+    if (key.downArrow) {
+      setSlashSelectedIndex((current) =>
+        current >= slashSuggestions.length - 1 ? 0 : current + 1
+      );
+      return;
+    }
+
+    if (key.tab) {
+      const selected = slashSuggestions[slashSelectedIndex] ?? slashSuggestions[0];
+      if (selected) {
+        setInput(`${selected.name} `);
+      }
+      return;
     }
   });
 
@@ -236,6 +316,18 @@ export function App({
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       return;
+    }
+
+    // 斜杠提示打开时，若当前输入只是前缀，Enter 先补全选中命令。
+    if (
+      slashSuggestions.length > 0 &&
+      !slashSuggestions.some((command) => command.name === trimmed || trimmed.startsWith(`${command.name} `))
+    ) {
+      const selected = slashSuggestions[slashSelectedIndex] ?? slashSuggestions[0];
+      if (selected && trimmed !== selected.name) {
+        setInput(`${selected.name} `);
+        return;
+      }
     }
 
     setInput('');
@@ -246,6 +338,7 @@ export function App({
         trimmed,
         append,
         setMode,
+        setPermissionMode,
         agentRuntime,
         mode,
         importPrompt,
@@ -282,7 +375,9 @@ export function App({
     configImportController,
     importPrompt,
     mode,
-    runTurn
+    runTurn,
+    slashSelectedIndex,
+    slashSuggestions
   ]);
 
   useEffect(() => {
@@ -290,101 +385,45 @@ export function App({
   }, [chooseToolApproval, onReady, submit]);
 
   return (
-    <Box flexDirection="column">
-      <Box borderStyle="round" flexDirection="column" paddingX={1}>
-        <Text>
-          <Text bold>Kross</Text>
-          <Text> v0.1.0</Text>
-        </Text>
-        <Text>
-          Welcome | project: {projectName} | mode: {mode} | status: {status}
-          {queueLength > 0 ? ` | 队列：${queueLength}` : ''}
-        </Text>
-        <Text dimColor>/help for help, /context for context, /mode to switch mode</Text>
-        {runtimeError ? (
-          <Text color="red">
-            模型配置加载失败：{runtimeError}（已回退为未配置模型的本地运行时）
-          </Text>
-        ) : null}
-      </Box>
+    <Box flexDirection="column" paddingX={1} paddingY={1}>
+      <HeaderBar
+        projectName={projectName}
+        mode={mode}
+        status={status}
+        queueLength={queueLength}
+        permissionMode={permissionMode}
+        runtimeError={runtimeError}
+      />
 
-      <Box flexDirection="column" marginTop={1}>
-        <Text dimColor>Tip: 用自然语言描述任务；跨仓库任务会先暂停等待确认。</Text>
-        <Text dimColor> </Text>
-        {messages.map((message) => (
-          <MessageLine key={message.id} message={message} />
-        ))}
-        {status === 'responding' && awaitingReply ? (
-          <Box>
-            <Spinner />
-            <Text> 思考中…</Text>
-          </Box>
-        ) : null}
-        {pendingToolApproval ? (
-          <ApprovalPanel
-            approval={pendingToolApproval}
-            selection={approvalSelection}
-          />
-        ) : null}
-      </Box>
+      <SessionTip />
 
-      <Box marginTop={1}>
-        <Text dimColor>/help  /context  /mode auto|normal|cross-repo  /trace  /diff</Text>
-      </Box>
+      <MessageList messages={messages} streamingMessageId={streamingMessageId} />
 
-      {pendingToolApproval ? null : (
-        <Box>
-          <Text>{'> '}</Text>
-          <TextInput value={input} onChange={setInput} onSubmit={submit} />
-        </Box>
-      )}
-    </Box>
-  );
-}
+      <ThinkingIndicator
+        active={status === 'responding' && awaitingReply}
+        variant={loadingVariant}
+      />
 
-function ApprovalPanel({
-  approval,
-  selection
-}: {
-  approval: PendingToolApproval;
-  selection: 'approve' | 'reject';
-}) {
-  return (
-    <Box borderStyle="round" flexDirection="column" paddingX={1} marginTop={1}>
-      <Text color="yellow" bold>需要确认工具调用</Text>
-      <Text>tool: {approval.toolName}</Text>
-      <Text>risk: {approval.risk}</Text>
-      <Text>input: {approval.inputPreview}</Text>
-      {approval.reason ? <Text>reason: {approval.reason}</Text> : null}
-      <Box marginTop={1}>
-        <Text color={selection === 'approve' ? 'green' : undefined}>
-          {selection === 'approve' ? '❯ ' : '  '}Approve
-        </Text>
-        <Text>  </Text>
-        <Text color={selection === 'reject' ? 'red' : undefined}>
-          {selection === 'reject' ? '❯ ' : '  '}Reject
-        </Text>
-      </Box>
-      <Text dimColor>←/→ 切换，Enter 确认；也可按 a/r。</Text>
-    </Box>
-  );
-}
+      {pendingToolApproval ? (
+        <ApprovalPanel
+          approval={pendingToolApproval}
+          selection={approvalSelection}
+        />
+      ) : null}
 
-function MessageLine({ message }: { message: Message }) {
-  if (message.from === 'user') {
-    return <Text>{message.text}</Text>;
-  }
+      {!pendingToolApproval && slashSuggestions.length > 0 ? (
+        <SlashSuggest
+          commands={slashSuggestions}
+          selectedIndex={slashSelectedIndex}
+        />
+      ) : null}
 
-  return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Text color="cyan" bold>
-        Agent
-      </Text>
-      {message.text.split('\n').map((line, index) => (
-        <Text key={`${message.id}-${index}`} color="cyan">
-          {line}
-        </Text>
-      ))}
+      <Composer
+        value={input}
+        onChange={setInput}
+        onSubmit={submit}
+        disabled={Boolean(pendingToolApproval)}
+      />
     </Box>
   );
 }
@@ -395,8 +434,9 @@ function createMemoryRuntime(): AgentRuntime {
 
 function handleCommand(
   value: string,
-  append: (from: Message['from'], text: string) => void,
+  append: (from: ChatMessage['from'], text: string) => void,
   setMode: (mode: AgentMode) => void,
+  setPermissionMode: (mode: PermissionMode) => void,
   runtime: AgentRuntime,
   mode: AgentMode,
   importPrompt: ConfigImportPrompt | undefined,
@@ -409,15 +449,15 @@ function handleCommand(
   }
 
   if (value === '/help') {
-    append(
-      'agent',
-      '可用命令：/context，/import claude|codex|skip，/mode auto|normal|cross-repo，/trace，/diff，/help，/status'
-    );
+    append('agent', formatSlashHelp());
     return true;
   }
 
   if (value === '/status') {
-    append('agent', '当前运行在本地 TUI。模型、trace 和 registry 状态会在后续版本展开。');
+    append(
+      'agent',
+      `当前运行在本地 TUI。mode=${mode} · perm=${runtime.getPermissionMode()}`
+    );
     return true;
   }
 
@@ -462,6 +502,28 @@ function handleCommand(
     return true;
   }
 
+  if (value === '/perm') {
+    append('agent', '用法：/perm default|classifier|auto · 也可按 shift+tab 循环切换');
+    return true;
+  }
+
+  if (value.startsWith('/perm ')) {
+    const nextPerm = value.replace('/perm ', '').trim();
+    if (isPermissionMode(nextPerm)) {
+      runtime.setPermissionMode(nextPerm);
+      setPermissionMode(nextPerm);
+      append('agent', `已切换权限模式：${nextPerm}`);
+    } else {
+      append('agent', '未知权限模式，可选：default、classifier、auto');
+    }
+    return true;
+  }
+
+  if (value === '/trace' || value === '/diff') {
+    append('agent', `${value} 将在后续版本展开。`);
+    return true;
+  }
+
   append('agent', `未知命令：${value}。输入 /help 查看可用命令。`);
   return true;
 }
@@ -472,7 +534,7 @@ function isAgentMode(value: string): value is AgentMode {
 
 function handleImportCommand(input: {
   value: string;
-  append: (from: Message['from'], text: string) => void;
+  append: (from: ChatMessage['from'], text: string) => void;
   importPrompt: ConfigImportPrompt | undefined;
   configImportController: ConfigImportController | undefined;
   setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void;

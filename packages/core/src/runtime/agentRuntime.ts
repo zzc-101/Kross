@@ -26,6 +26,10 @@ import {
   type ToolMetadata,
   type ToolResult
 } from '../tools/toolGateway';
+import {
+  createApprovalPolicy,
+  type PermissionMode
+} from '../tools/permissionModes';
 import type { TraceStore } from '../trace/traceStore';
 
 export interface AgentRuntimeOptions {
@@ -108,6 +112,7 @@ export class AgentRuntime extends EventEmitter {
   private readonly contextManager: ContextManager;
   private readonly toolGateway: ToolGateway | undefined;
   private readonly pendingToolSessions = new Map<string, PendingToolSession>();
+  private permissionMode: PermissionMode = 'default';
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
@@ -116,6 +121,18 @@ export class AgentRuntime extends EventEmitter {
     this.now = options.now ?? (() => new Date());
     this.contextManager = options.contextManager ?? new InMemoryContextManager();
     this.toolGateway = options.toolGateway;
+    if (this.toolGateway) {
+      this.toolGateway.setApprovalPolicy(createApprovalPolicy(this.permissionMode));
+    }
+  }
+
+  getPermissionMode(): PermissionMode {
+    return this.permissionMode;
+  }
+
+  setPermissionMode(mode: PermissionMode): void {
+    this.permissionMode = mode;
+    this.toolGateway?.setApprovalPolicy(createApprovalPolicy(mode));
   }
 
   async run(input: AgentRunInput): Promise<AgentResult> {
@@ -677,6 +694,25 @@ export class AgentRuntime extends EventEmitter {
         });
       } catch (error) {
         if (error instanceof ToolPermissionError) {
+          // 策略直接 deny 时，不打断成人工审批，而是把拒绝结果回填给模型。
+          if (error.action === 'deny') {
+            const deniedContent = `Tool ${call.name} denied by policy: ${error.reason ?? error.message}`;
+            this.contextManager.recordToolResult({
+              id: call.id,
+              toolName: call.name,
+              inputPreview: JSON.stringify(call.input).slice(0, 200),
+              output: deniedContent,
+              summary: `denied: ${error.reason ?? error.risk}`
+            });
+            toolMessages.push({
+              role: 'tool',
+              toolCallId: call.id,
+              name: call.name,
+              content: deniedContent
+            });
+            continue;
+          }
+
           const session: PendingToolSession = {
             runId: input.runId,
             mode: input.mode,

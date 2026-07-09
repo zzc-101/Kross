@@ -80,13 +80,21 @@ export interface ToolGatewayOptions {
 export class ToolGateway {
   private readonly tools = new Map<string, ToolDefinition>();
   private readonly now: () => Date;
-  private readonly approvalPolicy: ToolApprovalPolicy;
+  private approvalPolicy: ToolApprovalPolicy;
   private readonly maxSummaryChars: number;
 
   constructor(private readonly options: ToolGatewayOptions = {}) {
     this.now = options.now ?? (() => new Date());
     this.approvalPolicy = options.approvalPolicy ?? defaultApprovalPolicy;
     this.maxSummaryChars = options.maxSummaryChars ?? 240;
+  }
+
+  setApprovalPolicy(policy: ToolApprovalPolicy): void {
+    this.approvalPolicy = policy;
+  }
+
+  getApprovalPolicy(): ToolApprovalPolicy {
+    return this.approvalPolicy;
   }
 
   register<TInput>(definition: ToolDefinition<TInput>): void {
@@ -125,7 +133,12 @@ export class ToolGateway {
         risk: definition.risk,
         reason: approval.reason
       });
-      throw new ToolPermissionError(input.name, definition.risk, approval.reason);
+      throw new ToolPermissionError(
+        input.name,
+        definition.risk,
+        approval.reason,
+        'deny'
+      );
     }
     if (approval.action === 'ask' && input.approved !== true) {
       await this.record(input.runId, 'tool_call.approval_required', {
@@ -133,7 +146,12 @@ export class ToolGateway {
         risk: definition.risk,
         reason: approval.reason
       });
-      throw new ToolPermissionError(input.name, definition.risk, approval.reason);
+      throw new ToolPermissionError(
+        input.name,
+        definition.risk,
+        approval.reason,
+        'ask'
+      );
     }
 
     await this.record(input.runId, 'tool_call.started', {
@@ -213,7 +231,8 @@ export class ToolPermissionError extends Error {
   constructor(
     readonly toolName: string,
     readonly risk: ToolRisk,
-    readonly reason?: string
+    readonly reason?: string,
+    readonly action: Exclude<ToolApprovalAction, 'allow'> = 'ask'
   ) {
     super(
       reason

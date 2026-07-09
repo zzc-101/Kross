@@ -25,9 +25,11 @@ describe('App', () => {
 
     expect(lastFrame()).toContain('Kross');
     expect(lastFrame()).toContain('Welcome');
-    expect(lastFrame()).toContain('mode: auto');
+    expect(lastFrame()).toContain('auto');
+    expect(lastFrame()).toContain('ready');
+    expect(lastFrame()).toContain('perm: default');
     expect(lastFrame()).toContain('/help');
-    expect(lastFrame()).toContain('>');
+    expect(lastFrame()).toContain('❯');
     expect(lastFrame()).not.toContain('Task Tree');
     expect(lastFrame()).not.toContain('Conversation');
   });
@@ -38,9 +40,10 @@ describe('App', () => {
 
     await waitUntil(() => submit !== undefined);
     await submit?.('给巡检任务增加任务来源字段');
-    await waitUntil(() => lastFrame()?.includes('> 给巡检任务增加任务来源字段') === true);
+    await waitUntil(() => lastFrame()?.includes('给巡检任务增加任务来源字段') === true);
 
-    expect(lastFrame()).toContain('> 给巡检任务增加任务来源字段');
+    expect(lastFrame()).toContain('you');
+    expect(lastFrame()).toContain('给巡检任务增加任务来源字段');
   });
 
   it('responds with LLM text and returns to waiting input', async () => {
@@ -57,8 +60,8 @@ describe('App', () => {
     await submit?.('nihao');
     await waitUntil(() => lastFrame()?.includes('你好，我在。') === true);
 
-    expect(lastFrame()).toContain('status: ready');
-    expect(lastFrame()).toContain('Agent');
+    expect(lastFrame()).toContain('ready');
+    expect(lastFrame()).toContain('kross');
     expect(lastFrame()).toContain('你好，我在。');
   });
 
@@ -84,7 +87,7 @@ describe('App', () => {
     await submission;
     await waitUntil(() => lastFrame()?.includes('流式完成') === true);
 
-    expect(lastFrame()).toContain('status: ready');
+    expect(lastFrame()).toContain('ready');
     expect(lastFrame()).toContain('流式完成');
   });
 
@@ -332,7 +335,7 @@ describe('App', () => {
   it('shows selectable approval options for risky tool calls and resumes after approval', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     let chooseToolApproval: ((approved: boolean) => Promise<void>) | undefined;
-    const llmClient = new WriteToolCallingLlmClient();
+    const llmClient = new WriteToolCallingLlmClient({ delayFollowup: true });
     const toolGateway = new ToolGateway({ traceStore: new InMemoryTraceStore() });
     toolGateway.register({
       name: 'fs.write',
@@ -365,11 +368,59 @@ describe('App', () => {
     expect(lastFrame()).toContain('Reject');
     expect(lastFrame()).not.toContain('/approve');
 
-    await chooseToolApproval?.(true);
+    const approval = chooseToolApproval?.(true);
+    await waitUntil(() => lastFrame()?.includes('working') === true);
+    expect(lastFrame()).toContain('已批准工具调用');
+
+    llmClient.releaseFollowup();
+    await approval;
     await waitUntil(() => lastFrame()?.includes('写入完成') === true);
 
-    expect(lastFrame()).toContain('status: ready');
+    expect(lastFrame()).toContain('ready');
     expect(lastFrame()).toContain('写入完成');
+  });
+
+  it('cycles permission modes with /perm and reflects them in the header', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const toolGateway = new ToolGateway({ traceStore: new InMemoryTraceStore() });
+    toolGateway.register({
+      name: 'Write',
+      description: '写文件',
+      risk: 'write',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async ({ input }) => ({ content: `wrote ${input.path}` })
+    });
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      toolGateway
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    expect(lastFrame()).toContain('perm: default');
+
+    await submit?.('/perm classifier');
+    await waitUntil(() => lastFrame()?.includes('perm: classifier') === true);
+    expect(runtime.getPermissionMode()).toBe('classifier');
+
+    await submit?.('/perm auto');
+    await waitUntil(() => lastFrame()?.includes('perm: auto') === true);
+    expect(runtime.getPermissionMode()).toBe('auto');
+  });
+
+  it('shows slash command suggestions while typing a prefix', async () => {
+    const { lastFrame, stdin } = render(<App />);
+
+    stdin.write('/');
+    await waitUntil(() => lastFrame()?.includes('/help') === true);
+    expect(lastFrame()).toContain('查看可用命令');
+
+    stdin.write('mo');
+    await waitUntil(() => lastFrame()?.includes('/mode') === true);
+    expect(lastFrame()).toContain('切换 agent 模式');
+    expect(lastFrame()).not.toContain('/import');
   });
 });
 
@@ -454,15 +505,30 @@ class DelayedLlmClient implements LlmClient {
 class WriteToolCallingLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   readonly requests: LlmRequest[] = [];
+  private readonly delayFollowup: boolean;
+  private release: (() => void) | undefined;
+
+  constructor(options: { delayFollowup?: boolean } = {}) {
+    this.delayFollowup = options.delayFollowup === true;
+  }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     this.requests.push(request);
+    if (this.delayFollowup && this.requests.length > 1) {
+      await new Promise<void>((resolve) => {
+        this.release = resolve;
+      });
+    }
     return {
       provider: this.provider,
       model: 'fake-model',
       text: '写入完成',
       raw: {}
     };
+  }
+
+  releaseFollowup(): void {
+    this.release?.();
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
@@ -486,12 +552,13 @@ class WriteToolCallingLlmClient implements LlmClient {
 }
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 10; attempt++) {
+  for (let attempt = 0; attempt < 50; attempt++) {
     if (predicate()) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
+  throw new Error('waitUntil timed out');
 }
 
 function createTempHome(): string {
