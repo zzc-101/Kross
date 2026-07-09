@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { Spinner } from '@inkjs/ui';
 import TextInput from 'ink-text-input';
 
 import {
@@ -71,6 +72,7 @@ export function App({
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);
   const [pendingToolApproval, setPendingToolApproval] = useState<PendingToolApproval | undefined>();
+  const [awaitingReply, setAwaitingReply] = useState(false);
   const [approvalSelection, setApprovalSelection] = useState<'approve' | 'reject'>('approve');
   const [messages, setMessages] = useState<Message[]>(() => [
     {
@@ -116,6 +118,7 @@ export function App({
 
   const runTurn = useCallback(async (prompt: string) => {
     setStatus('responding');
+    setAwaitingReply(true);
     let streamedMessageId: number | undefined;
     let streamedText = '';
     let result: AgentResult | undefined;
@@ -129,17 +132,20 @@ export function App({
         if (event.type === 'text-delta') {
           streamedText += event.text;
           if (streamedMessageId === undefined) {
+            setAwaitingReply(false);
             streamedMessageId = append('agent', streamedText);
           } else {
             updateMessage(streamedMessageId, streamedText);
           }
         } else {
           result = event.result;
+          setAwaitingReply(false);
         }
       }
     } catch (error) {
       append('agent', `运行出错：${error instanceof Error ? error.message : String(error)}`);
       setStatus('ready');
+      setAwaitingReply(false);
       return;
     }
 
@@ -308,6 +314,12 @@ export function App({
         {messages.map((message) => (
           <MessageLine key={message.id} message={message} />
         ))}
+        {status === 'responding' && awaitingReply ? (
+          <Box>
+            <Spinner />
+            <Text> 思考中…</Text>
+          </Box>
+        ) : null}
         {pendingToolApproval ? (
           <ApprovalPanel
             approval={pendingToolApproval}
