@@ -1,54 +1,63 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-import { riskTone, symbols, theme } from './theme';
-import { usePulse } from './usePulse';
 import type { ToolCallState } from './MessageLine';
+import { symbols, theme } from './theme';
+import { usePulse } from './usePulse';
+import {
+  ensureToolItems,
+  formatToolTitle
+} from './toolDisplay';
 
-export function ToolCallCard({ tool }: { tool: ToolCallState }) {
+/**
+ * 工具调用单行摘要；可展开看明细（尤其是 Read N files 聚合）。
+ * 终端里用 ctrl+e 切换最近一条工具组展开/折叠。
+ */
+export function ToolCallCard({
+  tool,
+  expanded = false
+}: {
+  tool: ToolCallState;
+  expanded?: boolean;
+}) {
   const spinner = usePulse(symbols.busyFrames, 80, tool.status === 'running');
-  const riskColor = riskTone(tool.risk ?? 'write');
+  const items = ensureToolItems(tool);
+  const title = formatToolTitle({ ...tool, items });
   const statusLabel = formatToolStatus(tool.status, spinner);
   const statusColor = toolStatusColor(tool.status);
-  const inputLine = tool.inputPreview
-    ? truncate(formatInputPreview(tool.inputPreview), 72)
-    : undefined;
+  const chevron = expanded ? '▾' : '▸';
+  const canExpand = items.length > 0;
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column" marginBottom={0}>
       <Box>
-        <Text color={theme.border}>{symbols.boxTopLeft} </Text>
-        <Text bold color={theme.brand}>
-          {tool.name}
-        </Text>
-        {tool.risk ? (
-          <Text color={riskColor}> · {tool.risk}</Text>
-        ) : null}
+        <Text dimColor>{canExpand ? `${chevron} ` : '  '}</Text>
+        <Text color={theme.brand}>{title}</Text>
         <Text dimColor>  </Text>
         <Text color={statusColor}>{statusLabel}</Text>
-        {tool.durationMs !== undefined && tool.status !== 'running' ? (
+        {tool.durationMs !== undefined &&
+        tool.status !== 'running' &&
+        items.length === 1 ? (
           <Text dimColor> · {formatDuration(tool.durationMs)}</Text>
+        ) : null}
+        {canExpand && !expanded && items.length > 1 ? (
+          <Text dimColor> · ctrl+e</Text>
         ) : null}
       </Box>
 
-      {inputLine ? (
-        <Box>
-          <Text color={theme.border}>{symbols.boxVertical} </Text>
-          <Text dimColor>{inputLine}</Text>
-        </Box>
-      ) : null}
-
-      {tool.summary && tool.status !== 'running' ? (
-        <Box>
-          <Text color={theme.border}>{symbols.boxVertical} </Text>
-          <Text>{truncate(tool.summary, 96)}</Text>
-        </Box>
-      ) : null}
-
-      <Text color={theme.border}>
-        {symbols.boxBottomLeft}
-        {symbols.boxHorizontal.repeat(28)}
-      </Text>
+      {expanded
+        ? items.map((item, index) => (
+            <Box key={item.callId ?? `${item.path ?? 'item'}-${index}`}>
+              <Text dimColor>  {symbols.systemPrefix} </Text>
+              <Text dimColor>
+                {item.path ?? item.preview ?? item.summary ?? tool.name}
+              </Text>
+              {item.status === 'failed' || item.status === 'denied' ? (
+                <Text color={theme.statusError}>  {item.status}</Text>
+              ) : null}
+            </Box>
+          ))
+        : null}
     </Box>
   );
 }
@@ -59,15 +68,15 @@ function formatToolStatus(
 ): string {
   switch (status) {
     case 'running':
-      return `${spinner} running`;
+      return `${spinner}`;
     case 'completed':
-      return `${symbols.toolOk} done`;
+      return symbols.toolOk;
     case 'failed':
-      return `${symbols.toolFail} failed`;
+      return symbols.toolFail;
     case 'denied':
-      return `${symbols.toolFail} denied`;
+      return symbols.toolFail;
     case 'awaiting':
-      return `${symbols.toolWait} awaiting`;
+      return symbols.toolWait;
     default:
       return status;
   }
@@ -88,48 +97,9 @@ function toolStatusColor(status: ToolCallState['status']): string {
   }
 }
 
-function formatInputPreview(raw: string): string {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const record = parsed as Record<string, unknown>;
-      if (typeof record.command === 'string') {
-        return `$ ${record.command}`;
-      }
-      if (typeof record.path === 'string') {
-        const extra =
-          typeof record.content === 'string'
-            ? ` (${record.content.length} chars)`
-            : typeof record.old_string === 'string'
-              ? ' patch'
-              : '';
-        return `${record.path}${extra}`;
-      }
-      if (typeof record.pattern === 'string') {
-        const path = typeof record.path === 'string' ? ` in ${record.path}` : '';
-        return `/${record.pattern}/${path}`;
-      }
-      if (typeof record.glob === 'string') {
-        return record.glob;
-      }
-    }
-  } catch {
-    // keep raw
-  }
-  return raw;
-}
-
 function formatDuration(ms: number): string {
   if (ms < 1000) {
     return `${ms}ms`;
   }
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function truncate(value: string, max: number): string {
-  const singleLine = value.replace(/\s+/g, ' ').trim();
-  if (singleLine.length <= max) {
-    return singleLine;
-  }
-  return `${singleLine.slice(0, Math.max(1, max - 1))}…`;
 }

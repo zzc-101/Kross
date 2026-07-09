@@ -21,16 +21,27 @@ import {
 import {
   ApprovalPanel,
   Composer,
+  buildToolState,
+  ensureToolItems,
   filterSlashCommands,
+  formatCwdLabel,
   formatSlashHelp,
+  formatToolTitle,
   HeaderBar,
-  MessageList,
-  SessionTip,
+  isAggregatableTool,
+  MessageViewport,
   SlashSuggest,
   ThinkingIndicator,
+  WelcomeHome,
+  useTerminalSize,
   type ChatMessage,
   type ToolCallState
 } from './ui';
+import {
+  mergeToolItem,
+  toToolItem
+} from './ui/toolDisplay';
+import { useMouseScroll } from './ui/useMouseScroll';
 
 export interface AppProps {
   runtime?: AgentRuntime;
@@ -39,6 +50,15 @@ export interface AppProps {
   initialMode?: AgentMode;
   projectName?: string;
   onReady?: (api: AppTestApi) => void;
+  /**
+   * 全屏应用壳：固定顶栏/底栏，中间消息视口裁剪滚动。
+   * 无 TTY 尺寸（测试环境）时自动退化为文档流布局。
+   */
+  fullscreen?: boolean;
+  /** 欢迎页展示用；默认 process.cwd() */
+  cwd?: string;
+  branch?: string;
+  version?: string;
 }
 
 export interface AppTestApi {
@@ -46,6 +66,7 @@ export interface AppTestApi {
   chooseToolApproval: (approved: boolean) => Promise<void>;
   setInput: (value: string) => void;
   toggleCollapse: () => void;
+  toggleToolGroup: () => void;
 }
 
 export function App({
@@ -54,8 +75,15 @@ export function App({
   configImportController,
   initialMode = 'auto',
   projectName = 'local',
-  onReady
+  onReady,
+  fullscreen = false,
+  cwd = process.cwd(),
+  branch,
+  version = '0.1.0'
 }: AppProps) {
+  const { columns, rows, isTty } = useTerminalSize();
+  const shellMode = fullscreen && isTty;
+  const cwdLabel = useMemo(() => formatCwdLabel(cwd), [cwd]);
   const initialImportPrompt = useMemo(
     () => configImportController?.getPrompt(),
     [configImportController]
@@ -96,23 +124,33 @@ export function App({
   const [streamingMessageId, setStreamingMessageId] = useState<number | undefined>();
   const [approvalSelection, setApprovalSelection] = useState<'approve' | 'reject'>('approve');
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [
-    {
-      id: 1,
-      from: 'agent',
-      text: '准备就绪。描述任务开始，或输入 /help。'
-    },
-    ...(initialImportPrompt
+  /** 消息视口向上滚动的行数；0 = 贴底 */
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const maxScrollOffsetRef = useRef(0);
+  // 新会话不预置 agent 欢迎气泡；首页用 WelcomeHome，首条用户消息后进入对话流
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    initialImportPrompt
       ? [
           {
-            id: 2,
+            id: 1,
             from: 'system' as const,
             text: formatImportPrompt(initialImportPrompt)
           }
         ]
-      : [])
-  ]);
-  const nextMessageIdRef = useRef(initialImportPrompt ? 3 : 2);
+      : []
+  );
+  const contextUsage = useMemo(
+    () =>
+      agentRuntime.getContextUsage({
+        requestedMode: mode,
+        currentUserInput: input,
+        env: process.env
+      }),
+    // messages / 工具结果变化后需要刷新占用
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 用长度与 generation 触发重算
+    [agentRuntime, mode, input, messages.length, runtimeGeneration, streamingMessageId]
+  );
+  const nextMessageIdRef = useRef(initialImportPrompt ? 2 : 1);
   const processingRef = useRef(false);
   const queueRef = useRef<string[]>([]);
   /** tool call 关联键 → 消息 id，用于 in-place 更新卡片状态 */
@@ -149,6 +187,8 @@ export function App({
           expanded: options.expanded
         }
       ]);
+      // 新消息时回到底部（跟读最新）
+      setScrollOffset(0);
       return id;
     },
     []
@@ -174,14 +214,22 @@ export function App({
     if (existingId !== undefined) {
       setMessages((current) =>
         current.map((message) => {
-          if (message.id !== existingId) {
+          if (message.id !== existingId || message.from !== 'tool' || !message.tool) {
             return message;
           }
-          const merged = mergeToolState(message.tool, tool);
+          const items = mergeToolItem(
+            ensureToolItems(message.tool),
+            toToolItem(tool)
+          );
+          const merged = buildToolState(
+            message.tool.name,
+            tool.risk ?? message.tool.risk,
+            items
+          );
           return {
             ...message,
             from: 'tool' as const,
-            text: merged.summary ?? merged.name,
+            text: formatToolTitle(merged),
             tool: merged
           };
         })
@@ -189,28 +237,78 @@ export function App({
       return existingId;
     }
 
-    const id = nextMessageIdRef.current;
-    nextMessageIdRef.current += 1;
-    toolMessageIdsRef.current.set(key, id);
-    setMessages((current) => [
-      ...current,
-      {
-        id,
-        from: 'tool',
-        text: tool.summary ?? tool.name,
-        createdAt: new Date().toISOString(),
-        tool
+    // React 的 setState updater 同步执行，便于拿到聚合后的 message id
+    const holder = { id: -1 };
+    setMessages((current) => {
+      const last = current[current.length - 1];
+      if (
+        last?.from === 'tool' &&
+        last.tool &&
+        last.tool.name === tool.name &&
+        isAggregatableTool(tool.name)
+      ) {
+        holder.id = last.id;
+        const items = mergeToolItem(ensureToolItems(last.tool), toToolItem(tool));
+        const merged = buildToolState(
+          last.tool.name,
+          tool.risk ?? last.tool.risk,
+          items
+        );
+        return current.map((message) =>
+          message.id === last.id
+            ? {
+                ...message,
+                text: formatToolTitle(merged),
+                tool: merged
+              }
+            : message
+        );
       }
-    ]);
-    return id;
+
+      const id = nextMessageIdRef.current;
+      nextMessageIdRef.current += 1;
+      holder.id = id;
+      const state = buildToolState(tool.name, tool.risk, [toToolItem(tool)]);
+      return [
+        ...current,
+        {
+          id,
+          from: 'tool' as const,
+          text: formatToolTitle(state),
+          createdAt: new Date().toISOString(),
+          tool: state,
+          expanded: false
+        }
+      ];
+    });
+
+    toolMessageIdsRef.current.set(key, holder.id);
+    setScrollOffset(0);
+    return holder.id;
   }, []);
 
-  /** 切换最近一条 thinking 的展开/折叠（正式回复不折叠）。 */
+  /** 切换最近一条 thinking 的展开/折叠。 */
   const toggleLastCollapsible = useCallback(() => {
     setMessages((current) => {
       for (let index = current.length - 1; index >= 0; index -= 1) {
         const message = current[index];
         if (!message || message.from !== 'thinking') {
+          continue;
+        }
+        const next = current.slice();
+        next[index] = { ...message, expanded: message.expanded !== true };
+        return next;
+      }
+      return current;
+    });
+  }, []);
+
+  /** 切换最近一条工具组展开/折叠（Read N files 明细）。 */
+  const toggleLastToolGroup = useCallback(() => {
+    setMessages((current) => {
+      for (let index = current.length - 1; index >= 0; index -= 1) {
+        const message = current[index];
+        if (!message || message.from !== 'tool') {
           continue;
         }
         const next = current.slice();
@@ -389,11 +487,57 @@ export function App({
     setStatus('ready');
   }, [agentRuntime, append, pendingToolApproval]);
 
+  const scrollBy = useCallback((delta: number) => {
+    if (delta === 0) {
+      return;
+    }
+    setScrollOffset((current) => {
+      const next = current + delta;
+      if (next <= 0) {
+        return 0;
+      }
+      return Math.min(maxScrollOffsetRef.current, next);
+    });
+  }, []);
+
+  // 鼠标滚轮 / Mac 触摸板（需终端 mouse tracking，全屏启动时已开启）
+  // 首页 maxScroll=0 时 scrollBy 不会产生可见变化
+  useMouseScroll(
+    (direction, steps) => {
+      if (pendingToolApproval) {
+        return;
+      }
+      const step = Math.max(1, steps) * 3;
+      // up = 看更早消息（增大 offset）；down = 回底部方向
+      scrollBy(direction === 'up' ? step : -step);
+    },
+    shellMode
+  );
+
   useInput((inputKey, key) => {
     // ctrl+o：切换最近一条 thinking 的折叠/展开（审批中也可用）
     if (key.ctrl && inputKey.toLowerCase() === 'o') {
       toggleLastCollapsible();
       return;
+    }
+
+    // ctrl+e：展开/折叠最近一条工具组（如 Read 5 files 明细）
+    if (key.ctrl && inputKey.toLowerCase() === 'e') {
+      toggleLastToolGroup();
+      return;
+    }
+
+    // 消息视口滚动：PgUp/PgDn，或 ctrl+↑/↓（钳制在可滚动范围内）
+    if (!pendingToolApproval) {
+      const step = Math.max(3, Math.floor(rows / 4));
+      if (key.pageUp || (key.ctrl && key.upArrow)) {
+        scrollBy(step);
+        return;
+      }
+      if (key.pageDown || (key.ctrl && key.downArrow)) {
+        scrollBy(-step);
+        return;
+      }
     }
 
     if (key.shift && key.tab && !pendingToolApproval) {
@@ -527,27 +671,52 @@ export function App({
       submit,
       chooseToolApproval,
       setInput,
-      toggleCollapse: toggleLastCollapsible
+      toggleCollapse: toggleLastCollapsible,
+      toggleToolGroup: toggleLastToolGroup
     });
-  }, [chooseToolApproval, onReady, submit, toggleLastCollapsible]);
+  }, [
+    chooseToolApproval,
+    onReady,
+    submit,
+    toggleLastCollapsible,
+    toggleLastToolGroup
+  ]);
 
-  const showSessionTip = messages.length <= (initialImportPrompt ? 2 : 1);
+  const hasUserActivity = messages.some((message) => message.from === 'user');
+  const isHome = !hasUserActivity && status === 'ready' && !pendingToolApproval;
+  const contentWidth = Math.max(40, columns - (shellMode ? 2 : 4));
+  // 视口高度：总行 − 顶栏(≈3) − 底栏 Composer(≈5) − padding
+  // 给足高度，减少单条超长消息被迫裁剪的概率
+  const messageViewportHeight = Math.max(8, rows - 10);
 
-  return (
-    <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <HeaderBar
-        projectName={projectName}
-        mode={mode}
-        status={status}
-        queueLength={queueLength}
-        permissionMode={permissionMode}
-        runtimeError={runtimeError}
-      />
+  const handleScrollBounds = useCallback(
+    (bounds: { maxScrollOffset: number; totalRows: number }) => {
+      maxScrollOffsetRef.current = bounds.maxScrollOffset;
+      setScrollOffset((current) =>
+        Math.min(current, bounds.maxScrollOffset)
+      );
+    },
+    []
+  );
 
-      <SessionTip visible={showSessionTip} />
+  const header = (
+    <HeaderBar
+      projectName={projectName}
+      branch={branch}
+      cwdLabel={cwdLabel}
+      mode={mode}
+      status={status}
+      queueLength={queueLength}
+      permissionMode={permissionMode}
+      runtimeError={runtimeError}
+      compact={isHome}
+      contextUsageLabel={contextUsage.label}
+      contextUsageRatio={contextUsage.ratio}
+    />
+  );
 
-      <MessageList messages={messages} streamingMessageId={streamingMessageId} />
-
+  const footer = (
+    <Box flexDirection="column" flexShrink={0} width={contentWidth}>
       <ThinkingIndicator
         active={status === 'responding' && awaitingReply}
         variant={loadingVariant}
@@ -574,7 +743,67 @@ export function App({
         disabled={Boolean(pendingToolApproval)}
         modelLabel={modelLabel}
         permissionMode={permissionMode}
+        width={contentWidth}
       />
+    </Box>
+  );
+
+  const homeBody = (
+    <WelcomeHome
+      version={version}
+      modelLabel={modelLabel === 'no model' ? undefined : modelLabel}
+      width={contentWidth}
+      notice={
+        runtimeError
+          ? `模型配置加载失败：${runtimeError}`
+          : importPrompt
+            ? formatImportPrompt(importPrompt)
+            : undefined
+      }
+      headline={modelLabel !== 'no model' ? `${modelLabel} ready` : 'Ready when you are'}
+      subtitle="Local-first agent · plan, tools, and traces in your workspace."
+      tip="Press shift+tab to cycle permission · ctrl+o toggles thinking."
+    />
+  );
+
+  const chatBody = (
+    <MessageViewport
+      messages={messages}
+      streamingMessageId={streamingMessageId}
+      scrollOffset={shellMode ? scrollOffset : 0}
+      height={shellMode ? messageViewportHeight : undefined}
+      columns={contentWidth}
+      onScrollBounds={shellMode ? handleScrollBounds : undefined}
+    />
+  );
+
+  // 全屏壳：固定高度三区；测试/非 TTY 退化为文档流
+  // 顶栏统一走 HeaderBar（branch + cwd），避免首页/对话两套路径逻辑
+  if (shellMode) {
+    return (
+      <Box flexDirection="column" width={columns} height={rows} paddingX={1}>
+        {header}
+        <Box
+          flexGrow={1}
+          flexShrink={1}
+          flexDirection="column"
+          overflowY="hidden"
+          justifyContent={isHome ? 'center' : 'flex-end'}
+          alignItems={isHome ? 'center' : 'stretch'}
+          minHeight={3}
+        >
+          {isHome ? homeBody : chatBody}
+        </Box>
+        {footer}
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="column" paddingX={1} paddingY={1} width={contentWidth}>
+      {header}
+      {isHome ? homeBody : chatBody}
+      {footer}
     </Box>
   );
 }
@@ -706,21 +935,6 @@ function formatToolInputPreview(input: unknown): string | undefined {
   } catch {
     return String(input);
   }
-}
-
-function mergeToolState(
-  previous: ToolCallState | undefined,
-  next: ToolCallState
-): ToolCallState {
-  return {
-    callId: next.callId ?? previous?.callId,
-    name: next.name,
-    risk: next.risk ?? previous?.risk,
-    status: next.status,
-    summary: next.summary ?? previous?.summary,
-    inputPreview: next.inputPreview ?? previous?.inputPreview,
-    durationMs: next.durationMs ?? previous?.durationMs
-  };
 }
 
 function handleCommand(

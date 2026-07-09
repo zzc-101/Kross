@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Box, Text, useStdout } from 'ink';
+import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 
 import { formatPermissionFooter, type PermissionMode } from '@kross/core';
@@ -12,7 +12,8 @@ export function Composer({
   onSubmit,
   disabled = false,
   modelLabel = 'no model',
-  permissionMode = 'default'
+  permissionMode = 'default',
+  width
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -20,12 +21,9 @@ export function Composer({
   disabled?: boolean;
   modelLabel?: string;
   permissionMode?: PermissionMode;
+  /** 全宽时传入终端列数 */
+  width?: number;
 }) {
-  const { stdout } = useStdout();
-  const columns = stdout?.columns ?? 80;
-  // 外边距 paddingX=1 各 1，再留一点余量
-  const width = Math.max(36, Math.min(columns - 4, 100));
-
   const footerLabel = useMemo(
     () => `${modelLabel} · ${formatPermissionFooter(permissionMode)}`,
     [modelLabel, permissionMode]
@@ -35,14 +33,16 @@ export function Composer({
     return null;
   }
 
+  const boxWidth = width && width > 0 ? width : undefined;
+
   return (
-    <Box flexDirection="column" marginTop={1} width={width}>
+    <Box flexDirection="column" width={boxWidth} flexShrink={0}>
       <Box
         borderStyle="round"
         borderColor={theme.border}
         flexDirection="column"
         paddingX={1}
-        width={width}
+        width={boxWidth}
       >
         <Box>
           <Text color={theme.prompt}>{symbols.prompt} </Text>

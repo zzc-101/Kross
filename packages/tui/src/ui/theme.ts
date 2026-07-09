@@ -6,6 +6,8 @@ export const theme = {
   brand: 'cyan',
   brandMuted: '#164e63',
   brandSoft: '#22d3ee',
+  /** 欢迎页 headline 强调色（对齐 Grok Build 的金色提示） */
+  accent: 'yellow',
   user: 'gray',
   agent: 'cyan',
   system: 'gray',

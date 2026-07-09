@@ -25,17 +25,53 @@ describe('App', () => {
     const { lastFrame } = render(<App />);
 
     expect(lastFrame()).toContain('Kross');
-    expect(lastFrame()).toContain('准备就绪');
-    expect(lastFrame()).toContain('auto');
-    expect(lastFrame()).toContain('ready');
-    expect(lastFrame()).toContain('perm: default');
+    // 新会话首页（Grok Build 风格）
+    expect(lastFrame()).toContain('Ready when you are');
     expect(lastFrame()).toContain('/help');
+    expect(lastFrame()).toContain('shift+tab');
     expect(lastFrame()).toContain('❯');
     // 输入框右下角：模型 · 权限模式
     expect(lastFrame()).toContain('no model');
     expect(lastFrame()).toContain('default');
+    // 顶栏上下文占用 used/max
+    expect(lastFrame()).toMatch(/\d+(\.\d+)?[KM]?\/\d+(\.\d+)?[KM]?/);
     expect(lastFrame()).not.toContain('Task Tree');
     expect(lastFrame()).not.toContain('Conversation');
+  });
+
+  it('accepts fullscreen prop without breaking non-TTY test render', () => {
+    const { lastFrame } = render(<App fullscreen />);
+    expect(lastFrame()).toContain('Kross');
+    expect(lastFrame()).toContain('❯');
+    expect(lastFrame()).toContain('Ready when you are');
+  });
+
+  it('leaves home screen after the first user message', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const { lastFrame } = render(
+      <App
+        branch="main"
+        cwd="/Users/zc/MyProject/agent"
+        onReady={(api) => (submit = api.submit)}
+      />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    expect(lastFrame()).toContain('Ready when you are');
+    expect(lastFrame()).toContain('main');
+    expect(lastFrame()).toContain('~/MyProject/agent');
+    // 路径只出现在顶栏，欢迎卡片内不再重复
+    expect(lastFrame()?.split('~/MyProject/agent').length).toBe(2);
+
+    await submit?.('hello task');
+    await waitUntil(() => lastFrame()?.includes('hello task') === true);
+    expect(lastFrame()).toContain('you');
+    expect(lastFrame()).toContain('ready');
+    expect(lastFrame()).toContain('perm: default');
+    // 进入对话后仍显示 branch/cwd，而不是 projectName=local
+    expect(lastFrame()).toContain('main');
+    expect(lastFrame()).toContain('~/MyProject/agent');
+    expect(lastFrame()).not.toContain('Kross · local');
   });
 
   it('shows configured model and permission label in the composer footer', async () => {
@@ -447,8 +483,7 @@ describe('App', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('thinking');
     expect(frame).toContain('先看看文件');
-    expect(frame).toContain('Read');
-    expect(frame).toContain('done');
+    expect(frame).toMatch(/Read/);
     expect(frame).toContain('最终总结');
     // 第二轮 thinking 也是独立块
     expect(frame).toContain('根据内容总结');
@@ -501,7 +536,7 @@ describe('App', () => {
     expect(lastFrame()).toContain('写入完成');
   });
 
-  it('renders live tool call cards while tools run', async () => {
+  it('renders live tool call lines while tools run', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     const llmClient = new ReadToolCallingLlmClient();
     const traceStore = new ObservableTraceStore(new InMemoryTraceStore());
@@ -531,13 +566,58 @@ describe('App', () => {
     await waitUntil(() => submit !== undefined);
     const done = submit?.('读一下文件');
     await waitUntil(() => lastFrame()?.includes('Read') === true);
-    expect(lastFrame()).toMatch(/running|done/);
+    // 单行摘要（▸ Read …），不是多行 tool 卡片
+    expect(lastFrame()).toMatch(/[▸▾].*Read/);
 
     await done;
-    await waitUntil(() => lastFrame()?.includes('done') === true);
+    await waitUntil(() => lastFrame()?.includes('读完了') === true);
     expect(lastFrame()).toContain('Read');
     expect(lastFrame()).toContain('README.md');
     expect(lastFrame()).toContain('读完了');
+  });
+
+  it('aggregates multiple Read calls into Read N files and expands with ctrl+e', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    let toggleToolGroup: (() => void) | undefined;
+    const llmClient = new MultiReadToolCallingLlmClient();
+    const traceStore = new ObservableTraceStore(new InMemoryTraceStore());
+    const toolGateway = new ToolGateway({
+      traceStore,
+      approvalPolicy: () => ({ action: 'allow' })
+    });
+    toolGateway.register({
+      name: 'Read',
+      description: '读文件',
+      risk: 'read',
+      inputSchema: z.object({ path: z.string() }),
+      execute: async ({ input }) => ({ content: `content of ${input.path}` })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway
+    });
+    const { lastFrame } = render(
+      <App
+        runtime={runtime}
+        onReady={(api) => {
+          submit = api.submit;
+          toggleToolGroup = api.toggleToolGroup;
+        }}
+      />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('读几个文件');
+    await waitUntil(() => lastFrame()?.includes('Read 3 files') === true);
+    expect(lastFrame()).toContain('Read 3 files');
+    expect(lastFrame()).not.toContain('a.ts');
+    expect(lastFrame()).toContain('ctrl+e');
+
+    toggleToolGroup?.();
+    await waitUntil(() => lastFrame()?.includes('a.ts') === true);
+    expect(lastFrame()).toContain('b.ts');
+    expect(lastFrame()).toContain('c.ts');
   });
 
   it(
@@ -577,7 +657,7 @@ describe('App', () => {
       expect(lastFrame()).toContain('fs.write');
       expect(lastFrame()).toContain('Approve');
       expect(lastFrame()).toContain('Reject');
-      expect(lastFrame()).toContain('╭');
+      // 工具为单行摘要，审批面板仍用圆角框
       expect(lastFrame()).not.toContain('/approve');
 
       const approval = chooseToolApproval?.(true);
@@ -613,15 +693,18 @@ describe('App', () => {
     );
 
     await waitUntil(() => submit !== undefined);
-    expect(lastFrame()).toContain('perm: default');
+    // 首页只在 Composer 页脚展示权限；进入对话后 header 也有 perm:
+    expect(lastFrame()).toMatch(/default/);
 
     await submit?.('/perm classifier');
-    await waitUntil(() => lastFrame()?.includes('perm: classifier') === true);
+    await waitUntil(() => lastFrame()?.includes('classifier') === true);
     expect(runtime.getPermissionMode()).toBe('classifier');
+    expect(lastFrame()).toMatch(/perm: classifier|classifier/);
 
     await submit?.('/perm auto');
-    await waitUntil(() => lastFrame()?.includes('perm: auto') === true);
+    await waitUntil(() => lastFrame()?.includes('always-approve') === true);
     expect(runtime.getPermissionMode()).toBe('auto');
+    expect(lastFrame()).toContain('always-approve');
   });
 
   it('shows slash command suggestions while typing a prefix', async () => {
@@ -743,6 +826,35 @@ class DelayedLlmClient implements LlmClient {
       this.resolvers.push(resolve);
     });
     yield { type: 'text-delta', text };
+    yield { type: 'done' };
+  }
+}
+
+class MultiReadToolCallingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  private phase: 'tool' | 'final' = 'tool';
+
+  async complete(): Promise<LlmResponse> {
+    throw new Error('complete should not be used for streaming chat');
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    if (this.phase === 'tool') {
+      this.phase = 'final';
+      for (const [id, path] of [
+        ['r1', 'a.ts'],
+        ['r2', 'b.ts'],
+        ['r3', 'c.ts']
+      ] as const) {
+        yield {
+          type: 'tool-call',
+          call: { id, name: 'Read', input: { path } }
+        };
+      }
+      yield { type: 'done' };
+      return;
+    }
+    yield { type: 'text-delta', text: '都读完了' };
     yield { type: 'done' };
   }
 }

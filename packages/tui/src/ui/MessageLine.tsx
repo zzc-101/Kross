@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
+import { Markdown } from './Markdown';
 import {
   THINKING_COLLAPSE_CHAR_LIMIT,
   THINKING_COLLAPSE_LINE_LIMIT,
@@ -17,6 +18,16 @@ export type ToolCallStatus =
   | 'denied'
   | 'awaiting';
 
+/** 聚合组内单次工具调用 */
+export interface ToolCallItem {
+  callId?: string;
+  path?: string;
+  preview?: string;
+  status: ToolCallStatus;
+  summary?: string;
+  durationMs?: number;
+}
+
 export interface ToolCallState {
   callId?: string;
   name: string;
@@ -25,6 +36,8 @@ export interface ToolCallState {
   summary?: string;
   inputPreview?: string;
   durationMs?: number;
+  /** Read 等多文件调用聚合明细 */
+  items?: ToolCallItem[];
 }
 
 export interface ChatMessage {
@@ -35,10 +48,15 @@ export interface ChatMessage {
   /** 关联 tool 事件，from === 'tool' 时使用 */
   tool?: ToolCallState;
   /**
-   * thinking 默认折叠；true 时展开全文。
+   * thinking / tool 组默认折叠；true 时展开明细。
    * 正式 agent 回复不再折叠。
    */
   expanded?: boolean;
+  /**
+   * 视口裁剪后的预渲染纯文本（表格等已展开）。
+   * 有值时不再二次 Markdown 解析，避免表头/边框被拆碎。
+   */
+  viewportPlainText?: string;
 }
 
 export function MessageList({
@@ -72,7 +90,12 @@ export function MessageLine({
   const time = formatTime(message.createdAt);
 
   if (message.from === 'tool' && message.tool) {
-    return <ToolCallCard tool={message.tool} />;
+    return (
+      <ToolCallCard
+        tool={message.tool}
+        expanded={message.expanded === true}
+      />
+    );
   }
 
   if (message.from === 'thinking') {
@@ -108,8 +131,7 @@ export function MessageLine({
     );
   }
 
-  // agent 回复：始终完整展示，不折叠
-  const lines = message.text.length === 0 ? [''] : message.text.split('\n');
+  // agent 回复：完整内容走 Markdown；视口裁剪片段走纯文本（已含表格展开）
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
@@ -118,10 +140,40 @@ export function MessageLine({
         </Text>
         {time ? <Text dimColor>  {time}</Text> : null}
       </Box>
-      {lines.map((line: string, index: number) => {
+      {message.viewportPlainText !== undefined ? (
+        <PlainRailText
+          text={message.viewportPlainText}
+          streaming={streaming}
+          cursor={cursor}
+        />
+      ) : (
+        <Markdown
+          source={message.text}
+          rail
+          streaming={streaming}
+          cursor={cursor}
+        />
+      )}
+    </Box>
+  );
+}
+
+function PlainRailText({
+  text,
+  streaming,
+  cursor
+}: {
+  text: string;
+  streaming: boolean;
+  cursor: string;
+}) {
+  const lines = text.length === 0 ? [''] : text.split('\n');
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, index) => {
         const isLast = index === lines.length - 1;
         return (
-          <Box key={`${message.id}-${index}`}>
+          <Box key={`plain-${index}`}>
             <Text color={theme.brandMuted}>{symbols.messageRail} </Text>
             <Text>
               {line}
