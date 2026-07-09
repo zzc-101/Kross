@@ -50,6 +50,7 @@ export function ThinkingIndicator({
 
   return (
     <Box marginBottom={1}>
+      <Text color={theme.brandMuted}>{symbols.messageRail} </Text>
       <Text color={theme.statusBusy}>
         {frame} {label}
       </Text>

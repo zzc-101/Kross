@@ -9,6 +9,7 @@ import { App } from './App';
 import {
   AgentRuntime,
   createConfigImportController,
+  ObservableTraceStore,
   type LlmClient,
   type LlmRequest,
   type LlmResponse,
@@ -24,14 +25,36 @@ describe('App', () => {
     const { lastFrame } = render(<App />);
 
     expect(lastFrame()).toContain('Kross');
-    expect(lastFrame()).toContain('Welcome');
+    expect(lastFrame()).toContain('准备就绪');
     expect(lastFrame()).toContain('auto');
     expect(lastFrame()).toContain('ready');
     expect(lastFrame()).toContain('perm: default');
     expect(lastFrame()).toContain('/help');
     expect(lastFrame()).toContain('❯');
+    // 输入框右下角：模型 · 权限模式
+    expect(lastFrame()).toContain('no model');
+    expect(lastFrame()).toContain('default');
     expect(lastFrame()).not.toContain('Task Tree');
     expect(lastFrame()).not.toContain('Conversation');
+  });
+
+  it('shows configured model and permission label in the composer footer', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('ok')
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    expect(lastFrame()).toContain('fake-model');
+    expect(lastFrame()).toContain('default');
+
+    await submit?.('/perm auto');
+    await waitUntil(() => lastFrame()?.includes('always-approve') === true);
+    expect(lastFrame()).toContain('fake-model · always-approve');
   });
 
   it('shows a submitted message in conversation history', async () => {
@@ -152,6 +175,67 @@ describe('App', () => {
 
     expect(lastFrame()).toContain('cross-repo');
     expect(lastFrame()).toContain('等待确认');
+  });
+
+  it('does not collapse long agent replies', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const longReply = Array.from({ length: 16 }, (_, index) => `detail-line-${index}`).join(
+      '\n'
+    );
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient(longReply)
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('长回复');
+    await waitUntil(() => lastFrame()?.includes('detail-line-15') === true);
+
+    expect(lastFrame()).toContain('detail-line-0');
+    expect(lastFrame()).toContain('detail-line-15');
+    expect(lastFrame()).not.toContain('已折叠');
+  });
+
+  it('streams thinking separately and toggles its collapse with ctrl+o', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    let toggleCollapse: (() => void) | undefined;
+    const longThinking = Array.from({ length: 16 }, (_, index) => `think-line-${index}`).join(
+      '\n'
+    );
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new ThinkingLlmClient(longThinking, '最终结论')
+    });
+    const { lastFrame } = render(
+      <App
+        runtime={runtime}
+        onReady={(api) => {
+          submit = api.submit;
+          toggleCollapse = api.toggleCollapse;
+        }}
+      />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('带思考');
+    await waitUntil(() => lastFrame()?.includes('最终结论') === true);
+
+    expect(lastFrame()).toContain('thinking');
+    expect(lastFrame()).toContain('think-line-0');
+    expect(lastFrame()).toContain('已折叠 thinking');
+    expect(lastFrame()).not.toContain('think-line-15');
+    expect(lastFrame()).toContain('最终结论');
+
+    toggleCollapse?.();
+    await waitUntil(() => lastFrame()?.includes('think-line-15') === true);
+    expect(lastFrame()).toContain('thinking 已展开');
+
+    toggleCollapse?.();
+    await waitUntil(() => lastFrame()?.includes('已折叠 thinking') === true);
+    expect(lastFrame()).not.toContain('think-line-15');
   });
 
   it('shows current context status with /context', async () => {
@@ -332,11 +416,57 @@ describe('App', () => {
     }
   });
 
-  it('shows selectable approval options for risky tool calls and resumes after approval', async () => {
+  it('keeps thinking/tool/text as separate bubbles across multi-turn tool loops', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const llmClient = new MultiTurnThinkingToolClient();
+    const traceStore = new ObservableTraceStore(new InMemoryTraceStore());
+    const toolGateway = new ToolGateway({
+      traceStore,
+      approvalPolicy: () => ({ action: 'allow' })
+    });
+    toolGateway.register({
+      name: 'Read',
+      description: '读文件',
+      risk: 'read',
+      inputSchema: z.object({ path: z.string() }),
+      execute: async ({ input }) => ({ content: `content of ${input.path}` })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('读文件并总结');
+    await waitUntil(() => lastFrame()?.includes('最终总结') === true);
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('thinking');
+    expect(frame).toContain('先看看文件');
+    expect(frame).toContain('Read');
+    expect(frame).toContain('done');
+    expect(frame).toContain('最终总结');
+    // 第二轮 thinking 也是独立块
+    expect(frame).toContain('根据内容总结');
+    // 工具前的 thinking 不应被最终总结覆盖掉
+    expect(frame.indexOf('先看看文件')).toBeLessThan(frame.indexOf('Read'));
+    expect(frame.indexOf('Read')).toBeLessThan(frame.indexOf('最终总结'));
+  });
+
+  it('shows thinking after tool approval when follow-up returns reasoning', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     let chooseToolApproval: ((approved: boolean) => Promise<void>) | undefined;
-    const llmClient = new WriteToolCallingLlmClient({ delayFollowup: true });
-    const toolGateway = new ToolGateway({ traceStore: new InMemoryTraceStore() });
+    const llmClient = new WriteToolCallingLlmClient({
+      delayFollowup: false,
+      thinking: '审批后继续思考',
+      finalText: '写入完成'
+    });
+    const traceStore = new ObservableTraceStore(new InMemoryTraceStore());
+    const toolGateway = new ToolGateway({ traceStore });
     toolGateway.register({
       name: 'fs.write',
       description: '写文件',
@@ -345,7 +475,7 @@ describe('App', () => {
       execute: async ({ input }) => ({ content: `wrote ${input.path}` })
     });
     const runtime = new AgentRuntime({
-      traceStore: new InMemoryTraceStore(),
+      traceStore,
       llmClient,
       toolGateway
     });
@@ -362,23 +492,107 @@ describe('App', () => {
     await waitUntil(() => submit !== undefined);
     await submit?.('写 README');
     await waitUntil(() => lastFrame()?.includes('需要确认工具调用') === true);
+    expect(lastFrame()).toContain('awaiting');
 
-    expect(lastFrame()).toContain('fs.write');
-    expect(lastFrame()).toContain('Approve');
-    expect(lastFrame()).toContain('Reject');
-    expect(lastFrame()).not.toContain('/approve');
-
-    const approval = chooseToolApproval?.(true);
-    await waitUntil(() => lastFrame()?.includes('working') === true);
-    expect(lastFrame()).toContain('已批准工具调用');
-
-    llmClient.releaseFollowup();
-    await approval;
+    await chooseToolApproval?.(true);
     await waitUntil(() => lastFrame()?.includes('写入完成') === true);
-
-    expect(lastFrame()).toContain('ready');
+    expect(lastFrame()).toContain('thinking');
+    expect(lastFrame()).toContain('审批后继续思考');
     expect(lastFrame()).toContain('写入完成');
   });
+
+  it('renders live tool call cards while tools run', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const llmClient = new ReadToolCallingLlmClient();
+    const traceStore = new ObservableTraceStore(new InMemoryTraceStore());
+    const toolGateway = new ToolGateway({
+      traceStore,
+      approvalPolicy: () => ({ action: 'allow' })
+    });
+    toolGateway.register({
+      name: 'Read',
+      description: '读文件',
+      risk: 'read',
+      inputSchema: z.object({ path: z.string() }),
+      execute: async ({ input }) => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return { content: `content of ${input.path}` };
+      }
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    const done = submit?.('读一下文件');
+    await waitUntil(() => lastFrame()?.includes('Read') === true);
+    expect(lastFrame()).toMatch(/running|done/);
+
+    await done;
+    await waitUntil(() => lastFrame()?.includes('done') === true);
+    expect(lastFrame()).toContain('Read');
+    expect(lastFrame()).toContain('README.md');
+    expect(lastFrame()).toContain('读完了');
+  });
+
+  it(
+    'shows selectable approval options for risky tool calls and resumes after approval',
+    async () => {
+      let submit: ((value: string) => Promise<void>) | undefined;
+      let chooseToolApproval: ((approved: boolean) => Promise<void>) | undefined;
+      const llmClient = new WriteToolCallingLlmClient({ delayFollowup: true });
+      const traceStore = new ObservableTraceStore(new InMemoryTraceStore());
+      const toolGateway = new ToolGateway({ traceStore });
+      toolGateway.register({
+        name: 'fs.write',
+        description: '写文件',
+        risk: 'write',
+        inputSchema: z.object({ path: z.string(), content: z.string() }),
+        execute: async ({ input }) => ({ content: `wrote ${input.path}` })
+      });
+      const runtime = new AgentRuntime({
+        traceStore,
+        llmClient,
+        toolGateway
+      });
+      const { lastFrame } = render(
+        <App
+          runtime={runtime}
+          onReady={(api) => {
+            submit = api.submit;
+            chooseToolApproval = api.chooseToolApproval;
+          }}
+        />
+      );
+
+      await waitUntil(() => submit !== undefined);
+      await submit?.('写 README');
+      await waitUntil(() => lastFrame()?.includes('需要确认工具调用') === true);
+
+      expect(lastFrame()).toContain('fs.write');
+      expect(lastFrame()).toContain('Approve');
+      expect(lastFrame()).toContain('Reject');
+      expect(lastFrame()).toContain('╭');
+      expect(lastFrame()).not.toContain('/approve');
+
+      const approval = chooseToolApproval?.(true);
+      await waitUntil(() => lastFrame()?.includes('working') === true);
+      expect(lastFrame()).toContain('已批准工具调用');
+
+      llmClient.releaseFollowup();
+      await approval;
+      await waitUntil(() => lastFrame()?.includes('写入完成') === true);
+
+      expect(lastFrame()).toContain('ready');
+      expect(lastFrame()).toContain('写入完成');
+    },
+    15_000
+  );
 
   it('cycles permission modes with /perm and reflects them in the header', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
@@ -411,15 +625,20 @@ describe('App', () => {
   });
 
   it('shows slash command suggestions while typing a prefix', async () => {
-    const { lastFrame, stdin } = render(<App />);
+    let setInput: ((value: string) => void) | undefined;
+    const { lastFrame } = render(
+      <App onReady={(api) => (setInput = api.setInput)} />
+    );
 
-    stdin.write('/');
-    await waitUntil(() => lastFrame()?.includes('/help') === true);
-    expect(lastFrame()).toContain('查看可用命令');
+    await waitUntil(() => setInput !== undefined);
+    setInput?.('/');
+    await waitUntil(() => lastFrame()?.includes('查看可用命令') === true);
+    expect(lastFrame()).toContain('commands');
+    expect(lastFrame()).toContain('/help');
 
-    stdin.write('mo');
-    await waitUntil(() => lastFrame()?.includes('/mode') === true);
-    expect(lastFrame()).toContain('切换 agent 模式');
+    setInput?.('/mo');
+    await waitUntil(() => lastFrame()?.includes('切换 agent 模式') === true);
+    expect(lastFrame()).toContain('/mode');
     expect(lastFrame()).not.toContain('/import');
   });
 });
@@ -438,19 +657,45 @@ class InMemoryTraceStore implements TraceStore {
 
 class FakeLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
+  readonly model = 'fake-model';
 
   constructor(private readonly text: string) {}
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     return {
       provider: this.provider,
-      model: request.model ?? 'fake-model',
+      model: request.model ?? this.model,
       text: this.text,
       raw: {}
     };
   }
 
   async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'text-delta', text: this.text };
+    yield { type: 'done' };
+  }
+}
+
+class ThinkingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+
+  constructor(
+    private readonly thinking: string,
+    private readonly text: string
+  ) {}
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    return {
+      provider: this.provider,
+      model: request.model ?? 'fake-model',
+      text: this.text,
+      thinking: this.thinking,
+      raw: {}
+    };
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'thinking-delta', text: this.thinking };
     yield { type: 'text-delta', text: this.text };
     yield { type: 'done' };
   }
@@ -502,19 +747,86 @@ class DelayedLlmClient implements LlmClient {
   }
 }
 
+class ReadToolCallingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  private phase: 'tool' | 'final' = 'tool';
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    return {
+      provider: this.provider,
+      model: 'fake-model',
+      text: '读完了',
+      raw: {}
+    };
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    if (this.phase === 'tool') {
+      this.phase = 'final';
+      yield {
+        type: 'tool-call',
+        call: {
+          id: 'read-1',
+          name: 'Read',
+          input: { path: 'README.md' }
+        }
+      };
+      yield { type: 'done' };
+      return;
+    }
+
+    yield { type: 'text-delta', text: '读完了' };
+    yield { type: 'done' };
+  }
+}
+
+class MultiTurnThinkingToolClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  private phase: 'tool' | 'final' = 'tool';
+
+  async complete(): Promise<LlmResponse> {
+    throw new Error('complete should not be used for streaming chat');
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    if (this.phase === 'tool') {
+      this.phase = 'final';
+      yield { type: 'thinking-delta', text: '先看看文件' };
+      yield {
+        type: 'tool-call',
+        call: { id: 'read-1', name: 'Read', input: { path: 'README.md' } }
+      };
+      yield { type: 'done' };
+      return;
+    }
+
+    yield { type: 'thinking-delta', text: '根据内容总结' };
+    yield { type: 'text-delta', text: '最终总结' };
+    yield { type: 'done' };
+  }
+}
+
 class WriteToolCallingLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   readonly requests: LlmRequest[] = [];
   private readonly delayFollowup: boolean;
+  private readonly thinking: string | undefined;
+  private readonly finalText: string;
   private release: (() => void) | undefined;
+  private followupReleased = false;
 
-  constructor(options: { delayFollowup?: boolean } = {}) {
+  constructor(
+    options: { delayFollowup?: boolean; thinking?: string; finalText?: string } = {}
+  ) {
     this.delayFollowup = options.delayFollowup === true;
+    this.thinking = options.thinking;
+    this.finalText = options.finalText ?? '写入完成';
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     this.requests.push(request);
-    if (this.delayFollowup && this.requests.length > 1) {
+    // 允许 releaseFollowup 抢跑：若测试先 release，complete 不再阻塞。
+    if (this.delayFollowup && this.requests.length > 1 && !this.followupReleased) {
       await new Promise<void>((resolve) => {
         this.release = resolve;
       });
@@ -522,12 +834,14 @@ class WriteToolCallingLlmClient implements LlmClient {
     return {
       provider: this.provider,
       model: 'fake-model',
-      text: '写入完成',
+      text: this.finalText,
+      thinking: this.thinking,
       raw: {}
     };
   }
 
   releaseFollowup(): void {
+    this.followupReleased = true;
     this.release?.();
   }
 
@@ -546,7 +860,10 @@ class WriteToolCallingLlmClient implements LlmClient {
       return;
     }
 
-    yield { type: 'text-delta', text: '写入完成' };
+    if (this.thinking) {
+      yield { type: 'thinking-delta', text: this.thinking };
+    }
+    yield { type: 'text-delta', text: this.finalText };
     yield { type: 'done' };
   }
 }

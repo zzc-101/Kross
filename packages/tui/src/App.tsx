@@ -5,6 +5,7 @@ import {
   AgentRuntime,
   nextPermissionMode,
   isPermissionMode,
+  ObservableTraceStore,
   type AgentMode,
   type AgentResult,
   type ConfigImportController,
@@ -27,7 +28,8 @@ import {
   SessionTip,
   SlashSuggest,
   ThinkingIndicator,
-  type ChatMessage
+  type ChatMessage,
+  type ToolCallState
 } from './ui';
 
 export interface AppProps {
@@ -42,6 +44,8 @@ export interface AppProps {
 export interface AppTestApi {
   submit: (value: string) => Promise<void>;
   chooseToolApproval: (approved: boolean) => Promise<void>;
+  setInput: (value: string) => void;
+  toggleCollapse: () => void;
 }
 
 export function App({
@@ -79,6 +83,10 @@ export function App({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() =>
     agentRuntime.getPermissionMode()
   );
+  const modelLabel = useMemo(
+    () => agentRuntime.getModelLabel(),
+    [agentRuntime, runtimeGeneration]
+  );
   const [input, setInput] = useState('');
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);
@@ -92,13 +100,13 @@ export function App({
     {
       id: 1,
       from: 'agent',
-      text: 'Welcome. 输入任务，或输入 /help 查看命令。'
+      text: '准备就绪。描述任务开始，或输入 /help。'
     },
     ...(initialImportPrompt
       ? [
           {
             id: 2,
-            from: 'agent' as const,
+            from: 'system' as const,
             text: formatImportPrompt(initialImportPrompt)
           }
         ]
@@ -107,6 +115,8 @@ export function App({
   const nextMessageIdRef = useRef(initialImportPrompt ? 3 : 2);
   const processingRef = useRef(false);
   const queueRef = useRef<string[]>([]);
+  /** tool call 关联键 → 消息 id，用于 in-place 更新卡片状态 */
+  const toolMessageIdsRef = useRef(new Map<string, number>());
 
   useEffect(() => {
     setPermissionMode(agentRuntime.getPermissionMode());
@@ -121,26 +131,35 @@ export function App({
     setSlashSelectedIndex(0);
   }, [input]);
 
-  const append = useCallback((from: ChatMessage['from'], text: string) => {
-    const id = nextMessageIdRef.current;
-    nextMessageIdRef.current += 1;
-    setMessages((current) => [
-      ...current,
-      {
-        id,
-        from,
-        text
-      }
-    ]);
-    return id;
-  }, []);
+  const append = useCallback(
+    (
+      from: ChatMessage['from'],
+      text: string,
+      options: { expanded?: boolean } = {}
+    ) => {
+      const id = nextMessageIdRef.current;
+      nextMessageIdRef.current += 1;
+      setMessages((current) => [
+        ...current,
+        {
+          id,
+          from,
+          text,
+          createdAt: new Date().toISOString(),
+          expanded: options.expanded
+        }
+      ]);
+      return id;
+    },
+    []
+  );
 
   const cyclePermissionMode = useCallback(() => {
     const next = nextPermissionMode(permissionMode);
     agentRuntime.setPermissionMode(next);
     setPermissionMode(next);
-    append('agent', `已切换权限模式：${next}（shift+tab）`);
-  }, [agentRuntime, append, permissionMode]);
+    // 页脚/header 已展示当前权限，不再往会话刷 system 提示
+  }, [agentRuntime, permissionMode]);
 
   const updateMessage = useCallback((id: number, text: string) => {
     setMessages((current) =>
@@ -150,14 +169,92 @@ export function App({
     );
   }, []);
 
+  const upsertToolMessage = useCallback((key: string, tool: ToolCallState) => {
+    const existingId = toolMessageIdsRef.current.get(key);
+    if (existingId !== undefined) {
+      setMessages((current) =>
+        current.map((message) => {
+          if (message.id !== existingId) {
+            return message;
+          }
+          const merged = mergeToolState(message.tool, tool);
+          return {
+            ...message,
+            from: 'tool' as const,
+            text: merged.summary ?? merged.name,
+            tool: merged
+          };
+        })
+      );
+      return existingId;
+    }
+
+    const id = nextMessageIdRef.current;
+    nextMessageIdRef.current += 1;
+    toolMessageIdsRef.current.set(key, id);
+    setMessages((current) => [
+      ...current,
+      {
+        id,
+        from: 'tool',
+        text: tool.summary ?? tool.name,
+        createdAt: new Date().toISOString(),
+        tool
+      }
+    ]);
+    return id;
+  }, []);
+
+  /** 切换最近一条 thinking 的展开/折叠（正式回复不折叠）。 */
+  const toggleLastCollapsible = useCallback(() => {
+    setMessages((current) => {
+      for (let index = current.length - 1; index >= 0; index -= 1) {
+        const message = current[index];
+        if (!message || message.from !== 'thinking') {
+          continue;
+        }
+        const next = current.slice();
+        next[index] = { ...message, expanded: message.expanded !== true };
+        return next;
+      }
+      return current;
+    });
+  }, []);
+
+  useEffect(() => {
+    return agentRuntime.onTrace((event) => {
+      handleTraceEvent(event, {
+        upsertToolMessage,
+        setLoadingVariant,
+        setAwaitingReply,
+        setStreamingMessageId
+      });
+    });
+  }, [agentRuntime, upsertToolMessage]);
+
   const runTurn = useCallback(async (prompt: string) => {
     setStatus('responding');
     setAwaitingReply(true);
     setLoadingVariant('thinking');
     setStreamingMessageId(undefined);
+    // 新 run 清空工具卡片索引，避免跨 run 串卡
+    toolMessageIdsRef.current.clear();
+
     let streamedMessageId: number | undefined;
+    let thinkingMessageId: number | undefined;
     let streamedText = '';
+    let thinkingText = '';
+    let sawAgentText = false;
     let result: AgentResult | undefined;
+
+    const beginTurn = () => {
+      // 每轮 LLM 迭代新开气泡，避免 tool 后的 thinking/text 写回工具前消息
+      streamedMessageId = undefined;
+      thinkingMessageId = undefined;
+      streamedText = '';
+      thinkingText = '';
+      setStreamingMessageId(undefined);
+    };
 
     try {
       for await (const event of agentRuntime.runStreaming({
@@ -165,23 +262,54 @@ export function App({
         requestedMode: mode,
         approvals: { plan: false }
       })) {
+        if (event.type === 'turn-start') {
+          beginTurn();
+          setAwaitingReply(true);
+          setLoadingVariant('thinking');
+          continue;
+        }
+
+        if (event.type === 'tools-start') {
+          setStreamingMessageId(undefined);
+          setAwaitingReply(true);
+          setLoadingVariant('tool');
+          continue;
+        }
+
+        if (event.type === 'thinking-delta') {
+          thinkingText += event.text;
+          setAwaitingReply(false);
+          setLoadingVariant('thinking');
+          if (thinkingMessageId === undefined) {
+            thinkingMessageId = append('thinking', thinkingText);
+            setStreamingMessageId(thinkingMessageId);
+          } else {
+            updateMessage(thinkingMessageId, thinkingText);
+            setStreamingMessageId(thinkingMessageId);
+          }
+          continue;
+        }
+
         if (event.type === 'text-delta') {
           streamedText += event.text;
+          sawAgentText = true;
+          setAwaitingReply(false);
           if (streamedMessageId === undefined) {
-            setAwaitingReply(false);
             streamedMessageId = append('agent', streamedText);
             setStreamingMessageId(streamedMessageId);
           } else {
             updateMessage(streamedMessageId, streamedText);
+            setStreamingMessageId(streamedMessageId);
           }
-        } else {
-          result = event.result;
-          setAwaitingReply(false);
-          setStreamingMessageId(undefined);
+          continue;
         }
+
+        result = event.result;
+        setAwaitingReply(false);
+        setStreamingMessageId(undefined);
       }
     } catch (error) {
-      append('agent', `运行出错：${error instanceof Error ? error.message : String(error)}`);
+      append('system', `运行出错：${error instanceof Error ? error.message : String(error)}`);
       setStatus('ready');
       setAwaitingReply(false);
       setStreamingMessageId(undefined);
@@ -196,7 +324,7 @@ export function App({
 
     if (result.mode === 'cross-repo' && result.status === 'cancelled') {
       setStatus('waiting-approval');
-      append('agent', '检测到 cross-repo 任务，已在执行前暂停，等待确认计划。');
+      append('system', '检测到 cross-repo 任务，已在执行前暂停，等待确认计划。');
       return;
     }
 
@@ -204,13 +332,12 @@ export function App({
       setStatus('approval-required');
       setPendingToolApproval(result.pendingApproval);
       setApprovalSelection('approve');
-      append('agent', result.summary);
+      append('system', result.summary);
       return;
     }
 
-    if (streamedMessageId !== undefined) {
-      updateMessage(streamedMessageId, result.summary);
-    } else {
+    // 已按 turn 流式写入气泡时，不要用跨轮拼接的 fullText 覆盖最后一条
+    if (!sawAgentText && result.summary.trim().length > 0) {
       append('agent', result.summary);
     }
     setStatus('ready');
@@ -224,8 +351,12 @@ export function App({
     setStatus('responding');
     setAwaitingReply(true);
     setLoadingVariant('tool');
+    setStreamingMessageId(undefined);
     setPendingToolApproval(undefined);
-    append('agent', approved ? '已批准工具调用，继续执行。' : '已拒绝工具调用，继续让模型调整方案。');
+    append(
+      'system',
+      approved ? '已批准工具调用，继续执行。' : '已拒绝工具调用，继续让模型调整方案。'
+    );
 
     let result: AgentResult;
     try {
@@ -234,7 +365,10 @@ export function App({
         approved
       });
     } catch (error) {
-      append('agent', `处理审批时出错：${error instanceof Error ? error.message : String(error)}`);
+      append(
+        'system',
+        `处理审批时出错：${error instanceof Error ? error.message : String(error)}`
+      );
       setStatus('ready');
       setAwaitingReply(false);
       return;
@@ -246,16 +380,22 @@ export function App({
       setAwaitingReply(false);
       setPendingToolApproval(result.pendingApproval);
       setApprovalSelection('approve');
-      append('agent', result.summary);
+      append('system', result.summary);
       return;
     }
 
-    append('agent', result.summary);
+    appendApprovalResult(append, result);
     setAwaitingReply(false);
     setStatus('ready');
   }, [agentRuntime, append, pendingToolApproval]);
 
   useInput((inputKey, key) => {
+    // ctrl+o：切换最近一条 thinking 的折叠/展开（审批中也可用）
+    if (key.ctrl && inputKey.toLowerCase() === 'o') {
+      toggleLastCollapsible();
+      return;
+    }
+
     if (key.shift && key.tab && !pendingToolApproval) {
       cyclePermissionMode();
       return;
@@ -344,7 +484,8 @@ export function App({
         importPrompt,
         configImportController,
         setImportPrompt,
-        () => setRuntimeGeneration((current) => current + 1)
+        () => setRuntimeGeneration((current) => current + 1),
+        toggleLastCollapsible
       )
     ) {
       return;
@@ -353,7 +494,7 @@ export function App({
     if (processingRef.current) {
       queueRef.current.push(trimmed);
       setQueueLength(queueRef.current.length);
-      append('agent', `已加入队列：${queueRef.current.length}`);
+      append('system', `已加入队列：${queueRef.current.length}`);
       return;
     }
 
@@ -377,12 +518,20 @@ export function App({
     mode,
     runTurn,
     slashSelectedIndex,
-    slashSuggestions
+    slashSuggestions,
+    toggleLastCollapsible
   ]);
 
   useEffect(() => {
-    onReady?.({ submit, chooseToolApproval });
-  }, [chooseToolApproval, onReady, submit]);
+    onReady?.({
+      submit,
+      chooseToolApproval,
+      setInput,
+      toggleCollapse: toggleLastCollapsible
+    });
+  }, [chooseToolApproval, onReady, submit, toggleLastCollapsible]);
+
+  const showSessionTip = messages.length <= (initialImportPrompt ? 2 : 1);
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
@@ -395,7 +544,7 @@ export function App({
         runtimeError={runtimeError}
       />
 
-      <SessionTip />
+      <SessionTip visible={showSessionTip} />
 
       <MessageList messages={messages} streamingMessageId={streamingMessageId} />
 
@@ -423,18 +572,164 @@ export function App({
         onChange={setInput}
         onSubmit={submit}
         disabled={Boolean(pendingToolApproval)}
+        modelLabel={modelLabel}
+        permissionMode={permissionMode}
       />
     </Box>
   );
 }
 
 function createMemoryRuntime(): AgentRuntime {
-  return new AgentRuntime({ traceStore: new InMemoryTraceStore() });
+  return new AgentRuntime({
+    traceStore: new ObservableTraceStore(new InMemoryTraceStore())
+  });
+}
+
+function handleTraceEvent(
+  event: TraceEvent,
+  handlers: {
+    upsertToolMessage: (key: string, tool: ToolCallState) => number;
+    setLoadingVariant: (variant: 'thinking' | 'tool') => void;
+    setAwaitingReply: (value: boolean) => void;
+    setStreamingMessageId: (id: number | undefined) => void;
+  }
+): void {
+  const payload = event.payload;
+  const toolName = typeof payload.toolName === 'string' ? payload.toolName : undefined;
+  if (!toolName) {
+    return;
+  }
+
+  const callId = typeof payload.callId === 'string' ? payload.callId : undefined;
+  // 始终带 runId，避免跨 run 用短 callId 串历史卡片
+  const key = `${event.runId}:${callId ?? toolName}`;
+  const risk = typeof payload.risk === 'string' ? payload.risk : undefined;
+  const summary = typeof payload.summary === 'string' ? payload.summary : undefined;
+  const durationMs =
+    typeof payload.durationMs === 'number' ? payload.durationMs : undefined;
+  const inputPreview = formatToolInputPreview(payload.input);
+
+  if (event.type === 'tool_call.approval_required') {
+    handlers.setLoadingVariant('tool');
+    handlers.setAwaitingReply(false);
+    handlers.setStreamingMessageId(undefined);
+    handlers.upsertToolMessage(key, {
+      callId,
+      name: toolName,
+      risk,
+      status: 'awaiting',
+      summary: typeof payload.reason === 'string' ? payload.reason : 'awaiting approval',
+      inputPreview
+    });
+    return;
+  }
+
+  if (event.type === 'tool_call.started') {
+    handlers.setLoadingVariant('tool');
+    handlers.setAwaitingReply(true);
+    handlers.setStreamingMessageId(undefined);
+    handlers.upsertToolMessage(key, {
+      callId,
+      name: toolName,
+      risk,
+      status: 'running',
+      inputPreview
+    });
+    return;
+  }
+
+  if (event.type === 'tool_call.completed') {
+    handlers.upsertToolMessage(key, {
+      callId,
+      name: toolName,
+      risk,
+      status: 'completed',
+      summary,
+      inputPreview,
+      durationMs
+    });
+    return;
+  }
+
+  if (event.type === 'tool_call.failed') {
+    handlers.upsertToolMessage(key, {
+      callId,
+      name: toolName,
+      risk,
+      status: 'failed',
+      summary:
+        summary ??
+        (typeof payload.message === 'string' ? payload.message : 'tool failed'),
+      inputPreview,
+      durationMs
+    });
+    return;
+  }
+
+  if (event.type === 'tool_call.denied') {
+    handlers.upsertToolMessage(key, {
+      callId,
+      name: toolName,
+      risk,
+      status: 'denied',
+      summary: typeof payload.reason === 'string' ? payload.reason : 'denied',
+      inputPreview
+    });
+  }
+}
+
+function appendApprovalResult(
+  append: (
+    from: ChatMessage['from'],
+    text: string,
+    options?: { expanded?: boolean }
+  ) => void,
+  result: AgentResult
+): void {
+  if (result.thinking && result.thinking.trim().length > 0) {
+    append('thinking', result.thinking);
+  }
+  if (result.summary.trim().length > 0) {
+    append('agent', result.summary);
+  }
+}
+
+function formatToolInputPreview(input: unknown): string | undefined {
+  if (input === undefined || input === null) {
+    return undefined;
+  }
+  if (typeof input === 'string') {
+    return input;
+  }
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return String(input);
+  }
+}
+
+function mergeToolState(
+  previous: ToolCallState | undefined,
+  next: ToolCallState
+): ToolCallState {
+  return {
+    callId: next.callId ?? previous?.callId,
+    name: next.name,
+    risk: next.risk ?? previous?.risk,
+    status: next.status,
+    summary: next.summary ?? previous?.summary,
+    inputPreview: next.inputPreview ?? previous?.inputPreview,
+    durationMs: next.durationMs ?? previous?.durationMs
+  };
 }
 
 function handleCommand(
   value: string,
-  append: (from: ChatMessage['from'], text: string) => void,
+  append: (
+    from: ChatMessage['from'],
+    text: string,
+    options?: { expanded?: boolean }
+  ) => void,
   setMode: (mode: AgentMode) => void,
   setPermissionMode: (mode: PermissionMode) => void,
   runtime: AgentRuntime,
@@ -442,14 +737,15 @@ function handleCommand(
   importPrompt: ConfigImportPrompt | undefined,
   configImportController: ConfigImportController | undefined,
   setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void,
-  refreshRuntime: () => void
+  refreshRuntime: () => void,
+  toggleLastCollapsible: () => void
 ): boolean {
   if (!value.startsWith('/')) {
     return false;
   }
 
   if (value === '/help') {
-    append('agent', formatSlashHelp());
+    append('agent', formatSlashHelp(), { expanded: true });
     return true;
   }
 
@@ -469,8 +765,15 @@ function handleCommand(
           requestedMode: mode,
           currentUserInput: ''
         })
-      )
+      ),
+      { expanded: true }
     );
+    return true;
+  }
+
+  if (value === '/expand') {
+    toggleLastCollapsible();
+    append('system', '已切换最近一条 thinking 的折叠状态（也可用 ctrl+o）。');
     return true;
   }
 
@@ -495,7 +798,7 @@ function handleCommand(
     const nextMode = value.replace('/mode ', '').trim();
     if (isAgentMode(nextMode)) {
       setMode(nextMode);
-      append('agent', `已切换到 ${nextMode} 模式`);
+      append('system', `已切换到 ${nextMode} 模式`);
     } else {
       append('agent', '未知模式，可选：auto、normal、cross-repo');
     }
@@ -512,7 +815,7 @@ function handleCommand(
     if (isPermissionMode(nextPerm)) {
       runtime.setPermissionMode(nextPerm);
       setPermissionMode(nextPerm);
-      append('agent', `已切换权限模式：${nextPerm}`);
+      // 状态已反映在 header / 输入框页脚，无需再输出提示
     } else {
       append('agent', '未知权限模式，可选：default、classifier、auto');
     }
@@ -534,7 +837,11 @@ function isAgentMode(value: string): value is AgentMode {
 
 function handleImportCommand(input: {
   value: string;
-  append: (from: ChatMessage['from'], text: string) => void;
+  append: (
+    from: ChatMessage['from'],
+    text: string,
+    options?: { expanded?: boolean }
+  ) => void;
   importPrompt: ConfigImportPrompt | undefined;
   configImportController: ConfigImportController | undefined;
   setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void;
@@ -576,7 +883,8 @@ function handleImportCommand(input: {
         `credential: ${
           result.config.llm?.apiKey || result.config.llm?.authToken ? '已配置' : '未配置'
         }`
-      ].join('\n')
+      ].join('\n'),
+      { expanded: true }
     );
   } catch (error) {
     input.append(

@@ -39,6 +39,10 @@ export const slashCommands: SlashCommand[] = [
     name: '/perm',
     description: '切换工具权限模式',
     usage: '/perm default|classifier|auto'
+  },
+  {
+    name: '/expand',
+    description: '切换最近一条 thinking 折叠（等同 ctrl+o）'
   }
 ];
 
