@@ -447,6 +447,37 @@ describe('AgentRuntime', () => {
     );
   });
 
+  it('fails when non-streaming tool-call iterations exceed the configured limit', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new LoopingToolCallingLlmClient();
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.read',
+      description: '读文件',
+      risk: 'read',
+      inputSchema: z.object({ path: z.string() }),
+      execute: async () => ({ content: 'file content' })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway,
+      maxToolIterations: 1
+    });
+
+    const result = await runtime.run({
+      input: '一直读',
+      requestedMode: 'normal'
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.summary).toContain('工具调用超过最大轮数');
+    expect(result.report.risks).toContain('模型在工具调用上限内没有返回最终文本');
+    expect(traceStore.events.map((event) => event.type)).toContain(
+      'llm.tool_loop.max_iterations'
+    );
+  });
+
   it('pauses for approval on risky tool calls and resumes when approved', async () => {
     const traceStore = new InMemoryTraceStore();
     const llmClient = new WriteToolCallingLlmClient();
@@ -722,6 +753,44 @@ describe('AgentRuntime', () => {
     );
   });
 
+  it('fails when streaming tool-call iterations exceed the configured limit', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new LoopingStreamingToolClient();
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.read',
+      description: '读文件',
+      risk: 'read',
+      inputSchema: z.object({ path: z.string() }),
+      execute: async () => ({ content: 'file content' })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway,
+      maxToolIterations: 1
+    });
+    const events = [];
+
+    for await (const event of runtime.runStreaming({
+      input: '一直读',
+      requestedMode: 'normal'
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: 'result',
+      result: expect.objectContaining({
+        status: 'failed',
+        summary: expect.stringContaining('工具调用超过最大轮数')
+      })
+    });
+    expect(traceStore.events.map((event) => event.type)).toContain(
+      'llm.tool_loop.max_iterations'
+    );
+  });
+
   it('records a context report before planner LLM calls', async () => {
     const traceStore = new InMemoryTraceStore();
     const llmClient = new FakeLlmClient('ok');
@@ -980,6 +1049,32 @@ class MultiStepToolCallingLlmClient implements LlmClient {
   }
 }
 
+class LoopingToolCallingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly requests: LlmRequest[] = [];
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request);
+    return {
+      provider: this.provider,
+      model: 'fake-model',
+      text: '',
+      raw: {},
+      toolCalls: [
+        {
+          id: `read-${this.requests.length}`,
+          name: 'fs.read',
+          input: { path: 'README.md' }
+        }
+      ]
+    };
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'done' };
+  }
+}
+
 class ReadThenWriteToolCallingLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   readonly requests: LlmRequest[] = [];
@@ -1081,6 +1176,28 @@ class StreamingToolCallingLlmClient implements LlmClient {
     }
 
     yield { type: 'text-delta', text: '文件内容已读取' };
+    yield { type: 'done' };
+  }
+}
+
+class LoopingStreamingToolClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  private count = 0;
+
+  async complete(): Promise<LlmResponse> {
+    throw new Error('complete should not be used for streaming chat');
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    this.count += 1;
+    yield {
+      type: 'tool-call',
+      call: {
+        id: `read-${this.count}`,
+        name: 'fs.read',
+        input: { path: 'README.md' }
+      }
+    };
     yield { type: 'done' };
   }
 }

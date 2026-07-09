@@ -4,7 +4,7 @@ import { join, relative, sep } from 'node:path';
 import { z } from 'zod';
 
 import type { ToolDefinition } from '../toolGateway';
-import { resolveWithinWorkspace } from './paths';
+import { resolveExistingPathWithinWorkspace } from './paths';
 import { compileGlob } from './glob';
 
 const DEFAULT_HEAD_LIMIT = 200;
@@ -47,8 +47,8 @@ export function createGrepTool(workspaceRoot: string): ToolDefinition<GrepInput>
     },
     execute: async ({ input }) => {
       const base = input.path
-        ? resolveWithinWorkspace(workspaceRoot, input.path)
-        : workspaceRoot;
+        ? await resolveExistingPathWithinWorkspace(workspaceRoot, input.path)
+        : await resolveExistingPathWithinWorkspace(workspaceRoot, '.');
       const regex = new RegExp(input.pattern, input.ignoreCase ? 'i' : '');
       const includeRegex = input.include
         ? compileGlob(input.include)

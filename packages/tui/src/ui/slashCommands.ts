@@ -41,6 +41,14 @@ export const slashCommands: SlashCommand[] = [
     usage: '/perm default|classifier|auto'
   },
   {
+    name: '/approve',
+    description: '确认等待中的 cross-repo 计划'
+  },
+  {
+    name: '/reject',
+    description: '取消等待中的 cross-repo 计划'
+  },
+  {
     name: '/expand',
     description: '切换最近一条 thinking 折叠（等同 ctrl+o）'
   }

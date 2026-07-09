@@ -63,6 +63,7 @@ export interface AppProps {
 
 export interface AppTestApi {
   submit: (value: string) => Promise<void>;
+  choosePlanApproval: (approved: boolean) => Promise<void>;
   chooseToolApproval: (approved: boolean) => Promise<void>;
   setInput: (value: string) => void;
   toggleCollapse: () => void;
@@ -119,6 +120,10 @@ export function App({
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);
   const [pendingToolApproval, setPendingToolApproval] = useState<PendingToolApproval | undefined>();
+  const [pendingCrossRepoPlan, setPendingCrossRepoPlan] = useState<{
+    prompt: string;
+    mode: AgentMode;
+  } | undefined>();
   const [awaitingReply, setAwaitingReply] = useState(false);
   const [loadingVariant, setLoadingVariant] = useState<'thinking' | 'tool'>('thinking');
   const [streamingMessageId, setStreamingMessageId] = useState<number | undefined>();
@@ -330,7 +335,10 @@ export function App({
     });
   }, [agentRuntime, upsertToolMessage]);
 
-  const runTurn = useCallback(async (prompt: string) => {
+  const runTurn = useCallback(async (
+    prompt: string,
+    options: { planApproved?: boolean; requestedMode?: AgentMode } = {}
+  ) => {
     setStatus('responding');
     setAwaitingReply(true);
     setLoadingVariant('thinking');
@@ -357,8 +365,8 @@ export function App({
     try {
       for await (const event of agentRuntime.runStreaming({
         input: prompt,
-        requestedMode: mode,
-        approvals: { plan: false }
+        requestedMode: options.requestedMode ?? mode,
+        approvals: { plan: options.planApproved === true }
       })) {
         if (event.type === 'turn-start') {
           beginTurn();
@@ -422,7 +430,8 @@ export function App({
 
     if (result.mode === 'cross-repo' && result.status === 'cancelled') {
       setStatus('waiting-approval');
-      append('system', '检测到 cross-repo 任务，已在执行前暂停，等待确认计划。');
+      setPendingCrossRepoPlan({ prompt, mode: options.requestedMode ?? mode });
+      append('system', '检测到 cross-repo 任务，已在执行前暂停，等待确认计划。输入 /approve 继续，或 /reject 取消。');
       return;
     }
 
@@ -486,6 +495,33 @@ export function App({
     setAwaitingReply(false);
     setStatus('ready');
   }, [agentRuntime, append, pendingToolApproval]);
+
+  const choosePlanApproval = useCallback(async (approved: boolean) => {
+    if (!pendingCrossRepoPlan) {
+      append('system', '当前没有等待确认的 cross-repo 计划。');
+      return;
+    }
+
+    const pending = pendingCrossRepoPlan;
+    setPendingCrossRepoPlan(undefined);
+
+    if (!approved) {
+      setStatus('ready');
+      append('system', '已取消 cross-repo 计划。');
+      return;
+    }
+
+    append('system', '已确认 cross-repo 计划，继续执行。');
+    processingRef.current = true;
+    try {
+      await runTurn(pending.prompt, {
+        planApproved: true,
+        requestedMode: pending.mode
+      });
+    } finally {
+      processingRef.current = false;
+    }
+  }, [append, pendingCrossRepoPlan, runTurn]);
 
   const scrollBy = useCallback((delta: number) => {
     if (delta === 0) {
@@ -629,7 +665,9 @@ export function App({
         configImportController,
         setImportPrompt,
         () => setRuntimeGeneration((current) => current + 1),
-        toggleLastCollapsible
+        toggleLastCollapsible,
+        Boolean(pendingCrossRepoPlan),
+        choosePlanApproval
       )
     ) {
       return;
@@ -663,12 +701,15 @@ export function App({
     runTurn,
     slashSelectedIndex,
     slashSuggestions,
+    pendingCrossRepoPlan,
+    choosePlanApproval,
     toggleLastCollapsible
   ]);
 
   useEffect(() => {
     onReady?.({
       submit,
+      choosePlanApproval,
       chooseToolApproval,
       setInput,
       toggleCollapse: toggleLastCollapsible,
@@ -676,6 +717,7 @@ export function App({
     });
   }, [
     chooseToolApproval,
+    choosePlanApproval,
     onReady,
     submit,
     toggleLastCollapsible,
@@ -952,7 +994,9 @@ function handleCommand(
   configImportController: ConfigImportController | undefined,
   setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void,
   refreshRuntime: () => void,
-  toggleLastCollapsible: () => void
+  toggleLastCollapsible: () => void,
+  hasPendingCrossRepoPlan: boolean,
+  choosePlanApproval: (approved: boolean) => Promise<void>
 ): boolean {
   if (!value.startsWith('/')) {
     return false;
@@ -988,6 +1032,15 @@ function handleCommand(
   if (value === '/expand') {
     toggleLastCollapsible();
     append('system', '已切换最近一条 thinking 的折叠状态（也可用 ctrl+o）。');
+    return true;
+  }
+
+  if (value === '/approve' || value === '/reject') {
+    if (!hasPendingCrossRepoPlan) {
+      append('system', '当前没有等待确认的 cross-repo 计划。');
+      return true;
+    }
+    void choosePlanApproval(value === '/approve');
     return true;
   }
 

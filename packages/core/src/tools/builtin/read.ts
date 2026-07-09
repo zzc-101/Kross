@@ -1,9 +1,11 @@
+import { createReadStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { createInterface } from 'node:readline/promises';
 
 import { z } from 'zod';
 
 import type { ToolDefinition } from '../toolGateway';
-import { resolveWithinWorkspace } from './paths';
+import { resolveExistingPathWithinWorkspace } from './paths';
 
 const MAX_BYTES = 1_000_000;
 
@@ -35,7 +37,15 @@ export function createReadTool(workspaceRoot: string): ToolDefinition<ReadInput>
       additionalProperties: false
     },
     execute: async ({ input }) => {
-      const filePath = resolveWithinWorkspace(workspaceRoot, input.path);
+      const filePath = await resolveExistingPathWithinWorkspace(workspaceRoot, input.path);
+      if (input.offset !== undefined || input.limit !== undefined) {
+        const selected = await readLineRange(filePath, input.offset ?? 0, input.limit);
+        return {
+          content: selected.join('\n'),
+          summary: `read ${selected.length} lines`
+        };
+      }
+
       const buffer = await readFile(filePath);
 
       if (buffer.byteLength > MAX_BYTES) {
@@ -57,4 +67,35 @@ export function createReadTool(workspaceRoot: string): ToolDefinition<ReadInput>
       };
     }
   };
+}
+
+async function readLineRange(
+  filePath: string,
+  offset: number,
+  limit: number | undefined
+): Promise<string[]> {
+  const selected: string[] = [];
+  const stream = createReadStream(filePath, { encoding: 'utf8' });
+  const reader = createInterface({
+    input: stream,
+    crlfDelay: Infinity
+  });
+
+  try {
+    let index = 0;
+    for await (const line of reader) {
+      if (index >= offset && (limit === undefined || selected.length < limit)) {
+        selected.push(line);
+      }
+      index += 1;
+      if (limit !== undefined && selected.length >= limit) {
+        break;
+      }
+    }
+  } finally {
+    reader.close();
+    stream.destroy();
+  }
+
+  return selected;
 }

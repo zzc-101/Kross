@@ -4,7 +4,7 @@ import { join, relative, sep } from 'node:path';
 import { z } from 'zod';
 
 import type { ToolDefinition } from '../toolGateway';
-import { resolveWithinWorkspace } from './paths';
+import { resolveExistingPathWithinWorkspace } from './paths';
 
 const MAX_RESULTS = 1000;
 const MAX_VISITED = 20000;
@@ -74,8 +74,8 @@ export function createGlobTool(workspaceRoot: string): ToolDefinition<GlobInput>
     },
     execute: async ({ input }) => {
       const base = input.path
-        ? resolveWithinWorkspace(workspaceRoot, input.path)
-        : workspaceRoot;
+        ? await resolveExistingPathWithinWorkspace(workspaceRoot, input.path)
+        : await resolveExistingPathWithinWorkspace(workspaceRoot, '.');
       const regex = compileGlob(input.pattern);
       const matches: string[] = [];
       let visited = 0;

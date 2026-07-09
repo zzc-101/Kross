@@ -16,7 +16,8 @@ export const builtinToolNames = [
 ] as const;
 
 /**
- * 创建首批内置工具集，所有工具的执行范围都被限制在 workspaceRoot 内。
+ * 创建首批内置工具集。文件类工具会校验 workspace 边界；
+ * Bash 只保证启动 cwd 位于 workspace 内，命令能力仍由审批策略约束。
  */
 export function createBuiltinTools(workspaceRoot: string): ToolDefinition[] {
   return [

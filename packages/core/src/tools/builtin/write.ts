@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { z } from 'zod';
 
 import type { ToolDefinition } from '../toolGateway';
-import { resolveWithinWorkspace } from './paths';
+import { resolveWritablePathWithinWorkspace } from './paths';
 
 interface WriteInput {
   path: string;
@@ -31,7 +31,7 @@ export function createWriteTool(workspaceRoot: string): ToolDefinition<WriteInpu
       additionalProperties: false
     },
     execute: async ({ input }) => {
-      const filePath = resolveWithinWorkspace(workspaceRoot, input.path);
+      const filePath = await resolveWritablePathWithinWorkspace(workspaceRoot, input.path);
       await mkdir(dirname(filePath), { recursive: true });
       await writeFile(filePath, input.content, 'utf8');
       const bytes = Buffer.byteLength(input.content, 'utf8');

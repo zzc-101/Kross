@@ -7,10 +7,11 @@
 - 交互式 TUI 入口，启动后像 Claude Code 一样输入自然语言任务。
 - `auto` / `normal` / `cross-repo` 三种模式。
 - 普通模式具备最小运行闭环：解析目标、生成计划、记录 trace、返回报告。
-- 跨仓库模式已经具备入口和确认门：检测到前后端/管理端/跨系统联动后，在执行前暂停等待确认。
+- 跨仓库模式已经具备入口和确认门：检测到前后端/管理端/跨系统联动后，在执行前暂停等待确认，可通过 `/approve` 继续或 `/reject` 取消。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - Context Manager：把 system prompt、对话历史、工作区/trace/memory 等上下文源、工具清单、技能 metadata、工具结果摘要组装为 LLM messages，并按字符预算裁剪低优先级上下文。
 - Tool Gateway：统一注册工具、暴露工具 metadata、校验工具入参、阻断高风险工具的未授权调用，并把工具调用事件写入 trace。
+- 内置工具集：`Read`、`Write`、`Edit`、`Glob`、`Grep` 和 `Bash` 已接入 Tool Gateway，支持原生 tool-call loop、审批恢复和 trace 记录。
 - 首次配置导入：首次进入 TUI 时，如果本机检测到 Claude Code 或 Codex 配置，会提示通过 `/import claude`、`/import codex` 或 `/import skip` 导入/跳过；导入后保存到 `~/.kross/config.json`。
 
 ## 上下文系统
@@ -51,11 +52,25 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - 结果摘要：保留原始输出，同时生成 summary 写入 trace 和上下文，避免大输出污染后续 prompt。
 - Trace：记录 `tool_call.started`、`tool_call.completed`、`tool_call.failed`、`tool_call.approval_required`、`tool_call.denied`。
 - 原生 tool-call loop：OpenAI-compatible 解析 `tool_calls`，Anthropic-compatible 解析 `tool_use`，Runtime 执行工具后把 tool result 回填给模型，支持多轮工具迭代直到模型返回最终文本。
+- 内置文件工具：`Read`、`Write`、`Edit`、`Glob`、`Grep` 默认限制在 workspace 内，并使用真实路径校验阻断 symlink 越界。
+- `Read` 支持 `offset` / `limit` 分段读取大文件，避免先把超大文件完整塞进上下文。
+- `Bash` 会以 workspace 内目录作为 cwd 启动命令，但当前版本没有 OS 级沙箱；命令本身的系统访问能力主要由审批策略约束。
+- 工具调用循环达到上限时，Runtime 会返回 failed 结果并记录 `llm.tool_loop.max_iterations`，避免静默完成。
 
 尚未实现：
 
 - MCP 工具发现和延迟加载。
-- shell/fs/apply_patch 等内置工具集。
+- OS 级 Bash 沙箱。
+- `apply_patch` 专用内置工具。
+
+### 权限和安全边界
+
+Kross 当前默认学习 Claude Code 的交互体验：沙箱不是默认前提，高风险动作通过权限模式和用户确认控制。
+
+- `default` 权限模式下，读类工具默认允许，写入、执行、网络类工具需要确认。
+- `classifier` / `auto` 权限模式可用于更激进的自动化场景，但仍会保留 deny 规则。
+- 文件类工具会做 workspace 边界校验；`Bash` 不是完整沙箱，批准命令前仍需要确认命令意图。
+- 如果后续接入 OS 级沙箱，建议作为可选配置能力接入，不改变当前默认体验。
 
 ## 运行
 
@@ -125,7 +140,7 @@ packages/core
   llm              OpenAI-compatible / Anthropic-compatible 模型协议适配
   modes            normal / cross-repo 模式检测
   runtime          agent run 生命周期和事件流
-  tools            Tool Gateway、工具注册、权限和入参校验
+  tools            Tool Gateway、工具注册、权限、入参校验和内置工具
   trace            JSONL trace 存储
 
 packages/tui
@@ -135,7 +150,13 @@ packages/tui
 
 ## 后续扩展
 
-下一步会把 `cross-repo` 从占位模式扩展成真实编排：
+短期优先把本地 agent 的可调试闭环补齐：
+
+1. 实现 `/trace`，在 TUI 中查看最近运行、工具调用、审批、失败原因和上下文事件。
+2. 实现 `/diff`，汇总当前工作区变更、agent 触达文件和建议验证命令。
+3. 补齐 README 与真实能力的同步，持续让文档作为项目状态板使用。
+
+随后把 `cross-repo` 从占位模式扩展成真实编排：
 
 1. 读取本地 project registry。
 2. 主代理调用已有 codegraph 服务做跨仓库影响面探索。

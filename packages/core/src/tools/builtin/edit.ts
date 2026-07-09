@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { z } from 'zod';
 
 import type { ToolDefinition } from '../toolGateway';
-import { resolveWithinWorkspace } from './paths';
+import { resolveExistingPathWithinWorkspace } from './paths';
 
 interface EditInput {
   path: string;
@@ -38,7 +38,7 @@ export function createEditTool(workspaceRoot: string): ToolDefinition<EditInput>
       additionalProperties: false
     },
     execute: async ({ input }) => {
-      const filePath = resolveWithinWorkspace(workspaceRoot, input.path);
+      const filePath = await resolveExistingPathWithinWorkspace(workspaceRoot, input.path);
       const original = await readFile(filePath, 'utf8');
       const count = original.split(input.old_string).length - 1;
 

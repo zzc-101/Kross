@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -40,9 +40,33 @@ describe('Read', () => {
     expect(res.content).toBe('2\n3');
   });
 
+  it('supports offset/limit for large files', async () => {
+    const lines = Array.from({ length: 260_000 }, (_, index) => `line-${index}`);
+    await writeFile(join(root, 'large.txt'), lines.join('\n'));
+
+    const res = await run({ path: 'large.txt', offset: 100, limit: 3 });
+
+    expect(res.content).toBe('line-100\nline-101\nline-102');
+    expect(res.summary).toContain('3 lines');
+  });
+
   it('rejects paths outside workspace', async () => {
     await expect(run({ path: '../../etc/passwd' })).rejects.toThrow(
       ToolBoundaryError
     );
+  });
+
+  it('rejects symlinks that resolve outside workspace', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'kross-read-outside-'));
+    try {
+      await writeFile(join(outside, 'secret.txt'), 'secret');
+      await symlink(join(outside, 'secret.txt'), join(root, 'secret-link.txt'));
+
+      await expect(run({ path: 'secret-link.txt' })).rejects.toThrow(
+        ToolBoundaryError
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });

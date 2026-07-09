@@ -7,7 +7,7 @@ import type {
   ToolExecutionContext,
   ToolHandlerResult
 } from '../toolGateway';
-import { resolveWithinWorkspace } from './paths';
+import { resolveExistingPathWithinWorkspace } from './paths';
 
 const MAX_OUTPUT_CHARS = 200_000;
 
@@ -57,7 +57,7 @@ export function createBashTool(workspaceRoot: string): ToolDefinition<BashInput>
   return {
     name: 'Bash',
     description:
-      '在工作区内执行 shell 命令，返回合并后的标准输出与标准错误。可用于构建、测试、git、文件操作等。',
+      '以工作区内目录作为 cwd 启动 shell 命令，返回合并后的标准输出与标准错误。命令本身仍可能访问 cwd 外资源，需由审批策略约束。',
     risk: 'execute',
     category: 'shell',
     timeoutMs: 120_000,
@@ -81,8 +81,8 @@ export function createBashTool(workspaceRoot: string): ToolDefinition<BashInput>
     ): Promise<ToolHandlerResult> => {
       const { command, cwd, timeoutMs } = context.input;
       const workdir = cwd
-        ? resolveWithinWorkspace(workspaceRoot, cwd)
-        : workspaceRoot;
+        ? await resolveExistingPathWithinWorkspace(workspaceRoot, cwd)
+        : await resolveExistingPathWithinWorkspace(workspaceRoot, '.');
 
       const { stdout, stderr, code } = await runCommand(
         command,

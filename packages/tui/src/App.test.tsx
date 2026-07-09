@@ -213,6 +213,30 @@ describe('App', () => {
     expect(lastFrame()).toContain('等待确认');
   });
 
+  it('can approve a paused cross-repo plan and continue the run', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    let choosePlanApproval: ((approved: boolean) => Promise<void>) | undefined;
+    const { lastFrame } = render(
+      <App
+        onReady={(api) => {
+          submit = api.submit;
+          choosePlanApproval = (api as any).choosePlanApproval;
+        }}
+      />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('给巡检任务增加任务来源字段，前后端联动');
+    await waitUntil(() => lastFrame()?.includes('等待确认') === true);
+
+    expect(typeof choosePlanApproval).toBe('function');
+    await choosePlanApproval?.(true);
+    await waitUntil(() => lastFrame()?.includes('跨仓库任务计划已创建') === true);
+
+    expect(lastFrame()).toContain('ready');
+    expect(lastFrame()).toContain('跨仓库任务计划已创建');
+  });
+
   it('does not collapse long agent replies', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     const longReply = Array.from({ length: 16 }, (_, index) => `detail-line-${index}`).join(

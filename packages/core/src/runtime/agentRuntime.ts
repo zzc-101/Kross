@@ -103,12 +103,14 @@ export type AgentRunStreamEvent =
 type PlannerOutcome =
   | { kind: 'response'; response: LlmResponse }
   | { kind: 'approval'; result: AgentResult }
+  | { kind: 'max-iterations'; message: string }
   | { kind: 'failure'; message: string }
   | undefined;
 
 type ToolLoopOutcome =
   | { kind: 'response'; response: LlmResponse }
-  | { kind: 'approval'; result: AgentResult };
+  | { kind: 'approval'; result: AgentResult }
+  | { kind: 'max-iterations'; message: string };
 
 type ToolBatchOutcome =
   | { kind: 'completed'; toolMessages: LlmMessage[] }
@@ -248,6 +250,20 @@ export class AgentRuntime extends EventEmitter {
         pendingApproval: plannerOutcome.result.pendingApproval
       });
       return plannerOutcome.result;
+    }
+    if (plannerOutcome?.kind === 'max-iterations') {
+      const failed = this.createMaxToolIterationsResult(
+        runId,
+        detection.mode,
+        plannerOutcome.message
+      );
+      await this.record(runId, 'review.completed', {
+        status: failed.status,
+        summary: failed.summary
+      });
+      await this.record(runId, 'run.completed', { ...failed });
+      this.appendConversation(input.input, failed.summary);
+      return failed;
     }
     if (plannerOutcome?.kind === 'failure') {
       const failed = agentResultSchema.parse({
@@ -458,7 +474,30 @@ export class AgentRuntime extends EventEmitter {
           }
         );
 
-        if (toolCalls.length === 0 || !this.toolGateway || iteration > maxIterations) {
+        if (toolCalls.length > 0 && iteration > maxIterations) {
+          const message = `工具调用超过最大轮数（${maxIterations}）`;
+          await this.record(runId, 'llm.tool_loop.max_iterations', {
+            maxIterations,
+            iteration,
+            pendingToolCallCount: toolCalls.length,
+            calls: toolCalls.map((call) => ({ id: call.id, name: call.name }))
+          });
+          const failed = this.createMaxToolIterationsResult(
+            runId,
+            detection.mode,
+            message
+          );
+          await this.record(runId, 'review.completed', {
+            status: failed.status,
+            summary: failed.summary
+          });
+          await this.record(runId, 'run.completed', { ...failed });
+          this.appendConversation(input.input, failed.summary);
+          yield { type: 'result', result: failed };
+          return;
+        }
+
+        if (toolCalls.length === 0 || !this.toolGateway) {
           break;
         }
 
@@ -629,6 +668,16 @@ export class AgentRuntime extends EventEmitter {
       });
       return outcome.result;
     }
+    if (outcome.kind === 'max-iterations') {
+      const failed = this.createMaxToolIterationsResult(
+        session.runId,
+        session.mode,
+        outcome.message
+      );
+      await this.record(session.runId, 'run.completed', { ...failed });
+      this.appendConversation('[tool approval]', failed.summary);
+      return failed;
+    }
 
     const result = agentResultSchema.parse({
       runId: session.runId,
@@ -771,6 +820,20 @@ export class AgentRuntime extends EventEmitter {
         iteration
       });
       iteration += 1;
+    }
+
+    if (response.toolCalls?.length) {
+      const message = `工具调用超过最大轮数（${maxIterations}）`;
+      await this.record(input.runId, 'llm.tool_loop.max_iterations', {
+        maxIterations,
+        iteration,
+        pendingToolCallCount: response.toolCalls.length,
+        calls: response.toolCalls.map((call) => ({
+          id: call.id,
+          name: call.name
+        }))
+      });
+      return { kind: 'max-iterations', message };
     }
 
     return { kind: 'response', response };
@@ -969,6 +1032,24 @@ export class AgentRuntime extends EventEmitter {
         changedFiles: [],
         evidence: ['模型请求了需要用户确认的工具调用'],
         risks: [`${pendingApproval.risk} tool requires approval`]
+      }
+    });
+  }
+
+  private createMaxToolIterationsResult(
+    runId: string,
+    mode: Exclude<AgentMode, 'auto'>,
+    message: string
+  ): AgentResult {
+    return agentResultSchema.parse({
+      runId,
+      mode,
+      status: 'failed',
+      summary: message,
+      report: {
+        changedFiles: [],
+        evidence: ['工具调用循环达到上限，运行时已停止继续执行工具'],
+        risks: ['模型在工具调用上限内没有返回最终文本']
       }
     });
   }

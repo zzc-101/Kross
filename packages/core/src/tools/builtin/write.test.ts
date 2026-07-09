@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -38,5 +38,18 @@ describe('Write', () => {
     await expect(run({ path: '/tmp/evil.txt', content: 'x' })).rejects.toThrow(
       ToolBoundaryError
     );
+  });
+
+  it('rejects writes through symlinked directories outside workspace', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'kross-write-outside-'));
+    try {
+      await symlink(outside, join(root, 'outside-link'));
+
+      await expect(
+        run({ path: 'outside-link/evil.txt', content: 'x' })
+      ).rejects.toThrow(ToolBoundaryError);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });
