@@ -57,7 +57,8 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - 内置文件工具：`Read`、`Write`、`Edit`、`Glob`、`Grep` 默认限制在 workspace 内，并使用真实路径校验阻断 symlink 越界。
 - `Read` 支持 `offset` / `limit` 分段读取大文件，避免先把超大文件完整塞进上下文。
 - `Bash` 会以 workspace 内目录作为 cwd 启动命令，但当前版本没有 OS 级沙箱；命令本身的系统访问能力主要由审批策略约束。
-- 工具调用循环达到上限时，Runtime 会返回 failed 结果并记录 `llm.tool_loop.max_iterations`，避免静默完成。
+- 工具调用循环默认最多 **200 轮**（一轮 = 模型 tool_calls → 执行 → 回填），作死循环安全网，不是“正常任务配额”。触顶时 **软着陆**：丢弃未执行 tool_calls、强制一轮无工具文本总结（`completed`），并记录 `llm.tool_loop.max_iterations` + `llm.soft_land.completed`；可用 `AGENT_MAX_TOOL_ITERATIONS` 覆盖。
+  - 对照：OpenCode 默认不限步，可选 `steps`，触顶要求 summarize；实现层约 1000 步硬保险。Codex 基本不按步数掐断。Claude Code 会话可跑大量工具调用，另有产品侧单 turn 工具次数限制。
 
 尚未实现：
 

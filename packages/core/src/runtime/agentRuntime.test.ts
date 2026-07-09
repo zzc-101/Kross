@@ -447,7 +447,7 @@ describe('AgentRuntime', () => {
     );
   });
 
-  it('fails when non-streaming tool-call iterations exceed the configured limit', async () => {
+  it('soft-lands when non-streaming tool-call iterations exceed the limit', async () => {
     const traceStore = new InMemoryTraceStore();
     const llmClient = new LoopingToolCallingLlmClient();
     const toolGateway = new ToolGateway({ traceStore });
@@ -470,12 +470,22 @@ describe('AgentRuntime', () => {
       requestedMode: 'normal'
     });
 
-    expect(result.status).toBe('failed');
-    expect(result.summary).toContain('工具调用超过最大轮数');
-    expect(result.report.risks).toContain('模型在工具调用上限内没有返回最终文本');
-    expect(traceStore.events.map((event) => event.type)).toContain(
-      'llm.tool_loop.max_iterations'
+    // 触顶不再 failed，而是软着陆为 completed 总结
+    expect(result.status).toBe('completed');
+    expect(result.summary).toMatch(/收尾|上限|停止/);
+    expect(traceStore.events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'llm.tool_loop.max_iterations',
+        'llm.soft_land.completed'
+      ])
     );
+    expect(
+      traceStore.events.some(
+        (event) =>
+          event.type === 'llm.tool_loop.max_iterations' &&
+          event.payload.softLand === true
+      )
+    ).toBe(true);
   });
 
   it('pauses for approval on risky tool calls and resumes when approved', async () => {
@@ -753,7 +763,7 @@ describe('AgentRuntime', () => {
     );
   });
 
-  it('fails when streaming tool-call iterations exceed the configured limit', async () => {
+  it('soft-lands when streaming tool-call iterations exceed the limit', async () => {
     const traceStore = new InMemoryTraceStore();
     const llmClient = new LoopingStreamingToolClient();
     const toolGateway = new ToolGateway({ traceStore });
@@ -782,12 +792,15 @@ describe('AgentRuntime', () => {
     expect(events.at(-1)).toEqual({
       type: 'result',
       result: expect.objectContaining({
-        status: 'failed',
-        summary: expect.stringContaining('工具调用超过最大轮数')
+        status: 'completed',
+        summary: expect.stringMatching(/收尾|上限|停止/)
       })
     });
-    expect(traceStore.events.map((event) => event.type)).toContain(
-      'llm.tool_loop.max_iterations'
+    expect(traceStore.events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'llm.tool_loop.max_iterations',
+        'llm.soft_land.completed'
+      ])
     );
   });
 
@@ -1198,6 +1211,15 @@ class LoopingToolCallingLlmClient implements LlmClient {
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     this.requests.push(request);
+    // 软着陆请求不带 tools
+    if (!request.tools || request.tools.length === 0) {
+      return {
+        provider: this.provider,
+        model: 'fake-model',
+        text: '收尾：工具轮次已满，已停止继续读文件',
+        raw: {}
+      };
+    }
     return {
       provider: this.provider,
       model: 'fake-model',
@@ -1331,7 +1353,12 @@ class LoopingStreamingToolClient implements LlmClient {
     throw new Error('complete should not be used for streaming chat');
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
+  async *stream(request?: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    if (!request?.tools || request.tools.length === 0) {
+      yield { type: 'text-delta', text: '收尾：工具轮次已满，已停止继续读文件' };
+      yield { type: 'done' };
+      return;
+    }
     this.count += 1;
     yield {
       type: 'tool-call',

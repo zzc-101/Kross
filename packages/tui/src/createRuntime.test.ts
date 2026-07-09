@@ -36,6 +36,18 @@ describe('createRuntimeOptionsFromEnv', () => {
     }
   });
 
+  it('parses AGENT_MAX_TOOL_ITERATIONS when valid', () => {
+    const withValue = createRuntimeOptionsFromEnv('/tmp/local-agent', {
+      AGENT_MAX_TOOL_ITERATIONS: '40'
+    });
+    expect(withValue.maxToolIterations).toBe(40);
+
+    const invalid = createRuntimeOptionsFromEnv('/tmp/local-agent', {
+      AGENT_MAX_TOOL_ITERATIONS: '0'
+    });
+    expect(invalid.maxToolIterations).toBeUndefined();
+  });
+
   it('uses saved Kross config when provider env is not configured', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'kross-runtime-home-'));
     try {

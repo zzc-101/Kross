@@ -58,11 +58,28 @@ import {
   type GitRunner
 } from '../workspace/workspaceDiff';
 
+/**
+ * 工具调用轮次安全上限（默认）。
+ * 一轮 = 模型发 tool_calls → 执行 → 回填再问模型。
+ *
+ * 行业做法（见 README）：
+ * - OpenCode：默认不限制，用户可设 steps；实现里约 1000 作硬保险
+ * - Codex：基本不按步数掐断，靠用量/上下文/用户中断
+ * - Claude Code：会话可跑很多轮工具，另有「单 turn 工具次数」产品限制
+ *
+ * 我们默认用较高安全网，触顶时 **软着陆**（强制文本总结），而不是直接 failed。
+ */
+export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
+
+const SOFT_LAND_FALLBACK =
+  '已达到工具调用轮次上限。请查看上文工具结果；如需继续，请再发一条指令推进剩余工作。';
+
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
   llmClient?: LlmClient;
   contextManager?: ContextManager;
   toolGateway?: ToolGateway;
+  /** 工具调用最大轮次，默认 {@link DEFAULT_MAX_TOOL_ITERATIONS} */
   maxToolIterations?: number;
   createRunId?: () => string;
   now?: () => Date;
@@ -566,7 +583,8 @@ export class AgentRuntime extends EventEmitter {
       report: context.report
     });
 
-    const maxIterations = this.options.maxToolIterations ?? 4;
+    const maxIterations =
+      this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
     let messages = context.messages;
     let iteration = 1;
     let fullText = '';
@@ -583,7 +601,6 @@ export class AgentRuntime extends EventEmitter {
         for await (const chunk of this.options.llmClient.stream({
           messages,
           tools: toLlmTools(tools),
-          maxTokens: 800,
           temperature: 0.2,
           metadata: {
             purpose: iteration === 1 ? 'planner' : 'planner-tool-followup',
@@ -626,25 +643,56 @@ export class AgentRuntime extends EventEmitter {
         );
 
         if (toolCalls.length > 0 && iteration > maxIterations) {
-          const message = `工具调用超过最大轮数（${maxIterations}）`;
+          // 触顶：不执行本轮 tool_calls，软着陆为文本总结（对齐 OpenCode steps 行为）
           await this.record(runId, 'llm.tool_loop.max_iterations', {
             maxIterations,
             iteration,
             pendingToolCallCount: toolCalls.length,
-            calls: toolCalls.map((call) => ({ id: call.id, name: call.name }))
+            calls: toolCalls.map((call) => ({ id: call.id, name: call.name })),
+            softLand: true
           });
-          const failed = await this.createMaxToolIterationsResult(
+
+          yield { type: 'turn-start', iteration };
+          let softText = '';
+          for await (const chunk of this.streamSoftLand({
             runId,
-            detection.mode,
-            message
+            messages,
+            maxIterations,
+            iteration
+          })) {
+            if (chunk.type === 'text-delta') {
+              softText += chunk.text;
+              fullText = fullText.length > 0 ? `${fullText}\n\n${chunk.text}` : chunk.text;
+              yield chunk;
+            }
+          }
+
+          const summary =
+            softText.trim() ||
+            fullText.trim() ||
+            formatMaxIterationsNotice(maxIterations);
+          const landed = await this.attachChangedFiles(
+            agentResultSchema.parse({
+              runId,
+              mode: detection.mode,
+              status: 'completed',
+              summary,
+              report: {
+                changedFiles: [],
+                evidence: [
+                  `工具调用达到上限 ${maxIterations} 轮，已软着陆为总结`
+                ],
+                risks: ['部分计划可能未执行完，可继续对话推进']
+              }
+            })
           );
           await this.record(runId, 'review.completed', {
-            status: failed.status,
-            summary: failed.summary
+            status: landed.status,
+            summary: landed.summary
           });
-          await this.record(runId, 'run.completed', { ...failed });
-          this.appendConversation(input.input, failed.summary);
-          yield { type: 'result', result: failed };
+          await this.record(runId, 'run.completed', { ...landed });
+          this.appendConversation(input.input, landed.summary);
+          yield { type: 'result', result: landed };
           return;
         }
 
@@ -885,7 +933,6 @@ export class AgentRuntime extends EventEmitter {
       const response = await this.options.llmClient.complete({
         messages: context.messages,
         tools: toLlmTools(availableTools),
-        maxTokens: 800,
         temperature: 0.2,
         metadata: {
           purpose: 'planner',
@@ -938,7 +985,8 @@ export class AgentRuntime extends EventEmitter {
     tools: ToolMetadata[];
     iteration: number;
   }): Promise<ToolLoopOutcome> {
-    const maxIterations = this.options.maxToolIterations ?? 4;
+    const maxIterations =
+      this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
     let response = input.response;
     let messages = input.messages;
     let iteration = input.iteration;
@@ -983,7 +1031,7 @@ export class AgentRuntime extends EventEmitter {
     }
 
     if (response.toolCalls?.length) {
-      const message = `工具调用超过最大轮数（${maxIterations}）`;
+      // 触顶：丢弃未执行的 tool_calls，软着陆为文本总结
       await this.record(input.runId, 'llm.tool_loop.max_iterations', {
         maxIterations,
         iteration,
@@ -991,12 +1039,110 @@ export class AgentRuntime extends EventEmitter {
         calls: response.toolCalls.map((call) => ({
           id: call.id,
           name: call.name
-        }))
+        })),
+        softLand: true
       });
-      return { kind: 'max-iterations', message };
+      const soft = await this.completeSoftLand({
+        runId: input.runId,
+        messages,
+        maxIterations,
+        iteration
+      });
+      return { kind: 'response', response: soft };
     }
 
     return { kind: 'response', response };
+  }
+
+  /**
+   * 触顶后强制一轮无工具文本收尾（OpenCode steps 触顶也会要求 summarize）。
+   */
+  private async completeSoftLand(input: {
+    runId: string;
+    messages: LlmMessage[];
+    maxIterations: number;
+    iteration: number;
+  }): Promise<LlmResponse> {
+    if (!this.options.llmClient) {
+      return {
+        provider: 'openai',
+        model: 'none',
+        text: formatMaxIterationsNotice(input.maxIterations),
+        raw: {}
+      };
+    }
+
+    const response = await this.options.llmClient.complete({
+      messages: [...input.messages, softLandUserMessage(input.maxIterations, input.iteration)],
+      temperature: 0.2,
+      metadata: {
+        purpose: 'max-iterations-soft-land',
+        maxIterations: input.maxIterations,
+        iteration: input.iteration
+      }
+    });
+
+    await this.record(input.runId, 'llm.soft_land.completed', {
+      maxIterations: input.maxIterations,
+      iteration: input.iteration,
+      textPreview: response.text.slice(0, 240),
+      droppedToolCalls: true
+    });
+
+    // 若模型仍返回 tool_calls，忽略并兜底文本
+    const text =
+      response.text.trim() ||
+      formatMaxIterationsNotice(input.maxIterations);
+    return {
+      ...response,
+      text,
+      toolCalls: undefined
+    };
+  }
+
+  private async *streamSoftLand(input: {
+    runId: string;
+    messages: LlmMessage[];
+    maxIterations: number;
+    iteration: number;
+  }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>> {
+    if (!this.options.llmClient) {
+      yield {
+        type: 'text-delta',
+        text: formatMaxIterationsNotice(input.maxIterations)
+      };
+      return;
+    }
+
+    let text = '';
+    for await (const chunk of this.options.llmClient.stream({
+      messages: [...input.messages, softLandUserMessage(input.maxIterations, input.iteration)],
+      temperature: 0.2,
+      metadata: {
+        purpose: 'max-iterations-soft-land',
+        maxIterations: input.maxIterations,
+        iteration: input.iteration
+      }
+    })) {
+      if (chunk.type === 'text-delta') {
+        text += chunk.text;
+        yield { type: 'text-delta', text: chunk.text };
+      }
+    }
+
+    await this.record(input.runId, 'llm.soft_land.completed', {
+      maxIterations: input.maxIterations,
+      iteration: input.iteration,
+      textPreview: text.slice(0, 240),
+      droppedToolCalls: true
+    });
+
+    if (text.trim().length === 0) {
+      yield {
+        type: 'text-delta',
+        text: formatMaxIterationsNotice(input.maxIterations)
+      };
+    }
   }
 
   /**
@@ -1097,7 +1243,6 @@ export class AgentRuntime extends EventEmitter {
     const response = await this.options.llmClient!.complete({
       messages: input.messages,
       tools: toLlmTools(input.tools),
-      maxTokens: 800,
       temperature: 0.2,
       metadata: {
         purpose: 'planner-tool-followup',
@@ -1203,16 +1348,17 @@ export class AgentRuntime extends EventEmitter {
     mode: Exclude<AgentMode, 'auto'>,
     message: string
   ): Promise<AgentResult> {
+    // 兼容旧路径：优先由 soft land 产出 completed；此处仅作无 LLM 时的兜底
     return this.attachChangedFiles(
       agentResultSchema.parse({
         runId,
         mode,
-        status: 'failed',
-        summary: message,
+        status: 'completed',
+        summary: message || SOFT_LAND_FALLBACK,
         report: {
           changedFiles: [],
-          evidence: ['工具调用循环达到上限，运行时已停止继续执行工具'],
-          risks: ['模型在工具调用上限内没有返回最终文本']
+          evidence: ['工具调用循环达到上限，已停止继续执行工具并尝试收尾'],
+          risks: ['部分计划可能未执行完，可继续对话推进']
         }
       })
     );
@@ -1309,4 +1455,22 @@ function toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined {
     description: tool.description,
     parameters: tool.parameters
   }));
+}
+
+function softLandUserMessage(maxIterations: number, iteration: number): LlmMessage {
+  return {
+    role: 'user',
+    content: [
+      `【系统】工具调用已达上限 ${maxIterations} 轮（当前尝试第 ${iteration} 轮）。`,
+      '请停止调用任何工具，用简洁中文总结：',
+      '1. 已完成的工作与关键发现',
+      '2. 尚未完成的事项',
+      '3. 建议用户下一步怎么做',
+      '不要再发起 tool_calls。'
+    ].join('\n')
+  };
+}
+
+function formatMaxIterationsNotice(maxIterations: number): string {
+  return `${SOFT_LAND_FALLBACK}（上限 ${maxIterations} 轮）`;
 }

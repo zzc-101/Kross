@@ -161,15 +161,25 @@ export class OpenAiProtocolClient implements LlmClient {
   }
 
   private body(request: LlmRequest, stream: boolean): Record<string, unknown> {
-    return {
+    // 不主动传 max_tokens，避免 Runtime 人为截断长回复；调用方显式传入时才限制
+    const body: Record<string, unknown> = {
       model: request.model ?? this.config.model,
       messages: request.messages.map(toOpenAiMessage),
-      tools: request.tools?.map(toOpenAiTool),
-      max_tokens: request.maxTokens,
-      temperature: request.temperature,
-      top_p: request.topP,
       stream
     };
+    if (request.tools?.length) {
+      body.tools = request.tools.map(toOpenAiTool);
+    }
+    if (request.maxTokens !== undefined) {
+      body.max_tokens = request.maxTokens;
+    }
+    if (request.temperature !== undefined) {
+      body.temperature = request.temperature;
+    }
+    if (request.topP !== undefined) {
+      body.top_p = request.topP;
+    }
+    return body;
   }
 }
 

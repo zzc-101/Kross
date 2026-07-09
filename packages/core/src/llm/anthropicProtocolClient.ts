@@ -220,16 +220,24 @@ export class AnthropicProtocolClient implements LlmClient {
   private body(request: LlmRequest, stream: boolean): Record<string, unknown> {
     const { system, messages } = splitSystemMessages(request.messages);
 
-    return {
+    // Anthropic 要求必填 max_tokens；未指定时用大上限，不人为截断正常长回复
+    const body: Record<string, unknown> = {
       model: request.model ?? this.config.model,
       system,
       messages,
-      tools: request.tools?.map(toAnthropicTool),
-      max_tokens: request.maxTokens,
-      temperature: request.temperature,
-      top_p: request.topP,
+      max_tokens: request.maxTokens ?? 32_768,
       stream
     };
+    if (request.tools?.length) {
+      body.tools = request.tools.map(toAnthropicTool);
+    }
+    if (request.temperature !== undefined) {
+      body.temperature = request.temperature;
+    }
+    if (request.topP !== undefined) {
+      body.top_p = request.topP;
+    }
+    return body;
   }
 }
 
