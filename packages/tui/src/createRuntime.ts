@@ -1,10 +1,12 @@
 import { join } from 'node:path';
 
 import {
+  createBuiltinTools,
   createLlmClientFromKrossConfig,
   createLlmClientFromEnv,
   JsonlTraceStore,
   loadKrossConfig,
+  ToolGateway,
   type AgentRuntimeOptions,
   type LlmFetch
 } from '@kross/core';
@@ -21,9 +23,16 @@ export function createRuntimeOptionsFromEnv(
   options: CreateRuntimeConfigOptions = {}
 ): AgentRuntimeOptions {
   const envClient = createLlmClientFromEnv(env, fetch);
+  const traceStore = new JsonlTraceStore(join(cwd, 'runs'));
+
+  const toolGateway = new ToolGateway({ traceStore, defaultTimeoutMs: 120_000 });
+  for (const tool of createBuiltinTools(cwd)) {
+    toolGateway.register(tool);
+  }
 
   return {
-    traceStore: new JsonlTraceStore(join(cwd, 'runs')),
+    traceStore,
+    toolGateway,
     llmClient:
       envClient ??
       createLlmClientFromKrossConfig(loadKrossConfig(options), fetch)
