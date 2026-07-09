@@ -5,7 +5,9 @@ export * from './llm/anthropicProtocolClient';
 export * from './llm/createLlmClient';
 export * from './llm/openAiProtocolClient';
 export * from './llm/types';
+export * from './llm/modelContextWindows';
 export * from './modes/modeDetector';
+
 export * from './runtime/agentRuntime';
 export * from './tools/toolGateway';
 export * from './tools/permissionModes';

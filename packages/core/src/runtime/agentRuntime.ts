@@ -12,6 +12,11 @@ import {
   type ContextManager,
   type ContextSnapshot
 } from '../context/contextManager';
+import {
+  estimateTokensFromChars,
+  formatContextUsage,
+  resolveModelContextWindow
+} from '../llm/modelContextWindows';
 import type {
   LlmClient,
   LlmMessage,
@@ -157,6 +162,39 @@ export class AgentRuntime extends EventEmitter {
   /** TUI 输入框右下角展示的模型名。 */
   getModelLabel(): string {
     return this.options.llmClient?.model?.trim() || 'no model';
+  }
+
+  /**
+   * 当前会话上下文占用估算（用于顶栏 12K/128K 展示）。
+   * used 来自 ContextManager 字符预算 /4；max 来自模型窗口表或 AGENT_CONTEXT_WINDOW。
+   */
+  getContextUsage(input: {
+    requestedMode: AgentMode;
+    currentUserInput?: string;
+    env?: Record<string, string | undefined>;
+  }): {
+    usedChars: number;
+    usedTokens: number;
+    maxTokens: number;
+    label: string;
+    ratio: number;
+  } {
+    const snapshot = this.inspectContext({
+      requestedMode: input.requestedMode,
+      currentUserInput: input.currentUserInput
+    });
+    const usedTokens = estimateTokensFromChars(snapshot.estimatedChars);
+    const maxTokens = resolveModelContextWindow(
+      this.options.llmClient?.model,
+      input.env ?? process.env
+    );
+    return {
+      usedChars: snapshot.estimatedChars,
+      usedTokens,
+      maxTokens,
+      label: formatContextUsage(usedTokens, maxTokens),
+      ratio: usedTokens / Math.max(1, maxTokens)
+    };
   }
 
   /**
