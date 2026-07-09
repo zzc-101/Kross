@@ -13,6 +13,17 @@ export const permissionModeLabels: Record<PermissionMode, string> = {
   auto: 'auto'
 };
 
+/** 输入框页脚等 UI 用的简短标签。 */
+export const permissionModeFooterLabels: Record<PermissionMode, string> = {
+  default: 'default',
+  classifier: 'classifier',
+  auto: 'always-approve'
+};
+
+export function formatPermissionFooter(mode: PermissionMode): string {
+  return permissionModeFooterLabels[mode] ?? mode;
+}
+
 export function isPermissionMode(value: string): value is PermissionMode {
   return (permissionModes as readonly string[]).includes(value);
 }

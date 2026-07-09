@@ -6,6 +6,7 @@ import {
   createLlmClientFromEnv,
   JsonlTraceStore,
   loadKrossConfig,
+  ObservableTraceStore,
   ToolGateway,
   type AgentRuntimeOptions,
   type LlmFetch
@@ -23,7 +24,7 @@ export function createRuntimeOptionsFromEnv(
   options: CreateRuntimeConfigOptions = {}
 ): AgentRuntimeOptions {
   const envClient = createLlmClientFromEnv(env, fetch);
-  const traceStore = new JsonlTraceStore(join(cwd, 'runs'));
+  const traceStore = new ObservableTraceStore(new JsonlTraceStore(join(cwd, 'runs')));
 
   const toolGateway = new ToolGateway({ traceStore, defaultTimeoutMs: 120_000 });
   for (const tool of createBuiltinTools(cwd)) {

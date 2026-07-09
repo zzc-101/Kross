@@ -11,3 +11,4 @@ export * from './tools/toolGateway';
 export * from './tools/permissionModes';
 export * from './tools/builtin';
 export * from './trace/traceStore';
+export * from './trace/observableTraceStore';

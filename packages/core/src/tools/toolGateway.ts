@@ -51,6 +51,8 @@ export interface ToolCallInput {
   runId: string;
   name: string;
   input: unknown;
+  /** 与模型 tool_call id 对齐，便于 UI/trace 关联 started/completed。 */
+  callId?: string;
   approved?: boolean;
   returnErrors?: boolean;
 }
@@ -127,10 +129,15 @@ export class ToolGateway {
       tool: toMetadata(definition),
       input: parsedInput
     });
+    const callMeta = {
+      toolName: input.name,
+      risk: definition.risk,
+      ...(input.callId ? { callId: input.callId } : {})
+    };
+
     if (approval.action === 'deny') {
       await this.record(input.runId, 'tool_call.denied', {
-        toolName: input.name,
-        risk: definition.risk,
+        ...callMeta,
         reason: approval.reason
       });
       throw new ToolPermissionError(
@@ -142,9 +149,9 @@ export class ToolGateway {
     }
     if (approval.action === 'ask' && input.approved !== true) {
       await this.record(input.runId, 'tool_call.approval_required', {
-        toolName: input.name,
-        risk: definition.risk,
-        reason: approval.reason
+        ...callMeta,
+        reason: approval.reason,
+        input: parsedInput
       });
       throw new ToolPermissionError(
         input.name,
@@ -154,9 +161,9 @@ export class ToolGateway {
       );
     }
 
+    const startedAt = this.now().getTime();
     await this.record(input.runId, 'tool_call.started', {
-      toolName: input.name,
-      risk: definition.risk,
+      ...callMeta,
       input: parsedInput
     });
 
@@ -172,10 +179,11 @@ export class ToolGateway {
         summary: summarizeResult(definition, rawResult, this.maxSummaryChars)
       };
       await this.record(input.runId, 'tool_call.completed', {
-        toolName: input.name,
+        ...callMeta,
         status: result.status,
         contentPreview: result.content.slice(0, 240),
-        summary: result.summary
+        summary: result.summary,
+        durationMs: this.now().getTime() - startedAt
       });
       return result;
     } catch (error) {
@@ -186,10 +194,11 @@ export class ToolGateway {
         summary: `failed: ${message}`
       };
       await this.record(input.runId, 'tool_call.failed', {
-        toolName: input.name,
+        ...callMeta,
         status: failed.status,
         message,
-        summary: failed.summary
+        summary: failed.summary,
+        durationMs: this.now().getTime() - startedAt
       });
       if (input.returnErrors === true) {
         return failed;

@@ -88,6 +88,8 @@ export const agentResultSchema = z.object({
   mode: agentModeSchema.exclude(['auto']),
   status: z.enum(['completed', 'failed', 'cancelled', 'approval-required']),
   summary: z.string(),
+  /** 最终一轮模型思考过程（审批恢复等非流式路径用）；不并入 summary。 */
+  thinking: z.string().optional(),
   report: agentReportSchema,
   pendingApproval: pendingToolApprovalSchema.optional()
 });
