@@ -42,6 +42,70 @@ describe('OpenAiProtocolClient', () => {
     });
   });
 
+  it('parses reasoning_content as thinking from complete responses', async () => {
+    const client = new OpenAiProtocolClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      model: 'r1-test',
+      fetch: async () =>
+        jsonResponse({
+          choices: [
+            {
+              message: {
+                reasoning_content: '先分析一下问题',
+                content: '最终答案'
+              }
+            }
+          ]
+        })
+    });
+
+    const result = await client.complete({
+      messages: [{ role: 'user', content: 'hi' }]
+    });
+
+    expect(result.thinking).toBe('先分析一下问题');
+    expect(result.text).toBe('最终答案');
+  });
+
+  it('streams thinking-delta from reasoning_content and text-delta from content', async () => {
+    const client = new OpenAiProtocolClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      model: 'r1-test',
+      fetch: async () =>
+        new Response(
+          [
+            'data: {"choices":[{"delta":{"reasoning_content":"想"}}]}',
+            '',
+            'data: {"choices":[{"delta":{"reasoning_content":"一下"}}]}',
+            '',
+            'data: {"choices":[{"delta":{"content":"答"}}]}',
+            '',
+            'data: {"choices":[{"delta":{"content":"案"}}]}',
+            '',
+            'data: [DONE]',
+            ''
+          ].join('\n')
+        )
+    });
+
+    const chunks = [];
+    for await (const chunk of client.stream({
+      messages: [{ role: 'user', content: 'hi' }]
+    })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      { type: 'thinking-delta', text: '想' },
+      { type: 'thinking-delta', text: '一下' },
+      { type: 'text-delta', text: '答' },
+      { type: 'text-delta', text: '案' },
+      { type: 'done' }
+    ]);
+  });
+
   it('streams text deltas from OpenAI-compatible SSE responses', async () => {
     const client = new OpenAiProtocolClient({
       apiKey: 'test-key',

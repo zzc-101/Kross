@@ -30,6 +30,10 @@ import {
   createApprovalPolicy,
   type PermissionMode
 } from '../tools/permissionModes';
+import {
+  isObservableTraceStore,
+  type TraceEventListener
+} from '../trace/observableTraceStore';
 import type { TraceStore } from '../trace/traceStore';
 
 export interface AgentRuntimeOptions {
@@ -68,7 +72,22 @@ export type AgentRuntimeEvent = TraceEvent;
 
 export type AgentRunStreamEvent =
   | {
+      /** 每一轮 LLM 调用开始（含首轮与工具回填后的 follow-up）。 */
+      type: 'turn-start';
+      iteration: number;
+    }
+  | {
+      /** 本轮模型已给出 tool_calls，即将进入工具执行。 */
+      type: 'tools-start';
+      iteration: number;
+      count: number;
+    }
+  | {
       type: 'text-delta';
+      text: string;
+    }
+  | {
+      type: 'thinking-delta';
       text: string;
     }
   | {
@@ -133,6 +152,37 @@ export class AgentRuntime extends EventEmitter {
   setPermissionMode(mode: PermissionMode): void {
     this.permissionMode = mode;
     this.toolGateway?.setApprovalPolicy(createApprovalPolicy(mode));
+  }
+
+  /** TUI 输入框右下角展示的模型名。 */
+  getModelLabel(): string {
+    return this.options.llmClient?.model?.trim() || 'no model';
+  }
+
+  /**
+   * 订阅 trace 事件。若 traceStore 为 ObservableTraceStore，可收到
+   * runtime + ToolGateway 全部写入；否则回退为 runtime 自身 emit 的 event
+   *（此时 ToolGateway 的 tool_call.* 不会到达订阅方，TUI 工具卡片会静默失效）。
+   */
+  onTrace(listener: TraceEventListener): () => void {
+    if (isObservableTraceStore(this.options.traceStore)) {
+      return this.options.traceStore.subscribe(listener);
+    }
+
+    // 无 ToolGateway 时退回 runtime emit 即可；有工具时才需要 Observable 才能收到 tool_call.*
+    if (this.toolGateway) {
+      console.warn(
+        '[AgentRuntime.onTrace] traceStore is not ObservableTraceStore; ' +
+          'tool_call events from ToolGateway will not be delivered. ' +
+          'Wrap the store with ObservableTraceStore for TUI tool cards.'
+      );
+    }
+
+    const handler = (event: TraceEvent) => listener(event);
+    this.on('event', handler);
+    return () => {
+      this.off('event', handler);
+    };
   }
 
   async run(input: AgentRunInput): Promise<AgentResult> {
@@ -315,11 +365,15 @@ export class AgentRuntime extends EventEmitter {
     let messages = context.messages;
     let iteration = 1;
     let fullText = '';
+    let fullThinking = '';
 
     try {
       while (true) {
         let turnText = '';
+        let turnThinking = '';
         const toolCalls: LlmToolCall[] = [];
+
+        yield { type: 'turn-start', iteration };
 
         for await (const chunk of this.options.llmClient.stream({
           messages,
@@ -334,10 +388,16 @@ export class AgentRuntime extends EventEmitter {
             contextReport: context.report
           }
         })) {
-          if (chunk.type === 'text-delta') {
+          if (chunk.type === 'thinking-delta') {
+            if (turnThinking.length === 0 && fullThinking.length > 0) {
+              fullThinking += '\n\n';
+            }
+            turnThinking += chunk.text;
+            fullThinking += chunk.text;
+            yield { type: 'thinking-delta', text: chunk.text };
+          } else if (chunk.type === 'text-delta') {
             if (turnText.length === 0 && fullText.length > 0) {
               fullText += '\n\n';
-              yield { type: 'text-delta', text: '\n\n' };
             }
             turnText += chunk.text;
             fullText += chunk.text;
@@ -354,6 +414,7 @@ export class AgentRuntime extends EventEmitter {
             provider: this.options.llmClient.provider,
             model: 'stream',
             textPreview: turnText.slice(0, 240),
+            thinkingPreview: turnThinking.slice(0, 240) || undefined,
             toolCallCount: toolCalls.length,
             ...(iteration === 1 ? {} : { iteration })
           }
@@ -362,6 +423,12 @@ export class AgentRuntime extends EventEmitter {
         if (toolCalls.length === 0 || !this.toolGateway || iteration > maxIterations) {
           break;
         }
+
+        yield {
+          type: 'tools-start',
+          iteration,
+          count: toolCalls.length
+        };
 
         await this.record(runId, 'llm.tool_calls.received', {
           count: toolCalls.length,
@@ -419,7 +486,10 @@ export class AgentRuntime extends EventEmitter {
     }
 
     const plan = createPlan(input.input, detection.mode, fullText);
-    await this.record(runId, 'plan.created', plan);
+    await this.record(runId, 'plan.created', {
+      ...plan,
+      thinkingPreview: fullThinking.slice(0, 240) || undefined
+    });
 
     const result = agentResultSchema.parse({
       runId,
@@ -428,7 +498,11 @@ export class AgentRuntime extends EventEmitter {
       summary: fullText,
       report: {
         changedFiles: [],
-        evidence: ['planner LLM 已返回计划建议', '已记录普通任务 trace'],
+        evidence: [
+          'planner LLM 已返回计划建议',
+          '已记录普通任务 trace',
+          ...(fullThinking.length > 0 ? ['模型返回了 thinking 过程'] : [])
+        ],
         risks: []
       }
     });
@@ -523,6 +597,7 @@ export class AgentRuntime extends EventEmitter {
       mode: session.mode,
       status: 'completed',
       summary: outcome.response.text,
+      thinking: outcome.response.thinking || undefined,
       report: {
         changedFiles: [],
         evidence: ['工具审批已处理，planner LLM 已返回最终回复'],
@@ -577,6 +652,7 @@ export class AgentRuntime extends EventEmitter {
         provider: response.provider,
         model: response.model,
         textPreview: response.text.slice(0, 240),
+        thinkingPreview: response.thinking?.slice(0, 240),
         usage: response.usage,
         toolCallCount: response.toolCalls?.length ?? 0
       });
@@ -690,6 +766,7 @@ export class AgentRuntime extends EventEmitter {
           runId: input.runId,
           name: call.name,
           input: call.input,
+          callId: call.id,
           returnErrors: true
         });
       } catch (error) {
@@ -772,6 +849,7 @@ export class AgentRuntime extends EventEmitter {
       provider: response.provider,
       model: response.model,
       textPreview: response.text.slice(0, 240),
+      thinkingPreview: response.thinking?.slice(0, 240),
       usage: response.usage,
       toolCallCount: response.toolCalls?.length ?? 0,
       iteration: input.iteration
@@ -785,6 +863,7 @@ export class AgentRuntime extends EventEmitter {
       runId: session.runId,
       name: session.call.name,
       input: session.call.input,
+      callId: session.call.id,
       approved: true,
       returnErrors: true
     });

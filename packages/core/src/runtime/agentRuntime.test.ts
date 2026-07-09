@@ -142,6 +142,7 @@ describe('AgentRuntime', () => {
     }
 
     expect(events).toEqual([
+      { type: 'turn-start', iteration: 1 },
       { type: 'text-delta', text: '你' },
       { type: 'text-delta', text: '好' },
       {
@@ -157,6 +158,95 @@ describe('AgentRuntime', () => {
     expect(traceStore.events.map((event) => event.type)).toEqual(
       expect.arrayContaining(['context.built', 'llm.planner.completed', 'run.completed'])
     );
+  });
+
+  it('streams thinking separately from text and does not put thinking into summary', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new ThinkingStreamingLlmClient();
+    const runtime = new AgentRuntime({ traceStore, llmClient });
+    const events = [];
+
+    for await (const event of runtime.runStreaming({
+      input: 'nihao',
+      requestedMode: 'auto'
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: 'turn-start', iteration: 1 },
+      { type: 'thinking-delta', text: '先推理' },
+      { type: 'text-delta', text: '结论' },
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'completed',
+          summary: '结论'
+        })
+      }
+    ]);
+    expect(events.find((event) => event.type === 'result')).toMatchObject({
+      result: { summary: '结论' }
+    });
+    expect(JSON.stringify(events)).not.toContain('先推理结论');
+  });
+
+  it('emits turn-start and tools-start across multi-step tool streaming loops', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new MultiTurnStreamingToolClient();
+    const toolGateway = new ToolGateway({
+      traceStore,
+      approvalPolicy: () => ({ action: 'allow' })
+    });
+    toolGateway.register({
+      name: 'Read',
+      description: 'read',
+      risk: 'read',
+      inputSchema: z.object({ path: z.string() }),
+      execute: async ({ input }) => ({ content: `ok:${input.path}` })
+    });
+    const runtime = new AgentRuntime({ traceStore, llmClient, toolGateway });
+    const events = [];
+
+    for await (const event of runtime.runStreaming({
+      input: '读文件',
+      requestedMode: 'normal'
+    })) {
+      events.push(event);
+    }
+
+    expect(events.filter((event) => event.type === 'turn-start')).toEqual([
+      { type: 'turn-start', iteration: 1 },
+      { type: 'turn-start', iteration: 2 }
+    ]);
+    expect(events).toContainEqual({
+      type: 'tools-start',
+      iteration: 1,
+      count: 1
+    });
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'turn-start',
+        'thinking-delta',
+        'tools-start',
+        'turn-start',
+        'text-delta',
+        'result'
+      ])
+    );
+    expect(
+      events.find((event) => event.type === 'result')
+    ).toMatchObject({
+      result: {
+        status: 'completed',
+        summary: '读完了'
+      }
+    });
+    // thinking 不进入最终 summary
+    expect(
+      (events.find((event) => event.type === 'result') as { result: { summary: string } })
+        .result.summary
+    ).not.toContain('想先读');
   });
 
   it('persists conversation history through the context manager', async () => {
@@ -601,7 +691,12 @@ describe('AgentRuntime', () => {
     const textDeltas = events
       .filter((event) => event.type === 'text-delta')
       .map((event) => (event.type === 'text-delta' ? event.text : ''));
-    expect(textDeltas.join('')).toBe('让我查一下\n\n文件内容已读取');
+    // 多轮 text-delta 不再注入分隔符（UI 按 turn-start 分气泡）；summary 仍拼接历史
+    expect(textDeltas).toEqual(['让我查一下', '文件内容已读取']);
+    expect(events.filter((event) => event.type === 'turn-start')).toHaveLength(2);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'tools-start', count: 1 })
+    );
     expect(events.at(-1)).toEqual({
       type: 'result',
       result: expect.objectContaining({
@@ -769,6 +864,45 @@ class StreamingLlmClient implements LlmClient {
     for (const text of this.chunks) {
       yield { type: 'text-delta', text };
     }
+    yield { type: 'done' };
+  }
+}
+
+class ThinkingStreamingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+
+  async complete(): Promise<LlmResponse> {
+    throw new Error('complete should not be used for streaming chat');
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'thinking-delta', text: '先推理' };
+    yield { type: 'text-delta', text: '结论' };
+    yield { type: 'done' };
+  }
+}
+
+class MultiTurnStreamingToolClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  private phase: 'tool' | 'final' = 'tool';
+
+  async complete(): Promise<LlmResponse> {
+    throw new Error('complete should not be used for streaming chat');
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    if (this.phase === 'tool') {
+      this.phase = 'final';
+      yield { type: 'thinking-delta', text: '想先读' };
+      yield {
+        type: 'tool-call',
+        call: { id: 'read-1', name: 'Read', input: { path: 'a.ts' } }
+      };
+      yield { type: 'done' };
+      return;
+    }
+
+    yield { type: 'text-delta', text: '读完了' };
     yield { type: 'done' };
   }
 }

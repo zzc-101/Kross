@@ -17,6 +17,10 @@ interface OpenAiChatResponse {
   choices?: Array<{
     message?: {
       content?: string | null;
+      /** DeepSeek R1 / 多数 OpenAI-compat 推理模型 */
+      reasoning_content?: string | null;
+      /** 部分网关别名 */
+      reasoning?: string | null;
       tool_calls?: Array<{
         id?: string;
         type?: string;
@@ -38,6 +42,8 @@ interface OpenAiStreamResponse {
   choices?: Array<{
     delta?: {
       content?: string | null;
+      reasoning_content?: string | null;
+      reasoning?: string | null;
       tool_calls?: Array<{
         index?: number;
         id?: string;
@@ -58,10 +64,12 @@ interface StreamingToolCallAccumulator {
 
 export class OpenAiProtocolClient implements LlmClient {
   readonly provider = 'openai' as const;
+  readonly model: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
 
   constructor(private readonly config: OpenAiProtocolClientConfig) {
+    this.model = config.model;
     this.baseUrl = config.baseUrl ?? 'https://api.openai.com/v1';
     this.fetchImpl = config.fetch ?? defaultFetch();
   }
@@ -75,11 +83,14 @@ export class OpenAiProtocolClient implements LlmClient {
 
     await ensureOk(this.provider, response);
     const raw = (await response.json()) as OpenAiChatResponse;
+    const message = raw.choices?.[0]?.message;
+    const thinking = extractOpenAiThinking(message);
 
     return {
       provider: this.provider,
       model: raw.model ?? request.model ?? this.config.model,
-      text: raw.choices?.[0]?.message?.content ?? '',
+      text: message?.content ?? '',
+      thinking: thinking || undefined,
       raw,
       toolCalls: parseToolCalls(raw),
       usage: {
@@ -110,6 +121,10 @@ export class OpenAiProtocolClient implements LlmClient {
 
       const parsed = JSON.parse(event.data) as OpenAiStreamResponse;
       const delta = parsed.choices?.[0]?.delta;
+      const thinking = extractOpenAiThinking(delta);
+      if (thinking) {
+        yield { type: 'thinking-delta', text: thinking };
+      }
       const text = delta?.content;
       if (text) {
         yield { type: 'text-delta', text };
@@ -231,6 +246,22 @@ function* flushToolCalls(
     };
   }
   pending.clear();
+}
+
+function extractOpenAiThinking(
+  source:
+    | {
+        reasoning_content?: string | null;
+        reasoning?: string | null;
+      }
+    | null
+    | undefined
+): string {
+  if (!source) {
+    return '';
+  }
+  // 空串不算有效 thinking，允许回退到 reasoning 别名。
+  return source.reasoning_content || source.reasoning || '';
 }
 
 function parseToolArguments(value: string | undefined): unknown {

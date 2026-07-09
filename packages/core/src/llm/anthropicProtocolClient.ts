@@ -19,6 +19,8 @@ interface AnthropicMessageResponse {
   content?: Array<{
     type: string;
     text?: string;
+    /** extended thinking */
+    thinking?: string;
     id?: string;
     name?: string;
     input?: unknown;
@@ -40,6 +42,7 @@ interface AnthropicStreamResponse {
   delta?: {
     type?: string;
     text?: string;
+    thinking?: string;
     partial_json?: string;
   };
   error?: {
@@ -56,11 +59,13 @@ interface StreamingToolUseAccumulator {
 
 export class AnthropicProtocolClient implements LlmClient {
   readonly provider = 'anthropic' as const;
+  readonly model: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
   private readonly anthropicVersion: string;
 
   constructor(private readonly config: AnthropicProtocolClientConfig) {
+    this.model = config.model;
     this.baseUrl = config.baseUrl ?? 'https://api.anthropic.com/v1';
     this.fetchImpl = config.fetch ?? defaultFetch();
     this.anthropicVersion = config.anthropicVersion ?? '2023-06-01';
@@ -78,6 +83,7 @@ export class AnthropicProtocolClient implements LlmClient {
     const inputTokens = raw.usage?.input_tokens;
     const outputTokens = raw.usage?.output_tokens;
 
+    const thinking = extractAnthropicThinking(raw);
     return {
       provider: this.provider,
       model: raw.model ?? request.model ?? this.config.model,
@@ -86,6 +92,7 @@ export class AnthropicProtocolClient implements LlmClient {
           ?.filter((item) => item.type === 'text')
           .map((item) => item.text ?? '')
           .join('') ?? '',
+      thinking: thinking || undefined,
       raw,
       toolCalls: parseToolCalls(raw),
       usage: {
@@ -158,6 +165,14 @@ export class AnthropicProtocolClient implements LlmClient {
             }
           };
         }
+        continue;
+      }
+      if (
+        parsed.type === 'content_block_delta' &&
+        parsed.delta?.type === 'thinking_delta' &&
+        parsed.delta.thinking
+      ) {
+        yield { type: 'thinking-delta', text: parsed.delta.thinking };
         continue;
       }
       if (
@@ -306,6 +321,15 @@ function parseToolCalls(raw: AnthropicMessageResponse): LlmToolCall[] | undefine
     }));
 
   return calls && calls.length > 0 ? calls : undefined;
+}
+
+function extractAnthropicThinking(raw: AnthropicMessageResponse): string {
+  return (
+    raw.content
+      ?.filter((item) => item.type === 'thinking')
+      .map((item) => item.thinking ?? '')
+      .join('') ?? ''
+  );
 }
 
 function parseToolUseInput(inputJson: string): unknown {

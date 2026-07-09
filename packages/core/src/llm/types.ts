@@ -55,6 +55,8 @@ export interface LlmResponse {
   provider: LlmProvider;
   model: string;
   text: string;
+  /** 模型思考/推理过程（若协议返回）；不计入最终对用户回复正文。 */
+  thinking?: string;
   raw: unknown;
   toolCalls?: LlmToolCall[];
   usage?: LlmUsage;
@@ -63,6 +65,10 @@ export interface LlmResponse {
 export type LlmStreamChunk =
   | {
       type: 'text-delta';
+      text: string;
+    }
+  | {
+      type: 'thinking-delta';
       text: string;
     }
   | {
@@ -75,6 +81,8 @@ export type LlmStreamChunk =
 
 export interface LlmClient {
   readonly provider: LlmProvider;
+  /** 当前默认模型名，供 TUI 状态栏展示。 */
+  readonly model?: string;
   complete(request: LlmRequest): Promise<LlmResponse>;
   stream(request: LlmRequest): AsyncIterable<LlmStreamChunk>;
 }

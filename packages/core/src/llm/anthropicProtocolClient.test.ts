@@ -97,6 +97,67 @@ describe('AnthropicProtocolClient', () => {
     );
   });
 
+  it('parses thinking content blocks from complete responses', async () => {
+    const client = new AnthropicProtocolClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://anthropic.example/v1',
+      model: 'claude-test',
+      fetch: async () =>
+        jsonResponse({
+          content: [
+            { type: 'thinking', thinking: '先推理' },
+            { type: 'text', text: '结论' }
+          ]
+        })
+    });
+
+    const result = await client.complete({
+      messages: [{ role: 'user', content: 'hi' }]
+    });
+
+    expect(result.thinking).toBe('先推理');
+    expect(result.text).toBe('结论');
+  });
+
+  it('streams thinking_delta as thinking-delta chunks', async () => {
+    const client = new AnthropicProtocolClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://anthropic.example/v1',
+      model: 'claude-test',
+      fetch: async () =>
+        new Response(
+          [
+            'event: content_block_delta',
+            'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"推"}}',
+            '',
+            'event: content_block_delta',
+            'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"理"}}',
+            '',
+            'event: content_block_delta',
+            'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"答"}}',
+            '',
+            'event: message_stop',
+            'data: {"type":"message_stop"}',
+            ''
+          ].join('\n')
+        )
+    });
+
+    const chunks = [];
+    for await (const chunk of client.stream({
+      messages: [{ role: 'user', content: 'hi' }]
+    })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      { type: 'thinking-delta', text: '推' },
+      { type: 'thinking-delta', text: '理' },
+      { type: 'text-delta', text: '答' },
+      { type: 'done' }
+    ]);
+  });
+
   it('streams text deltas from Anthropic SSE responses', async () => {
     const client = new AnthropicProtocolClient({
       apiKey: 'test-key',
