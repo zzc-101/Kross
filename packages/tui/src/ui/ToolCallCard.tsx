@@ -1,13 +1,14 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-import type { ToolCallState } from './MessageLine';
+import type { ToolCallItem, ToolCallState } from './MessageLine';
 import { symbols, theme } from './theme';
 import { usePulse } from './usePulse';
 import {
   ensureToolItems,
   formatToolTitle
 } from './toolDisplay';
+import { riskTone } from './theme';
 
 /**
  * 工具调用单行摘要；可展开看明细（尤其是 Read N files 聚合）。
@@ -25,14 +26,21 @@ export function ToolCallCard({
   const title = formatToolTitle({ ...tool, items });
   const statusLabel = formatToolStatus(tool.status, spinner);
   const statusColor = toolStatusColor(tool.status);
+  const riskColor = tool.risk ? riskTone(tool.risk) : undefined;
   const chevron = expanded ? '▾' : '▸';
   const canExpand = items.length > 0;
 
   return (
-    <Box flexDirection="column" marginBottom={0}>
+    <Box flexDirection="column" marginBottom={1}>
       <Box>
         <Text dimColor>{canExpand ? `${chevron} ` : '  '}</Text>
-        <Text color={theme.brand}>{title}</Text>
+        <Text color={theme.brand} bold>{title}</Text>
+        {tool.risk ? (
+          <Text dimColor> · </Text>
+        ) : null}
+        {tool.risk ? (
+          <Text color={riskColor} bold>{tool.risk}</Text>
+        ) : null}
         <Text dimColor>  </Text>
         <Text color={statusColor}>{statusLabel}</Text>
         {tool.durationMs !== undefined &&
@@ -55,6 +63,9 @@ export function ToolCallCard({
               {item.status === 'failed' || item.status === 'denied' ? (
                 <Text color={theme.statusError}>  {item.status}</Text>
               ) : null}
+              {item.durationMs !== undefined && item.status !== 'running' ? (
+                <Text dimColor> · {formatDuration(item.durationMs)}</Text>
+              ) : null}
             </Box>
           ))
         : null}
@@ -68,15 +79,15 @@ function formatToolStatus(
 ): string {
   switch (status) {
     case 'running':
-      return `${spinner}`;
+      return spinner;
     case 'completed':
-      return symbols.toolOk;
+      return `${symbols.toolOk} done`;
     case 'failed':
-      return symbols.toolFail;
+      return `${symbols.toolFail} failed`;
     case 'denied':
-      return symbols.toolFail;
+      return `${symbols.toolFail} denied`;
     case 'awaiting':
-      return symbols.toolWait;
+      return `${symbols.toolWait} awaiting`;
     default:
       return status;
   }
@@ -85,13 +96,15 @@ function formatToolStatus(
 function toolStatusColor(status: ToolCallState['status']): string {
   switch (status) {
     case 'running':
-    case 'awaiting':
       return theme.statusBusy;
     case 'completed':
       return theme.statusReady;
     case 'failed':
+      return theme.statusError;
     case 'denied':
       return theme.statusError;
+    case 'awaiting':
+      return theme.statusWarn;
     default:
       return theme.chip;
   }

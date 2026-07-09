@@ -130,6 +130,6 @@ export function riskTone(risk: string): string {
 
 /** 按终端宽度生成分隔线，宽度不可用时回退固定长度。 */
 export function makeDivider(width?: number, char: string = symbols.dividerChar): string {
-  const columns = Math.max(24, Math.min(width ?? 48, 96));
+  const columns = Math.max(24, width ?? 48);
   return char.repeat(columns);
 }

@@ -134,7 +134,7 @@ export function MessageLine({
   // agent 回复：完整内容走 Markdown；视口裁剪片段走纯文本（已含表格展开）
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Box>
+      <Box marginBottom={0}>
         <Text color={theme.agent} bold>
           {symbols.agentLabel}
         </Text>

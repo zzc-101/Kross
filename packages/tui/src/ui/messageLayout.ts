@@ -1,10 +1,67 @@
-import { parseMarkdown } from './markdownParse';
+import { parseMarkdown, displayWidth } from './markdownParse';
 import {
   THINKING_COLLAPSE_CHAR_LIMIT,
   THINKING_COLLAPSE_LINE_LIMIT
 } from './theme';
 import { isThinkingCollapsible } from './MessageLine';
 import type { ChatMessage } from './MessageLine';
+
+/**
+ * 消息行高缓存：scroll 时 messages/columns 大多不变，避免反复 parseMarkdown。
+ * fingerprint 变化（流式追加、展开折叠）会自动失效单条缓存。
+ */
+export class MessageRowHeightCache {
+  private columns = 0;
+  private readonly entries = new Map<
+    number,
+    { fingerprint: string; rows: number }
+  >();
+
+  clear(): void {
+    this.entries.clear();
+    this.columns = 0;
+  }
+
+  estimate(message: ChatMessage, columns: number): number {
+    const width = Math.max(20, columns);
+    if (width !== this.columns) {
+      this.entries.clear();
+      this.columns = width;
+    }
+
+    const fingerprint = layoutFingerprint(message);
+    const hit = this.entries.get(message.id);
+    if (hit && hit.fingerprint === fingerprint) {
+      return hit.rows;
+    }
+
+    const rows = estimateMessageRows(message, width);
+    this.entries.set(message.id, { fingerprint, rows });
+    return rows;
+  }
+}
+
+/** 仅包含影响行高的字段，避免滚动时无意义重算。 */
+export function layoutFingerprint(message: ChatMessage): string {
+  const toolItems = message.tool?.items;
+  const toolSig = toolItems
+    ? `${toolItems.length}:${toolItems.map((item) => item.status).join(',')}`
+    : '';
+  const plainLen = message.viewportPlainText?.length ?? -1;
+  // 流式内容：长度 + 头尾片段足以区分追加
+  const text = message.text;
+  const head = text.slice(0, 24);
+  const tail = text.length > 24 ? text.slice(-24) : '';
+  return [
+    message.from,
+    message.expanded === true ? '1' : '0',
+    String(text.length),
+    head,
+    tail,
+    String(plainLen),
+    toolSig
+  ].join('\u0001');
+}
 
 /**
  * 估算消息在终端中占用的行数（用于视口窗口化，避免全量布局卡死）。
@@ -79,8 +136,9 @@ export function countWrappedRows(text: string, columns: number): number {
     return 1;
   }
   const width = Math.max(1, columns);
-  // 中文双宽粗估：用字符数，略低估；窗口化时宁可多留行
-  return Math.max(1, Math.ceil(text.length / width));
+  // 使用 displayWidth 计算 CJK 双宽字符的占位
+  const visualWidth = displayWidth(text);
+  return Math.max(1, Math.ceil(visualWidth / width));
 }
 
 export function previewThinkingLines(
@@ -132,10 +190,16 @@ export function windowMessages(input: {
   columns: number;
   viewportRows: number;
   scrollOffset: number;
+  /** 可选行高缓存；滚动帧之间复用，显著降低 MD 解析次数 */
+  heightCache?: MessageRowHeightCache;
 }): ViewportWindow {
-  const { messages, columns } = input;
+  const { messages, columns, heightCache } = input;
   const viewportRows = Math.max(1, input.viewportRows);
-  const heights = messages.map((message) => estimateMessageRows(message, columns));
+  const heights = messages.map((message) =>
+    heightCache
+      ? heightCache.estimate(message, columns)
+      : estimateMessageRows(message, columns)
+  );
   const totalRows = heights.reduce((sum, h) => sum + h, 0);
   const maxScrollOffset = Math.max(0, totalRows - viewportRows);
   const scrollOffset = Math.min(Math.max(0, input.scrollOffset), maxScrollOffset);

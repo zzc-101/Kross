@@ -5,7 +5,9 @@
 
 import {
   disableMouseTracking,
-  enableMouseTracking
+  enableMouseTracking,
+  installMouseInputFilter,
+  uninstallMouseInputFilter
 } from './mouseTracking';
 
 const ENTER_ALT = '\x1b[?1049h';
@@ -20,14 +22,17 @@ export function canUseAlternateScreen(
 }
 
 export function enterAlternateScreen(
-  stdout: NodeJS.WriteStream = process.stdout
+  stdout: NodeJS.WriteStream = process.stdout,
+  stdin: NodeJS.ReadStream = process.stdin
 ): void {
   if (!stdout.isTTY) {
     return;
   }
+  // 必须在 Ink 订阅 stdin 之前安装：否则鼠标 CSI 会泄漏进输入框
+  installMouseInputFilter(stdin);
   stdout.write(ENTER_ALT);
   stdout.write(CLEAR_HOME);
-  // 滚轮 / 触摸板滑动
+  // 滚轮 / 触摸板滑动（仅 1000+1006 SGR，不用 1015）
   enableMouseTracking(stdout);
 }
 
@@ -38,5 +43,6 @@ export function leaveAlternateScreen(
     return;
   }
   disableMouseTracking(stdout);
+  uninstallMouseInputFilter();
   stdout.write(LEAVE_ALT);
 }

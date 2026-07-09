@@ -3,7 +3,7 @@ import { Box, Text, useStdout } from 'ink';
 
 import type { PendingToolApproval } from '@kross/core';
 
-import { makeDivider, riskTone, symbols, theme } from './theme';
+import { riskTone, symbols, theme } from './theme';
 import { usePulse } from './usePulse';
 
 export function ApprovalPanel({
@@ -19,51 +19,58 @@ export function ApprovalPanel({
     true
   );
   const { stdout } = useStdout();
-  const width = Math.max(28, Math.min((stdout?.columns ?? 48) - 4, 72));
-  const topRule = makeDivider(width - 2, symbols.boxHorizontal);
+  const width = Math.max(30, Math.min((stdout?.columns ?? 48) - 4, 72));
+  const innerWidth = width - 4; // border + space + content + space + border
+  const hRule = symbols.boxHorizontal.repeat(innerWidth);
   const riskColor = riskTone(approval.risk);
 
+  /** 带左右边框的内容行 */
+  const Row = ({ children }: { children: React.ReactNode }) => (
+    <Box>
+      <Text color={theme.border}>{symbols.boxVertical} </Text>
+      <Box flexGrow={1} flexShrink={1} overflowX="hidden">
+        {children}
+      </Box>
+      <Text color={theme.border}> {symbols.boxVertical}</Text>
+    </Box>
+  );
+
   return (
-    <Box flexDirection="column" marginTop={1} marginBottom={1}>
+    <Box flexDirection="column" marginTop={1} marginBottom={1} width={width}>
       <Text color={theme.statusWarn}>
         {symbols.boxTopLeft}
-        {topRule}
+        {hRule}
         {symbols.boxTopRight}
       </Text>
 
-      <Box>
-        <Text color={theme.border}>{symbols.boxVertical} </Text>
+      <Row>
         <Text color={theme.statusWarn} bold>
           需要确认工具调用
         </Text>
-      </Box>
+      </Row>
 
-      <Box>
-        <Text color={theme.border}>{symbols.boxVertical} </Text>
+      <Row>
         <Text dimColor>tool  </Text>
         <Text bold>{approval.toolName}</Text>
         <Text dimColor>  ·  risk </Text>
         <Text color={riskColor} bold>
           {approval.risk}
         </Text>
-      </Box>
+      </Row>
 
-      <Box>
-        <Text color={theme.border}>{symbols.boxVertical} </Text>
+      <Row>
         <Text dimColor>input </Text>
-        <Text>{truncate(approval.inputPreview, width - 10)}</Text>
-      </Box>
+        <Text>{truncate(approval.inputPreview ?? '', innerWidth - 6)}</Text>
+      </Row>
 
       {approval.reason ? (
-        <Box>
-          <Text color={theme.border}>{symbols.boxVertical} </Text>
+        <Row>
           <Text dimColor>why   </Text>
-          <Text>{truncate(approval.reason, width - 10)}</Text>
-        </Box>
+          <Text>{truncate(approval.reason, innerWidth - 6)}</Text>
+        </Row>
       ) : null}
 
-      <Box>
-        <Text color={theme.border}>{symbols.boxVertical} </Text>
+      <Row>
         <Text
           color={selection === 'approve' ? theme.approve : undefined}
           bold={selection === 'approve'}
@@ -81,14 +88,14 @@ export function ApprovalPanel({
           {selection === 'reject' ? `${highlight} ` : '  '}
           Reject
         </Text>
-      </Box>
+      </Row>
 
       <Text color={theme.border}>
         {symbols.boxBottomLeft}
-        {topRule}
+        {hRule}
         {symbols.boxBottomRight}
       </Text>
-      <Text dimColor>←/→ 切换 · Enter 确认 · a/r 快捷键</Text>
+      <Text dimColor>{' ←/-> 切换 · Enter 确认 · a/r 快捷键'}</Text>
     </Box>
   );
 }

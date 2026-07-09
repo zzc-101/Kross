@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { ChatMessage } from './MessageLine';
 import {
   estimateMessageRows,
+  layoutFingerprint,
   markdownToVisualLines,
+  MessageRowHeightCache,
   windowMessages
 } from './messageLayout';
 
@@ -65,6 +67,57 @@ describe('windowMessages', () => {
       40
     );
     expect(rows).toBeGreaterThan(10);
+  });
+
+  it('caches row heights across scrolls until content fingerprint changes', () => {
+    const cache = new MessageRowHeightCache();
+    const message = msg({
+      id: 1,
+      from: 'agent',
+      text: '## title\n\n' + 'hello world '.repeat(40)
+    });
+
+    const first = cache.estimate(message, 60);
+    const second = cache.estimate(message, 60);
+    expect(second).toBe(first);
+
+    const expanded = { ...message, expanded: true as const };
+    // agent 消息 expanded 不改变行高估算路径，但 fingerprint 变了应重算（仍一致）
+    expect(layoutFingerprint(message)).not.toBe(layoutFingerprint(expanded));
+
+    const grown = {
+      ...message,
+      text: message.text + '\n\nmore lines\n'.repeat(20)
+    };
+    const afterGrow = cache.estimate(grown, 60);
+    expect(afterGrow).toBeGreaterThan(first);
+
+    // columns 变化清空缓存
+    const wide = cache.estimate(grown, 120);
+    expect(wide).toBeLessThan(afterGrow);
+  });
+
+  it('windowMessages reuses heightCache without changing window results', () => {
+    const messages = Array.from({ length: 15 }, (_, index) =>
+      msg({ id: index + 1, from: 'user', text: `row-${index}` })
+    );
+    const cache = new MessageRowHeightCache();
+    const a = windowMessages({
+      messages,
+      columns: 80,
+      viewportRows: 8,
+      scrollOffset: 0,
+      heightCache: cache
+    });
+    const b = windowMessages({
+      messages,
+      columns: 80,
+      viewportRows: 8,
+      scrollOffset: a.maxScrollOffset,
+      heightCache: cache
+    });
+    expect(a.maxScrollOffset).toBe(b.maxScrollOffset);
+    expect(b.hasMoreBelow).toBe(true);
   });
 
   it('clips tall agent tables by visual lines and keeps table box intact', () => {

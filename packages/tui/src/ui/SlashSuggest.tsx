@@ -6,21 +6,28 @@ import type { SlashCommand } from './slashCommands';
 
 export function SlashSuggest({
   commands,
-  selectedIndex
+  selectedIndex = 0
 }: {
   commands: SlashCommand[];
-  selectedIndex: number;
+  selectedIndex?: number;
 }) {
   if (commands.length === 0) {
     return null;
   }
+
+  const maxLabel = 30;
 
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Text dimColor>commands</Text>
       {commands.map((command, index) => {
         const selected = index === selectedIndex;
-        const label = (command.usage ?? command.name).padEnd(28);
+        const usage = command.usage ?? command.name;
+        // 截断过长的 usage，保持列对齐
+        const label =
+          usage.length > maxLabel
+            ? `${usage.slice(0, maxLabel - 1)}…`
+            : usage.padEnd(maxLabel);
         return (
           <Box key={command.name}>
             <Text color={selected ? theme.selection : undefined} bold={selected}>

@@ -13,9 +13,12 @@ export {
 export { MessageViewport } from './MessageViewport';
 export {
   estimateMessageRows,
+  layoutFingerprint,
+  MessageRowHeightCache,
   windowMessages,
   type ViewportWindow
 } from './messageLayout';
+export { createScrollScheduler, type ScrollScheduler } from './scrollSchedule';
 export { ToolCallCard } from './ToolCallCard';
 export {
   formatToolTitle,

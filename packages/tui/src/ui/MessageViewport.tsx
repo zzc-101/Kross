@@ -1,9 +1,8 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Box, Text } from 'ink';
 
 import { MessageLine, type ChatMessage } from './MessageLine';
-import { windowMessages } from './messageLayout';
-import { theme } from './theme';
+import { MessageRowHeightCache, windowMessages } from './messageLayout';
 
 /**
  * 全屏中间消息视口：只渲染窗口内消息，避免超长历史把 Ink yoga 布局拖死。
@@ -28,7 +27,17 @@ export function MessageViewport({
   /** 回传 maxScroll，便于 App 钳制 scrollOffset */
   onScrollBounds?: (bounds: { maxScrollOffset: number; totalRows: number }) => void;
 }) {
+  // 先计算指示器占用的行数，从可用高度中扣除
+  const hasTip = Boolean(tip);
+  const [hasMoreAboveState, setHasMoreAbove] = React.useState(false);
+  const [hasMoreBelowState, setHasMoreBelow] = React.useState(false);
+
   const viewportRows = height && height > 0 ? height : undefined;
+
+  // 指示器占用行数：tip(2) + hasMoreAbove(1) + hasMoreBelow(1)
+  const indicatorRows = (hasTip ? 2 : 0) + (hasMoreAboveState ? 1 : 0) + (hasMoreBelowState ? 1 : 0);
+
+  const heightCacheRef = useRef(new MessageRowHeightCache());
 
   const windowed = useMemo(() => {
     if (viewportRows === undefined) {
@@ -46,10 +55,17 @@ export function MessageViewport({
     return windowMessages({
       messages,
       columns,
-      viewportRows: Math.max(1, viewportRows - (tip ? 2 : 0)),
-      scrollOffset
+      viewportRows: Math.max(1, viewportRows - indicatorRows),
+      scrollOffset,
+      heightCache: heightCacheRef.current
     });
-  }, [messages, columns, viewportRows, scrollOffset, tip]);
+  }, [messages, columns, viewportRows, scrollOffset, indicatorRows]);
+
+  // 同步指示器状态（在 render 后更新，下一帧生效）
+  useEffect(() => {
+    setHasMoreAbove(windowed.hasMoreAbove);
+    setHasMoreBelow(windowed.hasMoreBelow);
+  }, [windowed.hasMoreAbove, windowed.hasMoreBelow]);
 
   useEffect(() => {
     if (!onScrollBounds || viewportRows === undefined) {
@@ -69,9 +85,7 @@ export function MessageViewport({
         </Box>
       ) : null}
       {windowed.hasMoreAbove ? (
-        <Text dimColor color={theme.chip}>
-          ↑ 更早消息 · 滚轮/触摸板 或 PgUp
-        </Text>
+        <Text dimColor> ↑ 更早消息 · 滚轮/触摸板 或 PgUp</Text>
       ) : null}
       {windowed.messages.map((message) => (
         <MessageLine
@@ -81,9 +95,7 @@ export function MessageViewport({
         />
       ))}
       {windowed.hasMoreBelow ? (
-        <Text dimColor color={theme.chip}>
-          ↓ 已离开底部 · PgDn 回到最新
-        </Text>
+        <Text dimColor> ↓ 已离开底部 · PgDn 回到最新</Text>
       ) : null}
     </Box>
   );

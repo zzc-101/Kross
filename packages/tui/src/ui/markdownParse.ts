@@ -46,13 +46,23 @@ export function parseMarkdown(source: string): MdLine[] {
       if (!inFence) {
         inFence = true;
         fenceLang = (fenceMatch[3] ?? '').trim();
-        if (fenceLang) {
-          result.push({
-            kind: 'code',
-            spans: [{ text: `┌ ${fenceLang} `, dim: true, color: 'gray' }]
-          });
-        }
+        // 始终显示代码块头部，无语言标签时用通用标记
+        result.push({
+          kind: 'code',
+          spans: [
+            {
+              text: fenceLang ? `┌ ${fenceLang}` : '┌ code',
+              dim: true,
+              color: 'gray'
+            }
+          ]
+        });
       } else {
+        // 代码块闭合线
+        result.push({
+          kind: 'code',
+          spans: [{ text: '└' + '─'.repeat(fenceLang ? Math.max(0, fenceLang.length + 2) : 4), dim: true, color: 'gray' }]
+        });
         inFence = false;
         fenceLang = '';
       }
@@ -102,7 +112,7 @@ export function parseMarkdown(source: string): MdLine[] {
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(raw)) {
       result.push({
         kind: 'hr',
-        spans: [{ text: '─'.repeat(32), dim: true }]
+        spans: [{ text: '─'.repeat(48), dim: true }]
       });
       index += 1;
       continue;
@@ -166,6 +176,14 @@ export function parseMarkdown(source: string): MdLine[] {
       spans: parseInline(raw)
     });
     index += 1;
+  }
+
+  // 未闭合的代码块（流式中常见）：补上闭合线
+  if (inFence) {
+    result.push({
+      kind: 'code',
+      spans: [{ text: '└' + '─'.repeat(fenceLang ? Math.max(0, fenceLang.length + 2) : 4), dim: true, color: 'gray' }]
+    });
   }
 
   return result.length > 0 ? result : [{ kind: 'paragraph', spans: [{ text: '' }] }];

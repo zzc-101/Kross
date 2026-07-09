@@ -42,6 +42,8 @@ import {
   toToolItem
 } from './ui/toolDisplay';
 import { useMouseScroll } from './ui/useMouseScroll';
+import { createScrollScheduler } from './ui/scrollSchedule';
+import { stripMouseArtifactsFromInput } from './terminal/mouseTracking';
 
 export interface AppProps {
   runtime?: AgentRuntime;
@@ -523,27 +525,38 @@ export function App({
     }
   }, [append, pendingCrossRepoPlan, runTurn]);
 
+  // 合并同一帧内多次 scrollBy（滚轮 + 键盘连按），一帧最多 setState 一次
+  const scrollSchedulerRef = useRef(
+    createScrollScheduler((delta) => {
+      setScrollOffset((current) => {
+        const next = current + delta;
+        if (next <= 0) {
+          return 0;
+        }
+        return Math.min(maxScrollOffsetRef.current, next);
+      });
+    })
+  );
+
+  useEffect(() => {
+    const scheduler = scrollSchedulerRef.current;
+    return () => {
+      scheduler.cancel();
+    };
+  }, []);
+
   const scrollBy = useCallback((delta: number) => {
-    if (delta === 0) {
-      return;
-    }
-    setScrollOffset((current) => {
-      const next = current + delta;
-      if (next <= 0) {
-        return 0;
-      }
-      return Math.min(maxScrollOffsetRef.current, next);
-    });
+    scrollSchedulerRef.current.enqueue(delta);
   }, []);
 
   // 鼠标滚轮 / Mac 触摸板（需终端 mouse tracking，全屏启动时已开启）
-  // 首页 maxScroll=0 时 scrollBy 不会产生可见变化
+  // useMouseScroll 内部已 rAF 合并；这里 steps 即本帧累计行数，不再 *3 放大抖动
   useMouseScroll(
     (direction, steps) => {
       if (pendingToolApproval) {
         return;
       }
-      const step = Math.max(1, steps) * 3;
+      const step = Math.max(1, steps);
       // up = 看更早消息（增大 offset）；down = 回底部方向
       scrollBy(direction === 'up' ? step : -step);
     },
@@ -727,9 +740,33 @@ export function App({
   const hasUserActivity = messages.some((message) => message.from === 'user');
   const isHome = !hasUserActivity && status === 'ready' && !pendingToolApproval;
   const contentWidth = Math.max(40, columns - (shellMode ? 2 : 4));
-  // 视口高度：总行 − 顶栏(≈3) − 底栏 Composer(≈5) − padding
-  // 给足高度，减少单条超长消息被迫裁剪的概率
-  const messageViewportHeight = Math.max(8, rows - 10);
+
+  // 动态计算 footer 高度，防止 header + viewport + footer > rows 导致溢出
+  const footerHeight = useMemo(() => {
+    let h = 0;
+    // Composer: border(1) + padding(0) + prompt line(1) + footer line(1) + border(1) = 4
+    // 但 disabled (approval) 时 Composer 渲染 null
+    if (pendingToolApproval) {
+      h += 9; // ApprovalPanel: marginTop(1) + 7 rows + marginBottom(1)
+    } else {
+      h += 4; // Composer with border
+    }
+    if (status === 'responding' && awaitingReply) {
+      h += 2; // ThinkingIndicator: 1 line + marginBottom(1)
+    }
+    if (!pendingToolApproval && slashSuggestions.length > 0) {
+      h += slashSuggestions.length; // SlashSuggest: one line per suggestion
+    }
+    return h;
+  }, [pendingToolApproval, status, awaitingReply, slashSuggestions.length]);
+
+  // Header: location line(1) + divider(1) = 2; + error(1) if present
+  const headerHeight = runtimeError ? 3 : 2;
+  // paddingX 1 on each side doesn't affect height
+  const messageViewportHeight = Math.max(
+    4,
+    rows - headerHeight - footerHeight - 1 // -1 for safety gap
+  );
 
   const handleScrollBounds = useCallback(
     (bounds: { maxScrollOffset: number; totalRows: number }) => {
@@ -780,7 +817,7 @@ export function App({
 
       <Composer
         value={input}
-        onChange={setInput}
+        onChange={(next) => setInput(stripMouseArtifactsFromInput(next))}
         onSubmit={submit}
         disabled={Boolean(pendingToolApproval)}
         modelLabel={modelLabel}
