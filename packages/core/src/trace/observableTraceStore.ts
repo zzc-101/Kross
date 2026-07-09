@@ -36,6 +36,10 @@ export class ObservableTraceStore implements TraceStore {
   async readRun(runId: string): Promise<TraceEvent[]> {
     return this.inner.readRun(runId);
   }
+
+  async listRunIds(): Promise<string[]> {
+    return this.inner.listRunIds();
+  }
 }
 
 export function isObservableTraceStore(

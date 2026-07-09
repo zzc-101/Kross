@@ -29,11 +29,13 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     name: '/trace',
-    description: '查看最近 trace（后续版本）'
+    description: '查看最近运行与工具/审批/失败摘要',
+    usage: '/trace [runId]'
   },
   {
     name: '/diff',
-    description: '查看变更摘要（后续版本）'
+    description: '查看 agent 触达文件与工作区 git 变更',
+    usage: '/diff [runId]'
   },
   {
     name: '/perm',

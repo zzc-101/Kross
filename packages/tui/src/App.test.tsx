@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -171,6 +171,78 @@ describe('App', () => {
 
     expect(lastFrame()).toContain('用法：/mode auto|normal|cross-repo');
     expect(lastFrame()).not.toContain('最小规划闭环');
+  });
+
+  it('lists recent traces and shows detail for /trace', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('trace 测试回复'),
+      createRunId: () => 'run-ui-trace'
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('修复登录');
+    await waitUntil(() => lastFrame()?.includes('trace 测试回复') === true);
+
+    await submit?.('/trace');
+    await waitUntil(() => lastFrame()?.includes('run-ui-trace') === true);
+    expect(lastFrame()).toContain('修复登录');
+
+    await submit?.('/trace run-ui-trace');
+    await waitUntil(() => lastFrame()?.includes('Trace: run-ui-trace') === true);
+    expect(lastFrame()).toContain('completed');
+  });
+
+  it('shows workspace diff summary for /diff', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('diff 测试回复'),
+      createRunId: () => 'run-ui-diff',
+      workspaceRoot: '/tmp/ws',
+      runGit: async (args) => {
+        if (args[0] === 'status') {
+          return { stdout: ' M README.md\n', stderr: '' };
+        }
+        return { stdout: ' README.md | 1 +\n', stderr: '' };
+      }
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('随便问一句');
+    await waitUntil(() => lastFrame()?.includes('diff 测试回复') === true);
+
+    await submit?.('/diff');
+    await waitUntil(() => lastFrame()?.includes('run: run-ui-diff') === true);
+    expect(lastFrame()).toContain('git status');
+    expect(lastFrame()).toContain('M README.md');
+    expect(lastFrame()).toContain('suggested verify');
+  });
+
+  it('surfaces slash async failures instead of silent unhandled rejection', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('ok')
+    });
+    vi.spyOn(runtime, 'formatTraceCommand').mockRejectedValue(
+      new Error('boom-trace')
+    );
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('/trace');
+    await waitUntil(() => lastFrame()?.includes('/trace 失败') === true);
+    expect(lastFrame()).toContain('boom-trace');
   });
 
   it('queues messages submitted while a response is running', async () => {
@@ -759,6 +831,20 @@ class InMemoryTraceStore implements TraceStore {
 
   async readRun(runId: string): Promise<TraceEvent[]> {
     return this.events.filter((event) => event.runId === runId);
+  }
+
+  async listRunIds(): Promise<string[]> {
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const runId = this.events[index]?.runId;
+      if (!runId || seen.has(runId)) {
+        continue;
+      }
+      seen.add(runId);
+      ids.push(runId);
+    }
+    return ids;
   }
 }
 

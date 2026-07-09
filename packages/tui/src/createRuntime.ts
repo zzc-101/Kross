@@ -34,6 +34,7 @@ export function createRuntimeOptionsFromEnv(
   return {
     traceStore,
     toolGateway,
+    workspaceRoot: cwd,
     llmClient:
       envClient ??
       createLlmClientFromKrossConfig(loadKrossConfig(options), fetch)

@@ -286,4 +286,18 @@ class InMemoryTraceStore implements TraceStore {
   async readRun(runId: string): Promise<TraceEvent[]> {
     return this.events.filter((event) => event.runId === runId);
   }
+
+  async listRunIds(): Promise<string[]> {
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const runId = this.events[index]?.runId;
+      if (!runId || seen.has(runId)) {
+        continue;
+      }
+      seen.add(runId);
+      ids.push(runId);
+    }
+    return ids;
+  }
 }

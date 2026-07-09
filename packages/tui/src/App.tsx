@@ -1089,8 +1089,23 @@ function handleCommand(
     return true;
   }
 
-  if (value === '/trace' || value === '/diff') {
-    append('agent', `${value} 将在后续版本展开。`);
+  if (value === '/trace' || value.startsWith('/trace ')) {
+    const argument = value === '/trace' ? undefined : value.slice('/trace'.length).trim();
+    void runSlashAsync(
+      () => runtime.formatTraceCommand(argument),
+      append,
+      '/trace'
+    );
+    return true;
+  }
+
+  if (value === '/diff' || value.startsWith('/diff ')) {
+    const argument = value === '/diff' ? undefined : value.slice('/diff'.length).trim();
+    void runSlashAsync(
+      () => runtime.formatDiffCommand(argument),
+      append,
+      '/diff'
+    );
     return true;
   }
 
@@ -1100,6 +1115,25 @@ function handleCommand(
 
 function isAgentMode(value: string): value is AgentMode {
   return value === 'auto' || value === 'normal' || value === 'cross-repo';
+}
+
+/** 异步 slash 命令统一错误处理，避免 unhandled rejection。 */
+async function runSlashAsync(
+  run: () => Promise<string>,
+  append: (
+    from: ChatMessage['from'],
+    text: string,
+    options?: { expanded?: boolean }
+  ) => void,
+  command: string
+): Promise<void> {
+  try {
+    const text = await run();
+    append('agent', text, { expanded: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    append('system', `${command} 失败：${message}`);
+  }
 }
 
 function handleImportCommand(input: {
@@ -1225,5 +1259,19 @@ class InMemoryTraceStore implements TraceStore {
 
   async readRun(runId: string): Promise<TraceEvent[]> {
     return this.events.filter((event) => event.runId === runId);
+  }
+
+  async listRunIds(): Promise<string[]> {
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const runId = this.events[index]?.runId;
+      if (!runId || seen.has(runId)) {
+        continue;
+      }
+      seen.add(runId);
+      ids.push(runId);
+    }
+    return ids;
   }
 }

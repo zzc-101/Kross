@@ -866,6 +866,99 @@ describe('AgentRuntime', () => {
       ])
     );
   });
+
+  it('lists and inspects traces for /trace command', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient: new FakeLlmClient('计划完成'),
+      createRunId: () => 'run-trace-1'
+    });
+
+    await runtime.run({
+      input: '修复登录 bug',
+      requestedMode: 'normal'
+    });
+
+    const listed = await runtime.listTraces({ limit: 5 });
+    expect(listed[0]).toMatchObject({
+      runId: 'run-trace-1',
+      status: 'completed',
+      mode: 'normal',
+      inputPreview: '修复登录 bug'
+    });
+
+    const detail = await runtime.inspectTrace('run-trace-1');
+    expect(detail?.summaryPreview).toContain('计划完成');
+
+    const listText = await runtime.formatTraceCommand();
+    expect(listText).toContain('run-trace-1');
+    expect(listText).toContain('修复登录 bug');
+
+    const detailText = await runtime.formatTraceCommand('run-trace-1');
+    expect(detailText).toContain('Trace: run-trace-1');
+    expect(detailText).toContain('completed');
+
+    const missing = await runtime.formatTraceCommand('run-missing');
+    expect(missing).toContain('未找到 run');
+  });
+
+  it('fills report.changedFiles from Write/Edit tool calls and formats /diff', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new BuiltinWriteToolCallingLlmClient();
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'Write',
+      description: 'write',
+      risk: 'write',
+      inputSchema: z.object({
+        path: z.string(),
+        content: z.string()
+      }),
+      execute: async () => ({ content: 'ok', summary: 'wrote 5 bytes' })
+    });
+
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway,
+      createRunId: () => 'run-diff-1',
+      workspaceRoot: '/tmp/workspace',
+      runGit: async (args) => {
+        if (args[0] === 'status') {
+          return { stdout: '?? src/demo.ts\n', stderr: '' };
+        }
+        return { stdout: '', stderr: '' };
+      }
+    });
+    // Runtime 会覆盖 gateway 的 approvalPolicy；用 auto 放行 Write
+    runtime.setPermissionMode('auto');
+
+    const result = await runtime.run({
+      input: '写个文件',
+      requestedMode: 'normal'
+    });
+
+    expect(result.report.changedFiles).toEqual(['src/demo.ts']);
+
+    const completed = (await traceStore.readRun('run-diff-1')).find(
+      (event) => event.type === 'run.completed'
+    );
+    expect(completed?.payload).toMatchObject({
+      report: { changedFiles: ['src/demo.ts'] }
+    });
+
+    const diffText = await runtime.formatDiffCommand();
+    expect(diffText).toContain('run: run-diff-1');
+    expect(diffText).toContain('src/demo.ts  [Write]');
+    expect(diffText).toContain('?? src/demo.ts');
+
+    const missing = await runtime.formatDiffCommand('run-missing');
+    expect(missing).toContain('未找到 run');
+
+    const unsafe = await runtime.formatDiffCommand('../escape');
+    expect(unsafe).toContain('无效 runId');
+  });
 });
 
 class InMemoryTraceStore implements TraceStore {
@@ -877,6 +970,20 @@ class InMemoryTraceStore implements TraceStore {
 
   async readRun(runId: string): Promise<TraceEvent[]> {
     return this.events.filter((event) => event.runId === runId);
+  }
+
+  async listRunIds(): Promise<string[]> {
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const runId = this.events[index]?.runId;
+      if (!runId || seen.has(runId)) {
+        continue;
+      }
+      seen.add(runId);
+      ids.push(runId);
+    }
+    return ids;
   }
 }
 
@@ -1002,6 +1109,42 @@ class ToolCallingLlmClient implements LlmClient {
       provider: this.provider,
       model: 'fake-model',
       text: '结果是 3',
+      raw: {}
+    };
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'done' };
+  }
+}
+
+/** 调用内置 Write 工具名，用于 changedFiles / /diff 测试。 */
+class BuiltinWriteToolCallingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly requests: LlmRequest[] = [];
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request);
+    if (this.requests.length === 1) {
+      return {
+        provider: this.provider,
+        model: 'fake-model',
+        text: '',
+        raw: {},
+        toolCalls: [
+          {
+            id: 'write-builtin-1',
+            name: 'Write',
+            input: { path: 'src/demo.ts', content: 'hello' }
+          }
+        ]
+      };
+    }
+
+    return {
+      provider: this.provider,
+      model: 'fake-model',
+      text: '写完了',
       raw: {}
     };
   }

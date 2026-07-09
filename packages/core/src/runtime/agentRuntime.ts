@@ -39,7 +39,24 @@ import {
   isObservableTraceStore,
   type TraceEventListener
 } from '../trace/observableTraceStore';
-import type { TraceStore } from '../trace/traceStore';
+import { isSafeRunId } from '../trace/runId';
+import type { ListRunsOptions, TraceStore } from '../trace/traceStore';
+import {
+  buildTraceDetail,
+  formatTraceDetail,
+  formatTraceList,
+  summarizeTraceEvents,
+  type RunTraceDetail,
+  type RunTraceSummary
+} from '../trace/traceSummary';
+import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
+import {
+  buildDiffInspection,
+  collectGitWorkspaceSnapshot,
+  formatDiffInspection,
+  suggestVerifyCommands,
+  type GitRunner
+} from '../workspace/workspaceDiff';
 
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
@@ -49,6 +66,10 @@ export interface AgentRuntimeOptions {
   maxToolIterations?: number;
   createRunId?: () => string;
   now?: () => Date;
+  /** 工作区根目录；用于 /diff 的 git status 与验证建议 */
+  workspaceRoot?: string;
+  /** 可注入的 git 执行器（测试用） */
+  runGit?: GitRunner;
 }
 
 export interface AgentRunInput {
@@ -225,6 +246,127 @@ export class AgentRuntime extends EventEmitter {
     };
   }
 
+  /** 最近 N 次 run 的摘要（供 /trace）。 */
+  async listTraces(options: ListRunsOptions = {}): Promise<RunTraceSummary[]> {
+    const limit = options.limit ?? 10;
+    const runIds = await this.options.traceStore.listRunIds();
+    const summaries: RunTraceSummary[] = [];
+
+    for (const runId of runIds) {
+      if (summaries.length >= limit) {
+        break;
+      }
+      try {
+        const events = await this.options.traceStore.readRun(runId);
+        const summary = summarizeTraceEvents(runId, events);
+        if (summary) {
+          summaries.push(summary);
+        }
+      } catch {
+        // 单 run 损坏不拖垮列表
+      }
+    }
+
+    return summaries;
+  }
+
+  /** 单次 run 详情；不存在时返回 null。 */
+  async inspectTrace(runId: string): Promise<RunTraceDetail | null> {
+    if (!isSafeRunId(runId)) {
+      return null;
+    }
+    try {
+      const events = await this.options.traceStore.readRun(runId);
+      return buildTraceDetail(runId, events);
+    } catch {
+      return null;
+    }
+  }
+
+  /** /trace 命令文本输出。 */
+  async formatTraceCommand(argument?: string): Promise<string> {
+    const runId = argument?.trim();
+    if (!runId) {
+      const summaries = await this.listTraces({ limit: 10 });
+      return formatTraceList(summaries, { limit: 10 });
+    }
+
+    if (!isSafeRunId(runId)) {
+      return [
+        `无效 runId：${runId}`,
+        'runId 仅允许字母数字与 ._-，且不能包含路径分隔符。'
+      ].join('\n');
+    }
+
+    const detail = await this.inspectTrace(runId);
+    if (!detail) {
+      return [
+        `未找到 run：${runId}`,
+        '用法：/trace 查看最近运行 · /trace <runId> 查看详情'
+      ].join('\n');
+    }
+    return formatTraceDetail(detail);
+  }
+
+  /**
+   * /diff 命令文本输出。
+   * - 无参数：最近一次 run 的 agent 触达文件 + 工作区 git 状态
+   * - 有 runId：只汇总该 run 的触达文件，并附带当前 git 状态
+   */
+  async formatDiffCommand(argument?: string): Promise<string> {
+    const requested = argument?.trim();
+    let runId: string | undefined;
+    let events: TraceEvent[] = [];
+
+    if (requested) {
+      if (!isSafeRunId(requested)) {
+        return [
+          `无效 runId：${requested}`,
+          'runId 仅允许字母数字与 ._-，且不能包含路径分隔符。'
+        ].join('\n');
+      }
+      try {
+        events = await this.options.traceStore.readRun(requested);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return `读取 run 失败：${requested}（${message}）`;
+      }
+      if (events.length === 0) {
+        return [
+          `未找到 run：${requested}`,
+          '用法：/diff · /diff <runId>'
+        ].join('\n');
+      }
+      runId = requested;
+    } else {
+      const runIds = await this.options.traceStore.listRunIds();
+      runId = runIds[0];
+      if (runId) {
+        try {
+          events = await this.options.traceStore.readRun(runId);
+        } catch {
+          events = [];
+        }
+      }
+    }
+
+    const workspaceRoot = this.options.workspaceRoot;
+    const git =
+      workspaceRoot !== undefined
+        ? await collectGitWorkspaceSnapshot(workspaceRoot, this.options.runGit)
+        : null;
+    const suggestedCommands = await suggestVerifyCommands(workspaceRoot);
+
+    return formatDiffInspection(
+      buildDiffInspection({
+        runId,
+        events,
+        git,
+        suggestedCommands
+      })
+    );
+  }
+
   async run(input: AgentRunInput): Promise<AgentResult> {
     const runId = this.createRunId();
 
@@ -246,13 +388,14 @@ export class AgentRuntime extends EventEmitter {
       detection.mode
     );
     if (plannerOutcome?.kind === 'approval') {
+      const approval = await this.attachChangedFiles(plannerOutcome.result);
       await this.record(runId, 'run.awaiting_approval', {
-        pendingApproval: plannerOutcome.result.pendingApproval
+        pendingApproval: approval.pendingApproval
       });
-      return plannerOutcome.result;
+      return approval;
     }
     if (plannerOutcome?.kind === 'max-iterations') {
-      const failed = this.createMaxToolIterationsResult(
+      const failed = await this.createMaxToolIterationsResult(
         runId,
         detection.mode,
         plannerOutcome.message
@@ -266,17 +409,19 @@ export class AgentRuntime extends EventEmitter {
       return failed;
     }
     if (plannerOutcome?.kind === 'failure') {
-      const failed = agentResultSchema.parse({
-        runId,
-        mode: detection.mode,
-        status: 'failed',
-        summary: `模型请求失败：${plannerOutcome.message}`,
-        report: {
-          changedFiles: [],
-          evidence: [`LLM 请求失败: ${plannerOutcome.message}`],
-          risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
-        }
-      });
+      const failed = await this.attachChangedFiles(
+        agentResultSchema.parse({
+          runId,
+          mode: detection.mode,
+          status: 'failed',
+          summary: `模型请求失败：${plannerOutcome.message}`,
+          report: {
+            changedFiles: [],
+            evidence: [`LLM 请求失败: ${plannerOutcome.message}`],
+            risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
+          }
+        })
+      );
       await this.record(runId, 'review.completed', {
         status: failed.status,
         summary: failed.summary
@@ -291,18 +436,20 @@ export class AgentRuntime extends EventEmitter {
     await this.record(runId, 'plan.created', plan);
 
     if (detection.mode === 'normal' && !plannerSuggestion) {
-      const missingModel = agentResultSchema.parse({
-        runId,
-        mode: detection.mode,
-        status: 'failed',
-        summary:
-          '未配置模型，无法生成真实回复。请配置 AGENT_LLM_PROVIDER 以及对应的 OPENAI_* 或 ANTHROPIC_* 环境变量后重试。',
-        report: {
-          changedFiles: [],
-          evidence: ['未检测到可用 LLM client'],
-          risks: []
-        }
-      });
+      const missingModel = await this.attachChangedFiles(
+        agentResultSchema.parse({
+          runId,
+          mode: detection.mode,
+          status: 'failed',
+          summary:
+            '未配置模型，无法生成真实回复。请配置 AGENT_LLM_PROVIDER 以及对应的 OPENAI_* 或 ANTHROPIC_* 环境变量后重试。',
+          report: {
+            changedFiles: [],
+            evidence: ['未检测到可用 LLM client'],
+            risks: []
+          }
+        })
+      );
 
       await this.record(runId, 'review.completed', {
         status: missingModel.status,
@@ -319,20 +466,22 @@ export class AgentRuntime extends EventEmitter {
       });
 
       if (input.approvals?.plan !== true) {
-        const cancelled = agentResultSchema.parse({
-          runId,
-          mode: detection.mode,
-          status: 'cancelled',
-          summary: '跨仓库计划等待确认，当前运行已取消',
-          report: {
-            changedFiles: [],
-            evidence: [
-              ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
-              '已在执行前触发确认门'
-            ],
-            risks: []
-          }
-        });
+        const cancelled = await this.attachChangedFiles(
+          agentResultSchema.parse({
+            runId,
+            mode: detection.mode,
+            status: 'cancelled',
+            summary: '跨仓库计划等待确认，当前运行已取消',
+            report: {
+              changedFiles: [],
+              evidence: [
+                ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
+                '已在执行前触发确认门'
+              ],
+              risks: []
+            }
+          })
+        );
         await this.record(runId, 'run.completed', { ...cancelled });
         this.appendConversation(input.input, cancelled.summary);
         return cancelled;
@@ -345,32 +494,34 @@ export class AgentRuntime extends EventEmitter {
       });
     }
 
-    const result = agentResultSchema.parse({
-      runId,
-      mode: detection.mode,
-      status: 'completed',
-      summary:
-        detection.mode === 'cross-repo'
-          ? '跨仓库任务计划已创建，等待接入子代理执行'
-          : plannerSuggestion?.text ?? '未配置模型，无法生成真实回复。',
-      report: {
-        changedFiles: [],
-        evidence:
+    const result = await this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId,
+        mode: detection.mode,
+        status: 'completed',
+        summary:
           detection.mode === 'cross-repo'
-            ? [
-                ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
-                '已生成跨仓库影响面占位图'
-              ]
-            : [
-                ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
-                '已记录普通任务 trace'
-              ],
-        risks:
-          detection.mode === 'cross-repo'
-            ? ['当前版本尚未接入真实 codegraph 和子代理执行']
-            : []
-      }
-    });
+            ? '跨仓库任务计划已创建，等待接入子代理执行'
+            : plannerSuggestion?.text ?? '未配置模型，无法生成真实回复。',
+        report: {
+          changedFiles: [],
+          evidence:
+            detection.mode === 'cross-repo'
+              ? [
+                  ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
+                  '已生成跨仓库影响面占位图'
+                ]
+              : [
+                  ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
+                  '已记录普通任务 trace'
+                ],
+          risks:
+            detection.mode === 'cross-repo'
+              ? ['当前版本尚未接入真实 codegraph 和子代理执行']
+              : []
+        }
+      })
+    );
 
     await this.record(runId, 'review.completed', {
       status: result.status,
@@ -482,7 +633,7 @@ export class AgentRuntime extends EventEmitter {
             pendingToolCallCount: toolCalls.length,
             calls: toolCalls.map((call) => ({ id: call.id, name: call.name }))
           });
-          const failed = this.createMaxToolIterationsResult(
+          const failed = await this.createMaxToolIterationsResult(
             runId,
             detection.mode,
             message
@@ -529,10 +680,11 @@ export class AgentRuntime extends EventEmitter {
           iteration
         });
         if (batch.kind === 'approval') {
+          const approval = await this.attachChangedFiles(batch.result);
           await this.record(runId, 'run.awaiting_approval', {
-            pendingApproval: batch.result.pendingApproval
+            pendingApproval: approval.pendingApproval
           });
-          yield { type: 'result', result: batch.result };
+          yield { type: 'result', result: approval };
           return;
         }
 
@@ -542,17 +694,19 @@ export class AgentRuntime extends EventEmitter {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.record(runId, 'llm.planner.failed', { message });
-      const failed = agentResultSchema.parse({
-        runId,
-        mode: detection.mode,
-        status: 'failed',
-        summary: `模型请求失败：${message}`,
-        report: {
-          changedFiles: [],
-          evidence: [`LLM 请求失败: ${message}`],
-          risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
-        }
-      });
+      const failed = await this.attachChangedFiles(
+        agentResultSchema.parse({
+          runId,
+          mode: detection.mode,
+          status: 'failed',
+          summary: `模型请求失败：${message}`,
+          report: {
+            changedFiles: [],
+            evidence: [`LLM 请求失败: ${message}`],
+            risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
+          }
+        })
+      );
       await this.record(runId, 'review.completed', {
         status: failed.status,
         summary: failed.summary
@@ -568,21 +722,23 @@ export class AgentRuntime extends EventEmitter {
       thinkingPreview: fullThinking.slice(0, 240) || undefined
     });
 
-    const result = agentResultSchema.parse({
-      runId,
-      mode: detection.mode,
-      status: 'completed',
-      summary: fullText,
-      report: {
-        changedFiles: [],
-        evidence: [
-          'planner LLM 已返回计划建议',
-          '已记录普通任务 trace',
-          ...(fullThinking.length > 0 ? ['模型返回了 thinking 过程'] : [])
-        ],
-        risks: []
-      }
-    });
+    const result = await this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId,
+        mode: detection.mode,
+        status: 'completed',
+        summary: fullText,
+        report: {
+          changedFiles: [],
+          evidence: [
+            'planner LLM 已返回计划建议',
+            '已记录普通任务 trace',
+            ...(fullThinking.length > 0 ? ['模型返回了 thinking 过程'] : [])
+          ],
+          risks: []
+        }
+      })
+    );
 
     await this.record(runId, 'review.completed', {
       status: result.status,
@@ -640,10 +796,11 @@ export class AgentRuntime extends EventEmitter {
       iteration: session.iteration
     });
     if (batch.kind === 'approval') {
+      const approval = await this.attachChangedFiles(batch.result);
       await this.record(session.runId, 'run.awaiting_approval', {
-        pendingApproval: batch.result.pendingApproval
+        pendingApproval: approval.pendingApproval
       });
-      return batch.result;
+      return approval;
     }
 
     const messages: LlmMessage[] = [...session.messages, ...batch.toolMessages];
@@ -663,13 +820,14 @@ export class AgentRuntime extends EventEmitter {
       iteration: session.iteration + 1
     });
     if (outcome.kind === 'approval') {
+      const approval = await this.attachChangedFiles(outcome.result);
       await this.record(session.runId, 'run.awaiting_approval', {
-        pendingApproval: outcome.result.pendingApproval
+        pendingApproval: approval.pendingApproval
       });
-      return outcome.result;
+      return approval;
     }
     if (outcome.kind === 'max-iterations') {
-      const failed = this.createMaxToolIterationsResult(
+      const failed = await this.createMaxToolIterationsResult(
         session.runId,
         session.mode,
         outcome.message
@@ -679,18 +837,20 @@ export class AgentRuntime extends EventEmitter {
       return failed;
     }
 
-    const result = agentResultSchema.parse({
-      runId: session.runId,
-      mode: session.mode,
-      status: 'completed',
-      summary: outcome.response.text,
-      thinking: outcome.response.thinking || undefined,
-      report: {
-        changedFiles: [],
-        evidence: ['工具审批已处理，planner LLM 已返回最终回复'],
-        risks: []
-      }
-    });
+    const result = await this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId: session.runId,
+        mode: session.mode,
+        status: 'completed',
+        summary: outcome.response.text,
+        thinking: outcome.response.thinking || undefined,
+        report: {
+          changedFiles: [],
+          evidence: ['工具审批已处理，planner LLM 已返回最终回复'],
+          risks: []
+        }
+      })
+    );
 
     await this.record(session.runId, 'run.completed', { ...result });
     this.appendConversation('[tool approval]', result.summary);
@@ -903,7 +1063,7 @@ export class AgentRuntime extends EventEmitter {
           };
           return {
             kind: 'approval',
-            result: this.createPendingToolApprovalResult(session, error)
+            result: await this.createPendingToolApprovalResult(session, error)
           };
         }
         throw error;
@@ -1007,10 +1167,10 @@ export class AgentRuntime extends EventEmitter {
     };
   }
 
-  private createPendingToolApprovalResult(
+  private async createPendingToolApprovalResult(
     session: PendingToolSession,
     error: ToolPermissionError
-  ): AgentResult {
+  ): Promise<AgentResult> {
     const metadata = session.tools.find((tool) => tool.name === session.call.name);
     const pendingApproval: PendingToolApproval = {
       runId: session.runId,
@@ -1022,34 +1182,63 @@ export class AgentRuntime extends EventEmitter {
     };
     this.pendingToolSessions.set(session.runId, session);
 
-    return agentResultSchema.parse({
-      runId: session.runId,
-      mode: session.mode,
-      status: 'approval-required',
-      summary: `需要确认工具调用：${session.call.name}`,
-      pendingApproval,
-      report: {
-        changedFiles: [],
-        evidence: ['模型请求了需要用户确认的工具调用'],
-        risks: [`${pendingApproval.risk} tool requires approval`]
-      }
-    });
+    return this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId: session.runId,
+        mode: session.mode,
+        status: 'approval-required',
+        summary: `需要确认工具调用：${session.call.name}`,
+        pendingApproval,
+        report: {
+          changedFiles: [],
+          evidence: ['模型请求了需要用户确认的工具调用'],
+          risks: [`${pendingApproval.risk} tool requires approval`]
+        }
+      })
+    );
   }
 
-  private createMaxToolIterationsResult(
+  private async createMaxToolIterationsResult(
     runId: string,
     mode: Exclude<AgentMode, 'auto'>,
     message: string
-  ): AgentResult {
+  ): Promise<AgentResult> {
+    return this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId,
+        mode,
+        status: 'failed',
+        summary: message,
+        report: {
+          changedFiles: [],
+          evidence: ['工具调用循环达到上限，运行时已停止继续执行工具'],
+          risks: ['模型在工具调用上限内没有返回最终文本']
+        }
+      })
+    );
+  }
+
+  /** 从当前 run 的 trace 回填 report.changedFiles（Write/Edit 成功路径）。 */
+  private async attachChangedFiles(result: AgentResult): Promise<AgentResult> {
+    let events: TraceEvent[] = [];
+    try {
+      events = await this.options.traceStore.readRun(result.runId);
+    } catch {
+      return result;
+    }
+    const changedFiles = extractChangedFilesFromEvents(events);
+    if (
+      changedFiles.length === result.report.changedFiles.length &&
+      changedFiles.every((path, index) => path === result.report.changedFiles[index])
+    ) {
+      return result;
+    }
+
     return agentResultSchema.parse({
-      runId,
-      mode,
-      status: 'failed',
-      summary: message,
+      ...result,
       report: {
-        changedFiles: [],
-        evidence: ['工具调用循环达到上限，运行时已停止继续执行工具'],
-        risks: ['模型在工具调用上限内没有返回最终文本']
+        ...result.report,
+        changedFiles
       }
     });
   }

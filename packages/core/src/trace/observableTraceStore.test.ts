@@ -13,6 +13,9 @@ describe('ObservableTraceStore', () => {
       },
       async readRun(runId) {
         return events.filter((event) => event.runId === runId);
+      },
+      async listRunIds() {
+        return [...new Set(events.map((event) => event.runId))];
       }
     };
     const store = new ObservableTraceStore(inner);
@@ -41,6 +44,9 @@ describe('ObservableTraceStore', () => {
     const inner: TraceStore = {
       async append() {},
       async readRun() {
+        return [];
+      },
+      async listRunIds() {
         return [];
       }
     };
