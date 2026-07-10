@@ -9,6 +9,9 @@ export * from './llm/modelContextWindows';
 export * from './modes/modeDetector';
 
 export * from './runtime/agentRuntime';
+export * from './runtime/agentRuntimeTypes';
+export * from './runtime/runtimeInspection';
+export * from './runtime/toolLoop';
 export * from './tools/toolGateway';
 export * from './tools/permissionModes';
 export * from './tools/builtin';

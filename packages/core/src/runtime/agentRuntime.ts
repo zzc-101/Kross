@@ -3,14 +3,12 @@ import { EventEmitter } from 'node:events';
 import {
   type AgentMode,
   type AgentResult,
-  type PendingToolApproval,
   type TraceEvent,
   agentResultSchema
 } from '../domain';
 import {
   InMemoryContextManager,
-  type ContextManager,
-  type ContextSnapshot
+  type ContextManager
 } from '../context/contextManager';
 import {
   estimateTokensFromChars,
@@ -18,18 +16,13 @@ import {
   resolveModelContextWindow
 } from '../llm/modelContextWindows';
 import type {
-  LlmClient,
   LlmMessage,
-  LlmResponse,
-  LlmToolCall,
-  LlmToolDefinition
+  LlmToolCall
 } from '../llm/types';
 import { detectMode } from '../modes/modeDetector';
 import {
   ToolGateway,
-  ToolPermissionError,
-  type ToolMetadata,
-  type ToolResult
+  type ToolMetadata
 } from '../tools/toolGateway';
 import {
   createApprovalPolicy,
@@ -39,24 +32,37 @@ import {
   isObservableTraceStore,
   type TraceEventListener
 } from '../trace/observableTraceStore';
-import { isSafeRunId } from '../trace/runId';
-import type { ListRunsOptions, TraceStore } from '../trace/traceStore';
-import {
-  buildTraceDetail,
-  formatTraceDetail,
-  formatTraceList,
-  summarizeTraceEvents,
-  type RunTraceDetail,
-  type RunTraceSummary
-} from '../trace/traceSummary';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
+import type { ListRunsOptions } from '../trace/traceStore';
+import type { RunTraceDetail, RunTraceSummary } from '../trace/traceSummary';
+import type {
+  AgentRunInput,
+  AgentRunStreamEvent,
+  AgentRuntimeOptions,
+  ContextInspection,
+  ContextInspectionInput,
+  ResolveToolApprovalInput
+} from './agentRuntimeTypes';
+import { RuntimeInspection } from './runtimeInspection';
 import {
-  buildDiffInspection,
-  collectGitWorkspaceSnapshot,
-  formatDiffInspection,
-  suggestVerifyCommands,
-  type GitRunner
-} from '../workspace/workspaceDiff';
+  DEFAULT_MAX_TOOL_ITERATIONS,
+  formatMaxIterationsNotice,
+  PLANNER_SYSTEM_PROMPT,
+  RuntimeToolLoop,
+  toLlmTools
+} from './toolLoop';
+
+export { DEFAULT_MAX_TOOL_ITERATIONS } from './toolLoop';
+
+export type {
+  AgentRunInput,
+  AgentRunStreamEvent,
+  AgentRuntimeEvent,
+  AgentRuntimeOptions,
+  ContextInspection,
+  ContextInspectionInput,
+  ResolveToolApprovalInput
+} from './agentRuntimeTypes';
 
 /**
  * 工具调用轮次安全上限（默认）。
@@ -69,113 +75,13 @@ import {
  *
  * 我们默认用较高安全网，触顶时 **软着陆**（强制文本总结），而不是直接 failed。
  */
-export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
-
-const SOFT_LAND_FALLBACK =
-  '已达到工具调用轮次上限。请查看上文工具结果；如需继续，请再发一条指令推进剩余工作。';
-
-export interface AgentRuntimeOptions {
-  traceStore: TraceStore;
-  llmClient?: LlmClient;
-  contextManager?: ContextManager;
-  toolGateway?: ToolGateway;
-  /** 工具调用最大轮次，默认 {@link DEFAULT_MAX_TOOL_ITERATIONS} */
-  maxToolIterations?: number;
-  createRunId?: () => string;
-  now?: () => Date;
-  /** 工作区根目录；用于 /diff 的 git status 与验证建议 */
-  workspaceRoot?: string;
-  /** 可注入的 git 执行器（测试用） */
-  runGit?: GitRunner;
-}
-
-export interface AgentRunInput {
-  input: string;
-  requestedMode: AgentMode;
-  approvals?: {
-    plan?: boolean;
-  };
-}
-
-export interface ResolveToolApprovalInput {
-  runId: string;
-  approved: boolean;
-}
-
-export interface ContextInspectionInput {
-  requestedMode: AgentMode;
-  currentUserInput?: string;
-}
-
-export interface ContextInspection extends ContextSnapshot {
-  mode: Exclude<AgentMode, 'auto'>;
-}
-
-export type AgentRuntimeEvent = TraceEvent;
-
-export type AgentRunStreamEvent =
-  | {
-      /** 每一轮 LLM 调用开始（含首轮与工具回填后的 follow-up）。 */
-      type: 'turn-start';
-      iteration: number;
-    }
-  | {
-      /** 本轮模型已给出 tool_calls，即将进入工具执行。 */
-      type: 'tools-start';
-      iteration: number;
-      count: number;
-    }
-  | {
-      type: 'text-delta';
-      text: string;
-    }
-  | {
-      type: 'thinking-delta';
-      text: string;
-    }
-  | {
-      type: 'result';
-      result: AgentResult;
-    };
-
-type PlannerOutcome =
-  | { kind: 'response'; response: LlmResponse }
-  | { kind: 'approval'; result: AgentResult }
-  | { kind: 'max-iterations'; message: string }
-  | { kind: 'failure'; message: string }
-  | undefined;
-
-type ToolLoopOutcome =
-  | { kind: 'response'; response: LlmResponse }
-  | { kind: 'approval'; result: AgentResult }
-  | { kind: 'max-iterations'; message: string };
-
-type ToolBatchOutcome =
-  | { kind: 'completed'; toolMessages: LlmMessage[] }
-  | { kind: 'approval'; result: AgentResult };
-
-interface PendingToolSession {
-  runId: string;
-  mode: Exclude<AgentMode, 'auto'>;
-  call: LlmToolCall;
-  // 同一批 tool_calls 中排在当前调用之后、还未执行的调用。
-  remainingCalls: LlmToolCall[];
-  // 同一批中已经执行完成的 tool 消息，恢复时需要原样回填给模型。
-  completedToolMessages: LlmMessage[];
-  messages: LlmMessage[];
-  tools: ToolMetadata[];
-  iteration: number;
-}
-
-const PLANNER_SYSTEM_PROMPT =
-  '你是本地 agent 的规划器。请基于模式和用户目标给出简短、可执行的计划。需要工具时，只能基于可用工具清单提出调用意图，不要编造工具。';
-
 export class AgentRuntime extends EventEmitter {
   private readonly createRunId: () => string;
   private readonly now: () => Date;
   private readonly contextManager: ContextManager;
   private readonly toolGateway: ToolGateway | undefined;
-  private readonly pendingToolSessions = new Map<string, PendingToolSession>();
+  private readonly inspection: RuntimeInspection;
+  private readonly toolLoop: RuntimeToolLoop;
   private permissionMode: PermissionMode = 'default';
 
   constructor(private readonly options: AgentRuntimeOptions) {
@@ -185,6 +91,17 @@ export class AgentRuntime extends EventEmitter {
     this.now = options.now ?? (() => new Date());
     this.contextManager = options.contextManager ?? new InMemoryContextManager();
     this.toolGateway = options.toolGateway;
+    this.inspection = new RuntimeInspection(options);
+    this.toolLoop = new RuntimeToolLoop({
+      llmClient: options.llmClient,
+      toolGateway: this.toolGateway,
+      contextManager: this.contextManager,
+      maxToolIterations: options.maxToolIterations,
+      record: (runId, type, payload) => this.record(runId, type, payload),
+      attachChangedFiles: (result) => this.attachChangedFiles(result),
+      appendConversation: (userInput, assistantOutput) =>
+        this.appendConversation(userInput, assistantOutput)
+    });
     if (this.toolGateway) {
       this.toolGateway.setApprovalPolicy(createApprovalPolicy(this.permissionMode));
     }
@@ -265,64 +182,17 @@ export class AgentRuntime extends EventEmitter {
 
   /** 最近 N 次 run 的摘要（供 /trace）。 */
   async listTraces(options: ListRunsOptions = {}): Promise<RunTraceSummary[]> {
-    const limit = options.limit ?? 10;
-    const runIds = await this.options.traceStore.listRunIds();
-    const summaries: RunTraceSummary[] = [];
-
-    for (const runId of runIds) {
-      if (summaries.length >= limit) {
-        break;
-      }
-      try {
-        const events = await this.options.traceStore.readRun(runId);
-        const summary = summarizeTraceEvents(runId, events);
-        if (summary) {
-          summaries.push(summary);
-        }
-      } catch {
-        // 单 run 损坏不拖垮列表
-      }
-    }
-
-    return summaries;
+    return this.inspection.listTraces(options);
   }
 
   /** 单次 run 详情；不存在时返回 null。 */
   async inspectTrace(runId: string): Promise<RunTraceDetail | null> {
-    if (!isSafeRunId(runId)) {
-      return null;
-    }
-    try {
-      const events = await this.options.traceStore.readRun(runId);
-      return buildTraceDetail(runId, events);
-    } catch {
-      return null;
-    }
+    return this.inspection.inspectTrace(runId);
   }
 
   /** /trace 命令文本输出。 */
   async formatTraceCommand(argument?: string): Promise<string> {
-    const runId = argument?.trim();
-    if (!runId) {
-      const summaries = await this.listTraces({ limit: 10 });
-      return formatTraceList(summaries, { limit: 10 });
-    }
-
-    if (!isSafeRunId(runId)) {
-      return [
-        `无效 runId：${runId}`,
-        'runId 仅允许字母数字与 ._-，且不能包含路径分隔符。'
-      ].join('\n');
-    }
-
-    const detail = await this.inspectTrace(runId);
-    if (!detail) {
-      return [
-        `未找到 run：${runId}`,
-        '用法：/trace 查看最近运行 · /trace <runId> 查看详情'
-      ].join('\n');
-    }
-    return formatTraceDetail(detail);
+    return this.inspection.formatTraceCommand(argument);
   }
 
   /**
@@ -331,57 +201,7 @@ export class AgentRuntime extends EventEmitter {
    * - 有 runId：只汇总该 run 的触达文件，并附带当前 git 状态
    */
   async formatDiffCommand(argument?: string): Promise<string> {
-    const requested = argument?.trim();
-    let runId: string | undefined;
-    let events: TraceEvent[] = [];
-
-    if (requested) {
-      if (!isSafeRunId(requested)) {
-        return [
-          `无效 runId：${requested}`,
-          'runId 仅允许字母数字与 ._-，且不能包含路径分隔符。'
-        ].join('\n');
-      }
-      try {
-        events = await this.options.traceStore.readRun(requested);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return `读取 run 失败：${requested}（${message}）`;
-      }
-      if (events.length === 0) {
-        return [
-          `未找到 run：${requested}`,
-          '用法：/diff · /diff <runId>'
-        ].join('\n');
-      }
-      runId = requested;
-    } else {
-      const runIds = await this.options.traceStore.listRunIds();
-      runId = runIds[0];
-      if (runId) {
-        try {
-          events = await this.options.traceStore.readRun(runId);
-        } catch {
-          events = [];
-        }
-      }
-    }
-
-    const workspaceRoot = this.options.workspaceRoot;
-    const git =
-      workspaceRoot !== undefined
-        ? await collectGitWorkspaceSnapshot(workspaceRoot, this.options.runGit)
-        : null;
-    const suggestedCommands = await suggestVerifyCommands(workspaceRoot);
-
-    return formatDiffInspection(
-      buildDiffInspection({
-        runId,
-        events,
-        git,
-        suggestedCommands
-      })
-    );
+    return this.inspection.formatDiffCommand(argument);
   }
 
   async run(input: AgentRunInput): Promise<AgentResult> {
@@ -399,7 +219,7 @@ export class AgentRuntime extends EventEmitter {
 
     await this.record(runId, 'mode.detected', { ...detection });
 
-    const plannerOutcome = await this.createPlannerSuggestion(
+    const plannerOutcome = await this.toolLoop.createPlannerSuggestion(
       runId,
       input.input,
       detection.mode
@@ -412,7 +232,7 @@ export class AgentRuntime extends EventEmitter {
       return approval;
     }
     if (plannerOutcome?.kind === 'max-iterations') {
-      const failed = await this.createMaxToolIterationsResult(
+      const failed = await this.toolLoop.createMaxToolIterationsResult(
         runId,
         detection.mode,
         plannerOutcome.message
@@ -654,7 +474,7 @@ export class AgentRuntime extends EventEmitter {
 
           yield { type: 'turn-start', iteration };
           let softText = '';
-          for await (const chunk of this.streamSoftLand({
+          for await (const chunk of this.toolLoop.streamSoftLand({
             runId,
             messages,
             maxIterations,
@@ -718,7 +538,7 @@ export class AgentRuntime extends EventEmitter {
           toolCalls
         };
         const batchMessages: LlmMessage[] = [...messages, assistantMessage];
-        const batch = await this.executeToolBatch({
+        const batch = await this.toolLoop.executeToolBatch({
           runId,
           mode: detection.mode,
           calls: toolCalls,
@@ -823,545 +643,7 @@ export class AgentRuntime extends EventEmitter {
   }
 
   async resolveToolApproval(input: ResolveToolApprovalInput): Promise<AgentResult> {
-    const session = this.pendingToolSessions.get(input.runId);
-    if (!session) {
-      throw new Error(`No pending tool approval for run: ${input.runId}`);
-    }
-    this.pendingToolSessions.delete(input.runId);
-
-    const toolMessage = input.approved
-      ? await this.executeApprovedToolCall(session)
-      : await this.createRejectedToolMessage(session);
-
-    // 先把被打断的这一批 tool_calls 跑完，保证每个 tool_use 都有 tool_result 回填。
-    const batch = await this.executeToolBatch({
-      runId: session.runId,
-      mode: session.mode,
-      calls: session.remainingCalls,
-      completedToolMessages: [...session.completedToolMessages, toolMessage],
-      messages: session.messages,
-      tools: session.tools,
-      iteration: session.iteration
-    });
-    if (batch.kind === 'approval') {
-      const approval = await this.attachChangedFiles(batch.result);
-      await this.record(session.runId, 'run.awaiting_approval', {
-        pendingApproval: approval.pendingApproval
-      });
-      return approval;
-    }
-
-    const messages: LlmMessage[] = [...session.messages, ...batch.toolMessages];
-    const response = await this.completeToolFollowup({
-      runId: session.runId,
-      messages,
-      tools: session.tools,
-      iteration: session.iteration,
-      metadata: { approvalResolved: input.approved }
-    });
-    const outcome = await this.runToolLoop({
-      runId: session.runId,
-      mode: session.mode,
-      response,
-      messages,
-      tools: session.tools,
-      iteration: session.iteration + 1
-    });
-    if (outcome.kind === 'approval') {
-      const approval = await this.attachChangedFiles(outcome.result);
-      await this.record(session.runId, 'run.awaiting_approval', {
-        pendingApproval: approval.pendingApproval
-      });
-      return approval;
-    }
-    if (outcome.kind === 'max-iterations') {
-      const failed = await this.createMaxToolIterationsResult(
-        session.runId,
-        session.mode,
-        outcome.message
-      );
-      await this.record(session.runId, 'run.completed', { ...failed });
-      this.appendConversation('[tool approval]', failed.summary);
-      return failed;
-    }
-
-    const result = await this.attachChangedFiles(
-      agentResultSchema.parse({
-        runId: session.runId,
-        mode: session.mode,
-        status: 'completed',
-        summary: outcome.response.text,
-        thinking: outcome.response.thinking || undefined,
-        report: {
-          changedFiles: [],
-          evidence: ['工具审批已处理，planner LLM 已返回最终回复'],
-          risks: []
-        }
-      })
-    );
-
-    await this.record(session.runId, 'run.completed', { ...result });
-    this.appendConversation('[tool approval]', result.summary);
-    return result;
-  }
-
-  private async createPlannerSuggestion(
-    runId: string,
-    goal: string,
-    mode: Exclude<AgentMode, 'auto'>
-  ): Promise<PlannerOutcome> {
-    if (!this.options.llmClient) {
-      return undefined;
-    }
-
-    try {
-      const availableTools = this.toolGateway?.listTools({ mode }) ?? [];
-      const context = this.contextManager.build({
-        systemPrompt: PLANNER_SYSTEM_PROMPT,
-        currentUserInput: goal,
-        mode,
-        tools: availableTools
-      });
-
-      await this.record(runId, 'context.built', {
-        includedSources: context.includedSources,
-        droppedSources: context.droppedSources,
-        estimatedChars: context.estimatedChars,
-        report: context.report
-      });
-
-      const response = await this.options.llmClient.complete({
-        messages: context.messages,
-        tools: toLlmTools(availableTools),
-        temperature: 0.2,
-        metadata: {
-          purpose: 'planner',
-          includedSources: context.includedSources,
-          droppedSources: context.droppedSources,
-          contextReport: context.report
-        }
-      });
-
-      await this.record(runId, 'llm.planner.completed', {
-        provider: response.provider,
-        model: response.model,
-        textPreview: response.text.slice(0, 240),
-        thinkingPreview: response.thinking?.slice(0, 240),
-        usage: response.usage,
-        toolCallCount: response.toolCalls?.length ?? 0
-      });
-
-      if (response.toolCalls?.length && this.toolGateway) {
-        return this.runToolLoop({
-          runId,
-          mode,
-          response,
-          messages: context.messages,
-          tools: availableTools,
-          iteration: 1
-        });
-      }
-
-      return { kind: 'response', response };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await this.record(runId, 'llm.planner.failed', {
-        message
-      });
-      return { kind: 'failure', message };
-    }
-  }
-
-  /**
-   * 工具调用主循环：执行当前 response 里的 tool_calls，把结果回填给模型，
-   * 直到模型返回纯文本或达到迭代上限。任何一轮里需要审批的调用都会暂停并
-   * 保存会话，等待 resolveToolApproval 恢复。
-   */
-  private async runToolLoop(input: {
-    runId: string;
-    mode: Exclude<AgentMode, 'auto'>;
-    response: LlmResponse;
-    messages: LlmMessage[];
-    tools: ToolMetadata[];
-    iteration: number;
-  }): Promise<ToolLoopOutcome> {
-    const maxIterations =
-      this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
-    let response = input.response;
-    let messages = input.messages;
-    let iteration = input.iteration;
-
-    while (response.toolCalls?.length && iteration <= maxIterations) {
-      await this.record(input.runId, 'llm.tool_calls.received', {
-        count: response.toolCalls.length,
-        iteration,
-        calls: response.toolCalls.map((call) => ({
-          id: call.id,
-          name: call.name
-        }))
-      });
-
-      const assistantMessage: LlmMessage = {
-        role: 'assistant',
-        content: response.text,
-        toolCalls: response.toolCalls
-      };
-      const batchMessages: LlmMessage[] = [...messages, assistantMessage];
-      const batch = await this.executeToolBatch({
-        runId: input.runId,
-        mode: input.mode,
-        calls: response.toolCalls,
-        completedToolMessages: [],
-        messages: batchMessages,
-        tools: input.tools,
-        iteration
-      });
-      if (batch.kind === 'approval') {
-        return batch;
-      }
-
-      messages = [...batchMessages, ...batch.toolMessages];
-      response = await this.completeToolFollowup({
-        runId: input.runId,
-        messages,
-        tools: input.tools,
-        iteration
-      });
-      iteration += 1;
-    }
-
-    if (response.toolCalls?.length) {
-      // 触顶：丢弃未执行的 tool_calls，软着陆为文本总结
-      await this.record(input.runId, 'llm.tool_loop.max_iterations', {
-        maxIterations,
-        iteration,
-        pendingToolCallCount: response.toolCalls.length,
-        calls: response.toolCalls.map((call) => ({
-          id: call.id,
-          name: call.name
-        })),
-        softLand: true
-      });
-      const soft = await this.completeSoftLand({
-        runId: input.runId,
-        messages,
-        maxIterations,
-        iteration
-      });
-      return { kind: 'response', response: soft };
-    }
-
-    return { kind: 'response', response };
-  }
-
-  /**
-   * 触顶后强制一轮无工具文本收尾（OpenCode steps 触顶也会要求 summarize）。
-   */
-  private async completeSoftLand(input: {
-    runId: string;
-    messages: LlmMessage[];
-    maxIterations: number;
-    iteration: number;
-  }): Promise<LlmResponse> {
-    if (!this.options.llmClient) {
-      return {
-        provider: 'openai',
-        model: 'none',
-        text: formatMaxIterationsNotice(input.maxIterations),
-        raw: {}
-      };
-    }
-
-    const response = await this.options.llmClient.complete({
-      messages: [...input.messages, softLandUserMessage(input.maxIterations, input.iteration)],
-      temperature: 0.2,
-      metadata: {
-        purpose: 'max-iterations-soft-land',
-        maxIterations: input.maxIterations,
-        iteration: input.iteration
-      }
-    });
-
-    await this.record(input.runId, 'llm.soft_land.completed', {
-      maxIterations: input.maxIterations,
-      iteration: input.iteration,
-      textPreview: response.text.slice(0, 240),
-      droppedToolCalls: true
-    });
-
-    // 若模型仍返回 tool_calls，忽略并兜底文本
-    const text =
-      response.text.trim() ||
-      formatMaxIterationsNotice(input.maxIterations);
-    return {
-      ...response,
-      text,
-      toolCalls: undefined
-    };
-  }
-
-  private async *streamSoftLand(input: {
-    runId: string;
-    messages: LlmMessage[];
-    maxIterations: number;
-    iteration: number;
-  }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>> {
-    if (!this.options.llmClient) {
-      yield {
-        type: 'text-delta',
-        text: formatMaxIterationsNotice(input.maxIterations)
-      };
-      return;
-    }
-
-    let text = '';
-    for await (const chunk of this.options.llmClient.stream({
-      messages: [...input.messages, softLandUserMessage(input.maxIterations, input.iteration)],
-      temperature: 0.2,
-      metadata: {
-        purpose: 'max-iterations-soft-land',
-        maxIterations: input.maxIterations,
-        iteration: input.iteration
-      }
-    })) {
-      if (chunk.type === 'text-delta') {
-        text += chunk.text;
-        yield { type: 'text-delta', text: chunk.text };
-      }
-    }
-
-    await this.record(input.runId, 'llm.soft_land.completed', {
-      maxIterations: input.maxIterations,
-      iteration: input.iteration,
-      textPreview: text.slice(0, 240),
-      droppedToolCalls: true
-    });
-
-    if (text.trim().length === 0) {
-      yield {
-        type: 'text-delta',
-        text: formatMaxIterationsNotice(input.maxIterations)
-      };
-    }
-  }
-
-  /**
-   * 顺序执行一批 tool_calls。遇到需要审批的调用时保存会话（包含已完成的
-   * tool 消息和剩余调用），返回 approval，保证恢复后同一批调用不缺不重。
-   */
-  private async executeToolBatch(input: {
-    runId: string;
-    mode: Exclude<AgentMode, 'auto'>;
-    calls: LlmToolCall[];
-    completedToolMessages: LlmMessage[];
-    messages: LlmMessage[];
-    tools: ToolMetadata[];
-    iteration: number;
-  }): Promise<ToolBatchOutcome> {
-    const toolMessages: LlmMessage[] = [...input.completedToolMessages];
-    const queue = [...input.calls];
-
-    while (queue.length > 0) {
-      const call = queue.shift();
-      if (!call) {
-        break;
-      }
-
-      let result: ToolResult;
-      try {
-        result = await this.toolGateway!.call({
-          runId: input.runId,
-          name: call.name,
-          input: call.input,
-          callId: call.id,
-          returnErrors: true
-        });
-      } catch (error) {
-        if (error instanceof ToolPermissionError) {
-          // 策略直接 deny 时，不打断成人工审批，而是把拒绝结果回填给模型。
-          if (error.action === 'deny') {
-            const deniedContent = `Tool ${call.name} denied by policy: ${error.reason ?? error.message}`;
-            this.contextManager.recordToolResult({
-              id: call.id,
-              toolName: call.name,
-              inputPreview: JSON.stringify(call.input).slice(0, 200),
-              output: deniedContent,
-              summary: `denied: ${error.reason ?? error.risk}`
-            });
-            toolMessages.push({
-              role: 'tool',
-              toolCallId: call.id,
-              name: call.name,
-              content: deniedContent
-            });
-            continue;
-          }
-
-          const session: PendingToolSession = {
-            runId: input.runId,
-            mode: input.mode,
-            call,
-            remainingCalls: queue,
-            completedToolMessages: toolMessages,
-            messages: input.messages,
-            tools: input.tools,
-            iteration: input.iteration
-          };
-          return {
-            kind: 'approval',
-            result: await this.createPendingToolApprovalResult(session, error)
-          };
-        }
-        throw error;
-      }
-
-      this.contextManager.recordToolResult({
-        id: call.id,
-        toolName: call.name,
-        inputPreview: JSON.stringify(call.input).slice(0, 200),
-        output: result.content,
-        summary: result.summary
-      });
-      toolMessages.push({
-        role: 'tool',
-        toolCallId: call.id,
-        name: call.name,
-        content: result.content
-      });
-    }
-
-    return { kind: 'completed', toolMessages };
-  }
-
-  private async completeToolFollowup(input: {
-    runId: string;
-    messages: LlmMessage[];
-    tools: ToolMetadata[];
-    iteration: number;
-    metadata?: Record<string, unknown>;
-  }): Promise<LlmResponse> {
-    const response = await this.options.llmClient!.complete({
-      messages: input.messages,
-      tools: toLlmTools(input.tools),
-      temperature: 0.2,
-      metadata: {
-        purpose: 'planner-tool-followup',
-        iteration: input.iteration,
-        ...input.metadata
-      }
-    });
-
-    await this.record(input.runId, 'llm.tool_followup.completed', {
-      provider: response.provider,
-      model: response.model,
-      textPreview: response.text.slice(0, 240),
-      thinkingPreview: response.thinking?.slice(0, 240),
-      usage: response.usage,
-      toolCallCount: response.toolCalls?.length ?? 0,
-      iteration: input.iteration
-    });
-
-    return response;
-  }
-
-  private async executeApprovedToolCall(session: PendingToolSession): Promise<LlmMessage> {
-    const result = await this.toolGateway!.call({
-      runId: session.runId,
-      name: session.call.name,
-      input: session.call.input,
-      callId: session.call.id,
-      approved: true,
-      returnErrors: true
-    });
-    this.contextManager.recordToolResult({
-      id: session.call.id,
-      toolName: session.call.name,
-      inputPreview: JSON.stringify(session.call.input).slice(0, 200),
-      output: result.content,
-      summary: result.summary
-    });
-
-    return {
-      role: 'tool',
-      toolCallId: session.call.id,
-      name: session.call.name,
-      content: result.content
-    };
-  }
-
-  private async createRejectedToolMessage(session: PendingToolSession): Promise<LlmMessage> {
-    const content = `Tool ${session.call.name} rejected by user.`;
-    await this.record(session.runId, 'tool_call.rejected', {
-      toolName: session.call.name,
-      toolCallId: session.call.id,
-      input: session.call.input
-    });
-    this.contextManager.recordToolResult({
-      id: session.call.id,
-      toolName: session.call.name,
-      inputPreview: JSON.stringify(session.call.input).slice(0, 200),
-      output: content,
-      summary: 'rejected by user'
-    });
-
-    return {
-      role: 'tool',
-      toolCallId: session.call.id,
-      name: session.call.name,
-      content
-    };
-  }
-
-  private async createPendingToolApprovalResult(
-    session: PendingToolSession,
-    error: ToolPermissionError
-  ): Promise<AgentResult> {
-    const metadata = session.tools.find((tool) => tool.name === session.call.name);
-    const pendingApproval: PendingToolApproval = {
-      runId: session.runId,
-      toolCallId: session.call.id,
-      toolName: session.call.name,
-      risk: metadata?.risk ?? error.risk,
-      reason: error.reason,
-      inputPreview: JSON.stringify(session.call.input).slice(0, 500)
-    };
-    this.pendingToolSessions.set(session.runId, session);
-
-    return this.attachChangedFiles(
-      agentResultSchema.parse({
-        runId: session.runId,
-        mode: session.mode,
-        status: 'approval-required',
-        summary: `需要确认工具调用：${session.call.name}`,
-        pendingApproval,
-        report: {
-          changedFiles: [],
-          evidence: ['模型请求了需要用户确认的工具调用'],
-          risks: [`${pendingApproval.risk} tool requires approval`]
-        }
-      })
-    );
-  }
-
-  private async createMaxToolIterationsResult(
-    runId: string,
-    mode: Exclude<AgentMode, 'auto'>,
-    message: string
-  ): Promise<AgentResult> {
-    // 兼容旧路径：优先由 soft land 产出 completed；此处仅作无 LLM 时的兜底
-    return this.attachChangedFiles(
-      agentResultSchema.parse({
-        runId,
-        mode,
-        status: 'completed',
-        summary: message || SOFT_LAND_FALLBACK,
-        report: {
-          changedFiles: [],
-          evidence: ['工具调用循环达到上限，已停止继续执行工具并尝试收尾'],
-          risks: ['部分计划可能未执行完，可继续对话推进']
-        }
-      })
-    );
+    return this.toolLoop.resolveToolApproval(input);
   }
 
   /** 从当前 run 的 trace 回填 report.changedFiles（Write/Edit 成功路径）。 */
@@ -1443,34 +725,4 @@ function createPlan(
     llmSuggestion,
     steps: ['理解目标', '探索当前 workspace', '执行修改或回答', '验收并记录 trace']
   };
-}
-
-function toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined {
-  if (tools.length === 0) {
-    return undefined;
-  }
-
-  return tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters
-  }));
-}
-
-function softLandUserMessage(maxIterations: number, iteration: number): LlmMessage {
-  return {
-    role: 'user',
-    content: [
-      `【系统】工具调用已达上限 ${maxIterations} 轮（当前尝试第 ${iteration} 轮）。`,
-      '请停止调用任何工具，用简洁中文总结：',
-      '1. 已完成的工作与关键发现',
-      '2. 尚未完成的事项',
-      '3. 建议用户下一步怎么做',
-      '不要再发起 tool_calls。'
-    ].join('\n')
-  };
-}
-
-function formatMaxIterationsNotice(maxIterations: number): string {
-  return `${SOFT_LAND_FALLBACK}（上限 ${maxIterations} 轮）`;
 }
