@@ -53,6 +53,17 @@ export {
 export { ThinkingIndicator } from './ThinkingIndicator';
 export { ApprovalPanel } from './ApprovalPanel';
 export { Composer, HelpHint, SessionTip } from './Composer';
+export { ModelSettingsPanel } from './ModelSettingsPanel';
+export {
+  applyModelSettings,
+  buildEffortOptions,
+  buildModelOptions,
+  createModelSettingsState,
+  moveSettingsSelection,
+  switchSettingsSection,
+  type ModelSettingsState,
+  type SettingsSection
+} from './modelSettings';
 export { SlashSuggest } from './SlashSuggest';
 export {
   WelcomeHome,

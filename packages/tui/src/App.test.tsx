@@ -119,6 +119,27 @@ describe('App', () => {
     expect(runtime.getThinkingEffort()).toBe('high');
   });
 
+  it('opens settings panel via /settings and bare /model', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('ok')
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('/settings');
+    await waitUntil(() => lastFrame()?.includes('模型与思考强度') === true);
+    expect(lastFrame()).toContain('ctrl+p');
+    expect(lastFrame()).toContain('思考强度');
+
+    // reopen via bare /model (after panel already open, submit still works)
+    await submit?.('/model');
+    await waitUntil(() => lastFrame()?.includes('模型与思考强度') === true);
+  });
+
   it('shows a submitted message in conversation history', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);

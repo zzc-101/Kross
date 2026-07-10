@@ -14,13 +14,18 @@ export const slashCommands: SlashCommand[] = [
     description: '查看当前运行状态'
   },
   {
+    name: '/settings',
+    description: '打开模型/思考强度面板（等同 ctrl+p）',
+    usage: '/settings'
+  },
+  {
     name: '/model',
-    description: '查看/切换 LLM provider 与模型',
+    description: '打开设置面板；或 /model list|<id>|<provider> <id>',
     usage: '/model [list|<model>|<provider> <model>]'
   },
   {
     name: '/think',
-    description: '查看/切换思考强度',
+    description: '查看/切换思考强度（也可用设置面板）',
     usage: '/think [off|minimal|low|medium|high|xhigh|cycle]'
   },
   {

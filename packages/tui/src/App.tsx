@@ -3,8 +3,10 @@ import { Box, useInput } from 'ink';
 
 import {
   AgentRuntime,
+  getLlmProviderDefinition,
   nextPermissionMode,
   ObservableTraceStore,
+  updateKrossLlmConfig,
   type AgentMode,
   type AgentResult,
   type ConfigImportController,
@@ -17,7 +19,9 @@ import {
 
 import {
   ApprovalPanel,
+  applyModelSettings,
   Composer,
+  createModelSettingsState,
   buildToolState,
   ensureToolItems,
   filterSlashCommands,
@@ -26,11 +30,15 @@ import {
   HeaderBar,
   isAggregatableTool,
   MessageViewport,
+  ModelSettingsPanel,
+  moveSettingsSelection,
   SlashSuggest,
+  switchSettingsSection,
   ThinkingIndicator,
   WelcomeHome,
   useTerminalSize,
   type ChatMessage,
+  type ModelSettingsState,
   type ToolCallState
 } from './ui';
 import {
@@ -139,6 +147,8 @@ export function App({
   const [streamingMessageId, setStreamingMessageId] = useState<number | undefined>();
   const [approvalSelection, setApprovalSelection] = useState<'approve' | 'reject'>('approve');
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+  const [modelSettings, setModelSettings] = useState<ModelSettingsState | undefined>();
+  const modelSettingsOpen = modelSettings !== undefined;
   const {
     scrollOffset,
     scrollBy,
@@ -570,7 +580,7 @@ export function App({
   // useMouseScroll 内部已 rAF 合并；这里 steps 即本帧累计行数，不再 *3 放大抖动
   useMouseScroll(
     (direction, steps) => {
-      if (pendingToolApproval) {
+      if (pendingToolApproval || modelSettingsOpen) {
         return;
       }
       const step = Math.max(1, steps);
@@ -580,7 +590,101 @@ export function App({
     shellMode
   );
 
+  const openModelSettings = useCallback(() => {
+    setModelSettings(createModelSettingsState(agentRuntime, process.env));
+  }, [agentRuntime]);
+
+  const closeModelSettings = useCallback(() => {
+    setModelSettings(undefined);
+  }, []);
+
+  const confirmModelSettings = useCallback(() => {
+    if (!modelSettings) {
+      return;
+    }
+    const result = applyModelSettings(agentRuntime, modelSettings, process.env);
+    if (!result.ok) {
+      append('system', result.message);
+      return;
+    }
+
+    const client = agentRuntime.getLlmClient();
+    if (client?.model) {
+      try {
+        const def = getLlmProviderDefinition(client.provider);
+        const env = process.env;
+        updateKrossLlmConfig({
+          provider: client.provider,
+          model: client.model,
+          apiKey: def.apiKeyEnv.map((key) => env[key]?.trim()).find(Boolean),
+          authToken:
+            client.provider === 'anthropic'
+              ? def.authTokenEnv?.map((key) => env[key]?.trim()).find(Boolean)
+              : undefined,
+          baseUrl: def.baseUrlEnv ? env[def.baseUrlEnv]?.trim() : undefined,
+          thinkingEffort: agentRuntime.getThinkingEffort()
+        });
+      } catch {
+        // best-effort
+      }
+    }
+
+    append('system', result.summary);
+    setModelSettings(undefined);
+  }, [agentRuntime, append, modelSettings]);
+
   useInput((inputKey, key) => {
+    // ctrl+p：打开/关闭模型与思考强度面板
+    if (key.ctrl && inputKey.toLowerCase() === 'p') {
+      if (pendingToolApproval) {
+        return;
+      }
+      if (modelSettingsOpen) {
+        closeModelSettings();
+      } else {
+        openModelSettings();
+      }
+      return;
+    }
+
+    // 模型设置面板优先接管导航键
+    if (modelSettings) {
+      if (key.escape) {
+        closeModelSettings();
+        return;
+      }
+      if (key.leftArrow) {
+        setModelSettings((current) =>
+          current ? switchSettingsSection(current, 'effort') : current
+        );
+        return;
+      }
+      if (key.rightArrow) {
+        setModelSettings((current) =>
+          current ? switchSettingsSection(current, 'model') : current
+        );
+        return;
+      }
+      if (key.upArrow) {
+        setModelSettings((current) =>
+          current ? moveSettingsSelection(current, 'up') : current
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setModelSettings((current) =>
+          current ? moveSettingsSelection(current, 'down') : current
+        );
+        return;
+      }
+      if (key.return) {
+        confirmModelSettings();
+        return;
+      }
+      // 面板打开时吞掉其它输入，避免落到 Composer
+      return;
+    }
+
     // ctrl+o：切换最近一条 thinking 的折叠/展开（审批中也可用）
     if (key.ctrl && inputKey.toLowerCase() === 'o') {
       toggleLastCollapsible();
@@ -668,6 +772,13 @@ export function App({
       return;
     }
 
+    // 打开设置面板（快捷入口，避免记一堆 /model /think 参数）
+    if (trimmed === '/settings' || trimmed === '/model') {
+      setInput('');
+      openModelSettings();
+      return;
+    }
+
     // 斜杠提示打开时，若当前输入只是前缀，Enter 先补全选中命令。
     if (
       slashSuggestions.length > 0 &&
@@ -728,6 +839,7 @@ export function App({
     configImportController,
     importPrompt,
     mode,
+    openModelSettings,
     runTurn,
     slashSelectedIndex,
     slashSuggestions,
@@ -755,27 +867,47 @@ export function App({
   ]);
 
   const hasUserActivity = messages.some((message) => message.from === 'user');
-  const isHome = !hasUserActivity && status === 'ready' && !pendingToolApproval;
+  const isHome =
+    !hasUserActivity &&
+    status === 'ready' &&
+    !pendingToolApproval &&
+    !modelSettingsOpen;
   const contentWidth = Math.max(40, columns - (shellMode ? 2 : 4));
 
   // 动态计算 footer 高度，防止 header + viewport + footer > rows 导致溢出
   const footerHeight = useMemo(() => {
     let h = 0;
-    // Composer: border(1) + padding(0) + prompt line(1) + footer line(1) + border(1) = 4
-    // 但 disabled (approval) 时 Composer 渲染 null
     if (pendingToolApproval) {
-      h += 9; // ApprovalPanel: marginTop(1) + 7 rows + marginBottom(1)
+      h += 9; // ApprovalPanel
+    } else if (modelSettings) {
+      // title + tabs + rule + options + border + hint
+      const optionRows =
+        modelSettings.section === 'effort'
+          ? modelSettings.efforts.length
+          : Math.max(1, modelSettings.models.length);
+      h += 7 + optionRows;
     } else {
       h += 4; // Composer with border
     }
     if (status === 'responding' && awaitingReply) {
-      h += 2; // ThinkingIndicator: 1 line + marginBottom(1)
+      h += 2; // ThinkingIndicator
     }
-    if (!pendingToolApproval && slashSuggestions.length > 0) {
-      h += slashSuggestions.length; // SlashSuggest: one line per suggestion
+    if (
+      !pendingToolApproval &&
+      !modelSettingsOpen &&
+      slashSuggestions.length > 0
+    ) {
+      h += slashSuggestions.length;
     }
     return h;
-  }, [pendingToolApproval, status, awaitingReply, slashSuggestions.length]);
+  }, [
+    pendingToolApproval,
+    modelSettings,
+    modelSettingsOpen,
+    status,
+    awaitingReply,
+    slashSuggestions.length
+  ]);
 
   // Header: location line(1) + divider(1) = 2; + error(1) if present
   const headerHeight = runtimeError ? 3 : 2;
@@ -816,7 +948,13 @@ export function App({
         />
       ) : null}
 
-      {!pendingToolApproval && slashSuggestions.length > 0 ? (
+      {modelSettings && !pendingToolApproval ? (
+        <ModelSettingsPanel state={modelSettings} width={contentWidth} />
+      ) : null}
+
+      {!pendingToolApproval &&
+      !modelSettingsOpen &&
+      slashSuggestions.length > 0 ? (
         <SlashSuggest
           commands={slashSuggestions}
           selectedIndex={slashSelectedIndex}
@@ -827,7 +965,7 @@ export function App({
         value={input}
         onChange={(next) => setInput(stripMouseArtifactsFromInput(next))}
         onSubmit={submit}
-        disabled={Boolean(pendingToolApproval)}
+        disabled={Boolean(pendingToolApproval) || modelSettingsOpen}
         modelLabel={modelLabel}
         permissionMode={permissionMode}
         width={contentWidth}
@@ -849,7 +987,7 @@ export function App({
       }
       headline={modelLabel !== 'no model' ? `${modelLabel} ready` : 'Ready when you are'}
       subtitle="Local-first agent · plan, tools, and traces in your workspace."
-      tip="Press shift+tab to cycle permission · ctrl+o toggles thinking."
+      tip="ctrl+p 模型/思考 · shift+tab 权限 · ctrl+o thinking"
     />
   );
 
