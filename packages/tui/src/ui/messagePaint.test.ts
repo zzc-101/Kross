@@ -6,7 +6,8 @@ import {
   MessagePaintCache,
   paintItemPlainText,
   windowPaintLayout,
-  windowPaintRows
+  windowPaintRows,
+  wrapPaintSegments
 } from './messagePaint';
 import { parseMarkdownStreaming, clearMarkdownParseCache } from './markdownParse';
 
@@ -84,6 +85,37 @@ describe('windowPaintRows', () => {
     );
     expect(hasBold).toBe(true);
     expect(hasTable).toBe(true);
+  });
+
+  it('soft-wraps long agent lines so each paint row is height 1 with rail', () => {
+    const cache = new MessagePaintCache();
+    const long =
+      '这是一段很长的中文回复，用来验证终端列宽不足时会按显示宽度预折行，而不是交给 Ink 自动 wrap 导致续行错位。';
+    const message = msg({ id: 1, from: 'agent', text: long });
+    const items = cache.paintMessage(message, 40, false);
+    const body = items.filter(
+      (i) => i.kind === 'line' && i.key.startsWith('agent-1-L')
+    );
+    expect(body.length).toBeGreaterThan(1);
+    for (const row of body) {
+      if (row.kind !== 'line') continue;
+      expect(row.height).toBe(1);
+      expect(row.segments[0]?.text).toMatch(/│/);
+    }
+  });
+
+  it('wrapPaintSegments keeps styles across soft wraps', () => {
+    const lines = wrapPaintSegments(
+      [
+        { text: 'hello ', bold: true },
+        { text: '世界world', color: 'cyan' }
+      ],
+      8
+    );
+    expect(lines.length).toBeGreaterThan(1);
+    const flat = lines.flat();
+    expect(flat.some((s) => s.bold && s.text.includes('hello'))).toBe(true);
+    expect(flat.some((s) => s.color === 'cyan')).toBe(true);
   });
 
   it('reuses paint cache for stable messages', () => {

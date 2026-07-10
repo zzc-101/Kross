@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 
 import {
   cachedParseMarkdown,
+  displayWidth,
   type MdLine,
   type MdSpan
 } from './markdownParse';
@@ -14,6 +15,7 @@ import { theme } from './theme';
  *
  * - 优先使用 `lines`（视口裁剪后的预渲染行，保留样式）
  * - 否则走模块级 cachedParseMarkdown，滚动 remount 不重 parse
+ * - 长行按列宽硬折，续行仍带 rail，避免 Ink 自动 wrap 错位
  */
 export function Markdown({
   source,
@@ -30,6 +32,10 @@ export function Markdown({
   streaming?: boolean;
   cursor?: string;
 }) {
+  const { stdout } = useStdout();
+  const columns = Math.max(20, (stdout?.columns ?? 80) - 4);
+  const bodyWidth = Math.max(1, columns - (rail ? 2 : 0));
+
   const lines = useMemo(() => {
     if (precomputed) {
       return precomputed;
@@ -37,10 +43,15 @@ export function Markdown({
     return cachedParseMarkdown(source ?? '');
   }, [precomputed, source]);
 
+  const displayLines = useMemo(
+    () => softWrapMdLines(lines, bodyWidth),
+    [lines, bodyWidth]
+  );
+
   return (
     <Box flexDirection="column">
-      {lines.map((line, index) => {
-        const isLast = index === lines.length - 1;
+      {displayLines.map((line, index) => {
+        const isLast = index === displayLines.length - 1;
         return (
           <Box key={`md-${index}`}>
             {rail ? (
@@ -73,7 +84,7 @@ export function MarkdownLineView({
   }
 
   return (
-    <Text>
+    <Text wrap="truncate">
       {line.spans.map((span, index) => (
         <Text key={index} {...spanToProps(span, line)}>
           {span.text}
@@ -82,6 +93,70 @@ export function MarkdownLineView({
       {trailing}
     </Text>
   );
+}
+
+/** Split MdLines so each fits bodyWidth (display columns). */
+function softWrapMdLines(lines: MdLine[], bodyWidth: number): MdLine[] {
+  const width = Math.max(1, bodyWidth);
+  const out: MdLine[] = [];
+  for (const line of lines) {
+    if (line.kind === 'blank') {
+      out.push(line);
+      continue;
+    }
+    const plain = line.spans.map((s) => s.text).join('');
+    if (displayWidth(plain) <= width) {
+      out.push(line);
+      continue;
+    }
+    // Re-chunk spans by display width
+    let used = 0;
+    let chunk: MdSpan[] = [];
+    const flush = () => {
+      out.push({
+        ...line,
+        spans: chunk.length > 0 ? chunk : [{ text: ' ' }]
+      });
+      chunk = [];
+      used = 0;
+    };
+    for (const span of line.spans) {
+      let rest = span.text;
+      while (rest.length > 0) {
+        const room = width - used;
+        if (room <= 0) {
+          flush();
+          continue;
+        }
+        let takeW = 0;
+        let end = 0;
+        for (const ch of rest) {
+          const w = displayWidth(ch);
+          if (takeW + w > room && end > 0) break;
+          if (takeW + w > room && end === 0) {
+            end = ch.length;
+            takeW = w;
+            break;
+          }
+          takeW += w;
+          end += ch.length;
+        }
+        if (end === 0) {
+          end = [...rest][0]?.length ?? 1;
+        }
+        chunk.push({ ...span, text: rest.slice(0, end) });
+        used += displayWidth(rest.slice(0, end));
+        rest = rest.slice(end);
+        if (rest.length > 0) {
+          flush();
+        }
+      }
+    }
+    if (chunk.length > 0) {
+      flush();
+    }
+  }
+  return out.length > 0 ? out : lines;
 }
 
 function spanToProps(

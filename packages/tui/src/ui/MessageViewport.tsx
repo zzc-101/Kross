@@ -199,8 +199,9 @@ function PaintItemView({
     // 流式消息最后一行：key 含 agent-{id}
     item.key.includes(`agent-${streamingMessageId}-`);
 
+  // 已在 paint 阶段按列宽硬折行；禁止 Ink 再 wrap，否则续行会丢 rail / 错位。
   return (
-    <Text>
+    <Text wrap="truncate">
       {item.segments.map((seg, i) => (
         <Text key={i} {...segmentProps(seg)}>
           {seg.text}

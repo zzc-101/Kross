@@ -1,8 +1,9 @@
-import React from 'react';
-import { Box, Text } from 'ink';
+import React, { useMemo } from 'react';
+import { Box, Text, useStdout } from 'ink';
 
 import { Markdown } from './Markdown';
 import type { MdLine } from './markdownParse';
+import { displayWidth } from './markdownParse';
 import {
   THINKING_COLLAPSE_CHAR_LIMIT,
   THINKING_COLLAPSE_LINE_LIMIT,
@@ -112,8 +113,8 @@ export function MessageLine({
 
   if (message.from === 'system') {
     return (
-      <Box marginBottom={1}>
-        <Text dimColor>
+      <Box marginBottom={1} flexDirection="column">
+        <Text dimColor wrap="wrap">
           {symbols.systemPrefix} {message.text}
         </Text>
         {time ? <Text dimColor>  {time}</Text> : null}
@@ -124,10 +125,14 @@ export function MessageLine({
   if (message.from === 'user') {
     const body = message.text.replace(/^\>\s*/, '');
     return (
-      <Box marginBottom={1}>
-        <Text dimColor>{symbols.userLabel}  </Text>
-        <Text color={theme.user}>{body}</Text>
-        {time ? <Text dimColor>  {time}</Text> : null}
+      <Box marginBottom={1} flexDirection="column">
+        <Box>
+          <Text dimColor>{symbols.userLabel}  </Text>
+          <Text color={theme.user} wrap="wrap">
+            {body}
+          </Text>
+          {time ? <Text dimColor>  {time}</Text> : null}
+        </Box>
       </Box>
     );
   }
@@ -164,9 +169,18 @@ function ThinkingBlock({
   time?: string;
 }) {
   const spinner = usePulse(symbols.busyFrames, 80, streaming && !expanded);
+  const { stdout } = useStdout();
+  const columns = Math.max(20, (stdout?.columns ?? 80) - 4);
+  const bodyWidth = Math.max(1, columns - 2);
   const { visibleLines, hiddenCount, totalLines } = collapseThinking(
     text,
     expanded || streaming
+  );
+  // 逻辑行再按列宽硬折，避免 Ink wrap 续行丢 rail
+  const displayLines = useMemo(
+    () =>
+      visibleLines.flatMap((line) => wrapPlainText(line, bodyWidth)),
+    [visibleLines, bodyWidth]
   );
 
   return (
@@ -181,10 +195,12 @@ function ThinkingBlock({
         ) : null}
         {time ? <Text dimColor>  {time}</Text> : null}
       </Box>
-      {visibleLines.map((line, index) => (
+      {displayLines.map((line, index) => (
         <Box key={`thinking-${index}`}>
           <Text dimColor>{symbols.messageRail} </Text>
-          <Text dimColor>{line}</Text>
+          <Text dimColor wrap="truncate">
+            {line}
+          </Text>
         </Box>
       ))}
       {!expanded && !streaming && hiddenCount > 0 ? (
@@ -206,6 +222,37 @@ function ThinkingBlock({
       ) : null}
     </Box>
   );
+}
+
+function wrapPlainText(text: string, maxWidth: number): string[] {
+  const width = Math.max(1, maxWidth);
+  if (text.length === 0) {
+    return [''];
+  }
+  const lines: string[] = [];
+  let rest = text;
+  while (rest.length > 0) {
+    let used = 0;
+    let end = 0;
+    for (const ch of rest) {
+      const w = displayWidth(ch);
+      if (used + w > width && end > 0) {
+        break;
+      }
+      if (used + w > width && end === 0) {
+        end = ch.length;
+        break;
+      }
+      used += w;
+      end += ch.length;
+    }
+    if (end === 0) {
+      end = [...rest][0]?.length ?? 1;
+    }
+    lines.push(rest.slice(0, end));
+    rest = rest.slice(end);
+  }
+  return lines.length > 0 ? lines : [''];
 }
 
 /** thinking 是否值得折叠（过短则始终展示）。 */

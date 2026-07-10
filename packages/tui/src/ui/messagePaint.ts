@@ -15,6 +15,7 @@ import {
   previewThinkingLines
 } from './messageLayout';
 import {
+  displayWidth,
   parseMarkdownStreaming,
   type MdLine,
   type MdSpan
@@ -288,14 +289,9 @@ function paintMessageUncached(
 
   if (message.from === 'system') {
     return [
-      lineItem(
+      ...softWrapLineItems(
         `sys-${message.id}`,
-        [
-          {
-            text: `${symbols.systemPrefix} ${message.text}`,
-            dim: true
-          }
-        ],
+        [{ text: `${symbols.systemPrefix} ${message.text}`, dim: true }],
         columns
       ),
       blankItem(`sys-gap-${message.id}`)
@@ -304,17 +300,28 @@ function paintMessageUncached(
 
   if (message.from === 'user') {
     const body = message.text.replace(/^\>\s*/, '');
-    return [
-      lineItem(
-        `user-${message.id}`,
-        [
-          { text: `${symbols.userLabel}  `, dim: true },
-          { text: body, color: theme.user }
-        ],
-        columns
-      ),
-      blankItem(`user-gap-${message.id}`)
-    ];
+    const prefix = `${symbols.userLabel}  `;
+    const prefixWidth = displayWidth(prefix);
+    const bodyWidth = Math.max(1, columns - prefixWidth);
+    const wrappedBody = wrapPaintSegments(
+      [{ text: body, color: theme.user }],
+      bodyWidth
+    );
+    const items: PaintItem[] = [];
+    for (let i = 0; i < wrappedBody.length; i++) {
+      const line = wrappedBody[i] ?? [];
+      items.push({
+        kind: 'line',
+        key: `user-${message.id}-W${i}`,
+        segments:
+          i === 0
+            ? [{ text: prefix, dim: true }, ...line]
+            : [{ text: ' '.repeat(prefixWidth), dim: true }, ...line],
+        height: 1
+      });
+    }
+    items.push(blankItem(`user-gap-${message.id}`));
+    return items;
   }
 
   if (message.from === 'thinking') {
@@ -348,18 +355,27 @@ function paintAgent(
         streaming
       );
 
+  // 先按 body 宽度硬折行，再每行前缀 rail，避免 Ink 自动 wrap 时续行丢 │、错位。
   const bodyWidth = Math.max(1, columns - 2);
+  const rail: PaintSegment = {
+    text: `${symbols.messageRail} `,
+    color: theme.brandMuted,
+    dim: true
+  };
   for (let i = 0; i < mdLines.length; i++) {
     const md = mdLines[i];
     if (!md) continue;
-    const segs = mdLineToSegments(md, true);
-    const isLast = i === mdLines.length - 1;
-    if (streaming && isLast) {
-      // 光标由 Viewport 的 pulse 追加；这里留空占位逻辑在组件层
+    const bodySegs = mdLineToSegments(md, false);
+    const wrapped = wrapPaintSegments(bodySegs, bodyWidth);
+    for (let w = 0; w < wrapped.length; w++) {
+      const lineSegs = wrapped[w] ?? [{ text: ' ' }];
+      items.push({
+        kind: 'line',
+        key: `agent-${message.id}-L${i}-W${w}`,
+        segments: [rail, ...lineSegs],
+        height: 1
+      });
     }
-    items.push(
-      lineItem(`agent-${message.id}-L${i}`, segs, bodyWidth + 2, bodyWidth)
-    );
   }
 
   items.push(blankItem(`agent-gap-${message.id}`));
@@ -388,18 +404,24 @@ function paintThinking(
     expanded
   );
   const bodyWidth = Math.max(1, columns - 2);
+  const rail: PaintSegment = {
+    text: `${symbols.messageRail} `,
+    dim: true,
+    color: theme.brandMuted
+  };
   for (let i = 0; i < visibleLines.length; i++) {
-    items.push(
-      lineItem(
-        `th-${message.id}-L${i}`,
-        [
-          { text: `${symbols.messageRail} `, dim: true, color: theme.brandMuted },
-          { text: visibleLines[i] ?? '', dim: true }
-        ],
-        columns,
-        bodyWidth + 2
-      )
+    const wrapped = wrapPaintSegments(
+      [{ text: visibleLines[i] ?? '', dim: true }],
+      bodyWidth
     );
+    for (let w = 0; w < wrapped.length; w++) {
+      items.push({
+        kind: 'line',
+        key: `th-${message.id}-L${i}-W${w}`,
+        segments: [rail, ...(wrapped[w] ?? [{ text: ' ' }])],
+        height: 1
+      });
+    }
   }
 
   if (!expanded && !streaming && hiddenCount > 0) {
@@ -500,6 +522,111 @@ function lineItem(
   const plain = segments.map((s) => s.text).join('');
   const height = countWrappedRows(plain, wrapColumns ?? columns);
   return { kind: 'line', key, segments, height };
+}
+
+/** Soft-wrap segments into height-1 lines (prefer this over Ink auto-wrap). */
+function softWrapLineItems(
+  keyPrefix: string,
+  segments: PaintSegment[],
+  columns: number
+): PaintItem[] {
+  const wrapped = wrapPaintSegments(segments, Math.max(1, columns));
+  return wrapped.map((line, index) => ({
+    kind: 'line' as const,
+    key: `${keyPrefix}-W${index}`,
+    segments: line.length > 0 ? line : [{ text: ' ' }],
+    height: 1
+  }));
+}
+
+/**
+ * Wrap styled segments to `maxWidth` display columns without breaking styles.
+ * Each output line is meant to render as a single terminal row (height=1).
+ */
+export function wrapPaintSegments(
+  segments: PaintSegment[],
+  maxWidth: number
+): PaintSegment[][] {
+  const width = Math.max(1, maxWidth);
+  const lines: PaintSegment[][] = [];
+  let current: PaintSegment[] = [];
+  let used = 0;
+
+  const flush = () => {
+    lines.push(current.length > 0 ? current : [{ text: ' ' }]);
+    current = [];
+    used = 0;
+  };
+
+  for (const seg of segments) {
+    let rest = seg.text;
+    if (rest.length === 0) {
+      continue;
+    }
+    while (rest.length > 0) {
+      const room = width - used;
+      if (room <= 0) {
+        flush();
+        continue;
+      }
+      const { taken, remaining } = takeByDisplayWidth(rest, room);
+      if (taken.length === 0) {
+        // No room for next full-width char: new line (unless empty line → force 1 cell)
+        if (used === 0) {
+          const forced = takeFirstCodePoint(rest);
+          current.push({ ...seg, text: forced.taken });
+          used += displayWidth(forced.taken);
+          rest = forced.remaining;
+          flush();
+        } else {
+          flush();
+        }
+        continue;
+      }
+      current.push({ ...seg, text: taken });
+      used += displayWidth(taken);
+      rest = remaining;
+      if (rest.length > 0) {
+        flush();
+      }
+    }
+  }
+
+  if (current.length > 0 || lines.length === 0) {
+    flush();
+  }
+  return lines;
+}
+
+function takeByDisplayWidth(
+  text: string,
+  maxWidth: number
+): { taken: string; remaining: string } {
+  if (maxWidth <= 0 || text.length === 0) {
+    return { taken: '', remaining: text };
+  }
+  let width = 0;
+  let end = 0;
+  for (const ch of text) {
+    const w = displayWidth(ch);
+    if (width + w > maxWidth) {
+      break;
+    }
+    width += w;
+    end += ch.length;
+  }
+  return {
+    taken: text.slice(0, end),
+    remaining: text.slice(end)
+  };
+}
+
+function takeFirstCodePoint(text: string): { taken: string; remaining: string } {
+  if (text.length === 0) {
+    return { taken: '', remaining: '' };
+  }
+  const first = [...text][0] ?? '';
+  return { taken: first, remaining: text.slice(first.length) };
 }
 
 function blankItem(key: string): PaintItem {
