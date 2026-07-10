@@ -9,7 +9,9 @@ import {
   createLlmClientFromKrossConfig,
   discoverExternalAgentConfigs,
   loadKrossConfig,
-  saveImportedAgentConfig
+  mergeLlmConfigPatch,
+  saveImportedAgentConfig,
+  updateKrossLlmConfig
 } from './configImport';
 
 describe('config import', () => {
@@ -312,6 +314,83 @@ describe('config import', () => {
       expect(
         createConfigImportController({ homeDir, env: {}, pathEnv: '' }).getPrompt()
       ).toBeUndefined();
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('mergeLlmConfigPatch keeps secrets on same-provider model switch', () => {
+    const merged = mergeLlmConfigPatch(
+      {
+        provider: 'openai',
+        apiKey: 'saved-key',
+        baseUrl: 'https://saved.example/v1',
+        model: 'gpt-old'
+      },
+      {
+        provider: 'openai',
+        model: 'gpt-new'
+        // no apiKey in patch (env-derived field missing)
+      }
+    );
+
+    expect(merged).toEqual({
+      provider: 'openai',
+      model: 'gpt-new',
+      apiKey: 'saved-key',
+      baseUrl: 'https://saved.example/v1'
+    });
+  });
+
+  it('mergeLlmConfigPatch does not reuse foreign provider credentials', () => {
+    const merged = mergeLlmConfigPatch(
+      {
+        provider: 'openai',
+        apiKey: 'openai-key',
+        model: 'gpt-old'
+      },
+      {
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        apiKey: 'ds-key'
+      }
+    );
+
+    expect(merged).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      apiKey: 'ds-key'
+    });
+  });
+
+  it('updateKrossLlmConfig preserves apiKey when only model changes', () => {
+    const homeDir = createTempHome();
+    try {
+      mkdirSync(join(homeDir, '.kross'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.kross/config.json'),
+        JSON.stringify({
+          llm: {
+            provider: 'openai',
+            apiKey: 'keep-me',
+            model: 'gpt-a',
+            baseUrl: 'https://example/v1'
+          }
+        })
+      );
+
+      const result = updateKrossLlmConfig(
+        { provider: 'openai', model: 'gpt-b' },
+        { homeDir }
+      );
+
+      expect(result.config.llm).toEqual({
+        provider: 'openai',
+        model: 'gpt-b',
+        apiKey: 'keep-me',
+        baseUrl: 'https://example/v1'
+      });
+      expect(loadKrossConfig({ homeDir })?.llm?.apiKey).toBe('keep-me');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }

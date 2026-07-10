@@ -213,23 +213,87 @@ export function createLlmClientFromKrossConfig(
   });
 }
 
-/** Persist active provider/model (and optional credentials) into ~/.kross/config.json. */
+/**
+ * Persist active provider/model into ~/.kross/config.json.
+ *
+ * Credential fields (`apiKey` / `authToken` / `baseUrl` / …) only overwrite when
+ * the patch provides a non-empty value. Same-provider updates keep existing
+ * secrets when env-derived fields are absent — avoids wiping import-saved keys
+ * on `/model <id>` switches.
+ */
 export function updateKrossLlmConfig(
   patch: Partial<ImportedLlmConfig> &
     Pick<ImportedLlmConfig, 'provider' | 'model'>,
   options: ConfigPersistenceOptions = {}
 ): { configPath: string; config: KrossConfig } {
   const configPath = resolveKrossConfigPath(options);
-  const existing = loadKrossConfig(options);
+  const existingFile = loadKrossConfig(options);
+  const existing = existingFile?.llm;
   const config: KrossConfig = {
-    ...existing,
-    llm: {
-      ...existing?.llm,
-      ...patch
-    }
+    ...existingFile,
+    llm: mergeLlmConfigPatch(existing, patch)
   };
   writeKrossConfig(configPath, config);
   return { configPath, config };
+}
+
+export function mergeLlmConfigPatch(
+  existing: ImportedLlmConfig | undefined,
+  patch: Partial<ImportedLlmConfig> &
+    Pick<ImportedLlmConfig, 'provider' | 'model'>
+): ImportedLlmConfig {
+  const sameProvider = existing?.provider === patch.provider;
+  const llm: ImportedLlmConfig = {
+    provider: patch.provider,
+    model: patch.model
+  };
+
+  const apiKey = firstNonEmpty(
+    patch.apiKey,
+    sameProvider ? existing?.apiKey : undefined
+  );
+  if (apiKey !== undefined) {
+    llm.apiKey = apiKey;
+  }
+
+  const baseUrl = firstNonEmpty(
+    patch.baseUrl,
+    sameProvider ? existing?.baseUrl : undefined
+  );
+  if (baseUrl !== undefined) {
+    llm.baseUrl = baseUrl;
+  }
+
+  if (patch.provider === 'anthropic') {
+    const authToken = firstNonEmpty(
+      patch.authToken,
+      sameProvider ? existing?.authToken : undefined
+    );
+    if (authToken !== undefined) {
+      llm.authToken = authToken;
+    }
+    const anthropicVersion = firstNonEmpty(
+      patch.anthropicVersion,
+      sameProvider ? existing?.anthropicVersion : undefined
+    );
+    if (anthropicVersion !== undefined) {
+      llm.anthropicVersion = anthropicVersion;
+    }
+  }
+
+  return llm;
+}
+
+function firstNonEmpty(
+  ...values: Array<string | undefined>
+): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return undefined;
 }
 
 export function resolveKrossConfigPath(

@@ -123,10 +123,9 @@ export function App({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() =>
     agentRuntime.getPermissionMode()
   );
-  const modelLabel = useMemo(
-    () => agentRuntime.getModelLabel(),
-    [agentRuntime, runtimeGeneration]
-  );
+  // 不 memo：/model 会就地 setModel/setLlmClient，依赖 agentRuntime 引用不变，
+  // 需在 append 触发的重渲染中重新读取，否则底栏一直显示旧模型。
+  const modelLabel = agentRuntime.getModelLabel();
   const [input, setInput] = useState('');
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);

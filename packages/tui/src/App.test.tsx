@@ -93,6 +93,27 @@ describe('App', () => {
     expect(lastFrame()).toContain('fake-model · always-approve');
   });
 
+  it('refreshes composer model label after /model switch', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('ok')
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    expect(lastFrame()).toContain('openai/fake-model');
+
+    await submit?.('/model gpt-switched');
+    await waitUntil(
+      () => lastFrame()?.includes('openai/gpt-switched') === true
+    );
+    expect(lastFrame()).toContain('openai/gpt-switched');
+    expect(runtime.getModelLabel()).toBe('openai/gpt-switched');
+  });
+
   it('shows a submitted message in conversation history', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);
@@ -850,9 +871,13 @@ class InMemoryTraceStore implements TraceStore {
 
 class FakeLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
-  readonly model = 'fake-model';
+  model = 'fake-model';
 
   constructor(private readonly text: string) {}
+
+  setModel(model: string): void {
+    this.model = model.trim();
+  }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     return {
