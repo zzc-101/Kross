@@ -35,8 +35,6 @@ export const symbols = {
   userPrefix: '>',
   /** Claude Code 风格：助手回复小圆点 */
   agentBullet: '●',
-  agentLabel: 'kross',
-  userLabel: 'you',
   systemPrefix: '·',
   prompt: '❯',
   readyDot: '●',
@@ -60,21 +58,6 @@ export const symbols = {
   toolWait: '…',
   collapseMark: '…'
 } as const;
-
-/**
- * thinking 始终默认折叠（Claude Code：Thought for Ns）。
- * 仅 expanded 时展示正文；过短也会折叠成一行摘要。
- */
-export const THINKING_COLLAPSE_LINE_LIMIT = 0;
-
-/** thinking 超过该字符数时折叠提示更明确（始终折叠时作辅助）。 */
-export const THINKING_COLLAPSE_CHAR_LIMIT = 0;
-
-/** @deprecated 使用 THINKING_COLLAPSE_LINE_LIMIT */
-export const COLLAPSED_LINE_LIMIT = THINKING_COLLAPSE_LINE_LIMIT;
-
-/** @deprecated 使用 THINKING_COLLAPSE_CHAR_LIMIT */
-export const COLLAPSED_CHAR_LIMIT = THINKING_COLLAPSE_CHAR_LIMIT;
 
 export type UiStatus =
   | 'ready'

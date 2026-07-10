@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import { Box, Text, useStdout } from 'ink';
 
 import { Markdown } from './Markdown';
-import type { MdLine } from './markdownParse';
 import { displayWidth } from './markdownParse';
 import { symbols, theme } from './theme';
 import { usePulse } from './usePulse';
@@ -50,30 +49,6 @@ export interface ChatMessage {
    * thinking / tool 组默认折叠；true 时展开明细。
    */
   expanded?: boolean;
-  /**
-   * 视口裁剪后的预渲染 MD 行（表格已展开为 box，span 样式保留）。
-   */
-  viewportLines?: MdLine[];
-}
-
-export function MessageList({
-  messages,
-  streamingMessageId
-}: {
-  messages: ChatMessage[];
-  streamingMessageId?: number;
-}) {
-  return (
-    <Box flexDirection="column">
-      {messages.map((message) => (
-        <MessageLine
-          key={message.id}
-          message={message}
-          streaming={streamingMessageId === message.id}
-        />
-      ))}
-    </Box>
-  );
 }
 
 export function MessageLine({
@@ -130,13 +105,11 @@ export function MessageLine({
     );
   }
 
-  // agent：● 与正文同一视觉流，无 "kross" 标题行、无 │ rail
+  // agent：● 与正文同一视觉流
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Markdown
-        source={message.viewportLines ? undefined : message.text}
-        lines={message.viewportLines}
-        rail={false}
+        source={message.text}
         bullet={symbols.agentBullet}
         bulletColor={theme.agent}
         streaming={streaming}
@@ -263,38 +236,3 @@ function wrapPlainText(text: string, maxWidth: number): string[] {
   return lines.length > 0 ? lines : [''];
 }
 
-/** thinking 默认始终可折叠（收拢为 Thought 一行）。 */
-export function isThinkingCollapsible(_text: string): boolean {
-  return true;
-}
-
-/**
- * 兼容旧测试：expanded=false 时不展示正文行。
- */
-export function collapseThinking(
-  text: string,
-  expanded: boolean
-): { visibleLines: string[]; hiddenCount: number; totalLines: number } {
-  const lines = text.length === 0 ? [''] : text.split('\n');
-  const totalLines = lines.length;
-  if (expanded) {
-    return { visibleLines: lines, hiddenCount: 0, totalLines };
-  }
-  return {
-    visibleLines: [],
-    hiddenCount: Math.max(1, totalLines),
-    totalLines
-  };
-}
-
-/** @deprecated */
-export function collapseLines(
-  text: string,
-  expanded: boolean
-): { visibleLines: string[]; hiddenCount: number } {
-  const result = collapseThinking(text, expanded);
-  return {
-    visibleLines: result.visibleLines,
-    hiddenCount: result.hiddenCount
-  };
-}

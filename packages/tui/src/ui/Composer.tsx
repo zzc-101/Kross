@@ -67,15 +67,3 @@ export function HelpHint() {
     </Box>
   );
 }
-
-export function SessionTip({ visible = true }: { visible?: boolean }) {
-  if (!visible) {
-    return null;
-  }
-
-  return (
-    <Box marginBottom={1}>
-      <Text dimColor>tip · 自然语言描述任务；输入 /help 查看命令。</Text>
-    </Box>
-  );
-}

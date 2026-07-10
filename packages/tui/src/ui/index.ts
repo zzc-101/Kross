@@ -1,10 +1,7 @@
 export { HeaderBar, formatLocationLabel } from './HeaderBar';
 export {
-  MessageList,
   MessageLine,
-  collapseLines,
-  collapseThinking,
-  isThinkingCollapsible,
+  formatThinkingLabel,
   type ChatMessage,
   type ToolCallItem,
   type ToolCallState,
@@ -14,13 +11,13 @@ export { MessageViewport } from './MessageViewport';
 export {
   estimateMessageRows,
   layoutFingerprint,
-  MessageRowHeightCache,
-  windowMessages,
-  type ViewportWindow
+  countWrappedRows,
+  markdownToVisualLines
 } from './messageLayout';
 export {
   MessagePaintCache,
   windowPaintRows,
+  wrapPaintSegments,
   type PaintItem,
   type PaintSegment,
   type PaintWindow
@@ -41,7 +38,6 @@ export {
   parseMarkdownStreaming,
   clearMarkdownParseCache,
   parseInline,
-  estimateMarkdownRows,
   formatMarkdownTable,
   isTableRowLine,
   isTableSeparatorLine,
@@ -52,7 +48,7 @@ export {
 } from './markdownParse';
 export { ThinkingIndicator } from './ThinkingIndicator';
 export { ApprovalPanel } from './ApprovalPanel';
-export { Composer, HelpHint, SessionTip } from './Composer';
+export { Composer, HelpHint } from './Composer';
 export { ModelSettingsPanel } from './ModelSettingsPanel';
 export {
   applyModelSettings,
@@ -84,10 +80,6 @@ export {
   statusTone,
   riskTone,
   makeDivider,
-  THINKING_COLLAPSE_LINE_LIMIT,
-  THINKING_COLLAPSE_CHAR_LIMIT,
-  COLLAPSED_LINE_LIMIT,
-  COLLAPSED_CHAR_LIMIT,
   type UiStatus
 } from './theme';
 export { usePulse } from './usePulse';

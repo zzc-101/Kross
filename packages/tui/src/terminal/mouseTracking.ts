@@ -220,18 +220,6 @@ export function filterMouseSequences(chunk: string): {
 }
 
 /**
- * 兼容旧 API：只关心 events 与 rest（无 carry，假定 chunk 自包含）。
- */
-export function parseMouseWheelChunk(chunk: string): {
-  events: WheelEvent[];
-  rest: string;
-} {
-  const { events, rest, carry } = filterMouseSequences(chunk);
-  // 不完整前缀退回 rest，避免旧调用方丢数据
-  return { events, rest: rest + carry };
-}
-
-/**
  * 输入框兜底：清掉已泄漏的鼠标残片（ESC 被吃掉后的 `[98;60;21M` 等）。
  * 仅匹配高置信度模式，避免误伤正常输入。
  */

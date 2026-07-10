@@ -115,9 +115,6 @@ export interface OpenAiFamilyClientConfig extends BaseLlmClientConfig {
   apiKey: string;
 }
 
-/** @deprecated Use OpenAiFamilyClientConfig */
-export type OpenAiProtocolClientConfig = OpenAiFamilyClientConfig;
-
 export interface AnthropicProtocolClientConfig extends BaseLlmClientConfig {
   provider?: 'anthropic';
   anthropicVersion?: string;

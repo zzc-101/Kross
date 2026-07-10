@@ -1,57 +1,18 @@
 import {
   cachedParseMarkdown,
   displayWidth,
-  mdLineText,
-  type MdLine
+  mdLineText
 } from './markdownParse';
 import type { ChatMessage } from './MessageLine';
 
 /**
- * 消息行高缓存：scroll 时 messages/columns 大多不变，避免反复 parseMarkdown。
- * fingerprint 变化（流式追加、展开折叠）会自动失效单条缓存。
+ * 消息行高估算（tool 卡片等仍用；全屏主路径以 MessagePaintCache 为准）。
  */
-export class MessageRowHeightCache {
-  private columns = 0;
-  private readonly entries = new Map<
-    number,
-    { fingerprint: string; rows: number }
-  >();
-
-  clear(): void {
-    this.entries.clear();
-    this.columns = 0;
-  }
-
-  estimate(message: ChatMessage, columns: number): number {
-    const width = Math.max(20, columns);
-    if (width !== this.columns) {
-      this.entries.clear();
-      this.columns = width;
-    }
-
-    const fingerprint = layoutFingerprint(message);
-    const hit = this.entries.get(message.id);
-    if (hit && hit.fingerprint === fingerprint) {
-      return hit.rows;
-    }
-
-    const rows = estimateMessageRows(message, width);
-    this.entries.set(message.id, { fingerprint, rows });
-    return rows;
-  }
-}
-
-/** 仅包含影响行高的字段，避免滚动时无意义重算。 */
 export function layoutFingerprint(message: ChatMessage): string {
   const toolItems = message.tool?.items;
   const toolSig = toolItems
     ? `${toolItems.length}:${toolItems.map((item) => item.status).join(',')}`
     : '';
-  const clipped =
-    message.viewportLines !== undefined
-      ? `L${message.viewportLines.length}`
-      : '-';
-  // 流式内容：长度 + 头尾片段足以区分追加
   const text = message.text;
   const head = text.slice(0, 24);
   const tail = text.length > 24 ? text.slice(-24) : '';
@@ -61,29 +22,19 @@ export function layoutFingerprint(message: ChatMessage): string {
     String(text.length),
     head,
     tail,
-    clipped,
-    toolSig
+    toolSig,
+    message.durationMs !== undefined ? String(message.durationMs) : '-'
   ].join('\u0001');
 }
 
 /**
- * 估算消息在终端中占用的行数（用于视口窗口化，避免全量布局卡死）。
+ * 估算消息在终端中占用的行数。
  */
 export function estimateMessageRows(
   message: ChatMessage,
   columns: number
 ): number {
   const width = Math.max(20, columns);
-
-  // 视口已预裁剪（保留 MD 样式行）时，按裁剪后的行计
-  if (message.viewportLines !== undefined) {
-    let rows = message.from === 'agent' || message.from === 'thinking' ? 1 : 0;
-    const bodyWidth = width - 2;
-    for (const line of message.viewportLines) {
-      rows += countWrappedRows(mdLineText(line), bodyWidth);
-    }
-    return rows + 1;
-  }
 
   if (message.from === 'tool') {
     const items = message.tool?.items?.length ?? 1;
@@ -95,35 +46,28 @@ export function estimateMessageRows(
   }
 
   if (message.from === 'user') {
-    // "> " prefix
     return countWrappedRows(message.text.replace(/^\>\s*/, ''), width - 2) + 1;
   }
 
   if (message.from === 'thinking') {
-    // 默认一行 Thought 摘要；展开后才有正文
     if (message.expanded !== true) {
-      return 2; // label + gap
+      return 2; // Thought 摘要 + gap
     }
-    const { visibleLines } = previewThinkingLines(message.text, true);
-    let rows = 1; // label
-    for (const line of visibleLines) {
+    const lines = message.text.length === 0 ? [''] : message.text.split('\n');
+    let rows = 1;
+    for (const line of lines) {
       rows += countWrappedRows(line, width - 2);
     }
     return rows + 1;
   }
 
-  // agent：● 前缀，无标题行
+  // agent：● 前缀
   return countVisualRows(message.text, width - 2) + 1;
 }
 
 /** 把 MD 渲染成终端可见的纯文本行（表格已展开为 box 字符） */
 export function markdownToVisualLines(source: string): string[] {
   return cachedParseMarkdown(source).map((line) => mdLineText(line));
-}
-
-/** 带样式的 MD 行（与展示层共用同一缓存解析结果） */
-export function markdownToMdLines(source: string): MdLine[] {
-  return cachedParseMarkdown(source);
 }
 
 function countVisualRows(source: string, columns: number): number {
@@ -140,255 +84,6 @@ export function countWrappedRows(text: string, columns: number): number {
     return 1;
   }
   const width = Math.max(1, columns);
-  // 使用 displayWidth 计算 CJK 双宽字符的占位
   const visualWidth = displayWidth(text);
   return Math.max(1, Math.ceil(visualWidth / width));
-}
-
-/** expanded=false 时不展示正文（Thought 一行摘要由 paint 层负责）。 */
-export function previewThinkingLines(
-  text: string,
-  expanded: boolean
-): { visibleLines: string[]; hiddenCount: number } {
-  const lines = text.length === 0 ? [''] : text.split('\n');
-  if (expanded) {
-    return { visibleLines: lines, hiddenCount: 0 };
-  }
-  return {
-    visibleLines: [],
-    hiddenCount: Math.max(1, lines.length)
-  };
-}
-
-export interface ViewportWindow {
-  messages: ChatMessage[];
-  maxScrollOffset: number;
-  totalRows: number;
-  hasMoreAbove: boolean;
-  hasMoreBelow: boolean;
-}
-
-/**
- * 从消息列表中选出落在视口内的子集。
- * scrollOffset=0 贴底；增大则向上翻历史。
- *
- * 关键：对超长 agent 消息按「渲染后视觉行」裁剪，并保留 MdLine 样式
- * （bold/code/table box），避免滚动时 MD 格式丢失。
- */
-export function windowMessages(input: {
-  messages: ChatMessage[];
-  columns: number;
-  viewportRows: number;
-  scrollOffset: number;
-  /** 可选行高缓存；滚动帧之间复用，显著降低 MD 解析次数 */
-  heightCache?: MessageRowHeightCache;
-}): ViewportWindow {
-  const { messages, columns, heightCache } = input;
-  const viewportRows = Math.max(1, input.viewportRows);
-  const heights = messages.map((message) =>
-    heightCache
-      ? heightCache.estimate(message, columns)
-      : estimateMessageRows(message, columns)
-  );
-  const totalRows = heights.reduce((sum, h) => sum + h, 0);
-  const maxScrollOffset = Math.max(0, totalRows - viewportRows);
-  const scrollOffset = Math.min(Math.max(0, input.scrollOffset), maxScrollOffset);
-
-  if (messages.length === 0) {
-    return {
-      messages: [],
-      maxScrollOffset: 0,
-      totalRows: 0,
-      hasMoreAbove: false,
-      hasMoreBelow: false
-    };
-  }
-
-  const endLine = totalRows - scrollOffset;
-  const startLine = Math.max(0, endLine - viewportRows);
-
-  const visible: ChatMessage[] = [];
-  let cursor = 0;
-
-  for (let i = 0; i < messages.length; i++) {
-    const h = heights[i] ?? 1;
-    const msgStart = cursor;
-    const msgEnd = cursor + h;
-    cursor = msgEnd;
-
-    if (msgEnd <= startLine || msgStart >= endLine) {
-      continue;
-    }
-
-    const message = messages[i];
-    if (!message) {
-      continue;
-    }
-
-    const fullyVisible = msgStart >= startLine && msgEnd <= endLine;
-    if (fullyVisible) {
-      // 清除可能残留的裁剪标记
-      if (message.viewportLines !== undefined) {
-        const { viewportLines: _drop, ...rest } = message;
-        visible.push(rest as ChatMessage);
-      } else {
-        visible.push(message);
-      }
-      continue;
-    }
-
-    // 部分可见：仅对 agent 做视觉行裁剪（保留样式）
-    if (message.from === 'agent') {
-      const clipped = clipAgentByVisualRows(message, {
-        msgStart,
-        msgEnd,
-        startLine,
-        endLine,
-        columns
-      });
-      if (clipped) {
-        visible.push(clipped);
-      }
-    } else {
-      // thinking / 短消息：整条带上（避免丢样式；高度略超视口可接受）
-      visible.push(message);
-    }
-  }
-
-  return {
-    messages: visible,
-    maxScrollOffset,
-    totalRows,
-    hasMoreAbove: startLine > 0,
-    hasMoreBelow: scrollOffset > 0
-  };
-}
-
-const ELLIPSIS_LINE: MdLine = {
-  kind: 'paragraph',
-  spans: [{ text: '…', dim: true }]
-};
-
-/**
- * 按渲染后的视觉行裁剪 agent 消息。
- * 裁剪结果写入 viewportLines（MdLine[]），展示层直接渲染，保留 bold/code/table。
- */
-function clipAgentByVisualRows(
-  message: ChatMessage,
-  range: {
-    msgStart: number;
-    msgEnd: number;
-    startLine: number;
-    endLine: number;
-    columns: number;
-  }
-): ChatMessage | undefined {
-  const labelRows = 1;
-  const bodyStart = range.msgStart + labelRows;
-
-  // 与展示层共用缓存解析；折行整行保留，避免切断表格/样式行
-  const expanded = markdownToMdLines(message.text);
-
-  if (expanded.length === 0) {
-    return {
-      ...message,
-      viewportLines: [ELLIPSIS_LINE]
-    };
-  }
-
-  // 可见区间映射到 body 视觉行下标
-  const visibleBodyStart = Math.max(range.startLine, bodyStart);
-  const visibleBodyEnd = Math.min(range.endLine, range.msgEnd);
-  const bodyOffset = Math.max(0, visibleBodyStart - bodyStart);
-  const bodyLen = Math.max(0, visibleBodyEnd - visibleBodyStart);
-
-  if (bodyLen <= 0) {
-    return {
-      ...message,
-      viewportLines: [ELLIPSIS_LINE]
-    };
-  }
-
-  let sliceStart = Math.min(bodyOffset, expanded.length);
-  let sliceEnd = Math.min(expanded.length, bodyOffset + bodyLen);
-
-  // 贴底时：优先保留消息末尾
-  if (range.endLine >= range.msgEnd - 1) {
-    const keep = Math.max(1, Math.min(expanded.length, bodyLen));
-    sliceStart = Math.max(0, expanded.length - keep);
-    sliceEnd = expanded.length;
-  }
-
-  // 若裁剪起点落在表格 box 中间，回退到最近的表格顶/底边界
-  sliceStart = snapSliceToTableBoundary(expanded, sliceStart, 'start');
-  sliceEnd = snapSliceToTableBoundary(expanded, sliceEnd, 'end');
-
-  if (sliceEnd <= sliceStart) {
-    sliceStart = Math.max(0, expanded.length - 1);
-    sliceEnd = expanded.length;
-  }
-
-  const sliced: MdLine[] = expanded.slice(sliceStart, sliceEnd);
-  if (sliceStart > 0) {
-    sliced.unshift(ELLIPSIS_LINE);
-  }
-  if (sliceEnd < expanded.length) {
-    sliced.push(ELLIPSIS_LINE);
-  }
-
-  return {
-    ...message,
-    viewportLines: sliced
-  };
-}
-
-/**
- * 避免从表格 box 中间切开：
- * - start：若当前行是表格中部，向上找到 ┌ 或退出表格
- * - end：若当前行是表格中部，向下找到 └ 或退出表格
- */
-function snapSliceToTableBoundary(
-  lines: MdLine[],
-  index: number,
-  edge: 'start' | 'end'
-): number {
-  if (index <= 0 || index >= lines.length) {
-    return index;
-  }
-  const line = mdLineText(lines[index] ?? { kind: 'blank', spans: [] });
-  if (!isTableBoxLine(line)) {
-    return index;
-  }
-  // 已在顶/底边
-  if (line.includes('┌') || line.includes('└')) {
-    return index;
-  }
-
-  if (edge === 'start') {
-    for (let i = index; i >= 0; i--) {
-      const l = mdLineText(lines[i] ?? { kind: 'blank', spans: [] });
-      if (l.includes('┌')) {
-        return i;
-      }
-      if (!isTableBoxLine(l)) {
-        return i + 1;
-      }
-    }
-    return 0;
-  }
-
-  for (let i = index; i < lines.length; i++) {
-    const l = mdLineText(lines[i] ?? { kind: 'blank', spans: [] });
-    if (l.includes('└')) {
-      return i + 1;
-    }
-    if (!isTableBoxLine(l)) {
-      return i;
-    }
-  }
-  return lines.length;
-}
-
-function isTableBoxLine(line: string): boolean {
-  return /[┌┬┐├┼┤└┴┘│─]/.test(line);
 }

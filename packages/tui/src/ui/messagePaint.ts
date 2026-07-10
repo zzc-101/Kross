@@ -336,13 +336,11 @@ function paintAgent(
 ): PaintItem[] {
   const items: PaintItem[] = [];
   // Claude Code: ● 与正文同一流，无标题行
-  const mdLines = message.viewportLines
-    ? message.viewportLines
-    : parseMarkdownStreaming(
-        message.text,
-        `msg-${message.id}`,
-        streaming
-      );
+  const mdLines = parseMarkdownStreaming(
+    message.text,
+    `msg-${message.id}`,
+    streaming
+  );
 
   const bullet = `${symbols.agentBullet} `;
   const bulletWidth = displayWidth(bullet);
@@ -361,7 +359,7 @@ function paintAgent(
       });
       continue;
     }
-    const bodySegs = mdLineToSegments(md, false);
+    const bodySegs = mdLineToSegments(md);
     const wrapped = wrapPaintSegments(bodySegs, bodyWidth);
     for (let w = 0; w < wrapped.length; w++) {
       const lineSegs = wrapped[w] ?? [{ text: ' ' }];
@@ -458,15 +456,8 @@ function formatThinkingSummary(
   return 'Thought';
 }
 
-function mdLineToSegments(line: MdLine, rail: boolean): PaintSegment[] {
+function mdLineToSegments(line: MdLine): PaintSegment[] {
   const segs: PaintSegment[] = [];
-  if (rail) {
-    segs.push({
-      text: `${symbols.messageRail} `,
-      color: theme.brandMuted,
-      dim: true
-    });
-  }
   if (line.kind === 'blank') {
     segs.push({ text: ' ' });
     return segs;
@@ -484,7 +475,7 @@ function mdLineToSegments(line: MdLine, rail: boolean): PaintSegment[] {
   for (const span of line.spans) {
     segs.push(spanToSegment(span, line, headingColor));
   }
-  if (segs.length === (rail ? 1 : 0)) {
+  if (segs.length === 0) {
     segs.push({ text: ' ' });
   }
   return segs;

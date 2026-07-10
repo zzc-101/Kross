@@ -638,11 +638,6 @@ function padCell(text: string, width: number, align: Align): string {
   return result;
 }
 
-/** 供视口行高估算：MD 渲染后的大致行数 */
-export function estimateMarkdownRows(source: string): number {
-  return Math.max(1, cachedParseMarkdown(source).length);
-}
-
 /**
  * 模块级 MD 解析缓存：virtual scroll / 行高估算 / 展示层共用。
  */

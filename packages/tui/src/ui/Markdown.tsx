@@ -11,26 +11,17 @@ import { theme } from './theme';
 
 /**
  * 将 Markdown 渲染为 Ink 终端片段。
- * agent 回复使用；streaming 时在最后一行追加光标。
- *
- * - 优先使用 `lines`（视口裁剪后的预渲染行，保留样式）
- * - 否则走模块级 cachedParseMarkdown，滚动 remount 不重 parse
- * - 长行按列宽硬折，续行仍带 rail，避免 Ink 自动 wrap 错位
+ * - 模块级 cachedParseMarkdown，滚动 remount 不重 parse
+ * - 长行按列宽硬折；可选 bullet 前缀（Claude Code ●）
  */
 export function Markdown({
   source,
-  lines: precomputed,
-  rail = false,
   bullet,
   bulletColor,
   streaming = false,
   cursor
 }: {
   source?: string;
-  /** 已解析/裁剪的行；有值时跳过 source 解析 */
-  lines?: MdLine[];
-  /** 是否加消息左侧 rail（旧样式） */
-  rail?: boolean;
   /** Claude Code 风格：首行前缀小圆点，续行缩进 */
   bullet?: string;
   bulletColor?: string;
@@ -39,15 +30,13 @@ export function Markdown({
 }) {
   const { stdout } = useStdout();
   const columns = Math.max(20, (stdout?.columns ?? 80) - 4);
-  const prefixWidth = rail ? 2 : bullet ? displayWidth(`${bullet} `) : 0;
+  const prefixWidth = bullet ? displayWidth(`${bullet} `) : 0;
   const bodyWidth = Math.max(1, columns - prefixWidth);
 
-  const lines = useMemo(() => {
-    if (precomputed) {
-      return precomputed;
-    }
-    return cachedParseMarkdown(source ?? '');
-  }, [precomputed, source]);
+  const lines = useMemo(
+    () => cachedParseMarkdown(source ?? ''),
+    [source]
+  );
 
   const displayLines = useMemo(
     () => softWrapMdLines(lines, bodyWidth),
@@ -61,9 +50,7 @@ export function Markdown({
         const isFirst = index === 0;
         return (
           <Box key={`md-${index}`}>
-            {rail ? (
-              <Text color={theme.brandMuted}>│ </Text>
-            ) : bullet ? (
+            {bullet ? (
               <Text color={bulletColor ?? theme.agent}>
                 {isFirst ? `${bullet} ` : ' '.repeat(prefixWidth)}
               </Text>

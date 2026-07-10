@@ -13,7 +13,7 @@ import type {
   LlmStreamChunk,
   LlmToolCall,
   LlmToolDefinition,
-  OpenAiProtocolClientConfig
+  OpenAiFamilyClientConfig
 } from './types';
 
 interface OpenAiChatResponse {
@@ -73,7 +73,7 @@ export class OpenAiProtocolClient implements LlmClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
 
-  constructor(private readonly config: OpenAiProtocolClientConfig) {
+  constructor(private readonly config: OpenAiFamilyClientConfig) {
     this.provider = config.provider ?? 'openai';
     this._model = config.model;
     this._thinkingEffort = config.thinkingEffort ?? DEFAULT_THINKING_EFFORT;
