@@ -48,7 +48,13 @@ export {
 } from './markdownParse';
 export { ThinkingIndicator } from './ThinkingIndicator';
 export { ApprovalPanel } from './ApprovalPanel';
-export { Composer, HelpHint } from './Composer';
+export {
+  COMPOSER_BOTTOM_GAP,
+  COMPOSER_FOOTER_HEIGHT,
+  COMPOSER_HEIGHT,
+  Composer,
+  HelpHint
+} from './Composer';
 export { ModelSettingsPanel } from './ModelSettingsPanel';
 export {
   applyModelSettings,

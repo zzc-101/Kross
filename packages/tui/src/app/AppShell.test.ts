@@ -6,9 +6,9 @@ import {
 } from './AppShell';
 
 describe('AppShell layout', () => {
-  it('keeps fullscreen output below the terminal height', () => {
-    expect(resolveShellRows(24)).toBe(23);
-    expect(resolveShellRows(2)).toBe(1);
+  it('uses the complete alternate-screen height', () => {
+    expect(resolveShellRows(24)).toBe(24);
+    expect(resolveShellRows(2)).toBe(2);
     expect(resolveShellRows(1)).toBe(1);
   });
 
@@ -19,6 +19,6 @@ describe('AppShell layout', () => {
         headerHeight: 2,
         footerHeight: 4
       })
-    ).toBe(16);
+    ).toBe(17);
   });
 });

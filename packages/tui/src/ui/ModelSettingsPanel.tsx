@@ -13,7 +13,7 @@ export function ModelSettingsPanel({
 }) {
   const boxWidth = Math.max(36, Math.min(width ?? 56, 72));
   const innerWidth = boxWidth - 4;
-  const hRule = symbols.boxHorizontal.repeat(Math.max(8, innerWidth));
+  const hRule = symbols.boxHorizontal.repeat(boxWidth - 2);
 
   const Row = ({ children }: { children: React.ReactNode }) => (
     <Box>

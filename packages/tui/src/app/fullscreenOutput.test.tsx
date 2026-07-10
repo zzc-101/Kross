@@ -7,6 +7,7 @@ import { render } from 'ink';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App, type AppTestApi } from '../App';
+import { createTerminalFrameOutput } from '../terminal/frameOutput';
 
 const cleanup: Array<() => void> = [];
 
@@ -22,12 +23,16 @@ describe('fullscreen output', () => {
       .spyOn(process.stdout, 'write')
       .mockImplementation(() => true);
     const stdout = new FakeStdout(80, 24);
+    const frameOutput = createTerminalFrameOutput(
+      stdout as unknown as NodeJS.WriteStream,
+      { synchronized: false }
+    );
     const stdin = new FakeStdin();
     let api: AppTestApi | undefined;
     const instance = render(
       <App fullscreen onReady={(value) => (api = value)} />,
       {
-        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdout: frameOutput,
         stdin: stdin as unknown as NodeJS.ReadStream,
         patchConsole: false,
         exitOnCtrlC: false
@@ -39,11 +44,16 @@ describe('fullscreen output', () => {
     });
 
     await waitFor(() => api !== undefined);
+    stdout.writes.length = 0;
     api?.setInput('触摸板滚动测试');
     await delay(80);
 
+    expect(stdout.writes.length).toBeGreaterThan(0);
     expect(
       stdout.writes.some((chunk) => chunk.includes(ansiEscapes.clearTerminal))
+    ).toBe(false);
+    expect(
+      stdout.writes.some((chunk) => chunk.includes(ansiEscapes.eraseLines(24)))
     ).toBe(false);
   });
 });

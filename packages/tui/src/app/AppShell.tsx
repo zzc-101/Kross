@@ -3,7 +3,7 @@ import React from 'react';
 import { Box } from 'ink';
 
 export function resolveShellRows(rows: number): number {
-  return Math.max(1, Math.floor(rows) - 1);
+  return Math.max(1, Math.floor(rows));
 }
 
 export function resolveMessageViewportHeight(input: {

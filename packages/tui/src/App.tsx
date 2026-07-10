@@ -21,6 +21,7 @@ import {
 import {
   ApprovalPanel,
   applyModelSettings,
+  COMPOSER_FOOTER_HEIGHT,
   Composer,
   createModelSettingsState,
   buildToolState,
@@ -1039,7 +1040,7 @@ export function App({
           : Math.max(1, modelSettings.models.length);
       h += 7 + optionRows;
     } else {
-      h += 4; // Composer with border
+      h += COMPOSER_FOOTER_HEIGHT;
     }
     if (status === 'responding' && awaitingReply) {
       h += 2; // ThinkingIndicator

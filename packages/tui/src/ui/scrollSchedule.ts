@@ -60,10 +60,13 @@ export function createScrollScheduler(
 
   const flush = (): void => {
     handle = null;
-    const delta = pending;
-    pending = 0;
+    const delta = takeFrameDelta(pending);
+    pending -= delta;
     if (delta !== 0) {
       onFlush(delta);
+    }
+    if (pending !== 0) {
+      schedule();
     }
   };
 
@@ -87,4 +90,24 @@ export function createScrollScheduler(
       pending = 0;
     }
   };
+}
+
+/**
+ * 小位移立即响应，大位移保留 2-3 行的中间帧；极大突发先折叠超额部分，
+ * 避免触摸板松手后仍长时间惯性排队。
+ */
+export function takeFrameDelta(pending: number): number {
+  if (pending === 0) {
+    return 0;
+  }
+  const sign = pending > 0 ? 1 : -1;
+  const amount = Math.abs(pending);
+  if (amount <= 5) {
+    return pending;
+  }
+
+  const collapsed = Math.max(0, amount - 30);
+  const animated = Math.min(amount, 30);
+  const step = animated < 12 ? 2 : 3;
+  return sign * (collapsed + step);
 }

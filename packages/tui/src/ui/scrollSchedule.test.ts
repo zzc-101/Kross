@@ -25,6 +25,22 @@ describe('createScrollScheduler', () => {
     expect(onFlush).toHaveBeenCalledWith(4);
   });
 
+  it('drains a large trackpad burst through intermediate frames', () => {
+    const deltas: number[] = [];
+    const scheduler = createScrollScheduler((delta) => deltas.push(delta));
+
+    scheduler.enqueue(18);
+    vi.advanceTimersByTime(20);
+
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]).toBeGreaterThan(0);
+    expect(deltas[0]).toBeLessThan(18);
+
+    vi.advanceTimersByTime(200);
+    expect(deltas.length).toBeGreaterThan(1);
+    expect(deltas.reduce((sum, delta) => sum + delta, 0)).toBe(18);
+  });
+
   it('cancel drops pending delta', () => {
     const onFlush = vi.fn();
     const scheduler = createScrollScheduler(onFlush);

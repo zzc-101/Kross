@@ -21,7 +21,7 @@ export function ApprovalPanel({
   const { stdout } = useStdout();
   const width = Math.max(30, Math.min((stdout?.columns ?? 48) - 4, 72));
   const innerWidth = width - 4; // border + space + content + space + border
-  const hRule = symbols.boxHorizontal.repeat(innerWidth);
+  const hRule = symbols.boxHorizontal.repeat(width - 2);
   const riskColor = riskTone(approval.risk);
 
   /** 带左右边框的内容行 */

@@ -14,12 +14,17 @@ import {
   enterAlternateScreen,
   leaveAlternateScreen
 } from './terminal/alternateScreen';
+import { createTerminalFrameOutput } from './terminal/frameOutput';
 
 const useAltScreen = canUseAlternateScreen();
 
 if (useAltScreen) {
   enterAlternateScreen();
 }
+
+const renderStdout = useAltScreen
+  ? createTerminalFrameOutput(process.stdout)
+  : process.stdout;
 
 const app = render(
   <App
@@ -36,6 +41,7 @@ const app = render(
     version={readPackageVersion()}
   />,
   {
+    stdout: renderStdout,
     exitOnCtrlC: true,
     patchConsole: true
   }

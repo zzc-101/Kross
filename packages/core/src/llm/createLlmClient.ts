@@ -87,7 +87,7 @@ export function createLlmClientForProvider(
   fetch?: LlmFetch,
   saved?: ImportedLlmConfig
 ): LlmClient {
-  const credentials = resolveProviderCredentials(provider, env, saved);
+  const credentials = resolveProviderCredentials(provider, env, saved, model);
   if (!credentials) {
     const def = getLlmProviderDefinition(provider);
     throw new Error(

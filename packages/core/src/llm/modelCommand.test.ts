@@ -59,6 +59,19 @@ describe('handleModelCommand', () => {
     }
   });
 
+  it('uses the explicit model when provider env only contains an API key', () => {
+    const result = handleModelCommand('openai gpt-explicit', undefined, {
+      OPENAI_API_KEY: 'key'
+    });
+
+    expect(result.kind).toBe('replace-client');
+    if (result.kind === 'replace-client') {
+      expect(result.provider).toBe('openai');
+      expect(result.model).toBe('gpt-explicit');
+      expect(result.client.model).toBe('gpt-explicit');
+    }
+  });
+
   it('errors when switching provider without credentials', () => {
     const current = new StubClient();
     const result = handleModelCommand('xai grok-3-mini', current, {});

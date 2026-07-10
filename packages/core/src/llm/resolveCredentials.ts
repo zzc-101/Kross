@@ -12,13 +12,15 @@ export interface ResolvedLlmCredentials extends ResolvedProviderCredentials {
 
 /**
  * Soft credential resolve: env wins per-field, then saved kross config for the
- * same provider. Returns undefined when model or secret is still missing.
+ * same provider. An explicit model wins over env/saved values. Returns undefined
+ * when model or secret is still missing.
  * Never throws for incomplete config (callers decide whether to error).
  */
 export function resolveProviderCredentials(
   provider: LlmProvider,
   env: Record<string, string | undefined> = {},
-  saved?: ImportedLlmConfig
+  saved?: ImportedLlmConfig,
+  explicitModel?: string
 ): ResolvedLlmCredentials | undefined {
   const def = getLlmProviderDefinition(provider);
   const savedMatch = saved?.provider === provider ? saved : undefined;
@@ -32,6 +34,7 @@ export function resolveProviderCredentials(
     savedMatch?.authToken
   );
   const model = firstNonEmpty(
+    explicitModel,
     firstEnv(env, def.modelEnv),
     savedMatch?.model
   );

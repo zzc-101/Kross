@@ -12,7 +12,7 @@
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - Context Manager：把 system prompt、对话历史、工作区/trace/memory 等上下文源、工具清单、技能 metadata、工具结果摘要组装为 LLM messages，并按字符预算裁剪低优先级上下文。
 - Tool Gateway：统一注册工具、暴露工具 metadata、校验工具入参、阻断高风险工具的未授权调用，并把工具调用事件写入 trace。
-- 内置工具集：`Read`、`Write`、`Edit`、`Glob`、`Grep` 和 `Bash` 已接入 Tool Gateway，支持原生 tool-call loop、审批恢复和 trace 记录。
+- 内置工具集：文件读写、目录与元信息查询、Git 状态/差异/历史、文本检索和 Bash 均已接入 Tool Gateway，支持原生 tool-call loop、审批恢复和 trace 记录。
 - 首次配置导入：首次进入 TUI 时，如果本机检测到 Claude Code 或 Codex 配置，会提示通过 `/import claude`、`/import codex` 或 `/import skip` 导入/跳过；导入后保存到 `~/.kross/config.json`。
 
 ## 上下文系统
@@ -55,7 +55,8 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - 结果摘要：保留原始输出，同时生成 summary 写入 trace 和上下文，避免大输出污染后续 prompt。
 - Trace：记录 `tool_call.started`、`tool_call.completed`、`tool_call.failed`、`tool_call.approval_required`、`tool_call.denied`。
 - 原生 tool-call loop：OpenAI-compatible 解析 `tool_calls`，Anthropic-compatible 解析 `tool_use`，Runtime 执行工具后把 tool result 回填给模型，支持多轮工具迭代直到模型返回最终文本。
-- 内置文件工具：`Read`、`Write`、`Edit`、`Glob`、`Grep` 默认限制在 workspace 内，并使用真实路径校验阻断 symlink 越界。
+- 内置文件工具：`Read`、`Write`、`Edit`、`Glob`、`Grep`、`List`、`Stat` 默认限制在 workspace 内，并使用真实路径校验阻断 symlink 越界。
+- 内置 Git 工具：`GitStatus`、`GitDiff`、`GitLog` 提供只读的结构化仓库检查，并拒绝读取仓库根目录位于 workspace 外的 Git 仓库。
 - `Read` 支持 `offset` / `limit` 分段读取大文件，避免先把超大文件完整塞进上下文。
 - `Bash` 会以 workspace 内目录作为 cwd 启动命令，但当前版本没有 OS 级沙箱；命令本身的系统访问能力主要由审批策略约束。
 - 工具调用循环默认最多 **200 轮**（一轮 = 模型 tool_calls → 执行 → 回填），作死循环安全网，不是“正常任务配额”。触顶时 **软着陆**：丢弃未执行 tool_calls、强制一轮无工具文本总结（`completed`），并记录 `llm.tool_loop.max_iterations` + `llm.soft_land.completed`；可用 `AGENT_MAX_TOOL_ITERATIONS` 覆盖。

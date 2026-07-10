@@ -57,7 +57,17 @@ function defaultManualPolicy(context: ToolApprovalPolicyContext): ToolApprovalDe
     : { action: 'ask', reason: `${context.tool.risk} tool requires approval` };
 }
 
-const readLikeTools = new Set(['Read', 'Glob', 'Grep', 'fs.read']);
+const readLikeTools = new Set([
+  'Read',
+  'Glob',
+  'Grep',
+  'List',
+  'Stat',
+  'GitStatus',
+  'GitDiff',
+  'GitLog',
+  'fs.read'
+]);
 const writeLikeTools = new Set(['Write', 'Edit', 'fs.write', 'fs.edit']);
 
 const dangerousBashPatterns: RegExp[] = [

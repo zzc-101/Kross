@@ -131,10 +131,7 @@ function softWrapMdLines(lines: MdLine[], bodyWidth: number): MdLine[] {
         let lastBreak = 0;
         for (const ch of rest) {
           const w = displayWidth(ch);
-          if (takeW + w > room && end > 0) break;
-          if (takeW + w > room && end === 0) {
-            end = ch.length;
-            takeW = w;
+          if (takeW + w > room) {
             break;
           }
           takeW += w;
@@ -144,6 +141,11 @@ function softWrapMdLines(lines: MdLine[], bodyWidth: number): MdLine[] {
           }
         }
         if (end === 0) {
+          if (used > 0) {
+            flush();
+            continue;
+          }
+          // 极窄终端下单个字符可能比整行还宽；强制消费以避免死循环。
           end = [...rest][0]?.length ?? 1;
         } else if (end < rest.length && lastBreak > 0 && lastBreak < end) {
           end = lastBreak;
