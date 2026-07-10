@@ -8,6 +8,11 @@ import {
 } from './llmProviders';
 import { OpenAiProtocolClient } from './openAiProtocolClient';
 import { PiAiLlmClient } from './piAiLlmClient';
+import {
+  DEFAULT_THINKING_EFFORT,
+  parseThinkingEffort,
+  type ThinkingEffort
+} from './thinkingEffort';
 import type { LlmClient, LlmClientConfig, LlmFetch } from './types';
 
 export type LlmBackend = 'pi' | 'native';
@@ -123,11 +128,17 @@ function createLlmClientFromCredentials(
     model: string;
     baseUrl?: string;
     anthropicVersion?: string;
+    thinkingEffort?: ThinkingEffort;
   },
   env: Record<string, string | undefined>,
   fetch?: LlmFetch
 ): LlmClient {
   const backend = parseBackend(env.AGENT_LLM_BACKEND);
+  const thinkingEffort =
+    credentials.thinkingEffort ??
+    parseThinkingEffort(env.AGENT_THINKING_EFFORT) ??
+    parseThinkingEffort(env.KROSS_THINKING_EFFORT) ??
+    DEFAULT_THINKING_EFFORT;
 
   if (credentials.provider === 'anthropic') {
     return createLlmClient({
@@ -137,6 +148,7 @@ function createLlmClientFromCredentials(
       model: credentials.model,
       baseUrl: credentials.baseUrl,
       anthropicVersion: credentials.anthropicVersion,
+      thinkingEffort,
       fetch,
       backend
     });
@@ -151,6 +163,7 @@ function createLlmClientFromCredentials(
     apiKey: credentials.apiKey,
     model: credentials.model,
     baseUrl: credentials.baseUrl,
+    thinkingEffort,
     fetch,
     backend
   });

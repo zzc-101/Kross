@@ -1,5 +1,9 @@
 import { ensureOk, defaultFetch, joinUrl } from './http';
 import { parseSse } from './sse';
+import {
+  DEFAULT_THINKING_EFFORT,
+  type ThinkingEffort
+} from './thinkingEffort';
 import type {
   AnthropicProtocolClientConfig,
   LlmClient,
@@ -60,12 +64,14 @@ interface StreamingToolUseAccumulator {
 export class AnthropicProtocolClient implements LlmClient {
   readonly provider = 'anthropic' as const;
   private _model: string;
+  private _thinkingEffort: ThinkingEffort;
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
   private readonly anthropicVersion: string;
 
   constructor(private readonly config: AnthropicProtocolClientConfig) {
     this._model = config.model;
+    this._thinkingEffort = config.thinkingEffort ?? DEFAULT_THINKING_EFFORT;
     this.baseUrl = config.baseUrl ?? 'https://api.anthropic.com/v1';
     this.fetchImpl = config.fetch ?? defaultFetch();
     this.anthropicVersion = config.anthropicVersion ?? '2023-06-01';
@@ -75,12 +81,20 @@ export class AnthropicProtocolClient implements LlmClient {
     return this._model;
   }
 
+  get thinkingEffort(): ThinkingEffort {
+    return this._thinkingEffort;
+  }
+
   setModel(model: string): void {
     const next = model.trim();
     if (!next) {
       throw new Error('model 不能为空');
     }
     this._model = next;
+  }
+
+  setThinkingEffort(effort: ThinkingEffort): void {
+    this._thinkingEffort = effort;
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {

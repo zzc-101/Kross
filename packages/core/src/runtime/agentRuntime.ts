@@ -15,6 +15,12 @@ import {
   formatContextUsage,
   resolveModelContextWindow
 } from '../llm/modelContextWindows';
+import {
+  cycleThinkingEffort,
+  DEFAULT_THINKING_EFFORT,
+  formatModelEffortLabel,
+  type ThinkingEffort
+} from '../llm/thinkingEffort';
 import type {
   LlmClient,
   LlmMessage,
@@ -117,13 +123,33 @@ export class AgentRuntime extends EventEmitter {
     this.toolGateway?.setApprovalPolicy(createApprovalPolicy(mode));
   }
 
-  /** TUI 输入框右下角展示的模型名（provider/model）。 */
+  /** TUI 输入框右下角：`model (thinkingEffort)`，不含 provider。 */
   getModelLabel(): string {
     const client = this.options.llmClient;
-    if (!client?.model?.trim()) {
-      return 'no model';
+    return formatModelEffortLabel(
+      client?.model,
+      client?.thinkingEffort ?? DEFAULT_THINKING_EFFORT
+    );
+  }
+
+  getThinkingEffort(): ThinkingEffort {
+    return (
+      this.options.llmClient?.thinkingEffort ?? DEFAULT_THINKING_EFFORT
+    );
+  }
+
+  setThinkingEffort(effort: ThinkingEffort): void {
+    const client = this.options.llmClient;
+    if (!client?.setThinkingEffort) {
+      throw new Error('当前 LLM 客户端不支持切换思考强度');
     }
-    return `${client.provider}/${client.model.trim()}`;
+    client.setThinkingEffort(effort);
+  }
+
+  cycleThinkingEffort(): ThinkingEffort {
+    const next = cycleThinkingEffort(this.getThinkingEffort());
+    this.setThinkingEffort(next);
+    return next;
   }
 
   getLlmClient(): LlmClient | undefined {

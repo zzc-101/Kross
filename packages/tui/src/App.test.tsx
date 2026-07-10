@@ -90,7 +90,7 @@ describe('App', () => {
 
     await submit?.('/perm auto');
     await waitUntil(() => lastFrame()?.includes('always-approve') === true);
-    expect(lastFrame()).toContain('fake-model · always-approve');
+    expect(lastFrame()).toContain('fake-model (medium) · always-approve');
   });
 
   it('refreshes composer model label after /model switch', async () => {
@@ -104,14 +104,19 @@ describe('App', () => {
     );
 
     await waitUntil(() => submit !== undefined);
-    expect(lastFrame()).toContain('openai/fake-model');
+    expect(lastFrame()).toContain('fake-model (medium)');
 
     await submit?.('/model gpt-switched');
     await waitUntil(
-      () => lastFrame()?.includes('openai/gpt-switched') === true
+      () => lastFrame()?.includes('gpt-switched (medium)') === true
     );
-    expect(lastFrame()).toContain('openai/gpt-switched');
-    expect(runtime.getModelLabel()).toBe('openai/gpt-switched');
+    expect(lastFrame()).toContain('gpt-switched (medium)');
+    expect(runtime.getModelLabel()).toBe('gpt-switched (medium)');
+
+    await submit?.('/think high');
+    await waitUntil(() => lastFrame()?.includes('gpt-switched (high)') === true);
+    expect(runtime.getModelLabel()).toBe('gpt-switched (high)');
+    expect(runtime.getThinkingEffort()).toBe('high');
   });
 
   it('shows a submitted message in conversation history', async () => {
@@ -872,11 +877,16 @@ class InMemoryTraceStore implements TraceStore {
 class FakeLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   model = 'fake-model';
+  thinkingEffort: import('@kross/core').ThinkingEffort = 'medium';
 
   constructor(private readonly text: string) {}
 
   setModel(model: string): void {
     this.model = model.trim();
+  }
+
+  setThinkingEffort(effort: import('@kross/core').ThinkingEffort): void {
+    this.thinkingEffort = effort;
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {

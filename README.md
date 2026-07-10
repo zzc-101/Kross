@@ -117,7 +117,11 @@ TUI 命令：
 - `/model` — 当前 provider/model  
 - `/model list` — 列出 provider 与 env 是否已配置  
 - `/model <modelId>` — 切换当前 provider 下的模型  
-- `/model <provider> <model>` — 切换 provider（需对应 env 密钥）
+- `/model <provider> <model>` — 切换 provider（需对应 env 密钥）  
+- `/think` — 查看/切换思考强度（`off|minimal|low|medium|high|xhigh|cycle`）；别名 `/effort`  
+- 输入框右下角展示：`model (effort)`，例如 `claude-sonnet-4-5 (medium)`  
+
+环境变量：`AGENT_THINKING_EFFORT`（或 `KROSS_THINKING_EFFORT`）可设默认思考强度。
 
 导入规则：
 

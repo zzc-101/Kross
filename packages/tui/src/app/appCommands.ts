@@ -1,7 +1,9 @@
 import {
+  formatThinkingEffortHelp,
   getLlmProviderDefinition,
   handleModelCommand,
   isPermissionMode,
+  parseThinkingEffort,
   updateKrossLlmConfig,
   type AgentMode,
   type AgentRuntime,
@@ -9,7 +11,8 @@ import {
   type ConfigImportPrompt,
   type ContextInspection,
   type ExternalAgentSource,
-  type PermissionMode
+  type PermissionMode,
+  type ThinkingEffort
 } from '@kross/core';
 
 import { formatSlashHelp, type ChatMessage } from '../ui';
@@ -63,15 +66,30 @@ export function handleCommand(
 
     if (result.kind === 'set-model') {
       // handleModelCommand already applied setModel on the live client.
-      persistModelPreference(result.provider, result.model);
+      persistModelPreference(result.provider, result.model, runtime.getThinkingEffort());
     }
 
     if (result.kind === 'replace-client') {
+      // Preserve session thinking effort across provider switches.
+      const effort = runtime.getThinkingEffort();
+      if (result.client.setThinkingEffort) {
+        result.client.setThinkingEffort(effort);
+      }
       runtime.setLlmClient(result.client);
-      persistModelPreference(result.provider, result.model);
+      persistModelPreference(result.provider, result.model, effort);
     }
 
     append('agent', result.text, { expanded: true });
+    return true;
+  }
+
+  if (
+    value === '/think' ||
+    value.startsWith('/think ') ||
+    value === '/effort' ||
+    value.startsWith('/effort ')
+  ) {
+    handleThinkCommand(value, runtime, append);
     return true;
   }
 
@@ -281,9 +299,73 @@ function formatImportUsage(prompt: ConfigImportPrompt | undefined): string {
   return `用法：${commands} | /import skip`;
 }
 
+function handleThinkCommand(
+  value: string,
+  runtime: AgentRuntime,
+  append: AppendMessage
+): void {
+  const prefix = value.startsWith('/effort') ? '/effort' : '/think';
+  const argument = value === prefix ? '' : value.slice(prefix.length).trim();
+
+  if (!argument) {
+    append('agent', formatThinkingEffortHelp(runtime.getThinkingEffort()), {
+      expanded: true
+    });
+    return;
+  }
+
+  if (argument === 'cycle' || argument === 'next') {
+    try {
+      const next = runtime.cycleThinkingEffort();
+      persistThinkingEffort(runtime, next);
+      append(
+        'system',
+        `思考强度 → ${next} · 状态栏: ${runtime.getModelLabel()}`
+      );
+    } catch (error) {
+      append(
+        'agent',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    return;
+  }
+
+  const effort = parseThinkingEffort(argument);
+  if (!effort) {
+    append('agent', formatThinkingEffortHelp(runtime.getThinkingEffort()), {
+      expanded: true
+    });
+    return;
+  }
+
+  try {
+    runtime.setThinkingEffort(effort);
+    persistThinkingEffort(runtime, effort);
+    append(
+      'system',
+      `思考强度 → ${effort} · 状态栏: ${runtime.getModelLabel()}`
+    );
+  } catch (error) {
+    append('agent', error instanceof Error ? error.message : String(error));
+  }
+}
+
+function persistThinkingEffort(
+  runtime: AgentRuntime,
+  effort: ThinkingEffort
+): void {
+  const client = runtime.getLlmClient();
+  if (!client?.model) {
+    return;
+  }
+  persistModelPreference(client.provider, client.model, effort);
+}
+
 function persistModelPreference(
   provider: import('@kross/core').LlmProvider,
-  model: string
+  model: string,
+  thinkingEffort?: ThinkingEffort
 ): void {
   try {
     const def = getLlmProviderDefinition(provider);
@@ -301,7 +383,8 @@ function persistModelPreference(
       authToken: provider === 'anthropic' ? authToken : undefined,
       baseUrl,
       anthropicVersion:
-        provider === 'anthropic' ? env.ANTHROPIC_VERSION : undefined
+        provider === 'anthropic' ? env.ANTHROPIC_VERSION : undefined,
+      thinkingEffort
     });
   } catch {
     // persistence is best-effort

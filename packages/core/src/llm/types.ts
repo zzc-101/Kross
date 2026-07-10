@@ -4,8 +4,10 @@ import {
   llmProviderSchema,
   type LlmProvider
 } from './llmProviders';
+import type { ThinkingEffort } from './thinkingEffort';
 
 export { llmProviderSchema, type LlmProvider };
+export type { ThinkingEffort };
 
 export const llmRoleSchema = z.enum(['system', 'user', 'assistant', 'tool']);
 export type LlmRole = z.infer<typeof llmRoleSchema>;
@@ -44,6 +46,8 @@ export interface LlmRequest {
   maxTokens?: number;
   temperature?: number;
   topP?: number;
+  /** Per-request override; falls back to client default. */
+  thinkingEffort?: ThinkingEffort;
   metadata?: Record<string, unknown>;
 }
 
@@ -85,8 +89,11 @@ export interface LlmClient {
   readonly provider: LlmProvider;
   /** 当前默认模型名，供 TUI 状态栏展示。 */
   readonly model?: string;
+  /** 默认思考强度（状态栏与请求共用）。 */
+  readonly thinkingEffort?: ThinkingEffort;
   /** 会话内切换模型 id（同 provider）。 */
   setModel?(model: string): void;
+  setThinkingEffort?(effort: ThinkingEffort): void;
   complete(request: LlmRequest): Promise<LlmResponse>;
   stream(request: LlmRequest): AsyncIterable<LlmStreamChunk>;
 }
@@ -99,6 +106,7 @@ export interface BaseLlmClientConfig {
   baseUrl?: string;
   model: string;
   fetch?: LlmFetch;
+  thinkingEffort?: ThinkingEffort;
 }
 
 export interface OpenAiFamilyClientConfig extends BaseLlmClientConfig {

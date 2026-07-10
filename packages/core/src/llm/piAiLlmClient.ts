@@ -4,7 +4,7 @@ import {
   type Api,
   type Model,
   type MutableModels,
-  type StreamOptions
+  type SimpleStreamOptions
 } from '@earendil-works/pi-ai';
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
@@ -19,6 +19,10 @@ import {
   mapPiStreamEvent,
   toPiContext
 } from './piAiConvert';
+import {
+  DEFAULT_THINKING_EFFORT,
+  type ThinkingEffort
+} from './thinkingEffort';
 import type {
   LlmClient,
   LlmClientConfig,
@@ -37,6 +41,7 @@ const DEFAULT_MAX_TOKENS = 32_768;
 export class PiAiLlmClient implements LlmClient {
   readonly provider: LlmProvider;
   private _model: string;
+  private _thinkingEffort: ThinkingEffort;
 
   private readonly models: MutableModels;
   private piModel: Model<Api>;
@@ -47,6 +52,7 @@ export class PiAiLlmClient implements LlmClient {
   constructor(private readonly config: LlmClientConfig) {
     this.provider = config.provider;
     this._model = config.model;
+    this._thinkingEffort = config.thinkingEffort ?? DEFAULT_THINKING_EFFORT;
     this.apiKey = config.apiKey;
     this.authToken =
       this.provider === 'anthropic' ? config.authToken : undefined;
@@ -60,6 +66,10 @@ export class PiAiLlmClient implements LlmClient {
 
   get model(): string {
     return this._model;
+  }
+
+  get thinkingEffort(): ThinkingEffort {
+    return this._thinkingEffort;
   }
 
   setModel(model: string): void {
@@ -76,6 +86,10 @@ export class PiAiLlmClient implements LlmClient {
     };
   }
 
+  setThinkingEffort(effort: ThinkingEffort): void {
+    this._thinkingEffort = effort;
+  }
+
   async complete(request: LlmRequest): Promise<LlmResponse> {
     const context = toPiContext(request.messages, request.tools, {
       provider: this.provider,
@@ -83,10 +97,10 @@ export class PiAiLlmClient implements LlmClient {
       api: this.api
     });
 
-    const message = await this.models.complete(
+    const message = await this.models.completeSimple(
       this.modelForRequest(request),
       context,
-      this.streamOptions(request)
+      this.simpleStreamOptions(request)
     );
 
     if (message.stopReason === 'error' || message.stopReason === 'aborted') {
@@ -106,10 +120,10 @@ export class PiAiLlmClient implements LlmClient {
       api: this.api
     });
 
-    const stream = this.models.stream(
+    const stream = this.models.streamSimple(
       this.modelForRequest(request),
       context,
-      this.streamOptions(request)
+      this.simpleStreamOptions(request)
     );
 
     for await (const event of stream) {
@@ -137,12 +151,18 @@ export class PiAiLlmClient implements LlmClient {
     };
   }
 
-  private streamOptions(request: LlmRequest): StreamOptions {
-    const options: StreamOptions = {
+  private simpleStreamOptions(request: LlmRequest): SimpleStreamOptions {
+    const effort = request.thinkingEffort ?? this._thinkingEffort;
+    const options: SimpleStreamOptions = {
       temperature: request.temperature,
       maxTokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
       metadata: request.metadata
     };
+
+    // pi streamSimple: omit reasoning => thinking off; otherwise map effort.
+    if (effort !== 'off') {
+      options.reasoning = effort;
+    }
 
     if (this.authToken) {
       options.headers = {

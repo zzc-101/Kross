@@ -19,6 +19,11 @@ export const slashCommands: SlashCommand[] = [
     usage: '/model [list|<model>|<provider> <model>]'
   },
   {
+    name: '/think',
+    description: '查看/切换思考强度',
+    usage: '/think [off|minimal|low|medium|high|xhigh|cycle]'
+  },
+  {
     name: '/context',
     description: '查看当前会话上下文占用'
   },

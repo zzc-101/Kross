@@ -10,6 +10,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 
 import { createLlmClient } from '../llm/createLlmClient';
+import type { ThinkingEffort } from '../llm/thinkingEffort';
 import type { LlmClient, LlmFetch, LlmProvider } from '../llm/types';
 
 export type ExternalAgentSource = 'claude' | 'codex';
@@ -21,6 +22,7 @@ export interface ImportedLlmConfig {
   baseUrl?: string;
   model: string;
   anthropicVersion?: string;
+  thinkingEffort?: ThinkingEffort;
 }
 
 export interface KrossConfig {
@@ -196,6 +198,7 @@ export function createLlmClientFromKrossConfig(
       model: llm.model,
       baseUrl: llm.baseUrl,
       anthropicVersion: llm.anthropicVersion,
+      thinkingEffort: llm.thinkingEffort,
       fetch
     });
   }
@@ -209,6 +212,7 @@ export function createLlmClientFromKrossConfig(
     apiKey: llm.apiKey,
     model: llm.model,
     baseUrl: llm.baseUrl,
+    thinkingEffort: llm.thinkingEffort,
     fetch
   });
 }
@@ -279,6 +283,11 @@ export function mergeLlmConfigPatch(
     if (anthropicVersion !== undefined) {
       llm.anthropicVersion = anthropicVersion;
     }
+  }
+
+  const thinkingEffort = patch.thinkingEffort ?? existing?.thinkingEffort;
+  if (thinkingEffort !== undefined) {
+    llm.thinkingEffort = thinkingEffort;
   }
 
   return llm;

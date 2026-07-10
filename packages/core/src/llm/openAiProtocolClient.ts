@@ -1,5 +1,9 @@
 import { ensureOk, defaultFetch, joinUrl } from './http';
 import { parseSse } from './sse';
+import {
+  DEFAULT_THINKING_EFFORT,
+  type ThinkingEffort
+} from './thinkingEffort';
 import type {
   LlmClient,
   LlmFetch,
@@ -65,12 +69,14 @@ interface StreamingToolCallAccumulator {
 export class OpenAiProtocolClient implements LlmClient {
   readonly provider: 'openai' | 'openrouter' | 'deepseek' | 'xai';
   private _model: string;
+  private _thinkingEffort: ThinkingEffort;
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
 
   constructor(private readonly config: OpenAiProtocolClientConfig) {
     this.provider = config.provider ?? 'openai';
     this._model = config.model;
+    this._thinkingEffort = config.thinkingEffort ?? DEFAULT_THINKING_EFFORT;
     this.baseUrl = config.baseUrl ?? 'https://api.openai.com/v1';
     this.fetchImpl = config.fetch ?? defaultFetch();
   }
@@ -79,12 +85,20 @@ export class OpenAiProtocolClient implements LlmClient {
     return this._model;
   }
 
+  get thinkingEffort(): ThinkingEffort {
+    return this._thinkingEffort;
+  }
+
   setModel(model: string): void {
     const next = model.trim();
     if (!next) {
       throw new Error('model 不能为空');
     }
     this._model = next;
+  }
+
+  setThinkingEffort(effort: ThinkingEffort): void {
+    this._thinkingEffort = effort;
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
