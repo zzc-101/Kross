@@ -1,4 +1,9 @@
-import { parseMarkdown, displayWidth } from './markdownParse';
+import {
+  cachedParseMarkdown,
+  displayWidth,
+  mdLineText,
+  type MdLine
+} from './markdownParse';
 import {
   THINKING_COLLAPSE_CHAR_LIMIT,
   THINKING_COLLAPSE_LINE_LIMIT
@@ -47,7 +52,10 @@ export function layoutFingerprint(message: ChatMessage): string {
   const toolSig = toolItems
     ? `${toolItems.length}:${toolItems.map((item) => item.status).join(',')}`
     : '';
-  const plainLen = message.viewportPlainText?.length ?? -1;
+  const clipped =
+    message.viewportLines !== undefined
+      ? `L${message.viewportLines.length}`
+      : '-';
   // 流式内容：长度 + 头尾片段足以区分追加
   const text = message.text;
   const head = text.slice(0, 24);
@@ -58,7 +66,7 @@ export function layoutFingerprint(message: ChatMessage): string {
     String(text.length),
     head,
     tail,
-    String(plainLen),
+    clipped,
     toolSig
   ].join('\u0001');
 }
@@ -72,15 +80,12 @@ export function estimateMessageRows(
 ): number {
   const width = Math.max(20, columns);
 
-  // 视口已预裁剪为纯文本时，按行计
-  if (message.viewportPlainText !== undefined) {
-    const lines =
-      message.viewportPlainText.length === 0
-        ? ['']
-        : message.viewportPlainText.split('\n');
+  // 视口已预裁剪（保留 MD 样式行）时，按裁剪后的行计
+  if (message.viewportLines !== undefined) {
     let rows = message.from === 'agent' || message.from === 'thinking' ? 1 : 0;
-    for (const line of lines) {
-      rows += countWrappedRows(line, width - 2);
+    const bodyWidth = width - 2;
+    for (const line of message.viewportLines) {
+      rows += countWrappedRows(mdLineText(line), bodyWidth);
     }
     return rows + 1;
   }
@@ -117,9 +122,12 @@ export function estimateMessageRows(
 
 /** 把 MD 渲染成终端可见的纯文本行（表格已展开为 box 字符） */
 export function markdownToVisualLines(source: string): string[] {
-  return parseMarkdown(source).map((line) =>
-    line.spans.map((span) => span.text).join('')
-  );
+  return cachedParseMarkdown(source).map((line) => mdLineText(line));
+}
+
+/** 带样式的 MD 行（与展示层共用同一缓存解析结果） */
+export function markdownToMdLines(source: string): MdLine[] {
+  return cachedParseMarkdown(source);
 }
 
 function countVisualRows(source: string, columns: number): number {
@@ -182,8 +190,8 @@ export interface ViewportWindow {
  * 从消息列表中选出落在视口内的子集。
  * scrollOffset=0 贴底；增大则向上翻历史。
  *
- * 关键：对超长 agent 消息按「渲染后视觉行」裁剪，而不是按原始 MD 行，
- * 避免表格被拦腰截断导致表头丢失/边框错乱。
+ * 关键：对超长 agent 消息按「渲染后视觉行」裁剪，并保留 MdLine 样式
+ * （bold/code/table box），避免滚动时 MD 格式丢失。
  */
 export function windowMessages(input: {
   messages: ChatMessage[];
@@ -238,8 +246,8 @@ export function windowMessages(input: {
     const fullyVisible = msgStart >= startLine && msgEnd <= endLine;
     if (fullyVisible) {
       // 清除可能残留的裁剪标记
-      if (message.viewportPlainText !== undefined) {
-        const { viewportPlainText: _drop, ...rest } = message;
+      if (message.viewportLines !== undefined) {
+        const { viewportLines: _drop, ...rest } = message;
         visible.push(rest as ChatMessage);
       } else {
         visible.push(message);
@@ -247,9 +255,9 @@ export function windowMessages(input: {
       continue;
     }
 
-    // 部分可见：仅对 agent/thinking 做视觉行裁剪
-    if (message.from === 'agent' || message.from === 'thinking') {
-      const clipped = clipMessageByVisualRows(message, {
+    // 部分可见：仅对 agent 做视觉行裁剪（保留样式）
+    if (message.from === 'agent') {
+      const clipped = clipAgentByVisualRows(message, {
         msgStart,
         msgEnd,
         startLine,
@@ -260,7 +268,7 @@ export function windowMessages(input: {
         visible.push(clipped);
       }
     } else {
-      // 短消息整条带上
+      // thinking / 短消息：整条带上（避免丢样式；高度略超视口可接受）
       visible.push(message);
     }
   }
@@ -274,11 +282,16 @@ export function windowMessages(input: {
   };
 }
 
+const ELLIPSIS_LINE: MdLine = {
+  kind: 'paragraph',
+  spans: [{ text: '…', dim: true }]
+};
+
 /**
- * 按渲染后的视觉行裁剪 agent/thinking 消息。
- * 裁剪结果写入 viewportPlainText，展示层不再二次 MD 解析（避免表格被拆碎）。
+ * 按渲染后的视觉行裁剪 agent 消息。
+ * 裁剪结果写入 viewportLines（MdLine[]），展示层直接渲染，保留 bold/code/table。
  */
-function clipMessageByVisualRows(
+function clipAgentByVisualRows(
   message: ChatMessage,
   range: {
     msgStart: number;
@@ -288,31 +301,16 @@ function clipMessageByVisualRows(
     columns: number;
   }
 ): ChatMessage | undefined {
-  const width = Math.max(20, range.columns - 2);
   const labelRows = 1;
   const bodyStart = range.msgStart + labelRows;
 
-  const visualLines =
-    message.from === 'thinking'
-      ? previewThinkingLines(message.text, message.expanded === true).visibleLines
-      : markdownToVisualLines(message.text);
-
-  // 将视觉行展开为「占位行」列表（考虑折行）
-  const expanded: string[] = [];
-  for (const line of visualLines) {
-    const wraps = countWrappedRows(line, width);
-    if (wraps <= 1) {
-      expanded.push(line);
-    } else {
-      // 折行时仍整行保留，避免把表格行从中间切断
-      expanded.push(line);
-    }
-  }
+  // 与展示层共用缓存解析；折行整行保留，避免切断表格/样式行
+  const expanded = markdownToMdLines(message.text);
 
   if (expanded.length === 0) {
     return {
       ...message,
-      viewportPlainText: '…'
+      viewportLines: [ELLIPSIS_LINE]
     };
   }
 
@@ -325,11 +323,10 @@ function clipMessageByVisualRows(
   if (bodyLen <= 0) {
     return {
       ...message,
-      viewportPlainText: '…'
+      viewportLines: [ELLIPSIS_LINE]
     };
   }
 
-  // body 行与 expanded 行近似 1:1（折行整行保留）
   let sliceStart = Math.min(bodyOffset, expanded.length);
   let sliceEnd = Math.min(expanded.length, bodyOffset + bodyLen);
 
@@ -349,17 +346,17 @@ function clipMessageByVisualRows(
     sliceEnd = expanded.length;
   }
 
-  const sliced = expanded.slice(sliceStart, sliceEnd);
+  const sliced: MdLine[] = expanded.slice(sliceStart, sliceEnd);
   if (sliceStart > 0) {
-    sliced.unshift('…');
+    sliced.unshift(ELLIPSIS_LINE);
   }
   if (sliceEnd < expanded.length) {
-    sliced.push('…');
+    sliced.push(ELLIPSIS_LINE);
   }
 
   return {
     ...message,
-    viewportPlainText: sliced.join('\n')
+    viewportLines: sliced
   };
 }
 
@@ -369,14 +366,14 @@ function clipMessageByVisualRows(
  * - end：若当前行是表格中部，向下找到 └ 或退出表格
  */
 function snapSliceToTableBoundary(
-  lines: string[],
+  lines: MdLine[],
   index: number,
   edge: 'start' | 'end'
 ): number {
   if (index <= 0 || index >= lines.length) {
     return index;
   }
-  const line = lines[index] ?? '';
+  const line = mdLineText(lines[index] ?? { kind: 'blank', spans: [] });
   if (!isTableBoxLine(line)) {
     return index;
   }
@@ -387,7 +384,7 @@ function snapSliceToTableBoundary(
 
   if (edge === 'start') {
     for (let i = index; i >= 0; i--) {
-      const l = lines[i] ?? '';
+      const l = mdLineText(lines[i] ?? { kind: 'blank', spans: [] });
       if (l.includes('┌')) {
         return i;
       }
@@ -399,7 +396,7 @@ function snapSliceToTableBoundary(
   }
 
   for (let i = index; i < lines.length; i++) {
-    const l = lines[i] ?? '';
+    const l = mdLineText(lines[i] ?? { kind: 'blank', spans: [] });
     if (l.includes('└')) {
       return i + 1;
     }

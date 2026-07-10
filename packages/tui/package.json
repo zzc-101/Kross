@@ -7,6 +7,7 @@
     "agent": "./src/main.tsx"
   },
   "dependencies": {
-    "@kross/core": "file:../core"
+    "@kross/core": "file:../core",
+    "marked": "^15.0.12"
   }
 }

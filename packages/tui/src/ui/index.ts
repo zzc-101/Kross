@@ -18,6 +18,13 @@ export {
   windowMessages,
   type ViewportWindow
 } from './messageLayout';
+export {
+  MessagePaintCache,
+  windowPaintRows,
+  type PaintItem,
+  type PaintSegment,
+  type PaintWindow
+} from './messagePaint';
 export { createScrollScheduler, type ScrollScheduler } from './scrollSchedule';
 export { ToolCallCard } from './ToolCallCard';
 export {
@@ -30,12 +37,18 @@ export {
 export { Markdown } from './Markdown';
 export {
   parseMarkdown,
+  cachedParseMarkdown,
+  parseMarkdownStreaming,
+  clearMarkdownParseCache,
   parseInline,
   estimateMarkdownRows,
   formatMarkdownTable,
   isTableRowLine,
   isTableSeparatorLine,
-  splitTableCells
+  splitTableCells,
+  type MdLine,
+  type MdSpan,
+  type StreamParseState
 } from './markdownParse';
 export { ThinkingIndicator } from './ThinkingIndicator';
 export { ApprovalPanel } from './ApprovalPanel';

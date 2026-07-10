@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 
 import { Markdown } from './Markdown';
+import type { MdLine } from './markdownParse';
 import {
   THINKING_COLLAPSE_CHAR_LIMIT,
   THINKING_COLLAPSE_LINE_LIMIT,
@@ -53,10 +54,10 @@ export interface ChatMessage {
    */
   expanded?: boolean;
   /**
-   * 视口裁剪后的预渲染纯文本（表格等已展开）。
-   * 有值时不再二次 Markdown 解析，避免表头/边框被拆碎。
+   * 视口裁剪后的预渲染 MD 行（表格已展开为 box，span 样式保留）。
+   * 有值时直接渲染，不再二次 parse，且滚动时不丢 bold/code 等格式。
    */
-  viewportPlainText?: string;
+  viewportLines?: MdLine[];
 }
 
 export function MessageList({
@@ -131,7 +132,7 @@ export function MessageLine({
     );
   }
 
-  // agent 回复：完整内容走 Markdown；视口裁剪片段走纯文本（已含表格展开）
+  // agent 回复：完整 source 走 Markdown；视口裁剪走 viewportLines（保留样式）
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box marginBottom={0}>
@@ -140,50 +141,13 @@ export function MessageLine({
         </Text>
         {time ? <Text dimColor>  {time}</Text> : null}
       </Box>
-      {message.viewportPlainText !== undefined ? (
-        <PlainRailText
-          text={message.viewportPlainText}
-          streaming={streaming}
-          cursor={cursor}
-        />
-      ) : (
-        <Markdown
-          source={message.text}
-          rail
-          streaming={streaming}
-          cursor={cursor}
-        />
-      )}
-    </Box>
-  );
-}
-
-function PlainRailText({
-  text,
-  streaming,
-  cursor
-}: {
-  text: string;
-  streaming: boolean;
-  cursor: string;
-}) {
-  const lines = text.length === 0 ? [''] : text.split('\n');
-  return (
-    <Box flexDirection="column">
-      {lines.map((line, index) => {
-        const isLast = index === lines.length - 1;
-        return (
-          <Box key={`plain-${index}`}>
-            <Text color={theme.brandMuted}>{symbols.messageRail} </Text>
-            <Text>
-              {line}
-              {streaming && isLast ? (
-                <Text color={theme.brand}>{cursor}</Text>
-              ) : null}
-            </Text>
-          </Box>
-        );
-      })}
+      <Markdown
+        source={message.viewportLines ? undefined : message.text}
+        lines={message.viewportLines}
+        rail
+        streaming={streaming}
+        cursor={cursor}
+      />
     </Box>
   );
 }

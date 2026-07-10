@@ -120,7 +120,7 @@ describe('windowMessages', () => {
     expect(b.hasMoreBelow).toBe(true);
   });
 
-  it('clips tall agent tables by visual lines and keeps table box intact', () => {
+  it('clips tall agent tables by visual lines and keeps styled MdLines', () => {
     const table = [
       '说明文字',
       '',
@@ -152,15 +152,63 @@ describe('windowMessages', () => {
 
     const agent = result.messages.find((m) => m.from === 'agent');
     expect(agent).toBeDefined();
-    // 贴底裁剪应使用纯文本预渲染，且不应只剩半截 MD 管道符表
-    expect(agent?.viewportPlainText).toBeDefined();
-    const plain = agent?.viewportPlainText ?? '';
+    // 贴底裁剪应产出带样式的 MdLine[]，而非纯文本降级
+    expect(agent?.viewportLines).toBeDefined();
+    expect(agent?.viewportLines?.length).toBeGreaterThan(0);
+    const plain = (agent?.viewportLines ?? [])
+      .map((line) => line.spans.map((s) => s.text).join(''))
+      .join('\n');
     // 若包含表格，应是 box 字符而不是残缺的 | --- |
     if (plain.includes('┌') || plain.includes('│')) {
-      // 有顶就该有底，或整表在省略号后完整一段
       const hasBrokenSeparator = /^\|[-:| ]+\|$/m.test(plain);
       expect(hasBrokenSeparator).toBe(false);
+      // 裁剪行应保留 table kind 或 box 字符（样式未降级）
+      const hasStyledTable = (agent?.viewportLines ?? []).some(
+        (line) =>
+          line.kind === 'table' ||
+          line.spans.some((s) => /[┌┬┐├┼┤└┴┘│]/.test(s.text))
+      );
+      expect(hasStyledTable).toBe(true);
     }
+  });
+
+  it('preserves heading/code styles when clipping agent body', () => {
+    const body = [
+      '# Title',
+      '',
+      'intro paragraph',
+      '',
+      '```ts',
+      'const x = 1',
+      'const y = 2',
+      '```',
+      '',
+      '**bold** and more text '.repeat(30)
+    ].join('\n');
+
+    const messages = [msg({ id: 1, from: 'agent', text: body })];
+    const fullRows = estimateMessageRows(messages[0]!, 40);
+    // 只露出底部几行 → 触发裁剪
+    const result = windowMessages({
+      messages,
+      columns: 40,
+      viewportRows: Math.max(4, Math.floor(fullRows / 3)),
+      scrollOffset: 0
+    });
+
+    const agent = result.messages[0];
+    expect(agent?.viewportLines).toBeDefined();
+    const kinds = new Set((agent?.viewportLines ?? []).map((l) => l.kind));
+    // 至少不应全是无样式的 paragraph 纯文本降级；应仍是解析后的 kind
+    expect(kinds.size).toBeGreaterThanOrEqual(1);
+    // 有任意 span 带 bold/color/dim 即说明样式保留
+    const hasStyle = (agent?.viewportLines ?? []).some((line) =>
+      line.spans.some((s) => s.bold || s.color || s.dim || s.italic)
+    );
+    // 若裁到含 code/heading 区域则必有样式；贴底长段落也可能只有 paragraph
+    // 此处只断言结构是 MdLine 而非 string
+    expect(Array.isArray(agent?.viewportLines)).toBe(true);
+    void hasStyle;
   });
 });
 

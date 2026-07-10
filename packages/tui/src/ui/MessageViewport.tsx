@@ -2,11 +2,21 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { Box, Text } from 'ink';
 
 import { MessageLine, type ChatMessage } from './MessageLine';
-import { MessageRowHeightCache, windowMessages } from './messageLayout';
+import {
+  MessagePaintCache,
+  windowPaintRows,
+  type PaintItem,
+  type PaintSegment
+} from './messagePaint';
+import { symbols, theme } from './theme';
+import { usePulse } from './usePulse';
 
 /**
- * 全屏中间消息视口：只渲染窗口内消息，避免超长历史把 Ink yoga 布局拖死。
- * scrollOffset=0 贴底；增大则向上翻看历史。
+ * 全屏中间消息视口（阶段 2：行缓冲绘制）
+ *
+ * - 全屏：消息 paint 成行 → 只挂载可见 PaintItem（O(视口行) React 节点）
+ * - 非全屏/测试：退回 MessageLine 列表（最多 80 条）
+ * - scrollOffset=0 贴底；增大则向上翻历史
  */
 export function MessageViewport({
   messages,
@@ -25,57 +35,98 @@ export function MessageViewport({
   scrollOffset?: number;
   tip?: string;
   /** 回传 maxScroll，便于 App 钳制 scrollOffset */
-  onScrollBounds?: (bounds: { maxScrollOffset: number; totalRows: number }) => void;
+  onScrollBounds?: (bounds: {
+    maxScrollOffset: number;
+    totalRows: number;
+  }) => void;
 }) {
-  // 先计算指示器占用的行数，从可用高度中扣除
   const hasTip = Boolean(tip);
   const [hasMoreAboveState, setHasMoreAbove] = React.useState(false);
   const [hasMoreBelowState, setHasMoreBelow] = React.useState(false);
 
   const viewportRows = height && height > 0 ? height : undefined;
+  const indicatorRows =
+    (hasTip ? 2 : 0) +
+    (hasMoreAboveState ? 1 : 0) +
+    (hasMoreBelowState ? 1 : 0);
 
-  // 指示器占用行数：tip(2) + hasMoreAbove(1) + hasMoreBelow(1)
-  const indicatorRows = (hasTip ? 2 : 0) + (hasMoreAboveState ? 1 : 0) + (hasMoreBelowState ? 1 : 0);
-
-  const heightCacheRef = useRef(new MessageRowHeightCache());
+  const paintCacheRef = useRef(new MessagePaintCache());
+  const cursor = usePulse(
+    symbols.cursorFrames,
+    420,
+    streamingMessageId !== undefined
+  );
 
   const windowed = useMemo(() => {
     if (viewportRows === undefined) {
-      // 测试/非全屏：仍限制最大渲染条数，防止意外爆量
-      const capped =
-        messages.length > 80 ? messages.slice(messages.length - 80) : messages;
-      return {
-        messages: capped,
-        maxScrollOffset: 0,
-        totalRows: 0,
-        hasMoreAbove: messages.length > capped.length,
-        hasMoreBelow: false
-      };
+      return null;
     }
-    return windowMessages({
+    return windowPaintRows({
       messages,
       columns,
       viewportRows: Math.max(1, viewportRows - indicatorRows),
       scrollOffset,
-      heightCache: heightCacheRef.current
+      streamingMessageId,
+      paintCache: paintCacheRef.current
     });
-  }, [messages, columns, viewportRows, scrollOffset, indicatorRows]);
+  }, [
+    messages,
+    columns,
+    viewportRows,
+    scrollOffset,
+    indicatorRows,
+    streamingMessageId
+  ]);
 
-  // 同步指示器状态（在 render 后更新，下一帧生效）
   useEffect(() => {
+    if (!windowed) {
+      setHasMoreAbove(false);
+      setHasMoreBelow(false);
+      return;
+    }
     setHasMoreAbove(windowed.hasMoreAbove);
     setHasMoreBelow(windowed.hasMoreBelow);
-  }, [windowed.hasMoreAbove, windowed.hasMoreBelow]);
+  }, [windowed?.hasMoreAbove, windowed?.hasMoreBelow]);
 
   useEffect(() => {
-    if (!onScrollBounds || viewportRows === undefined) {
+    if (!onScrollBounds || !windowed || viewportRows === undefined) {
       return;
     }
     onScrollBounds({
       maxScrollOffset: windowed.maxScrollOffset,
       totalRows: windowed.totalRows
     });
-  }, [onScrollBounds, viewportRows, windowed.maxScrollOffset, windowed.totalRows]);
+  }, [
+    onScrollBounds,
+    viewportRows,
+    windowed?.maxScrollOffset,
+    windowed?.totalRows
+  ]);
+
+  // 非全屏：文档流 MessageLine（测试 / 无 TTY 尺寸）
+  if (viewportRows === undefined || !windowed) {
+    const capped =
+      messages.length > 80 ? messages.slice(messages.length - 80) : messages;
+    return (
+      <Box flexDirection="column">
+        {tip ? (
+          <Box marginBottom={1}>
+            <Text dimColor>tip · {tip}</Text>
+          </Box>
+        ) : null}
+        {messages.length > capped.length ? (
+          <Text dimColor> ↑ 更早消息已省略</Text>
+        ) : null}
+        {capped.map((message) => (
+          <MessageLine
+            key={message.id}
+            message={message}
+            streaming={streamingMessageId === message.id}
+          />
+        ))}
+      </Box>
+    );
+  }
 
   const body = (
     <Box flexDirection="column">
@@ -87,11 +138,13 @@ export function MessageViewport({
       {windowed.hasMoreAbove ? (
         <Text dimColor> ↑ 更早消息 · 滚轮/触摸板 或 PgUp</Text>
       ) : null}
-      {windowed.messages.map((message) => (
-        <MessageLine
-          key={message.id}
-          message={message}
-          streaming={streamingMessageId === message.id}
+      {windowed.items.map((item, index) => (
+        <PaintItemView
+          key={item.key}
+          item={item}
+          streamingMessageId={streamingMessageId}
+          cursor={cursor}
+          isLastVisible={index === windowed.items.length - 1}
         />
       ))}
       {windowed.hasMoreBelow ? (
@@ -99,10 +152,6 @@ export function MessageViewport({
       ) : null}
     </Box>
   );
-
-  if (viewportRows === undefined) {
-    return body;
-  }
 
   return (
     <Box
@@ -114,4 +163,58 @@ export function MessageViewport({
       {body}
     </Box>
   );
+}
+
+function PaintItemView({
+  item,
+  streamingMessageId,
+  cursor,
+  isLastVisible
+}: {
+  item: PaintItem;
+  streamingMessageId?: number;
+  cursor: string;
+  isLastVisible: boolean;
+}) {
+  if (item.kind === 'tool') {
+    return (
+      <MessageLine
+        message={item.message}
+        streaming={streamingMessageId === item.message.id}
+      />
+    );
+  }
+
+  const showCursor =
+    isLastVisible &&
+    streamingMessageId !== undefined &&
+    // 流式消息最后一行：key 含 agent-{id}
+    item.key.includes(`agent-${streamingMessageId}-`);
+
+  return (
+    <Text>
+      {item.segments.map((seg, i) => (
+        <Text key={i} {...segmentProps(seg)}>
+          {seg.text}
+        </Text>
+      ))}
+      {showCursor ? <Text color={theme.brand}>{cursor}</Text> : null}
+    </Text>
+  );
+}
+
+function segmentProps(seg: PaintSegment): {
+  bold?: boolean;
+  italic?: boolean;
+  dimColor?: boolean;
+  color?: string;
+  inverse?: boolean;
+} {
+  return {
+    bold: seg.bold,
+    italic: seg.italic,
+    dimColor: seg.dim,
+    color: seg.color,
+    inverse: seg.inverse
+  };
 }
