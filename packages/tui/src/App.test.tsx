@@ -270,7 +270,8 @@ describe('App', () => {
     await waitUntil(() => lastFrame()?.includes('run: run-ui-diff') === true);
     expect(lastFrame()).toContain('git status');
     expect(lastFrame()).toContain('M README.md');
-    expect(lastFrame()).toContain('suggested verify');
+    // hard-wrap may split "suggested verify" across rows with rail; match loosely
+    expect(lastFrame()).toMatch(/suggested[\s\S]*verify/);
   });
 
   it('surfaces slash async failures instead of silent unhandled rejection', async () => {
