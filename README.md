@@ -114,13 +114,14 @@ npm run dev
 
 TUI 命令：
 
-- **`ctrl+p` / `/settings` / `/model`**：打开模型与思考强度面板（方向键选择，Enter 应用，Esc 关闭）  
-- `/model list` — 列出 provider 与 env 是否已配置  
-- `/model <modelId>` / `/model <provider> <model>` — 命令行切换（可选）  
-- `/think` — 命令行切换思考强度（可选；也可用面板）  
-- 输入框右下角展示：`model (effort)`，例如 `claude-sonnet-4-5 (medium)`  
+- **`ctrl+p` / `/settings` / 单独 `/model`**：打开模型与思考强度面板  
+- `/model list` — 列出 provider  
+- `/model <modelId>` / `/model <provider> <model>` — 切模型  
+- `/model off|minimal|low|medium|high|xhigh|cycle` — 切思考强度  
+- 右下角：`model (effort)`，例如 `claude-sonnet-4-5 (medium)`  
 
-环境变量：`AGENT_THINKING_EFFORT`（或 `KROSS_THINKING_EFFORT`）可设默认思考强度。
+模型配置优先序：完整 `AGENT_LLM_*` 环境变量 → `~/.kross/config.json`（`/import`）。  
+不完整的 env **不会**覆盖或挡住已导入的配置；写盘时若会导致丢失密钥会拒绝写入。
 
 导入规则：
 

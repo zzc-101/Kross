@@ -10,6 +10,8 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 
 import { createLlmClient } from '../llm/createLlmClient';
+import { isLlmProvider } from '../llm/llmProviders';
+import { isUsableLlmConfig } from '../llm/resolveCredentials';
 import type { ThinkingEffort } from '../llm/thinkingEffort';
 import type { LlmClient, LlmFetch, LlmProvider } from '../llm/types';
 
@@ -186,7 +188,7 @@ export function createLlmClientFromKrossConfig(
   fetch?: LlmFetch
 ): LlmClient | undefined {
   const llm = config?.llm;
-  if (!isUsableImportedLlmConfig(llm)) {
+  if (!isUsableImportedLlmConfig(llm) || !isLlmProvider(llm.provider)) {
     return undefined;
   }
 
@@ -220,10 +222,10 @@ export function createLlmClientFromKrossConfig(
 /**
  * Persist active provider/model into ~/.kross/config.json.
  *
- * Credential fields (`apiKey` / `authToken` / `baseUrl` / …) only overwrite when
- * the patch provides a non-empty value. Same-provider updates keep existing
- * secrets when env-derived fields are absent — avoids wiping import-saved keys
- * on `/model <id>` switches.
+ * Credential fields only overwrite when the patch provides a non-empty value.
+ * Same-provider updates keep existing secrets. Refuses to write a config that
+ * would become unusable (no secrets), so import-saved keys cannot be wiped by
+ * env-less /model or settings-panel applies.
  */
 export function updateKrossLlmConfig(
   patch: Partial<ImportedLlmConfig> &
@@ -233,9 +235,17 @@ export function updateKrossLlmConfig(
   const configPath = resolveKrossConfigPath(options);
   const existingFile = loadKrossConfig(options);
   const existing = existingFile?.llm;
+  const merged = mergeLlmConfigPatch(existing, patch);
+
+  if (!isUsableLlmConfig(merged)) {
+    throw new Error(
+      '拒绝写入无密钥的模型配置（会覆盖已有凭证）。请保留 env 密钥或重新 /import。'
+    );
+  }
+
   const config: KrossConfig = {
     ...existingFile,
-    llm: mergeLlmConfigPatch(existing, patch)
+    llm: merged
   };
   writeKrossConfig(configPath, config);
   return { configPath, config };
@@ -252,6 +262,8 @@ export function mergeLlmConfigPatch(
     model: patch.model
   };
 
+  // Prefer patch secrets; otherwise keep existing secrets when same provider.
+  // When provider changes, only patch secrets apply (do not leak foreign keys).
   const apiKey = firstNonEmpty(
     patch.apiKey,
     sameProvider ? existing?.apiKey : undefined
@@ -560,13 +572,7 @@ function resolveClaudeCodeModelAlias(
 function isUsableImportedLlmConfig(
   config: ImportedLlmConfig | undefined
 ): config is ImportedLlmConfig {
-  if (!config?.model || !config.provider) {
-    return false;
-  }
-  if (config.provider === 'anthropic') {
-    return Boolean(config.apiKey || config.authToken);
-  }
-  return Boolean(config.apiKey);
+  return isUsableLlmConfig(config) && isLlmProvider(config.provider);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

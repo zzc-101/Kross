@@ -129,4 +129,21 @@ describe('createLlmClient', () => {
       })
     ).toThrow(/未知 AGENT_LLM_PROVIDER/);
   });
+
+  it('returns undefined for incomplete env so kross config can take over', () => {
+    expect(
+      createLlmClientFromEnv({
+        AGENT_LLM_PROVIDER: 'openai',
+        OPENAI_API_KEY: 'key'
+        // missing OPENAI_MODEL
+      })
+    ).toBeUndefined();
+
+    expect(
+      createLlmClientFromEnv({
+        AGENT_LLM_PROVIDER: 'anthropic'
+        // missing key and model
+      })
+    ).toBeUndefined();
+  });
 });

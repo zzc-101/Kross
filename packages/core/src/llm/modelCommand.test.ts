@@ -37,7 +37,7 @@ describe('handleModelCommand', () => {
     expect(client.model).toBe('gpt-b');
     if (result.kind === 'set-model') {
       expect(result.model).toBe('gpt-b');
-      expect(result.text).toContain('openai/gpt-b');
+      expect(result.text).toContain('gpt-b (medium)');
     }
   });
 
@@ -67,14 +67,55 @@ describe('handleModelCommand', () => {
       expect(result.text).toMatch(/密钥|XAI/i);
     }
   });
+
+  it('sets thinking effort via /model <effort>', () => {
+    const current = new StubClient();
+    current.thinkingEffort = 'medium';
+    const result = handleModelCommand('high', current, {});
+    expect(result.kind).toBe('set-effort');
+    expect(current.thinkingEffort).toBe('high');
+  });
+
+  it('cycles thinking effort via /model cycle', () => {
+    const current = new StubClient();
+    current.thinkingEffort = 'high';
+    const result = handleModelCommand('cycle', current, {});
+    expect(result.kind).toBe('set-effort');
+    if (result.kind === 'set-effort') {
+      expect(result.effort).toBe('xhigh');
+    }
+  });
+
+  it('uses saved kross credentials when env lacks keys', () => {
+    const result = handleModelCommand(
+      'anthropic claude-test',
+      undefined,
+      {},
+      {
+        provider: 'anthropic',
+        authToken: 'saved-token',
+        model: 'claude-old'
+      }
+    );
+    expect(result.kind).toBe('replace-client');
+    if (result.kind === 'replace-client') {
+      expect(result.provider).toBe('anthropic');
+      expect(result.model).toBe('claude-test');
+    }
+  });
 });
 
 class StubClient implements LlmClient {
   readonly provider = 'openai' as const;
   model = 'stub';
+  thinkingEffort: import('./thinkingEffort').ThinkingEffort = 'medium';
 
   setModel(model: string): void {
     this.model = model;
+  }
+
+  setThinkingEffort(effort: import('./thinkingEffort').ThinkingEffort): void {
+    this.thinkingEffort = effort;
   }
 
   async complete(_request: LlmRequest): Promise<LlmResponse> {

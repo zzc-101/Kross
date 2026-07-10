@@ -4,6 +4,7 @@ import { Box, useInput } from 'ink';
 import {
   AgentRuntime,
   getLlmProviderDefinition,
+  loadKrossConfig,
   nextPermissionMode,
   ObservableTraceStore,
   updateKrossLlmConfig,
@@ -591,7 +592,9 @@ export function App({
   );
 
   const openModelSettings = useCallback(() => {
-    setModelSettings(createModelSettingsState(agentRuntime, process.env));
+    setModelSettings(
+      createModelSettingsState(agentRuntime, process.env, loadKrossConfig()?.llm)
+    );
   }, [agentRuntime]);
 
   const closeModelSettings = useCallback(() => {
@@ -602,7 +605,12 @@ export function App({
     if (!modelSettings) {
       return;
     }
-    const result = applyModelSettings(agentRuntime, modelSettings, process.env);
+    const result = applyModelSettings(
+      agentRuntime,
+      modelSettings,
+      process.env,
+      loadKrossConfig()?.llm
+    );
     if (!result.ok) {
       append('system', result.message);
       return;
@@ -613,19 +621,27 @@ export function App({
       try {
         const def = getLlmProviderDefinition(client.provider);
         const env = process.env;
+        const apiKey = def.apiKeyEnv
+          .map((key) => env[key]?.trim())
+          .find(Boolean);
+        const authToken = def.authTokenEnv
+          ?.map((key) => env[key]?.trim())
+          .find(Boolean);
+        const baseUrl = def.baseUrlEnv
+          ? env[def.baseUrlEnv]?.trim()
+          : undefined;
         updateKrossLlmConfig({
           provider: client.provider,
           model: client.model,
-          apiKey: def.apiKeyEnv.map((key) => env[key]?.trim()).find(Boolean),
-          authToken:
-            client.provider === 'anthropic'
-              ? def.authTokenEnv?.map((key) => env[key]?.trim()).find(Boolean)
-              : undefined,
-          baseUrl: def.baseUrlEnv ? env[def.baseUrlEnv]?.trim() : undefined,
+          ...(apiKey ? { apiKey } : {}),
+          ...(client.provider === 'anthropic' && authToken
+            ? { authToken }
+            : {}),
+          ...(baseUrl ? { baseUrl } : {}),
           thinkingEffort: agentRuntime.getThinkingEffort()
         });
       } catch {
-        // best-effort
+        // best-effort — refuse-to-wipe is intentional
       }
     }
 

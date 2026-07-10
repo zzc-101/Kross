@@ -113,7 +113,7 @@ describe('App', () => {
     expect(lastFrame()).toContain('gpt-switched (medium)');
     expect(runtime.getModelLabel()).toBe('gpt-switched (medium)');
 
-    await submit?.('/think high');
+    await submit?.('/model high');
     await waitUntil(() => lastFrame()?.includes('gpt-switched (high)') === true);
     expect(runtime.getModelLabel()).toBe('gpt-switched (high)');
     expect(runtime.getThinkingEffort()).toBe('high');

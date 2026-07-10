@@ -396,6 +396,39 @@ describe('config import', () => {
     }
   });
 
+  it('updateKrossLlmConfig refuses to write unusable config without secrets', () => {
+    const homeDir = createTempHome();
+    try {
+      mkdirSync(join(homeDir, '.kross'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.kross/config.json'),
+        JSON.stringify({
+          llm: {
+            provider: 'anthropic',
+            authToken: 'secret-token',
+            model: 'claude-a'
+          }
+        })
+      );
+
+      expect(() =>
+        updateKrossLlmConfig(
+          { provider: 'openai', model: 'gpt-b' },
+          { homeDir }
+        )
+      ).toThrow(/拒绝写入无密钥/);
+
+      // original credentials untouched
+      expect(loadKrossConfig({ homeDir })?.llm).toEqual({
+        provider: 'anthropic',
+        authToken: 'secret-token',
+        model: 'claude-a'
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('offers a two-choice prompt when both Claude Code and Codex are importable', () => {
     const homeDir = createTempHome();
     try {

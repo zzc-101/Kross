@@ -3,12 +3,19 @@ import {
   formatProvidersStatus
 } from './createLlmClient';
 import {
-  formatProviderModelLabel,
   getLlmProviderDefinition,
   isLlmProvider,
   type LlmProvider
 } from './llmProviders';
+import {
+  cycleThinkingEffort,
+  formatModelEffortLabel,
+  formatThinkingEffortHelp,
+  parseThinkingEffort,
+  type ThinkingEffort
+} from './thinkingEffort';
 import type { LlmClient } from './types';
+import type { ImportedLlmConfig } from '../config/configImport';
 
 export type ModelCommandResult =
   | { kind: 'message'; text: string }
@@ -19,6 +26,13 @@ export type ModelCommandResult =
       provider: LlmProvider;
     }
   | {
+      kind: 'set-effort';
+      effort: ThinkingEffort;
+      text: string;
+      provider: LlmProvider;
+      model: string;
+    }
+  | {
       kind: 'replace-client';
       client: LlmClient;
       text: string;
@@ -27,16 +41,18 @@ export type ModelCommandResult =
     };
 
 /**
- * Parse `/model` arguments.
- * - (empty) current status
- * - list | providers
- * - <modelId>
+ * Unified `/model` command:
+ * - (empty|status) current status
+ * - list|providers
+ * - off|minimal|low|medium|high|xhigh|cycle  thinking effort
  * - <provider> <modelId>
+ * - <modelId>
  */
 export function handleModelCommand(
   argument: string | undefined,
   current: LlmClient | undefined,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  saved?: ImportedLlmConfig
 ): ModelCommandResult {
   const trimmed = argument?.trim() ?? '';
 
@@ -54,9 +70,28 @@ export function handleModelCommand(
         env,
         current
           ? { provider: current.provider, model: current.model }
-          : undefined
+          : undefined,
+        saved
       )
     };
+  }
+
+  if (trimmed === 'think' || trimmed === 'effort') {
+    return {
+      kind: 'message',
+      text: formatThinkingEffortHelp(current?.thinkingEffort)
+    };
+  }
+
+  // /model cycle | next — cycle thinking effort
+  if (trimmed === 'cycle' || trimmed === 'next') {
+    return applyEffort(current, (effort) => cycleThinkingEffort(effort));
+  }
+
+  // /model off|minimal|low|medium|high|xhigh
+  const effort = parseThinkingEffort(trimmed);
+  if (effort) {
+    return applyEffort(current, () => effort);
   }
 
   const parts = trimmed.split(/\s+/).filter(Boolean);
@@ -64,16 +99,21 @@ export function handleModelCommand(
     const provider = parts[0];
     const model = parts.slice(1).join(' ');
     try {
-      const client = createLlmClientForProvider(provider, model, env);
+      const client = createLlmClientForProvider(
+        provider,
+        model,
+        env,
+        undefined,
+        saved
+      );
       return {
         kind: 'replace-client',
         client,
         provider,
         model: client.model ?? model,
         text: [
-          `已切换到 ${formatProviderModelLabel(provider, client.model ?? model)}`,
-          `backend: pi（默认）或 AGENT_LLM_BACKEND`,
-          `密钥来源: env ${getLlmProviderDefinition(provider).apiKeyEnv.join('/')}`
+          `已切换到 ${formatModelEffortLabel(client.model ?? model, client.thinkingEffort)}`,
+          `provider: ${provider}`
         ].join('\n')
       };
     } catch (error) {
@@ -100,8 +140,8 @@ export function handleModelCommand(
       kind: 'message',
       text: [
         '当前未配置 LLM。',
-        '请先设置 AGENT_LLM_PROVIDER 与对应密钥/模型，或 /import 导入配置。',
-        '也可用 /model <provider> <model> 在 env 已有密钥时切换。'
+        '请先 /import 导入配置，或设置 AGENT_LLM_PROVIDER 与密钥/模型。',
+        '也可用 ctrl+p 打开设置面板。'
       ].join('\n')
     };
   }
@@ -119,7 +159,42 @@ export function handleModelCommand(
       kind: 'set-model',
       model: modelId,
       provider: current.provider,
-      text: `已切换模型为 ${formatProviderModelLabel(current.provider, modelId)}`
+      text: `已切换模型为 ${formatModelEffortLabel(modelId, current.thinkingEffort)}`
+    };
+  } catch (error) {
+    return {
+      kind: 'message',
+      text: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function applyEffort(
+  current: LlmClient | undefined,
+  next: (current: ThinkingEffort) => ThinkingEffort
+): ModelCommandResult {
+  if (!current?.model) {
+    return {
+      kind: 'message',
+      text: '当前未配置模型，无法切换思考强度。'
+    };
+  }
+  if (!current.setThinkingEffort) {
+    return {
+      kind: 'message',
+      text: '当前 LLM 客户端不支持切换思考强度。'
+    };
+  }
+
+  const effort = next(current.thinkingEffort ?? 'medium');
+  try {
+    current.setThinkingEffort(effort);
+    return {
+      kind: 'set-effort',
+      effort,
+      provider: current.provider,
+      model: current.model,
+      text: `思考强度 → ${effort} · ${formatModelEffortLabel(current.model, effort)}`
     };
   } catch (error) {
     return {
@@ -133,15 +208,16 @@ function formatCurrentModel(current: LlmClient | undefined): string {
   if (!current?.model) {
     return [
       '当前: no model',
-      '用法：/model list | /model <modelId> | /model <provider> <modelId>'
+      '用法：ctrl+p 打开面板 · /model list · /model <id> · /model <effort>'
     ].join('\n');
   }
 
   return [
-    `当前: ${formatProviderModelLabel(current.provider, current.model)}`,
+    `当前: ${formatModelEffortLabel(current.model, current.thinkingEffort)}`,
     `provider: ${current.provider}`,
     `model: ${current.model}`,
+    `thinking: ${current.thinkingEffort ?? 'medium'}`,
     '',
-    '用法：/model list | /model <modelId> | /model <provider> <modelId>'
+    '用法：ctrl+p · /model list · /model <modelId> · /model <provider> <model> · /model <effort>|cycle'
   ].join('\n');
 }

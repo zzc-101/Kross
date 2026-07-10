@@ -8,6 +8,7 @@ export * from './llm/modelCommand';
 export * from './llm/openAiProtocolClient';
 export * from './llm/piAiConvert';
 export * from './llm/piAiLlmClient';
+export * from './llm/resolveCredentials';
 export * from './llm/thinkingEffort';
 export * from './llm/types';
 export * from './llm/modelContextWindows';

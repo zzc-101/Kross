@@ -1,9 +1,8 @@
 import {
-  formatThinkingEffortHelp,
   getLlmProviderDefinition,
   handleModelCommand,
   isPermissionMode,
-  parseThinkingEffort,
+  loadKrossConfig,
   updateKrossLlmConfig,
   type AgentMode,
   type AgentRuntime,
@@ -58,19 +57,27 @@ export function handleCommand(
   if (value === '/model' || value.startsWith('/model ')) {
     const argument =
       value === '/model' ? undefined : value.slice('/model'.length).trim();
+    const saved = loadKrossConfig()?.llm;
     const result = handleModelCommand(
       argument,
       runtime.getLlmClient(),
-      process.env
+      process.env,
+      saved
     );
 
     if (result.kind === 'set-model') {
-      // handleModelCommand already applied setModel on the live client.
-      persistModelPreference(result.provider, result.model, runtime.getThinkingEffort());
+      persistModelPreference(
+        result.provider,
+        result.model,
+        runtime.getThinkingEffort()
+      );
+    }
+
+    if (result.kind === 'set-effort') {
+      persistModelPreference(result.provider, result.model, result.effort);
     }
 
     if (result.kind === 'replace-client') {
-      // Preserve session thinking effort across provider switches.
       const effort = runtime.getThinkingEffort();
       if (result.client.setThinkingEffort) {
         result.client.setThinkingEffort(effort);
@@ -80,16 +87,6 @@ export function handleCommand(
     }
 
     append('agent', result.text, { expanded: true });
-    return true;
-  }
-
-  if (
-    value === '/think' ||
-    value.startsWith('/think ') ||
-    value === '/effort' ||
-    value.startsWith('/effort ')
-  ) {
-    handleThinkCommand(value, runtime, append);
     return true;
   }
 
@@ -299,69 +296,6 @@ function formatImportUsage(prompt: ConfigImportPrompt | undefined): string {
   return `用法：${commands} | /import skip`;
 }
 
-function handleThinkCommand(
-  value: string,
-  runtime: AgentRuntime,
-  append: AppendMessage
-): void {
-  const prefix = value.startsWith('/effort') ? '/effort' : '/think';
-  const argument = value === prefix ? '' : value.slice(prefix.length).trim();
-
-  if (!argument) {
-    append('agent', formatThinkingEffortHelp(runtime.getThinkingEffort()), {
-      expanded: true
-    });
-    return;
-  }
-
-  if (argument === 'cycle' || argument === 'next') {
-    try {
-      const next = runtime.cycleThinkingEffort();
-      persistThinkingEffort(runtime, next);
-      append(
-        'system',
-        `思考强度 → ${next} · 状态栏: ${runtime.getModelLabel()}`
-      );
-    } catch (error) {
-      append(
-        'agent',
-        error instanceof Error ? error.message : String(error)
-      );
-    }
-    return;
-  }
-
-  const effort = parseThinkingEffort(argument);
-  if (!effort) {
-    append('agent', formatThinkingEffortHelp(runtime.getThinkingEffort()), {
-      expanded: true
-    });
-    return;
-  }
-
-  try {
-    runtime.setThinkingEffort(effort);
-    persistThinkingEffort(runtime, effort);
-    append(
-      'system',
-      `思考强度 → ${effort} · 状态栏: ${runtime.getModelLabel()}`
-    );
-  } catch (error) {
-    append('agent', error instanceof Error ? error.message : String(error));
-  }
-}
-
-function persistThinkingEffort(
-  runtime: AgentRuntime,
-  effort: ThinkingEffort
-): void {
-  const client = runtime.getLlmClient();
-  if (!client?.model) {
-    return;
-  }
-  persistModelPreference(client.provider, client.model, effort);
-}
-
 function persistModelPreference(
   provider: import('@kross/core').LlmProvider,
   model: string,
@@ -370,6 +304,9 @@ function persistModelPreference(
   try {
     const def = getLlmProviderDefinition(provider);
     const env = process.env;
+    // Only pass secrets when present in env — never send undefined and rely
+    // on merge to keep import-saved keys (updateKrossLlmConfig also refuses
+    // to write unusable configs).
     const apiKey = def.apiKeyEnv.map((key) => env[key]?.trim()).find(Boolean);
     const authToken = def.authTokenEnv
       ?.map((key) => env[key]?.trim())
@@ -379,15 +316,16 @@ function persistModelPreference(
     updateKrossLlmConfig({
       provider,
       model,
-      apiKey,
-      authToken: provider === 'anthropic' ? authToken : undefined,
-      baseUrl,
-      anthropicVersion:
-        provider === 'anthropic' ? env.ANTHROPIC_VERSION : undefined,
-      thinkingEffort
+      ...(apiKey ? { apiKey } : {}),
+      ...(provider === 'anthropic' && authToken ? { authToken } : {}),
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(provider === 'anthropic' && env.ANTHROPIC_VERSION
+        ? { anthropicVersion: env.ANTHROPIC_VERSION }
+        : {}),
+      ...(thinkingEffort ? { thinkingEffort } : {})
     });
   } catch {
-    // persistence is best-effort
+    // best-effort: refuse-to-wipe errors are swallowed so the session still works
   }
 }
 

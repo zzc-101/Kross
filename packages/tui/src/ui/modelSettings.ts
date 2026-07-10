@@ -2,9 +2,12 @@ import {
   createLlmClientForProvider,
   formatModelEffortLabel,
   getLlmProviderDefinition,
+  isUsableLlmConfig,
   listProvidersFromEnv,
+  loadKrossConfig,
   THINKING_EFFORT_LEVELS,
   type AgentRuntime,
+  type ImportedLlmConfig,
   type LlmClient,
   type LlmProvider,
   type ThinkingEffort
@@ -56,7 +59,8 @@ export function buildEffortOptions(
  */
 export function buildModelOptions(
   client: LlmClient | undefined,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  saved?: ImportedLlmConfig
 ): { options: ModelOption[]; index: number } {
   const currentProvider = client?.provider;
   const currentModel = client?.model?.trim() || '';
@@ -76,6 +80,7 @@ export function buildModelOptions(
     });
   }
 
+  // env-configured providers
   for (const row of listProvidersFromEnv(env)) {
     if (!row.configured || !row.model) {
       continue;
@@ -95,10 +100,26 @@ export function buildModelOptions(
     });
   }
 
-  // Always surface unconfigured providers as info-only placeholders so users
-  // know what can be set up — but mark unconfigured so apply skips them.
+  // kross-saved provider (import) when env lacks keys
+  if (saved && isUsableLlmConfig(saved)) {
+    const key = `${saved.provider}::${saved.model}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      rows.push({
+        id: key,
+        provider: saved.provider,
+        model: saved.model,
+        label: `${saved.model} · ${saved.provider} (saved)`,
+        configured: true,
+        current: false
+      });
+    }
+  }
+
   for (const row of listProvidersFromEnv(env)) {
-    if (row.configured) {
+    const savedCovers =
+      saved && isUsableLlmConfig(saved) && saved.provider === row.provider;
+    if (row.configured || savedCovers) {
       continue;
     }
     const def = getLlmProviderDefinition(row.provider);
@@ -124,10 +145,15 @@ export function buildModelOptions(
 
 export function createModelSettingsState(
   runtime: AgentRuntime,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  saved?: ImportedLlmConfig
 ): ModelSettingsState {
   const effort = buildEffortOptions(runtime.getThinkingEffort());
-  const models = buildModelOptions(runtime.getLlmClient(), env);
+  const models = buildModelOptions(
+    runtime.getLlmClient(),
+    env,
+    saved ?? loadKrossConfig()?.llm
+  );
   return {
     section: 'effort',
     effortIndex: effort.index,
@@ -195,16 +221,17 @@ export type ApplySettingsResult =
 export function applyModelSettings(
   runtime: AgentRuntime,
   state: ModelSettingsState,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  saved?: ImportedLlmConfig
 ): ApplySettingsResult {
   const effort = state.efforts[state.effortIndex]?.id;
   if (!effort) {
     return { ok: false, message: '未选择思考强度' };
   }
 
+  const savedLlm = saved ?? loadKrossConfig()?.llm;
   const modelOpt = state.models[state.modelIndex];
   if (!modelOpt) {
-    // Effort-only apply when no models available.
     try {
       runtime.setThinkingEffort(effort);
       return {
@@ -243,7 +270,9 @@ export function applyModelSettings(
       const client = createLlmClientForProvider(
         modelOpt.provider,
         modelOpt.model,
-        env
+        env,
+        undefined,
+        savedLlm
       );
       client.setThinkingEffort?.(effort);
       runtime.setLlmClient(client);

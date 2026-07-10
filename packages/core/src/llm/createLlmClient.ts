@@ -1,13 +1,17 @@
+import type { ImportedLlmConfig } from '../config/configImport';
 import { AnthropicProtocolClient } from './anthropicProtocolClient';
 import {
   getLlmProviderDefinition,
   isLlmProvider,
   listProvidersFromEnv,
-  resolveProviderCredentialsFromEnv,
   type LlmProvider
 } from './llmProviders';
 import { OpenAiProtocolClient } from './openAiProtocolClient';
 import { PiAiLlmClient } from './piAiLlmClient';
+import {
+  isUsableLlmConfig,
+  resolveProviderCredentials
+} from './resolveCredentials';
 import {
   DEFAULT_THINKING_EFFORT,
   parseThinkingEffort,
@@ -44,6 +48,11 @@ export function createLlmClient(
   return new PiAiLlmClient(config);
 }
 
+/**
+ * Build client from env when AGENT_LLM_PROVIDER is fully configured.
+ * Incomplete env (missing key/model) returns undefined so callers can fall
+ * back to ~/.kross/config.json — never throw on incomplete env at startup.
+ */
 export function createLlmClientFromEnv(
   env: Record<string, string | undefined>,
   fetch?: LlmFetch
@@ -59,36 +68,38 @@ export function createLlmClientFromEnv(
     );
   }
 
-  const credentials = resolveProviderCredentialsFromEnv(providerRaw, env);
+  const credentials = resolveProviderCredentials(providerRaw, env);
   if (!credentials) {
-    // Provider name set but empty — resolveProviderCredentialsFromEnv throws if partial.
-    // If completely empty it returns undefined; still require full config when provider is set.
-    const def = getLlmProviderDefinition(providerRaw);
-    throw new Error(
-      `${def.name} 未配置完整。需要密钥（${[...def.apiKeyEnv, ...(def.authTokenEnv ?? [])].join('/')}）和模型（${def.modelEnv.join('/')}）`
-    );
+    return undefined;
   }
 
   return createLlmClientFromCredentials(credentials, env, fetch);
 }
 
-/** Create a client for an explicit provider+model using env credentials. */
+/**
+ * Create a client for an explicit provider+model.
+ * Credentials: env first, then optional saved kross llm block for same provider.
+ */
 export function createLlmClientForProvider(
   provider: LlmProvider,
   model: string,
   env: Record<string, string | undefined>,
-  fetch?: LlmFetch
+  fetch?: LlmFetch,
+  saved?: ImportedLlmConfig
 ): LlmClient {
-  const credentials = resolveProviderCredentialsFromEnv(provider, env);
+  const credentials = resolveProviderCredentials(provider, env, saved);
   if (!credentials) {
     const def = getLlmProviderDefinition(provider);
     throw new Error(
-      `${def.name} 未配置密钥。请设置 ${[...def.apiKeyEnv, ...(def.authTokenEnv ?? [])].join(' 或 ')}`
+      `${def.name} 未配置密钥。请设置 ${[...def.apiKeyEnv, ...(def.authTokenEnv ?? [])].join(' 或 ')}，或先 /import 导入配置`
     );
   }
 
   return createLlmClientFromCredentials(
-    { ...credentials, model: model.trim() || credentials.model },
+    {
+      ...credentials,
+      model: model.trim() || credentials.model
+    },
     env,
     fetch
   );
@@ -96,9 +107,24 @@ export function createLlmClientForProvider(
 
 export function formatProvidersStatus(
   env: Record<string, string | undefined>,
-  current?: { provider: LlmProvider; model?: string }
+  current?: { provider: LlmProvider; model?: string },
+  saved?: ImportedLlmConfig
 ): string {
-  const rows = listProvidersFromEnv(env);
+  const rows = listProvidersFromEnv(env).map((row) => {
+    if (row.configured) {
+      return row;
+    }
+    // Surface kross-saved provider as configured when env lacks keys.
+    if (saved && isUsableLlmConfig(saved) && saved.provider === row.provider) {
+      return {
+        ...row,
+        configured: true,
+        model: saved.model
+      };
+    }
+    return row;
+  });
+
   const lines = [
     'Providers',
     ...rows.map((row) => {
@@ -112,10 +138,12 @@ export function formatProvidersStatus(
     }),
     '',
     '用法：',
-    '  /model                     查看当前模型',
-    '  /model list                列出 provider',
-    '  /model <modelId>           切换当前 provider 的模型',
-    '  /model <provider> <model>  切换 provider + 模型（需对应 env 密钥）'
+    '  /model                         打开设置面板（或 ctrl+p）',
+    '  /model list                    列出 provider',
+    '  /model <modelId>               切换当前 provider 的模型',
+    '  /model <provider> <model>      切换 provider + 模型',
+    '  /model off|minimal|…|xhigh     切换思考强度',
+    '  /model cycle                   循环思考强度'
   ];
   return lines.join('\n');
 }
@@ -183,7 +211,6 @@ function resolveBackend(
     }
     return explicit;
   }
-  // Injectable fetch is only supported by the native HTTP clients.
   if (fetch) {
     return 'native';
   }

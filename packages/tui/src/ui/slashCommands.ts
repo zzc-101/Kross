@@ -20,13 +20,8 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     name: '/model',
-    description: '打开设置面板；或 /model list|<id>|<provider> <id>',
-    usage: '/model [list|<model>|<provider> <model>]'
-  },
-  {
-    name: '/think',
-    description: '查看/切换思考强度（也可用设置面板）',
-    usage: '/think [off|minimal|low|medium|high|xhigh|cycle]'
+    description: '面板 / 切模型 / 切思考强度',
+    usage: '/model [list|<model>|<provider> <model>|<effort>|cycle]'
   },
   {
     name: '/context',
