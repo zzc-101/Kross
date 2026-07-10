@@ -14,6 +14,11 @@ export const slashCommands: SlashCommand[] = [
     description: '查看当前运行状态'
   },
   {
+    name: '/model',
+    description: '查看/切换 LLM provider 与模型',
+    usage: '/model [list|<model>|<provider> <model>]'
+  },
+  {
     name: '/context',
     description: '查看当前会话上下文占用'
   },

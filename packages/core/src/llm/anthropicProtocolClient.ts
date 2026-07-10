@@ -59,16 +59,28 @@ interface StreamingToolUseAccumulator {
 
 export class AnthropicProtocolClient implements LlmClient {
   readonly provider = 'anthropic' as const;
-  readonly model: string;
+  private _model: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
   private readonly anthropicVersion: string;
 
   constructor(private readonly config: AnthropicProtocolClientConfig) {
-    this.model = config.model;
+    this._model = config.model;
     this.baseUrl = config.baseUrl ?? 'https://api.anthropic.com/v1';
     this.fetchImpl = config.fetch ?? defaultFetch();
     this.anthropicVersion = config.anthropicVersion ?? '2023-06-01';
+  }
+
+  get model(): string {
+    return this._model;
+  }
+
+  setModel(model: string): void {
+    const next = model.trim();
+    if (!next) {
+      throw new Error('model 不能为空');
+    }
+    this._model = next;
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
@@ -86,7 +98,7 @@ export class AnthropicProtocolClient implements LlmClient {
     const thinking = extractAnthropicThinking(raw);
     return {
       provider: this.provider,
-      model: raw.model ?? request.model ?? this.config.model,
+      model: raw.model ?? request.model ?? this._model,
       text:
         raw.content
           ?.filter((item) => item.type === 'text')
@@ -222,7 +234,7 @@ export class AnthropicProtocolClient implements LlmClient {
 
     // Anthropic 要求必填 max_tokens；未指定时用大上限，不人为截断正常长回复
     const body: Record<string, unknown> = {
-      model: request.model ?? this.config.model,
+      model: request.model ?? this._model,
       system,
       messages,
       max_tokens: request.maxTokens ?? 32_768,

@@ -188,25 +188,48 @@ export function createLlmClientFromKrossConfig(
     return undefined;
   }
 
-  if (llm.provider === 'openai') {
+  if (llm.provider === 'anthropic') {
     return createLlmClient({
-      provider: llm.provider,
+      provider: 'anthropic',
       apiKey: llm.apiKey,
+      authToken: llm.authToken,
       model: llm.model,
       baseUrl: llm.baseUrl,
+      anthropicVersion: llm.anthropicVersion,
       fetch
     });
+  }
+
+  if (!llm.apiKey) {
+    return undefined;
   }
 
   return createLlmClient({
     provider: llm.provider,
     apiKey: llm.apiKey,
-    authToken: llm.authToken,
     model: llm.model,
     baseUrl: llm.baseUrl,
-    anthropicVersion: llm.anthropicVersion,
     fetch
   });
+}
+
+/** Persist active provider/model (and optional credentials) into ~/.kross/config.json. */
+export function updateKrossLlmConfig(
+  patch: Partial<ImportedLlmConfig> &
+    Pick<ImportedLlmConfig, 'provider' | 'model'>,
+  options: ConfigPersistenceOptions = {}
+): { configPath: string; config: KrossConfig } {
+  const configPath = resolveKrossConfigPath(options);
+  const existing = loadKrossConfig(options);
+  const config: KrossConfig = {
+    ...existing,
+    llm: {
+      ...existing?.llm,
+      ...patch
+    }
+  };
+  writeKrossConfig(configPath, config);
+  return { configPath, config };
 }
 
 export function resolveKrossConfigPath(
@@ -463,14 +486,14 @@ function resolveClaudeCodeModelAlias(
 
 function isUsableImportedLlmConfig(
   config: ImportedLlmConfig | undefined
-): config is ImportedLlmConfig & ({ provider: 'openai'; apiKey: string } | { provider: 'anthropic' }) {
-  if (!config?.model) {
+): config is ImportedLlmConfig {
+  if (!config?.model || !config.provider) {
     return false;
   }
-  if (config.provider === 'openai') {
-    return Boolean(config.apiKey);
+  if (config.provider === 'anthropic') {
+    return Boolean(config.apiKey || config.authToken);
   }
-  return Boolean(config.apiKey || config.authToken);
+  return Boolean(config.apiKey);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

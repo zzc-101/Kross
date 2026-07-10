@@ -63,15 +63,28 @@ interface StreamingToolCallAccumulator {
 }
 
 export class OpenAiProtocolClient implements LlmClient {
-  readonly provider = 'openai' as const;
-  readonly model: string;
+  readonly provider: 'openai' | 'openrouter' | 'deepseek' | 'xai';
+  private _model: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
 
   constructor(private readonly config: OpenAiProtocolClientConfig) {
-    this.model = config.model;
+    this.provider = config.provider ?? 'openai';
+    this._model = config.model;
     this.baseUrl = config.baseUrl ?? 'https://api.openai.com/v1';
     this.fetchImpl = config.fetch ?? defaultFetch();
+  }
+
+  get model(): string {
+    return this._model;
+  }
+
+  setModel(model: string): void {
+    const next = model.trim();
+    if (!next) {
+      throw new Error('model 不能为空');
+    }
+    this._model = next;
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
@@ -88,7 +101,7 @@ export class OpenAiProtocolClient implements LlmClient {
 
     return {
       provider: this.provider,
-      model: raw.model ?? request.model ?? this.config.model,
+      model: raw.model ?? request.model ?? this._model,
       text: message?.content ?? '',
       thinking: thinking || undefined,
       raw,
@@ -163,7 +176,7 @@ export class OpenAiProtocolClient implements LlmClient {
   private body(request: LlmRequest, stream: boolean): Record<string, unknown> {
     // 不主动传 max_tokens，避免 Runtime 人为截断长回复；调用方显式传入时才限制
     const body: Record<string, unknown> = {
-      model: request.model ?? this.config.model,
+      model: request.model ?? this._model,
       messages: request.messages.map(toOpenAiMessage),
       stream
     };

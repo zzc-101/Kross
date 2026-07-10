@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { OpenAiProtocolClient } from '@kross/core';
+import { OpenAiProtocolClient, PiAiLlmClient } from '@kross/core';
 import { createRuntimeOptionsFromEnv } from './createRuntime';
 
 describe('createRuntimeOptionsFromEnv', () => {
@@ -16,7 +16,7 @@ describe('createRuntimeOptionsFromEnv', () => {
     });
 
     expect(options.traceStore).toBeDefined();
-    expect(options.llmClient).toBeInstanceOf(OpenAiProtocolClient);
+    expect(options.llmClient).toBeInstanceOf(PiAiLlmClient);
   });
 
   it('omits LLM client when provider env is not configured', () => {

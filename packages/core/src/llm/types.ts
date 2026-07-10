@@ -1,14 +1,16 @@
 import { z } from 'zod';
 
-export const llmProviderSchema = z.enum(['openai', 'anthropic']);
-export type LlmProvider = z.infer<typeof llmProviderSchema>;
+import {
+  llmProviderSchema,
+  type LlmProvider
+} from './llmProviders';
+
+export { llmProviderSchema, type LlmProvider };
 
 export const llmRoleSchema = z.enum(['system', 'user', 'assistant', 'tool']);
 export type LlmRole = z.infer<typeof llmRoleSchema>;
 
-export type LlmMessage =
-  | LlmChatMessage
-  | LlmToolMessage;
+export type LlmMessage = LlmChatMessage | LlmToolMessage;
 
 export interface LlmChatMessage {
   role: Exclude<LlmRole, 'tool'>;
@@ -83,6 +85,8 @@ export interface LlmClient {
   readonly provider: LlmProvider;
   /** 当前默认模型名，供 TUI 状态栏展示。 */
   readonly model?: string;
+  /** 会话内切换模型 id（同 provider）。 */
+  setModel?(model: string): void;
   complete(request: LlmRequest): Promise<LlmResponse>;
   stream(request: LlmRequest): AsyncIterable<LlmStreamChunk>;
 }
@@ -97,10 +101,14 @@ export interface BaseLlmClientConfig {
   fetch?: LlmFetch;
 }
 
-export interface OpenAiProtocolClientConfig extends BaseLlmClientConfig {
-  provider?: 'openai';
+export interface OpenAiFamilyClientConfig extends BaseLlmClientConfig {
+  /** Defaults to openai when omitted (native client convenience). */
+  provider?: 'openai' | 'openrouter' | 'deepseek' | 'xai';
   apiKey: string;
 }
+
+/** @deprecated Use OpenAiFamilyClientConfig */
+export type OpenAiProtocolClientConfig = OpenAiFamilyClientConfig;
 
 export interface AnthropicProtocolClientConfig extends BaseLlmClientConfig {
   provider?: 'anthropic';
@@ -108,7 +116,9 @@ export interface AnthropicProtocolClientConfig extends BaseLlmClientConfig {
 }
 
 export type LlmClientConfig =
-  | (OpenAiProtocolClientConfig & { provider: 'openai' })
+  | (OpenAiFamilyClientConfig & {
+      provider: 'openai' | 'openrouter' | 'deepseek' | 'xai';
+    })
   | (AnthropicProtocolClientConfig & { provider: 'anthropic' });
 
 export class LlmProviderError extends Error {

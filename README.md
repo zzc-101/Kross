@@ -85,6 +85,10 @@ npm run dev
 
 默认不配置模型也能启动 TUI，会使用本地占位 planner。配置模型后，runtime 会在规划阶段调用 LLM，并把调用结果写入 trace。
 
+### 运行时要求
+
+- Node.js **>= 22.19**（`@earendil-works/pi-ai` 要求；仓库根目录有 `.nvmrc`）。
+
 ### 配置优先级
 
 模型配置优先级如下：
@@ -93,35 +97,58 @@ npm run dev
 2. Kross 配置：`~/.kross/config.json`，可由首次启动的 `/import` 命令生成。
 3. 未配置：TUI 仍可启动，但普通 agent 回复会提示缺少模型配置。
 
+协议层默认走 **`@earendil-works/pi-ai`**（`PiAiLlmClient`），保留 Kross 内部 `LlmClient` 接口不变。  
+可用 `AGENT_LLM_BACKEND=native` 强制回退到自研 HTTP 客户端（测试注入 `fetch` 时也会自动走 native）。
+
+#### 支持的 provider
+
+| `AGENT_LLM_PROVIDER` | 密钥 | 模型 | 默认 baseUrl |
+|---|---|---|---|
+| `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL` | `https://api.openai.com/v1` |
+| `anthropic` | `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN` | `ANTHROPIC_MODEL` | `https://api.anthropic.com` |
+| `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` | `https://openrouter.ai/api/v1` |
+| `deepseek` | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` | `https://api.deepseek.com` |
+| `xai` | `XAI_API_KEY` | `XAI_MODEL` | `https://api.x.ai/v1` |
+
+通用：`AGENT_LLM_MODEL` 可作为模型回退；各 provider 还支持 `*_BASE_URL` 覆盖。
+
+TUI 命令：
+
+- `/model` — 当前 provider/model  
+- `/model list` — 列出 provider 与 env 是否已配置  
+- `/model <modelId>` — 切换当前 provider 下的模型  
+- `/model <provider> <model>` — 切换 provider（需对应 env 密钥）
+
 导入规则：
 
 - Codex：读取 `~/.codex/config.toml`、`~/.codex/auth.json` 和 `OPENAI_*` 环境变量，保存 OpenAI-compatible 的 `baseUrl`、默认模型和 API key。
 - Claude Code：读取 `~/.claude/settings.json`、`~/.claude.json` 和 `ANTHROPIC_*` 环境变量，保存 Anthropic-compatible 的 `baseUrl`、默认模型和 API key。
 - 如果两者都可导入，TUI 会要求二选一。
 
-### OpenAI-compatible 协议
-
-适合 OpenAI 官方接口，也适合 OpenRouter、DeepSeek、私有 OpenAI-compatible 网关等。
+### OpenAI / OpenRouter / DeepSeek / xAI
 
 ```bash
 export AGENT_LLM_PROVIDER=openai
 export OPENAI_API_KEY=sk-...
 export OPENAI_MODEL=gpt-5
+# 可选：export OPENAI_BASE_URL=https://api.openai.com/v1
 
-# 可选，默认 https://api.openai.com/v1
-export OPENAI_BASE_URL=https://api.openai.com/v1
+# 或
+export AGENT_LLM_PROVIDER=openrouter
+export OPENROUTER_API_KEY=...
+export OPENROUTER_MODEL=anthropic/claude-sonnet-4
 
 npm run dev
 ```
 
-### Anthropic-compatible 协议
+### Anthropic
 
 ```bash
 export AGENT_LLM_PROVIDER=anthropic
 export ANTHROPIC_API_KEY=sk-ant-...
 export ANTHROPIC_MODEL=claude-sonnet-4-5
 
-# 可选，默认 https://api.anthropic.com/v1
+# 可选，默认 https://api.anthropic.com（可写 .../v1，会自动归一化）
 export ANTHROPIC_BASE_URL=https://api.anthropic.com/v1
 export ANTHROPIC_VERSION=2023-06-01
 

@@ -1,5 +1,8 @@
 import {
+  getLlmProviderDefinition,
+  handleModelCommand,
   isPermissionMode,
+  updateKrossLlmConfig,
   type AgentMode,
   type AgentRuntime,
   type ConfigImportController,
@@ -44,8 +47,31 @@ export function handleCommand(
   if (value === '/status') {
     append(
       'agent',
-      `当前运行在本地 TUI。mode=${mode} · perm=${runtime.getPermissionMode()}`
+      `当前运行在本地 TUI。mode=${mode} · perm=${runtime.getPermissionMode()} · model=${runtime.getModelLabel()}`
     );
+    return true;
+  }
+
+  if (value === '/model' || value.startsWith('/model ')) {
+    const argument =
+      value === '/model' ? undefined : value.slice('/model'.length).trim();
+    const result = handleModelCommand(
+      argument,
+      runtime.getLlmClient(),
+      process.env
+    );
+
+    if (result.kind === 'set-model') {
+      // handleModelCommand already applied setModel on the live client.
+      persistModelPreference(result.provider, result.model);
+    }
+
+    if (result.kind === 'replace-client') {
+      runtime.setLlmClient(result.client);
+      persistModelPreference(result.provider, result.model);
+    }
+
+    append('agent', result.text, { expanded: true });
     return true;
   }
 
@@ -253,6 +279,33 @@ function formatImportUsage(prompt: ConfigImportPrompt | undefined): string {
         .join(' | ')
     : '/import claude | /import codex';
   return `用法：${commands} | /import skip`;
+}
+
+function persistModelPreference(
+  provider: import('@kross/core').LlmProvider,
+  model: string
+): void {
+  try {
+    const def = getLlmProviderDefinition(provider);
+    const env = process.env;
+    const apiKey = def.apiKeyEnv.map((key) => env[key]?.trim()).find(Boolean);
+    const authToken = def.authTokenEnv
+      ?.map((key) => env[key]?.trim())
+      .find(Boolean);
+    const baseUrl = def.baseUrlEnv ? env[def.baseUrlEnv]?.trim() : undefined;
+
+    updateKrossLlmConfig({
+      provider,
+      model,
+      apiKey,
+      authToken: provider === 'anthropic' ? authToken : undefined,
+      baseUrl,
+      anthropicVersion:
+        provider === 'anthropic' ? env.ANTHROPIC_VERSION : undefined
+    });
+  } catch {
+    // persistence is best-effort
+  }
 }
 
 function formatContextInspection(snapshot: ContextInspection): string {

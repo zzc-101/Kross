@@ -77,6 +77,10 @@ export class RuntimeToolLoop {
 
   constructor(private readonly options: RuntimeToolLoopOptions) {}
 
+  setLlmClient(client: LlmClient | undefined): void {
+    this.options.llmClient = client;
+  }
+
   async resolveToolApproval(
     input: ResolveToolApprovalInput
   ): Promise<AgentResult> {

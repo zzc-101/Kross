@@ -11,7 +11,11 @@ describe('slashCommands', () => {
 
   it('filters by prefix', () => {
     expect(filterSlashCommands('/').map((command) => command.name)).toContain('/mode');
-    expect(filterSlashCommands('/mo').map((command) => command.name)).toEqual(['/mode']);
+    expect(filterSlashCommands('/mo').map((command) => command.name)).toEqual([
+      '/model',
+      '/mode'
+    ]);
+    expect(slashCommands.some((command) => command.name === '/model')).toBe(true);
     expect(filterSlashCommands('/perm').map((command) => command.name)).toEqual(['/perm']);
     expect(filterSlashCommands('help')).toEqual([]);
   });

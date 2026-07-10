@@ -16,6 +16,7 @@ import {
   resolveModelContextWindow
 } from '../llm/modelContextWindows';
 import type {
+  LlmClient,
   LlmMessage,
   LlmToolCall
 } from '../llm/types';
@@ -116,9 +117,30 @@ export class AgentRuntime extends EventEmitter {
     this.toolGateway?.setApprovalPolicy(createApprovalPolicy(mode));
   }
 
-  /** TUI 输入框右下角展示的模型名。 */
+  /** TUI 输入框右下角展示的模型名（provider/model）。 */
   getModelLabel(): string {
-    return this.options.llmClient?.model?.trim() || 'no model';
+    const client = this.options.llmClient;
+    if (!client?.model?.trim()) {
+      return 'no model';
+    }
+    return `${client.provider}/${client.model.trim()}`;
+  }
+
+  getLlmClient(): LlmClient | undefined {
+    return this.options.llmClient;
+  }
+
+  setLlmClient(client: LlmClient | undefined): void {
+    this.options.llmClient = client;
+    this.toolLoop.setLlmClient(client);
+  }
+
+  setModel(model: string): void {
+    const client = this.options.llmClient;
+    if (!client?.setModel) {
+      throw new Error('当前 LLM 客户端不支持切换模型');
+    }
+    client.setModel(model);
   }
 
   /**
