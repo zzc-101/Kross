@@ -234,6 +234,7 @@ function wrapPlainText(text: string, maxWidth: number): string[] {
   while (rest.length > 0) {
     let used = 0;
     let end = 0;
+    let lastBreak = 0;
     for (const ch of rest) {
       const w = displayWidth(ch);
       if (used + w > width && end > 0) {
@@ -245,9 +246,14 @@ function wrapPlainText(text: string, maxWidth: number): string[] {
       }
       used += w;
       end += ch.length;
+      if (ch === ' ' || ch === '\t') {
+        lastBreak = end;
+      }
     }
     if (end === 0) {
       end = [...rest][0]?.length ?? 1;
+    } else if (end < rest.length && lastBreak > 0 && lastBreak < end) {
+      end = lastBreak;
     }
     lines.push(rest.slice(0, end));
     rest = rest.slice(end);

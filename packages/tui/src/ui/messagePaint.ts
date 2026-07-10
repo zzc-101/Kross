@@ -607,6 +607,7 @@ function takeByDisplayWidth(
   }
   let width = 0;
   let end = 0;
+  let lastBreak = 0; // index after last whitespace (prefer soft wrap)
   for (const ch of text) {
     const w = displayWidth(ch);
     if (width + w > maxWidth) {
@@ -614,6 +615,13 @@ function takeByDisplayWidth(
     }
     width += w;
     end += ch.length;
+    if (ch === ' ' || ch === '\t') {
+      lastBreak = end;
+    }
+  }
+  // Prefer breaking at last whitespace when the line continues
+  if (end < text.length && lastBreak > 0 && lastBreak < end) {
+    end = lastBreak;
   }
   return {
     taken: text.slice(0, end),

@@ -130,6 +130,7 @@ function softWrapMdLines(lines: MdLine[], bodyWidth: number): MdLine[] {
         }
         let takeW = 0;
         let end = 0;
+        let lastBreak = 0;
         for (const ch of rest) {
           const w = displayWidth(ch);
           if (takeW + w > room && end > 0) break;
@@ -140,9 +141,14 @@ function softWrapMdLines(lines: MdLine[], bodyWidth: number): MdLine[] {
           }
           takeW += w;
           end += ch.length;
+          if (ch === ' ' || ch === '\t') {
+            lastBreak = end;
+          }
         }
         if (end === 0) {
           end = [...rest][0]?.length ?? 1;
+        } else if (end < rest.length && lastBreak > 0 && lastBreak < end) {
+          end = lastBreak;
         }
         chunk.push({ ...span, text: rest.slice(0, end) });
         used += displayWidth(rest.slice(0, end));
