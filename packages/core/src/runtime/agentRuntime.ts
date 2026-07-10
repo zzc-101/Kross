@@ -694,6 +694,13 @@ export class AgentRuntime extends EventEmitter {
     return this.toolLoop.resolveToolApproval(input);
   }
 
+  /** Stream follow-up after tool approval (preferred by TUI). */
+  resolveToolApprovalStreaming(
+    input: ResolveToolApprovalInput
+  ): AsyncIterable<AgentRunStreamEvent> {
+    return this.toolLoop.resolveToolApprovalStreaming(input);
+  }
+
   /** 从当前 run 的 trace 回填 report.changedFiles（Write/Edit 成功路径）。 */
   private async attachChangedFiles(result: AgentResult): Promise<AgentResult> {
     let events: TraceEvent[] = [];

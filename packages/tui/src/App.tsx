@@ -519,19 +519,91 @@ export function App({
       approved ? '已批准工具调用，继续执行。' : '已拒绝工具调用，继续让模型调整方案。'
     );
 
-    let result: AgentResult;
+    // 与首轮 runTurn 相同：审批后续也走 stream，避免 complete() 整包倾倒。
+    // （shift+tab 改权限与是否流式无关；旧路径 resolveToolApproval 固定非流式。）
+    let streamedMessageId: number | undefined;
+    let thinkingMessageId: number | undefined;
+    let streamedText = '';
+    let thinkingText = '';
+    let sawAgentText = false;
+    let result: AgentResult | undefined;
+
+    const beginTurn = () => {
+      flushMessageUpdates();
+      streamedMessageId = undefined;
+      thinkingMessageId = undefined;
+      streamedText = '';
+      thinkingText = '';
+      setStreamingMessageId(undefined);
+    };
+
     try {
-      result = await agentRuntime.resolveToolApproval({
+      for await (const event of agentRuntime.resolveToolApprovalStreaming({
         runId: pendingToolApproval.runId,
         approved
-      });
+      })) {
+        if (event.type === 'turn-start') {
+          beginTurn();
+          setAwaitingReply(true);
+          setLoadingVariant('thinking');
+          continue;
+        }
+
+        if (event.type === 'tools-start') {
+          flushMessageUpdates();
+          setStreamingMessageId(undefined);
+          setAwaitingReply(true);
+          setLoadingVariant('tool');
+          continue;
+        }
+
+        if (event.type === 'thinking-delta') {
+          thinkingText += event.text;
+          setAwaitingReply(false);
+          setLoadingVariant('thinking');
+          if (thinkingMessageId === undefined) {
+            thinkingMessageId = append('thinking', thinkingText);
+            setStreamingMessageId(thinkingMessageId);
+          } else {
+            enqueueMessageUpdate(thinkingMessageId, thinkingText);
+          }
+          continue;
+        }
+
+        if (event.type === 'text-delta') {
+          streamedText += event.text;
+          sawAgentText = true;
+          setAwaitingReply(false);
+          if (streamedMessageId === undefined) {
+            streamedMessageId = append('agent', streamedText);
+            setStreamingMessageId(streamedMessageId);
+          } else {
+            enqueueMessageUpdate(streamedMessageId, streamedText);
+          }
+          continue;
+        }
+
+        flushMessageUpdates();
+        result = event.result;
+        setAwaitingReply(false);
+        setStreamingMessageId(undefined);
+      }
     } catch (error) {
+      flushMessageUpdates();
       append(
         'system',
         `处理审批时出错：${error instanceof Error ? error.message : String(error)}`
       );
       setStatus('ready');
       setAwaitingReply(false);
+      setStreamingMessageId(undefined);
+      return;
+    }
+
+    if (!result) {
+      flushMessageUpdates();
+      setStatus('ready');
+      setStreamingMessageId(undefined);
       return;
     }
 
@@ -545,10 +617,19 @@ export function App({
       return;
     }
 
-    appendApprovalResult(append, result);
+    // 已流式写入则勿再整包 append
+    if (!sawAgentText) {
+      appendApprovalResult(append, result);
+    }
     setAwaitingReply(false);
     setStatus('ready');
-  }, [agentRuntime, append, pendingToolApproval]);
+  }, [
+    agentRuntime,
+    append,
+    enqueueMessageUpdate,
+    flushMessageUpdates,
+    pendingToolApproval
+  ]);
 
   const choosePlanApproval = useCallback(async (approved: boolean) => {
     if (!pendingCrossRepoPlan) {

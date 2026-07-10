@@ -703,6 +703,51 @@ describe('AgentRuntime', () => {
     expect(toolCallIds).toEqual(['read-1', 'write-1']);
   });
 
+  it('streams follow-up text after tool approval instead of dumping complete()', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new WriteToolCallingLlmClient('写入完成');
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.write',
+      description: '写文件',
+      risk: 'write',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async ({ input }) => ({ content: `wrote ${input.path}` })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway
+    });
+
+    const first = await runtime.run({
+      input: '写 README',
+      requestedMode: 'normal'
+    });
+    expect(first.status).toBe('approval-required');
+
+    const events = [];
+    for await (const event of runtime.resolveToolApprovalStreaming({
+      runId: first.runId,
+      approved: true
+    })) {
+      events.push(event);
+    }
+
+    const textDeltas = events
+      .filter((event) => event.type === 'text-delta')
+      .map((event) => (event.type === 'text-delta' ? event.text : ''));
+    expect(textDeltas.length).toBeGreaterThan(0);
+    expect(textDeltas.join('')).toBe('写入完成');
+    expect(events.at(-1)).toEqual({
+      type: 'result',
+      result: expect.objectContaining({
+        status: 'completed',
+        summary: '写入完成'
+      })
+    });
+  });
+
   it('streams text deltas across tool-call iterations', async () => {
     const traceStore = new InMemoryTraceStore();
     const llmClient = new StreamingToolCallingLlmClient();
@@ -1279,8 +1324,8 @@ class ReadThenWriteToolCallingLlmClient implements LlmClient {
     };
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
-    yield { type: 'done' };
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield* streamFromComplete(await this.complete(request));
   }
 }
 
@@ -1315,8 +1360,8 @@ class ParallelToolCallingLlmClient implements LlmClient {
     };
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
-    yield { type: 'done' };
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield* streamFromComplete(await this.complete(request));
   }
 }
 
@@ -1404,7 +1449,23 @@ class WriteToolCallingLlmClient implements LlmClient {
     };
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
-    yield { type: 'done' };
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield* streamFromComplete(await this.complete(request));
   }
+}
+
+/** Adapt complete()-style fakes for approval-resume streaming. */
+async function* streamFromComplete(
+  response: LlmResponse
+): AsyncIterable<LlmStreamChunk> {
+  if (response.thinking) {
+    yield { type: 'thinking-delta', text: response.thinking };
+  }
+  if (response.text) {
+    yield { type: 'text-delta', text: response.text };
+  }
+  for (const call of response.toolCalls ?? []) {
+    yield { type: 'tool-call', call };
+  }
+  yield { type: 'done' };
 }

@@ -84,6 +84,25 @@ export class RuntimeToolLoop {
   async resolveToolApproval(
     input: ResolveToolApprovalInput
   ): Promise<AgentResult> {
+    let result: AgentResult | undefined;
+    for await (const event of this.resolveToolApprovalStreaming(input)) {
+      if (event.type === 'result') {
+        result = event.result;
+      }
+    }
+    if (!result) {
+      throw new Error(`No result for tool approval resume: ${input.runId}`);
+    }
+    return result;
+  }
+
+  /**
+   * Stream LLM deltas after a tool approval is resolved.
+   * Mirrors runStreaming's tool-followup path so the TUI does not dump full text at once.
+   */
+  async *resolveToolApprovalStreaming(
+    input: ResolveToolApprovalInput
+  ): AsyncIterable<AgentRunStreamEvent> {
     const session = this.pendingToolSessions.get(input.runId);
     if (!session) {
       throw new Error(`No pending tool approval for run: ${input.runId}`);
@@ -108,41 +127,191 @@ export class RuntimeToolLoop {
       await this.options.record(session.runId, 'run.awaiting_approval', {
         pendingApproval: approval.pendingApproval
       });
-      return approval;
+      yield { type: 'result', result: approval };
+      return;
     }
 
-    const messages: LlmMessage[] = [...session.messages, ...batch.toolMessages];
-    const response = await this.completeToolFollowup({
-      runId: session.runId,
-      messages,
-      tools: session.tools,
-      iteration: session.iteration,
-      metadata: { approvalResolved: input.approved }
-    });
-    const outcome = await this.runToolLoop({
-      runId: session.runId,
-      mode: session.mode,
-      response,
-      messages,
-      tools: session.tools,
-      iteration: session.iteration + 1
-    });
-    if (outcome.kind === 'approval') {
-      const approval = await this.options.attachChangedFiles(outcome.result);
-      await this.options.record(session.runId, 'run.awaiting_approval', {
-        pendingApproval: approval.pendingApproval
-      });
-      return approval;
-    }
-    if (outcome.kind === 'max-iterations') {
-      const failed = await this.createMaxToolIterationsResult(
-        session.runId,
-        session.mode,
-        outcome.message
+    let messages: LlmMessage[] = [...session.messages, ...batch.toolMessages];
+    const maxIterations =
+      this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
+    // First LLM after tools is the follow-up for this iteration; then match runStreaming.
+    let iteration = session.iteration;
+    let fullText = '';
+    let fullThinking = '';
+
+    if (!this.options.llmClient) {
+      const failed = await this.options.attachChangedFiles(
+        agentResultSchema.parse({
+          runId: session.runId,
+          mode: session.mode,
+          status: 'failed',
+          summary: '工具审批后无法继续：未配置 LLM',
+          report: {
+            changedFiles: [],
+            evidence: ['tool approval resolved without llmClient'],
+            risks: ['请配置模型后重试']
+          }
+        })
       );
       await this.options.record(session.runId, 'run.completed', { ...failed });
-      this.options.appendConversation('[tool approval]', failed.summary);
-      return failed;
+      yield { type: 'result', result: failed };
+      return;
+    }
+
+    try {
+      while (true) {
+        let turnText = '';
+        let turnThinking = '';
+        const toolCalls: LlmToolCall[] = [];
+
+        yield { type: 'turn-start', iteration };
+
+        for await (const chunk of this.options.llmClient.stream({
+          messages,
+          tools: toLlmTools(session.tools),
+          temperature: 0.2,
+          metadata: {
+            purpose: 'planner-tool-followup',
+            iteration,
+            approvalResolved: input.approved
+          }
+        })) {
+          if (chunk.type === 'thinking-delta') {
+            if (turnThinking.length === 0 && fullThinking.length > 0) {
+              fullThinking += '\n\n';
+            }
+            turnThinking += chunk.text;
+            fullThinking += chunk.text;
+            yield { type: 'thinking-delta', text: chunk.text };
+          } else if (chunk.type === 'text-delta') {
+            if (turnText.length === 0 && fullText.length > 0) {
+              fullText += '\n\n';
+            }
+            turnText += chunk.text;
+            fullText += chunk.text;
+            yield { type: 'text-delta', text: chunk.text };
+          } else if (chunk.type === 'tool-call') {
+            toolCalls.push(chunk.call);
+          }
+        }
+
+        await this.options.record(session.runId, 'llm.tool_followup.completed', {
+          provider: this.options.llmClient.provider,
+          model: 'stream',
+          textPreview: turnText.slice(0, 240),
+          thinkingPreview: turnThinking.slice(0, 240) || undefined,
+          toolCallCount: toolCalls.length,
+          iteration,
+          approvalResolved: input.approved
+        });
+
+        if (toolCalls.length > 0 && iteration > maxIterations) {
+          await this.options.record(session.runId, 'llm.tool_loop.max_iterations', {
+            maxIterations,
+            iteration,
+            pendingToolCallCount: toolCalls.length,
+            calls: toolCalls.map((call) => ({ id: call.id, name: call.name })),
+            softLand: true
+          });
+
+          yield { type: 'turn-start', iteration };
+          let softText = '';
+          for await (const chunk of this.streamSoftLand({
+            runId: session.runId,
+            messages,
+            maxIterations,
+            iteration
+          })) {
+            if (chunk.type === 'text-delta') {
+              softText += chunk.text;
+              fullText =
+                fullText.length > 0
+                  ? `${fullText}\n\n${chunk.text}`
+                  : chunk.text;
+              yield chunk;
+            }
+          }
+
+          const summary =
+            softText.trim() ||
+            fullText.trim() ||
+            formatMaxIterationsNotice(maxIterations);
+          const landed = await this.createMaxToolIterationsResult(
+            session.runId,
+            session.mode,
+            summary
+          );
+          await this.options.record(session.runId, 'run.completed', {
+            ...landed
+          });
+          this.options.appendConversation('[tool approval]', landed.summary);
+          yield { type: 'result', result: landed };
+          return;
+        }
+
+        if (toolCalls.length === 0) {
+          break;
+        }
+
+        yield {
+          type: 'tools-start',
+          iteration,
+          count: toolCalls.length
+        };
+
+        await this.options.record(session.runId, 'llm.tool_calls.received', {
+          count: toolCalls.length,
+          iteration,
+          calls: toolCalls.map((call) => ({ id: call.id, name: call.name }))
+        });
+
+        const assistantMessage: LlmMessage = {
+          role: 'assistant',
+          content: turnText,
+          toolCalls
+        };
+        const batchMessages: LlmMessage[] = [...messages, assistantMessage];
+        const nextBatch = await this.executeToolBatch({
+          runId: session.runId,
+          mode: session.mode,
+          calls: toolCalls,
+          completedToolMessages: [],
+          messages: batchMessages,
+          tools: session.tools,
+          iteration
+        });
+        if (nextBatch.kind === 'approval') {
+          const approval = await this.options.attachChangedFiles(
+            nextBatch.result
+          );
+          await this.options.record(session.runId, 'run.awaiting_approval', {
+            pendingApproval: approval.pendingApproval
+          });
+          yield { type: 'result', result: approval };
+          return;
+        }
+
+        messages = [...batchMessages, ...nextBatch.toolMessages];
+        iteration += 1;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failed = await this.options.attachChangedFiles(
+        agentResultSchema.parse({
+          runId: session.runId,
+          mode: session.mode,
+          status: 'failed',
+          summary: `工具审批后续请求失败：${message}`,
+          report: {
+            changedFiles: [],
+            evidence: [`LLM 请求失败: ${message}`],
+            risks: ['请检查模型配置或网络连通性']
+          }
+        })
+      );
+      await this.options.record(session.runId, 'run.completed', { ...failed });
+      yield { type: 'result', result: failed };
+      return;
     }
 
     const result = await this.options.attachChangedFiles(
@@ -150,8 +319,8 @@ export class RuntimeToolLoop {
         runId: session.runId,
         mode: session.mode,
         status: 'completed',
-        summary: outcome.response.text,
-        thinking: outcome.response.thinking || undefined,
+        summary: fullText,
+        thinking: fullThinking || undefined,
         report: {
           changedFiles: [],
           evidence: ['工具审批已处理，planner LLM 已返回最终回复'],
@@ -162,7 +331,7 @@ export class RuntimeToolLoop {
 
     await this.options.record(session.runId, 'run.completed', { ...result });
     this.options.appendConversation('[tool approval]', result.summary);
-    return result;
+    yield { type: 'result', result };
   }
 
   async createPlannerSuggestion(
