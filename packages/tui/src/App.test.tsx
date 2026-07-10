@@ -65,7 +65,7 @@ describe('App', () => {
 
     await submit?.('hello task');
     await waitUntil(() => lastFrame()?.includes('hello task') === true);
-    expect(lastFrame()).toContain('you');
+    expect(lastFrame()).toContain('>');
     expect(lastFrame()).toContain('ready');
     expect(lastFrame()).toContain('perm: default');
     // 进入对话后仍显示 branch/cwd，而不是 projectName=local
@@ -148,7 +148,7 @@ describe('App', () => {
     await submit?.('给巡检任务增加任务来源字段');
     await waitUntil(() => lastFrame()?.includes('给巡检任务增加任务来源字段') === true);
 
-    expect(lastFrame()).toContain('you');
+    expect(lastFrame()).toContain('>');
     expect(lastFrame()).toContain('给巡检任务增加任务来源字段');
   });
 
@@ -167,7 +167,7 @@ describe('App', () => {
     await waitUntil(() => lastFrame()?.includes('你好，我在。') === true);
 
     expect(lastFrame()).toContain('ready');
-    expect(lastFrame()).toContain('kross');
+    expect(lastFrame()).toContain('●');
     expect(lastFrame()).toContain('你好，我在。');
   });
 
@@ -403,18 +403,18 @@ describe('App', () => {
     await submit?.('带思考');
     await waitUntil(() => lastFrame()?.includes('最终结论') === true);
 
-    expect(lastFrame()).toContain('thinking');
-    expect(lastFrame()).toContain('think-line-0');
-    expect(lastFrame()).toContain('已折叠 thinking');
+    // Claude Code 风格：默认收拢为 Thought for Ns
+    expect(lastFrame()).toMatch(/Thought for \d+s/);
     expect(lastFrame()).not.toContain('think-line-15');
     expect(lastFrame()).toContain('最终结论');
+    expect(lastFrame()).toContain('●');
 
     toggleCollapse?.();
     await waitUntil(() => lastFrame()?.includes('think-line-15') === true);
-    expect(lastFrame()).toContain('thinking 已展开');
+    expect(lastFrame()).toContain('折叠');
 
     toggleCollapse?.();
-    await waitUntil(() => lastFrame()?.includes('已折叠 thinking') === true);
+    await waitUntil(() => lastFrame()?.includes('展开') === true);
     expect(lastFrame()).not.toContain('think-line-15');
   });
 
@@ -625,15 +625,11 @@ describe('App', () => {
     await waitUntil(() => lastFrame()?.includes('最终总结') === true);
 
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('thinking');
-    expect(frame).toContain('先看看文件');
+    // thinking 默认收拢，正文不直接露出
+    expect(frame).toMatch(/Thought for \d+s|Thinking/);
     expect(frame).toMatch(/Read/);
     expect(frame).toContain('最终总结');
-    // 第二轮 thinking 也是独立块
-    expect(frame).toContain('根据内容总结');
-    // 工具前的 thinking 不应被最终总结覆盖掉
-    expect(frame.indexOf('先看看文件')).toBeLessThan(frame.indexOf('Read'));
-    expect(frame.indexOf('Read')).toBeLessThan(frame.indexOf('最终总结'));
+    expect(frame).toContain('●');
   });
 
   it('shows thinking after tool approval when follow-up returns reasoning', async () => {
@@ -675,8 +671,7 @@ describe('App', () => {
 
     await chooseToolApproval?.(true);
     await waitUntil(() => lastFrame()?.includes('写入完成') === true);
-    expect(lastFrame()).toContain('thinking');
-    expect(lastFrame()).toContain('审批后继续思考');
+    expect(lastFrame()).toMatch(/Thought for \d+s|Thinking|审批后继续思考/);
     expect(lastFrame()).toContain('写入完成');
   });
 

@@ -4,11 +4,6 @@ import {
   mdLineText,
   type MdLine
 } from './markdownParse';
-import {
-  THINKING_COLLAPSE_CHAR_LIMIT,
-  THINKING_COLLAPSE_LINE_LIMIT
-} from './theme';
-import { isThinkingCollapsible } from './MessageLine';
 import type { ChatMessage } from './MessageLine';
 
 /**
@@ -100,24 +95,25 @@ export function estimateMessageRows(
   }
 
   if (message.from === 'user') {
-    return countWrappedRows(message.text.replace(/^\>\s*/, ''), width) + 1;
+    // "> " prefix
+    return countWrappedRows(message.text.replace(/^\>\s*/, ''), width - 2) + 1;
   }
 
   if (message.from === 'thinking') {
-    const expanded = message.expanded === true;
-    const { visibleLines } = previewThinkingLines(message.text, expanded);
-    let rows = 1;
+    // 默认一行 Thought 摘要；展开后才有正文
+    if (message.expanded !== true) {
+      return 2; // label + gap
+    }
+    const { visibleLines } = previewThinkingLines(message.text, true);
+    let rows = 1; // label
     for (const line of visibleLines) {
       rows += countWrappedRows(line, width - 2);
-    }
-    if (!expanded && isThinkingCollapsible(message.text)) {
-      rows += 1;
     }
     return rows + 1;
   }
 
-  // agent：按 MD 渲染后的视觉行估算
-  return 1 + countVisualRows(message.text, width - 2) + 1;
+  // agent：● 前缀，无标题行
+  return countVisualRows(message.text, width - 2) + 1;
 }
 
 /** 把 MD 渲染成终端可见的纯文本行（表格已展开为 box 字符） */
@@ -149,32 +145,18 @@ export function countWrappedRows(text: string, columns: number): number {
   return Math.max(1, Math.ceil(visualWidth / width));
 }
 
+/** expanded=false 时不展示正文（Thought 一行摘要由 paint 层负责）。 */
 export function previewThinkingLines(
   text: string,
   expanded: boolean
 ): { visibleLines: string[]; hiddenCount: number } {
   const lines = text.length === 0 ? [''] : text.split('\n');
-  if (expanded || !isThinkingCollapsible(text)) {
+  if (expanded) {
     return { visibleLines: lines, hiddenCount: 0 };
   }
-  const previewLineCount =
-    text.length > THINKING_COLLAPSE_CHAR_LIMIT &&
-    lines.length <= THINKING_COLLAPSE_LINE_LIMIT
-      ? Math.min(4, lines.length)
-      : Math.min(THINKING_COLLAPSE_LINE_LIMIT, lines.length);
-  const sliced = lines.slice(0, previewLineCount);
-  const maxLineChars = Math.max(
-    80,
-    Math.floor(THINKING_COLLAPSE_CHAR_LIMIT / Math.max(1, previewLineCount))
-  );
-  const visibleLines = sliced.map((line) =>
-    line.length > maxLineChars ? `${line.slice(0, maxLineChars - 1)}…` : line
-  );
-  const lineHidden = lines.length - sliced.length;
-  const charTruncated = sliced.some((line, i) => line !== visibleLines[i]);
   return {
-    visibleLines,
-    hiddenCount: lineHidden > 0 ? lineHidden : charTruncated ? 1 : 0
+    visibleLines: [],
+    hiddenCount: Math.max(1, lines.length)
   };
 }
 

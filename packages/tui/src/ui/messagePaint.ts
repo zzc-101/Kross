@@ -11,8 +11,7 @@
 import {
   countWrappedRows,
   estimateMessageRows,
-  layoutFingerprint,
-  previewThinkingLines
+  layoutFingerprint
 } from './messageLayout';
 import {
   displayWidth,
@@ -20,10 +19,7 @@ import {
   type MdLine,
   type MdSpan
 } from './markdownParse';
-import {
-  isThinkingCollapsible,
-  type ChatMessage
-} from './MessageLine';
+import type { ChatMessage } from './MessageLine';
 import { symbols, theme } from './theme';
 
 export type PaintSegment = {
@@ -299,12 +295,13 @@ function paintMessageUncached(
   }
 
   if (message.from === 'user') {
+    // Claude Code: "> body"
     const body = message.text.replace(/^\>\s*/, '');
-    const prefix = `${symbols.userLabel}  `;
+    const prefix = `${symbols.userPrefix} `;
     const prefixWidth = displayWidth(prefix);
     const bodyWidth = Math.max(1, columns - prefixWidth);
     const wrappedBody = wrapPaintSegments(
-      [{ text: body, color: theme.user }],
+      [{ text: body, dim: true }],
       bodyWidth
     );
     const items: PaintItem[] = [];
@@ -338,15 +335,7 @@ function paintAgent(
   streaming: boolean
 ): PaintItem[] {
   const items: PaintItem[] = [];
-  const time = formatTime(message.createdAt);
-  const headerSegs: PaintSegment[] = [
-    { text: symbols.agentLabel, bold: true, color: theme.agent }
-  ];
-  if (time) {
-    headerSegs.push({ text: `  ${time}`, dim: true });
-  }
-  items.push(lineItem(`agent-h-${message.id}`, headerSegs, columns));
-
+  // Claude Code: ● 与正文同一流，无标题行
   const mdLines = message.viewportLines
     ? message.viewportLines
     : parseMarkdownStreaming(
@@ -355,24 +344,35 @@ function paintAgent(
         streaming
       );
 
-  // 先按 body 宽度硬折行，再每行前缀 rail，避免 Ink 自动 wrap 时续行丢 │、错位。
-  const bodyWidth = Math.max(1, columns - 2);
-  const rail: PaintSegment = {
-    text: `${symbols.messageRail} `,
-    color: theme.brandMuted,
-    dim: true
-  };
+  const bullet = `${symbols.agentBullet} `;
+  const bulletWidth = displayWidth(bullet);
+  const bodyWidth = Math.max(1, columns - bulletWidth);
+  let firstContent = true;
+
   for (let i = 0; i < mdLines.length; i++) {
     const md = mdLines[i];
     if (!md) continue;
+    if (md.kind === 'blank') {
+      items.push({
+        kind: 'line',
+        key: `agent-${message.id}-L${i}-blank`,
+        segments: [{ text: ' ' }],
+        height: 1
+      });
+      continue;
+    }
     const bodySegs = mdLineToSegments(md, false);
     const wrapped = wrapPaintSegments(bodySegs, bodyWidth);
     for (let w = 0; w < wrapped.length; w++) {
       const lineSegs = wrapped[w] ?? [{ text: ' ' }];
+      const prefix: PaintSegment = firstContent
+        ? { text: bullet, color: theme.agent }
+        : { text: ' '.repeat(bulletWidth) };
+      firstContent = false;
       items.push({
         kind: 'line',
         key: `agent-${message.id}-L${i}-W${w}`,
-        segments: [rail, ...lineSegs],
+        segments: [prefix, ...lineSegs],
         height: 1
       });
     }
@@ -388,82 +388,74 @@ function paintThinking(
   streaming: boolean
 ): PaintItem[] {
   const items: PaintItem[] = [];
-  const expanded = message.expanded === true || streaming;
-  const time = formatTime(message.createdAt);
-  const header: PaintSegment[] = [{ text: 'thinking', dim: true }];
-  if (streaming) {
-    header.push({ text: '  reasoning', color: theme.statusBusy });
-  }
-  if (time) {
-    header.push({ text: `  ${time}`, dim: true });
-  }
-  items.push(lineItem(`th-h-${message.id}`, header, columns));
+  const expanded = message.expanded === true && !streaming;
+  const label = formatThinkingSummary(message, streaming);
 
-  const { visibleLines, hiddenCount } = previewThinkingLines(
-    message.text,
-    expanded
+  items.push(
+    lineItem(
+      `th-h-${message.id}`,
+      [
+        {
+          text: expanded
+            ? `${label} · ctrl+o/click 折叠`
+            : streaming
+              ? label
+              : `${label} · ctrl+o/click 展开`,
+          dim: true
+        }
+      ],
+      columns
+    )
   );
-  const bodyWidth = Math.max(1, columns - 2);
-  const rail: PaintSegment = {
-    text: `${symbols.messageRail} `,
-    dim: true,
-    color: theme.brandMuted
-  };
-  for (let i = 0; i < visibleLines.length; i++) {
-    const wrapped = wrapPaintSegments(
-      [{ text: visibleLines[i] ?? '', dim: true }],
-      bodyWidth
-    );
-    for (let w = 0; w < wrapped.length; w++) {
-      items.push({
-        kind: 'line',
-        key: `th-${message.id}-L${i}-W${w}`,
-        segments: [rail, ...(wrapped[w] ?? [{ text: ' ' }])],
-        height: 1
-      });
-    }
-  }
 
-  if (!expanded && !streaming && hiddenCount > 0) {
-    const totalLines =
-      message.text.length === 0 ? 1 : message.text.split('\n').length;
-    items.push(
-      lineItem(
-        `th-fold-${message.id}`,
-        [
-          { text: `${symbols.messageRail} `, dim: true },
-          {
-            text: `${symbols.collapseMark} 已折叠 thinking${
-              totalLines > 1 ? ` ${hiddenCount}/${totalLines} 行` : ''
-            } · ctrl+o 展开`,
-            dim: true
-          }
-        ],
-        columns
-      )
-    );
-  } else if (
-    expanded &&
-    !streaming &&
-    isThinkingCollapsible(message.text)
-  ) {
-    items.push(
-      lineItem(
-        `th-exp-${message.id}`,
-        [
-          { text: `${symbols.messageRail} `, dim: true },
-          {
-            text: `${symbols.collapseMark} thinking 已展开 · ctrl+o 折叠`,
-            dim: true
-          }
-        ],
-        columns
-      )
-    );
+  if (expanded) {
+    const bodyWidth = Math.max(1, columns - 2);
+    const raw =
+      message.text.length === 0 ? [''] : message.text.split('\n');
+    for (let i = 0; i < raw.length; i++) {
+      const wrapped = wrapPaintSegments(
+        [{ text: raw[i] ?? '', dim: true }],
+        bodyWidth
+      );
+      for (let w = 0; w < wrapped.length; w++) {
+        items.push({
+          kind: 'line',
+          key: `th-${message.id}-L${i}-W${w}`,
+          segments: [
+            { text: '  ', dim: true },
+            ...(wrapped[w] ?? [{ text: ' ' }])
+          ],
+          height: 1
+        });
+      }
+    }
   }
 
   items.push(blankItem(`th-gap-${message.id}`));
   return items;
+}
+
+function formatThinkingSummary(
+  message: ChatMessage,
+  streaming: boolean
+): string {
+  if (streaming) {
+    return 'Thinking…';
+  }
+  if (typeof message.durationMs === 'number' && message.durationMs >= 0) {
+    const sec = Math.max(1, Math.round(message.durationMs / 1000));
+    return `Thought for ${sec}s`;
+  }
+  if (message.createdAt) {
+    const start = new Date(message.createdAt).getTime();
+    if (!Number.isNaN(start)) {
+      const elapsed = Date.now() - start;
+      if (elapsed > 0 && elapsed < 24 * 3600 * 1000) {
+        return `Thought for ${Math.max(1, Math.round(elapsed / 1000))}s`;
+      }
+    }
+  }
+  return 'Thought';
 }
 
 function mdLineToSegments(line: MdLine, rail: boolean): PaintSegment[] {

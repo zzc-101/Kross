@@ -62,7 +62,7 @@ export function HelpHint() {
   return (
     <Box marginTop={0}>
       <Text dimColor>
-        /help · ctrl+p 模型/思考 · /perm · shift+tab 权限 · ctrl+o thinking
+        /help · ctrl+p 模型 · shift+tab 权限 · click/ctrl+o Thought
       </Text>
     </Box>
   );

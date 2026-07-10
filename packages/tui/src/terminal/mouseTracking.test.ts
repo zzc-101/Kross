@@ -47,10 +47,12 @@ describe('parseMouseWheelChunk / filterMouseSequences', () => {
   });
 
   it('strips SGR click/drag and keeps surrounding keystrokes', () => {
-    const { rest, events } = filterMouseSequences(
+    const { rest, events, clicks } = filterMouseSequences(
       'ab\x1b[<0;12;8M\x1b[<32;12;9M\x1b[<3;12;9mcd'
     );
     expect(events).toEqual([]);
+    // left press becomes a click event (still stripped from stdin rest)
+    expect(clicks).toEqual([{ col: 12, row: 8 }]);
     expect(rest).toBe('abcd');
   });
 

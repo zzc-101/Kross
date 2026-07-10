@@ -47,7 +47,10 @@ import {
   toToolItem
 } from './ui/toolDisplay';
 import { useMouseScroll } from './ui/useMouseScroll';
-import { stripMouseArtifactsFromInput } from './terminal/mouseTracking';
+import {
+  stripMouseArtifactsFromInput,
+  subscribeClick
+} from './terminal/mouseTracking';
 import {
   AppShell,
   resolveMessageViewportHeight
@@ -337,6 +340,32 @@ export function App({
     return holder.id;
   }, [resetToBottom]);
 
+  /** 冻结已结束 thinking 的耗时（Thought for Ns）。 */
+  const finalizeThinkingDurations = useCallback(() => {
+    setMessages((current) => {
+      let changed = false;
+      const next = current.map((message) => {
+        if (
+          message.from !== 'thinking' ||
+          message.durationMs !== undefined ||
+          !message.createdAt
+        ) {
+          return message;
+        }
+        const start = new Date(message.createdAt).getTime();
+        if (Number.isNaN(start)) {
+          return message;
+        }
+        changed = true;
+        return {
+          ...message,
+          durationMs: Math.max(0, Date.now() - start)
+        };
+      });
+      return changed ? next : current;
+    });
+  }, []);
+
   /** 切换最近一条 thinking 的展开/折叠。 */
   const toggleLastCollapsible = useCallback(() => {
     setMessages((current) => {
@@ -346,12 +375,31 @@ export function App({
           continue;
         }
         const next = current.slice();
-        next[index] = { ...message, expanded: message.expanded !== true };
+        const durationMs =
+          message.durationMs ??
+          (message.createdAt
+            ? Math.max(0, Date.now() - new Date(message.createdAt).getTime())
+            : undefined);
+        next[index] = {
+          ...message,
+          expanded: message.expanded !== true,
+          durationMs
+        };
         return next;
       }
       return current;
     });
   }, []);
+
+  // 左键单击：切换最近一条 thinking（Claude Code 式收拢/展开）
+  useEffect(() => {
+    return subscribeClick(() => {
+      if (pendingToolApproval || modelSettingsOpen) {
+        return;
+      }
+      toggleLastCollapsible();
+    });
+  }, [pendingToolApproval, modelSettingsOpen, toggleLastCollapsible]);
 
   /** 切换最近一条工具组展开/折叠（Read N files 明细）。 */
   const toggleLastToolGroup = useCallback(() => {
@@ -400,6 +448,7 @@ export function App({
 
     const beginTurn = () => {
       flushMessageUpdates();
+      finalizeThinkingDurations();
       // 每轮 LLM 迭代新开气泡，避免 tool 后的 thinking/text 写回工具前消息
       streamedMessageId = undefined;
       thinkingMessageId = undefined;
@@ -459,9 +508,11 @@ export function App({
         result = event.result;
         setAwaitingReply(false);
         setStreamingMessageId(undefined);
+        finalizeThinkingDurations();
       }
     } catch (error) {
       flushMessageUpdates();
+      finalizeThinkingDurations();
       append('system', `运行出错：${error instanceof Error ? error.message : String(error)}`);
       setStatus('ready');
       setAwaitingReply(false);
@@ -471,6 +522,7 @@ export function App({
 
     if (!result) {
       flushMessageUpdates();
+      finalizeThinkingDurations();
       setStatus('ready');
       setStreamingMessageId(undefined);
       return;
@@ -488,6 +540,7 @@ export function App({
       setPendingToolApproval(result.pendingApproval);
       setApprovalSelection('approve');
       append('system', result.summary);
+      finalizeThinkingDurations();
       return;
     }
 
@@ -495,11 +548,13 @@ export function App({
     if (!sawAgentText && result.summary.trim().length > 0) {
       append('agent', result.summary);
     }
+    finalizeThinkingDurations();
     setStatus('ready');
   }, [
     agentRuntime,
     append,
     enqueueMessageUpdate,
+    finalizeThinkingDurations,
     flushMessageUpdates,
     mode
   ]);
@@ -1084,7 +1139,7 @@ export function App({
       }
       headline={modelLabel !== 'no model' ? `${modelLabel} ready` : 'Ready when you are'}
       subtitle="Local-first agent · plan, tools, and traces in your workspace."
-      tip="ctrl+p 模型/思考 · shift+tab 权限 · ctrl+o thinking"
+      tip="ctrl+p 模型 · shift+tab 权限 · click/ctrl+o 展开 Thought"
     />
   );
 

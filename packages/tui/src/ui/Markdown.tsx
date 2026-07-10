@@ -21,20 +21,26 @@ export function Markdown({
   source,
   lines: precomputed,
   rail = false,
+  bullet,
+  bulletColor,
   streaming = false,
   cursor
 }: {
   source?: string;
   /** 已解析/裁剪的行；有值时跳过 source 解析 */
   lines?: MdLine[];
-  /** 是否加消息左侧 rail */
+  /** 是否加消息左侧 rail（旧样式） */
   rail?: boolean;
+  /** Claude Code 风格：首行前缀小圆点，续行缩进 */
+  bullet?: string;
+  bulletColor?: string;
   streaming?: boolean;
   cursor?: string;
 }) {
   const { stdout } = useStdout();
   const columns = Math.max(20, (stdout?.columns ?? 80) - 4);
-  const bodyWidth = Math.max(1, columns - (rail ? 2 : 0));
+  const prefixWidth = rail ? 2 : bullet ? displayWidth(`${bullet} `) : 0;
+  const bodyWidth = Math.max(1, columns - prefixWidth);
 
   const lines = useMemo(() => {
     if (precomputed) {
@@ -52,10 +58,15 @@ export function Markdown({
     <Box flexDirection="column">
       {displayLines.map((line, index) => {
         const isLast = index === displayLines.length - 1;
+        const isFirst = index === 0;
         return (
           <Box key={`md-${index}`}>
             {rail ? (
               <Text color={theme.brandMuted}>│ </Text>
+            ) : bullet ? (
+              <Text color={bulletColor ?? theme.agent}>
+                {isFirst ? `${bullet} ` : ' '.repeat(prefixWidth)}
+              </Text>
             ) : null}
             <MarkdownLineView
               line={line}

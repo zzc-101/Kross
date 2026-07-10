@@ -31,6 +31,10 @@ export const theme = {
 
 export const symbols = {
   brandMark: 'Kross',
+  /** Claude Code 风格：用户消息前缀 */
+  userPrefix: '>',
+  /** Claude Code 风格：助手回复小圆点 */
+  agentBullet: '●',
   agentLabel: 'kross',
   userLabel: 'you',
   systemPrefix: '·',
@@ -57,11 +61,14 @@ export const symbols = {
   collapseMark: '…'
 } as const;
 
-/** thinking 超过该行数时默认折叠（正式回复不折叠）。 */
-export const THINKING_COLLAPSE_LINE_LIMIT = 6;
+/**
+ * thinking 始终默认折叠（Claude Code：Thought for Ns）。
+ * 仅 expanded 时展示正文；过短也会折叠成一行摘要。
+ */
+export const THINKING_COLLAPSE_LINE_LIMIT = 0;
 
-/** thinking 超过该字符数时也触发折叠。 */
-export const THINKING_COLLAPSE_CHAR_LIMIT = 400;
+/** thinking 超过该字符数时折叠提示更明确（始终折叠时作辅助）。 */
+export const THINKING_COLLAPSE_CHAR_LIMIT = 0;
 
 /** @deprecated 使用 THINKING_COLLAPSE_LINE_LIMIT */
 export const COLLAPSED_LINE_LIMIT = THINKING_COLLAPSE_LINE_LIMIT;

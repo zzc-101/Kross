@@ -28,7 +28,16 @@ export interface WheelEvent {
 
 export type WheelListener = (event: WheelEvent) => void;
 
+/** 左键单击（不含拖拽/滚轮） */
+export interface MouseClickEvent {
+  col: number;
+  row: number;
+}
+
+export type ClickListener = (event: MouseClickEvent) => void;
+
 const wheelListeners = new Set<WheelListener>();
+const clickListeners = new Set<ClickListener>();
 
 let filterInstalled = false;
 let pendingCarry = '';
@@ -59,6 +68,14 @@ export function subscribeWheel(listener: WheelListener): () => void {
   wheelListeners.add(listener);
   return () => {
     wheelListeners.delete(listener);
+  };
+}
+
+/** 订阅左键单击（展开 thinking 等）。 */
+export function subscribeClick(listener: ClickListener): () => void {
+  clickListeners.add(listener);
+  return () => {
+    clickListeners.delete(listener);
   };
 }
 
@@ -101,7 +118,9 @@ export function installMouseInputFilter(
         return emit(event, ...args);
       }
 
-      const { events, rest, carry } = filterMouseSequences(pendingCarry + text);
+      const { events, clicks, rest, carry } = filterMouseSequences(
+        pendingCarry + text
+      );
       pendingCarry = carry;
 
       for (const wheel of events) {
@@ -110,6 +129,15 @@ export function installMouseInputFilter(
             listener(wheel);
           } catch (error) {
             console.error('[mouseTracking] wheel listener failed:', error);
+          }
+        }
+      }
+      for (const click of clicks) {
+        for (const listener of clickListeners) {
+          try {
+            listener(click);
+          } catch (error) {
+            console.error('[mouseTracking] click listener failed:', error);
           }
         }
       }
@@ -152,10 +180,12 @@ export function uninstallMouseInputFilter(): void {
  */
 export function filterMouseSequences(chunk: string): {
   events: WheelEvent[];
+  clicks: MouseClickEvent[];
   rest: string;
   carry: string;
 } {
   const events: WheelEvent[] = [];
+  const clicks: MouseClickEvent[] = [];
   let rest = '';
   let i = 0;
 
@@ -168,11 +198,14 @@ export function filterMouseSequences(chunk: string): {
 
     const parsed = tryParseMouseAt(chunk, i);
     if (parsed.kind === 'incomplete') {
-      return { events, rest, carry: chunk.slice(i) };
+      return { events, clicks, rest, carry: chunk.slice(i) };
     }
     if (parsed.kind === 'mouse') {
       if (parsed.event) {
         events.push(parsed.event);
+      }
+      if (parsed.click) {
+        clicks.push(parsed.click);
       }
       i = parsed.end;
       continue;
@@ -183,7 +216,7 @@ export function filterMouseSequences(chunk: string): {
     i += 1;
   }
 
-  return { events, rest, carry: '' };
+  return { events, clicks, rest, carry: '' };
 }
 
 /**
@@ -216,7 +249,12 @@ function looksLikeMouseResidue(text: string): boolean {
 type ParseResult =
   | { kind: 'incomplete' }
   | { kind: 'not-mouse' }
-  | { kind: 'mouse'; end: number; event: WheelEvent | null };
+  | {
+      kind: 'mouse';
+      end: number;
+      event: WheelEvent | null;
+      click: MouseClickEvent | null;
+    };
 
 function tryParseMouseAt(chunk: string, start: number): ParseResult {
   // ESC [
@@ -232,10 +270,12 @@ function tryParseMouseAt(chunk: string, start: number): ParseResult {
     const cb = chunk.charCodeAt(start + 3) - 32;
     const col = chunk.charCodeAt(start + 4) - 32;
     const row = chunk.charCodeAt(start + 5) - 32;
+    const parsed = mouseFromButton(cb, col, row, false);
     return {
       kind: 'mouse',
       end: start + 6,
-      event: wheelFromButton(cb, col, row)
+      event: parsed.wheel,
+      click: parsed.click
     };
   }
 
@@ -288,27 +328,40 @@ function tryParseMouseAt(chunk: string, start: number): ParseResult {
     return { kind: 'not-mouse' };
   }
 
+  const isRelease = final === 'm';
+  const parsed = mouseFromButton(button, col, row, isRelease);
   return {
     kind: 'mouse',
     end: j + 1,
-    event: wheelFromButton(button, col, row)
+    event: parsed.wheel,
+    click: parsed.click
   };
 }
 
-function wheelFromButton(
+function mouseFromButton(
   button: number,
   col: number,
-  row: number
-): WheelEvent | null {
-  // 去掉 shift/meta/ctrl（4/8/16）与 motion bit(32)，保留滚轮基准码
+  row: number,
+  isRelease: boolean
+): { wheel: WheelEvent | null; click: MouseClickEvent | null } {
+  // 去掉 shift/meta/ctrl（4/8/16）与 motion bit(32)，保留滚轮/按键基准码
   const base = button & ~0x3c;
-  // SGR：64=上滚 65=下滚；旧式 4/5；部分触控板带 motion 后仍落在 64/65
+  // SGR：64=上滚 65=下滚；旧式 4/5
   if (base === 64 || base === 4) {
-    return { direction: 'up', steps: 1, col, row };
+    return {
+      wheel: { direction: 'up', steps: 1, col, row },
+      click: null
+    };
   }
   if (base === 65 || base === 5) {
-    return { direction: 'down', steps: 1, col, row };
+    return {
+      wheel: { direction: 'down', steps: 1, col, row },
+      click: null
+    };
   }
-  // 其它鼠标事件（点击/拖拽/横向滚轮/专有码如 98）：剥离但不产生滚轮
-  return null;
+  // 左键按下（非 release、非 motion）
+  if (base === 0 && !isRelease && (button & 32) === 0) {
+    return { wheel: null, click: { col, row } };
+  }
+  return { wheel: null, click: null };
 }

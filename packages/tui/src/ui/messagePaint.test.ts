@@ -19,7 +19,9 @@ function msg(
     from: partial.from,
     text: partial.text,
     expanded: partial.expanded,
-    tool: partial.tool
+    tool: partial.tool,
+    durationMs: partial.durationMs,
+    createdAt: partial.createdAt
   };
 }
 
@@ -87,7 +89,7 @@ describe('windowPaintRows', () => {
     expect(hasTable).toBe(true);
   });
 
-  it('soft-wraps long agent lines so each paint row is height 1 with rail', () => {
+  it('soft-wraps long agent lines so each paint row is height 1 with bullet', () => {
     const cache = new MessagePaintCache();
     const long =
       '这是一段很长的中文回复，用来验证终端列宽不足时会按显示宽度预折行，而不是交给 Ink 自动 wrap 导致续行错位。';
@@ -97,11 +99,29 @@ describe('windowPaintRows', () => {
       (i) => i.kind === 'line' && i.key.startsWith('agent-1-L')
     );
     expect(body.length).toBeGreaterThan(1);
+    let sawBullet = false;
     for (const row of body) {
       if (row.kind !== 'line') continue;
       expect(row.height).toBe(1);
-      expect(row.segments[0]?.text).toMatch(/│/);
+      if (row.segments[0]?.text.includes('●')) {
+        sawBullet = true;
+      }
     }
+    expect(sawBullet).toBe(true);
+  });
+
+  it('collapses thinking to a Thought summary line by default', () => {
+    const cache = new MessagePaintCache();
+    const message = msg({
+      id: 2,
+      from: 'thinking',
+      text: 'long thought\nline2\nline3',
+      durationMs: 8000
+    });
+    const items = cache.paintMessage(message, 80, false);
+    const plains = items.map(paintItemPlainText).join('\n');
+    expect(plains).toContain('Thought for 8s');
+    expect(plains).not.toContain('long thought');
   });
 
   it('wrapPaintSegments keeps styles across soft wraps', () => {

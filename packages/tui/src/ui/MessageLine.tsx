@@ -4,12 +4,7 @@ import { Box, Text, useStdout } from 'ink';
 import { Markdown } from './Markdown';
 import type { MdLine } from './markdownParse';
 import { displayWidth } from './markdownParse';
-import {
-  THINKING_COLLAPSE_CHAR_LIMIT,
-  THINKING_COLLAPSE_LINE_LIMIT,
-  symbols,
-  theme
-} from './theme';
+import { symbols, theme } from './theme';
 import { usePulse } from './usePulse';
 import { ToolCallCard } from './ToolCallCard';
 
@@ -47,16 +42,16 @@ export interface ChatMessage {
   from: 'user' | 'agent' | 'system' | 'tool' | 'thinking';
   text: string;
   createdAt?: string;
+  /** thinking 结束后冻结的耗时（ms） */
+  durationMs?: number;
   /** 关联 tool 事件，from === 'tool' 时使用 */
   tool?: ToolCallState;
   /**
    * thinking / tool 组默认折叠；true 时展开明细。
-   * 正式 agent 回复不再折叠。
    */
   expanded?: boolean;
   /**
    * 视口裁剪后的预渲染 MD 行（表格已展开为 box，span 样式保留）。
-   * 有值时直接渲染，不再二次 parse，且滚动时不丢 bold/code 等格式。
    */
   viewportLines?: MdLine[];
 }
@@ -89,7 +84,6 @@ export function MessageLine({
   streaming?: boolean;
 }) {
   const cursor = usePulse(symbols.cursorFrames, 420, streaming);
-  const time = formatTime(message.createdAt);
 
   if (message.from === 'tool' && message.tool) {
     return (
@@ -103,10 +97,8 @@ export function MessageLine({
   if (message.from === 'thinking') {
     return (
       <ThinkingBlock
-        text={message.text}
-        expanded={message.expanded === true}
+        message={message}
         streaming={streaming}
-        time={time}
       />
     );
   }
@@ -117,39 +109,36 @@ export function MessageLine({
         <Text dimColor wrap="wrap">
           {symbols.systemPrefix} {message.text}
         </Text>
-        {time ? <Text dimColor>  {time}</Text> : null}
       </Box>
     );
   }
 
   if (message.from === 'user') {
+    // Claude Code：> 前缀，不再显示 "you"
     const body = message.text.replace(/^\>\s*/, '');
     return (
       <Box marginBottom={1} flexDirection="column">
         <Box>
-          <Text dimColor>{symbols.userLabel}  </Text>
-          <Text color={theme.user} wrap="wrap">
+          <Text dimColor>
+            {symbols.userPrefix}{' '}
+          </Text>
+          <Text dimColor wrap="wrap">
             {body}
           </Text>
-          {time ? <Text dimColor>  {time}</Text> : null}
         </Box>
       </Box>
     );
   }
 
-  // agent 回复：完整 source 走 Markdown；视口裁剪走 viewportLines（保留样式）
+  // agent：● 与正文同一视觉流，无 "kross" 标题行、无 │ rail
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Box marginBottom={0}>
-        <Text color={theme.agent} bold>
-          {symbols.agentLabel}
-        </Text>
-        {time ? <Text dimColor>  {time}</Text> : null}
-      </Box>
       <Markdown
         source={message.viewportLines ? undefined : message.text}
         lines={message.viewportLines}
-        rail
+        rail={false}
+        bullet={symbols.agentBullet}
+        bulletColor={theme.agent}
         streaming={streaming}
         cursor={cursor}
       />
@@ -158,70 +147,83 @@ export function MessageLine({
 }
 
 function ThinkingBlock({
-  text,
-  expanded,
-  streaming,
-  time
+  message,
+  streaming
 }: {
-  text: string;
-  expanded: boolean;
+  message: ChatMessage;
   streaming: boolean;
-  time?: string;
 }) {
+  const expanded = message.expanded === true;
   const spinner = usePulse(symbols.busyFrames, 80, streaming && !expanded);
   const { stdout } = useStdout();
   const columns = Math.max(20, (stdout?.columns ?? 80) - 4);
   const bodyWidth = Math.max(1, columns - 2);
-  const { visibleLines, hiddenCount, totalLines } = collapseThinking(
-    text,
-    expanded || streaming
-  );
-  // 逻辑行再按列宽硬折，避免 Ink wrap 续行丢 rail
-  const displayLines = useMemo(
-    () =>
-      visibleLines.flatMap((line) => wrapPlainText(line, bodyWidth)),
-    [visibleLines, bodyWidth]
-  );
+  const label = formatThinkingLabel(message, streaming, spinner);
+
+  const bodyLines = useMemo(() => {
+    if (!expanded || streaming) {
+      return [] as string[];
+    }
+    const raw = message.text.length === 0 ? [''] : message.text.split('\n');
+    return raw.flatMap((line) => wrapPlainText(line, bodyWidth));
+  }, [expanded, streaming, message.text, bodyWidth]);
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Box>
-        <Text dimColor>thinking</Text>
-        {streaming ? (
-          <Text color={theme.statusBusy}>
-            {' '}
-            {spinner} reasoning
+      {/* 折叠态：单行 Thought for Ns（Claude Code 风格） */}
+      <Text dimColor>
+        {label}
+        {!streaming ? (
+          <Text dimColor>
+            {expanded ? ' · ctrl+o/click 折叠' : ' · ctrl+o/click 展开'}
           </Text>
         ) : null}
-        {time ? <Text dimColor>  {time}</Text> : null}
-      </Box>
-      {displayLines.map((line, index) => (
-        <Box key={`thinking-${index}`}>
-          <Text dimColor>{symbols.messageRail} </Text>
-          <Text dimColor wrap="truncate">
-            {line}
-          </Text>
-        </Box>
-      ))}
-      {!expanded && !streaming && hiddenCount > 0 ? (
-        <Box>
-          <Text dimColor>{symbols.messageRail} </Text>
-          <Text dimColor>
-            {symbols.collapseMark} 已折叠 thinking
-            {totalLines > 1 ? ` ${hiddenCount}/${totalLines} 行` : ''} · ctrl+o 展开
-          </Text>
-        </Box>
-      ) : null}
-      {expanded && !streaming && isThinkingCollapsible(text) ? (
-        <Box>
-          <Text dimColor>{symbols.messageRail} </Text>
-          <Text dimColor>
-            {symbols.collapseMark} thinking 已展开 · ctrl+o 折叠
-          </Text>
-        </Box>
-      ) : null}
+      </Text>
+      {expanded && !streaming
+        ? bodyLines.map((line, index) => (
+            <Box key={`thinking-${index}`}>
+              <Text dimColor>{'  '}</Text>
+              <Text dimColor wrap="truncate">
+                {line}
+              </Text>
+            </Box>
+          ))
+        : null}
     </Box>
   );
+}
+
+export function formatThinkingLabel(
+  message: Pick<ChatMessage, 'text' | 'durationMs' | 'createdAt'>,
+  streaming: boolean,
+  spinner?: string
+): string {
+  if (streaming) {
+    return spinner ? `Thinking… ${spinner}` : 'Thinking…';
+  }
+  const seconds = formatThoughtSeconds(message);
+  if (seconds !== undefined) {
+    return `Thought for ${seconds}s`;
+  }
+  return 'Thought';
+}
+
+function formatThoughtSeconds(
+  message: Pick<ChatMessage, 'durationMs' | 'createdAt'>
+): number | undefined {
+  if (typeof message.durationMs === 'number' && message.durationMs >= 0) {
+    return Math.max(1, Math.round(message.durationMs / 1000));
+  }
+  if (message.createdAt) {
+    const start = new Date(message.createdAt).getTime();
+    if (!Number.isNaN(start)) {
+      const elapsed = Date.now() - start;
+      if (elapsed > 0 && elapsed < 24 * 3600 * 1000) {
+        return Math.max(1, Math.round(elapsed / 1000));
+      }
+    }
+  }
+  return undefined;
 }
 
 function wrapPlainText(text: string, maxWidth: number): string[] {
@@ -261,63 +263,31 @@ function wrapPlainText(text: string, maxWidth: number): string[] {
   return lines.length > 0 ? lines : [''];
 }
 
-/** thinking 是否值得折叠（过短则始终展示）。 */
-export function isThinkingCollapsible(text: string): boolean {
-  const lines = text.length === 0 ? [] : text.split('\n');
-  return (
-    lines.length > THINKING_COLLAPSE_LINE_LIMIT ||
-    text.length > THINKING_COLLAPSE_CHAR_LIMIT
-  );
+/** thinking 默认始终可折叠（收拢为 Thought 一行）。 */
+export function isThinkingCollapsible(_text: string): boolean {
+  return true;
 }
 
+/**
+ * 兼容旧测试：expanded=false 时不展示正文行。
+ */
 export function collapseThinking(
   text: string,
   expanded: boolean
 ): { visibleLines: string[]; hiddenCount: number; totalLines: number } {
   const lines = text.length === 0 ? [''] : text.split('\n');
   const totalLines = lines.length;
-  if (expanded || !isThinkingCollapsible(text)) {
+  if (expanded) {
     return { visibleLines: lines, hiddenCount: 0, totalLines };
   }
-
-  // 行数过多：按行预览；字符过多（含单行 dump）：截断预览行并给出折叠提示。
-  const previewLineCount =
-    text.length > THINKING_COLLAPSE_CHAR_LIMIT &&
-    lines.length <= THINKING_COLLAPSE_LINE_LIMIT
-      ? Math.min(4, lines.length)
-      : Math.min(THINKING_COLLAPSE_LINE_LIMIT, lines.length);
-
-  const sliced = lines.slice(0, previewLineCount);
-  const lineHidden = lines.length - sliced.length;
-  const maxLineChars = Math.max(
-    80,
-    Math.floor(THINKING_COLLAPSE_CHAR_LIMIT / Math.max(1, previewLineCount))
-  );
-
-  let anyCharTruncated = false;
-  const visibleLines = sliced.map((line) => {
-    if (line.length > maxLineChars) {
-      anyCharTruncated = true;
-      return truncateLine(line, maxLineChars);
-    }
-    return line;
-  });
-
-  const hiddenCount = lineHidden > 0 ? lineHidden : anyCharTruncated ? 1 : 0;
-  return { visibleLines, hiddenCount, totalLines };
+  return {
+    visibleLines: [],
+    hiddenCount: Math.max(1, totalLines),
+    totalLines
+  };
 }
 
-function truncateLine(line: string, maxChars: number): string {
-  if (line.length <= maxChars) {
-    return line;
-  }
-  if (maxChars <= 1) {
-    return '…';
-  }
-  return `${line.slice(0, maxChars - 1)}…`;
-}
-
-/** @deprecated 回复不再折叠；保留兼容旧测试名，等价于 thinking 折叠。 */
+/** @deprecated */
 export function collapseLines(
   text: string,
   expanded: boolean
@@ -327,20 +297,4 @@ export function collapseLines(
     visibleLines: result.visibleLines,
     hiddenCount: result.hiddenCount
   };
-}
-
-function formatTime(iso?: string): string | undefined {
-  if (!iso) {
-    return undefined;
-  }
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return undefined;
-  }
-  return date.toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
 }
