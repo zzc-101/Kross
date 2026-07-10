@@ -3,8 +3,9 @@ import { Box, Text } from 'ink';
 
 import { MessageLine, type ChatMessage } from './MessageLine';
 import {
+  buildPaintLayout,
   MessagePaintCache,
-  windowPaintRows,
+  windowPaintLayout,
   type PaintItem,
   type PaintSegment
 } from './messagePaint';
@@ -57,15 +58,13 @@ export function MessageViewport({
     streamingMessageId !== undefined
   );
 
-  const windowed = useMemo(() => {
+  const layout = useMemo(() => {
     if (viewportRows === undefined) {
       return null;
     }
-    return windowPaintRows({
+    return buildPaintLayout({
       messages,
       columns,
-      viewportRows: Math.max(1, viewportRows - indicatorRows),
-      scrollOffset,
       streamingMessageId,
       paintCache: paintCacheRef.current
     });
@@ -73,10 +72,19 @@ export function MessageViewport({
     messages,
     columns,
     viewportRows,
-    scrollOffset,
-    indicatorRows,
     streamingMessageId
   ]);
+
+  const windowed = useMemo(() => {
+    if (!layout || viewportRows === undefined) {
+      return null;
+    }
+    return windowPaintLayout({
+      layout,
+      viewportRows: Math.max(1, viewportRows - indicatorRows),
+      scrollOffset
+    });
+  }, [layout, viewportRows, indicatorRows, scrollOffset]);
 
   useEffect(() => {
     if (!windowed) {

@@ -4,14 +4,11 @@ import { Box, useInput } from 'ink';
 import {
   AgentRuntime,
   nextPermissionMode,
-  isPermissionMode,
   ObservableTraceStore,
   type AgentMode,
   type AgentResult,
   type ConfigImportController,
   type ConfigImportPrompt,
-  type ContextInspection,
-  type ExternalAgentSource,
   type PendingToolApproval,
   type PermissionMode,
   type TraceEvent,
@@ -25,7 +22,6 @@ import {
   ensureToolItems,
   filterSlashCommands,
   formatCwdLabel,
-  formatSlashHelp,
   formatToolTitle,
   HeaderBar,
   isAggregatableTool,
@@ -42,8 +38,21 @@ import {
   toToolItem
 } from './ui/toolDisplay';
 import { useMouseScroll } from './ui/useMouseScroll';
-import { createScrollScheduler } from './ui/scrollSchedule';
 import { stripMouseArtifactsFromInput } from './terminal/mouseTracking';
+import {
+  AppShell,
+  resolveMessageViewportHeight
+} from './app/AppShell';
+import { formatImportPrompt, handleCommand } from './app/appCommands';
+import {
+  appendApprovalResult,
+  handleTraceEvent
+} from './app/traceMessages';
+import { useViewportScroll } from './app/useViewportScroll';
+import {
+  createMessageUpdateBuffer,
+  type MessageUpdateBuffer
+} from './app/messageUpdateBuffer';
 
 export interface AppProps {
   runtime?: AgentRuntime;
@@ -131,9 +140,12 @@ export function App({
   const [streamingMessageId, setStreamingMessageId] = useState<number | undefined>();
   const [approvalSelection, setApprovalSelection] = useState<'approve' | 'reject'>('approve');
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
-  /** 消息视口向上滚动的行数；0 = 贴底 */
-  const [scrollOffset, setScrollOffset] = useState(0);
-  const maxScrollOffsetRef = useRef(0);
+  const {
+    scrollOffset,
+    scrollBy,
+    resetToBottom,
+    handleScrollBounds
+  } = useViewportScroll();
   // 新会话不预置 agent 欢迎气泡；首页用 WelcomeHome，首条用户消息后进入对话流
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     initialImportPrompt
@@ -146,6 +158,35 @@ export function App({
         ]
       : []
   );
+  const messageUpdateBufferRef = useRef<MessageUpdateBuffer | null>(null);
+  if (messageUpdateBufferRef.current === null) {
+    messageUpdateBufferRef.current = createMessageUpdateBuffer({
+      onFlush: (updates) => {
+        setMessages((current) => {
+          let changed = false;
+          const next = current.map((message) => {
+            const text = updates.get(message.id);
+            if (text === undefined || text === message.text) {
+              return message;
+            }
+            changed = true;
+            return { ...message, text };
+          });
+          return changed ? next : current;
+        });
+      }
+    });
+  }
+  const enqueueMessageUpdate = useCallback((id: number, text: string) => {
+    messageUpdateBufferRef.current?.enqueue(id, text);
+  }, []);
+  const flushMessageUpdates = useCallback(() => {
+    messageUpdateBufferRef.current?.flush();
+  }, []);
+
+  useEffect(() => {
+    return () => messageUpdateBufferRef.current?.cancel();
+  }, []);
   const contextUsage = useMemo(
     () =>
       agentRuntime.getContextUsage({
@@ -195,10 +236,10 @@ export function App({
         }
       ]);
       // 新消息时回到底部（跟读最新）
-      setScrollOffset(0);
+      resetToBottom();
       return id;
     },
-    []
+    [resetToBottom]
   );
 
   const cyclePermissionMode = useCallback(() => {
@@ -207,14 +248,6 @@ export function App({
     setPermissionMode(next);
     // 页脚/header 已展示当前权限，不再往会话刷 system 提示
   }, [agentRuntime, permissionMode]);
-
-  const updateMessage = useCallback((id: number, text: string) => {
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === id ? { ...message, text } : message
-      )
-    );
-  }, []);
 
   const upsertToolMessage = useCallback((key: string, tool: ToolCallState) => {
     const existingId = toolMessageIdsRef.current.get(key);
@@ -290,9 +323,9 @@ export function App({
     });
 
     toolMessageIdsRef.current.set(key, holder.id);
-    setScrollOffset(0);
+    resetToBottom();
     return holder.id;
-  }, []);
+  }, [resetToBottom]);
 
   /** 切换最近一条 thinking 的展开/折叠。 */
   const toggleLastCollapsible = useCallback(() => {
@@ -356,6 +389,7 @@ export function App({
     let result: AgentResult | undefined;
 
     const beginTurn = () => {
+      flushMessageUpdates();
       // 每轮 LLM 迭代新开气泡，避免 tool 后的 thinking/text 写回工具前消息
       streamedMessageId = undefined;
       thinkingMessageId = undefined;
@@ -378,6 +412,7 @@ export function App({
         }
 
         if (event.type === 'tools-start') {
+          flushMessageUpdates();
           setStreamingMessageId(undefined);
           setAwaitingReply(true);
           setLoadingVariant('tool');
@@ -392,8 +427,7 @@ export function App({
             thinkingMessageId = append('thinking', thinkingText);
             setStreamingMessageId(thinkingMessageId);
           } else {
-            updateMessage(thinkingMessageId, thinkingText);
-            setStreamingMessageId(thinkingMessageId);
+            enqueueMessageUpdate(thinkingMessageId, thinkingText);
           }
           continue;
         }
@@ -406,17 +440,18 @@ export function App({
             streamedMessageId = append('agent', streamedText);
             setStreamingMessageId(streamedMessageId);
           } else {
-            updateMessage(streamedMessageId, streamedText);
-            setStreamingMessageId(streamedMessageId);
+            enqueueMessageUpdate(streamedMessageId, streamedText);
           }
           continue;
         }
 
+        flushMessageUpdates();
         result = event.result;
         setAwaitingReply(false);
         setStreamingMessageId(undefined);
       }
     } catch (error) {
+      flushMessageUpdates();
       append('system', `运行出错：${error instanceof Error ? error.message : String(error)}`);
       setStatus('ready');
       setAwaitingReply(false);
@@ -425,6 +460,7 @@ export function App({
     }
 
     if (!result) {
+      flushMessageUpdates();
       setStatus('ready');
       setStreamingMessageId(undefined);
       return;
@@ -450,7 +486,13 @@ export function App({
       append('agent', result.summary);
     }
     setStatus('ready');
-  }, [agentRuntime, append, mode, updateMessage]);
+  }, [
+    agentRuntime,
+    append,
+    enqueueMessageUpdate,
+    flushMessageUpdates,
+    mode
+  ]);
 
   const chooseToolApproval = useCallback(async (approved: boolean) => {
     if (!pendingToolApproval) {
@@ -524,30 +566,6 @@ export function App({
       processingRef.current = false;
     }
   }, [append, pendingCrossRepoPlan, runTurn]);
-
-  // 合并同一帧内多次 scrollBy（滚轮 + 键盘连按），一帧最多 setState 一次
-  const scrollSchedulerRef = useRef(
-    createScrollScheduler((delta) => {
-      setScrollOffset((current) => {
-        const next = current + delta;
-        if (next <= 0) {
-          return 0;
-        }
-        return Math.min(maxScrollOffsetRef.current, next);
-      });
-    })
-  );
-
-  useEffect(() => {
-    const scheduler = scrollSchedulerRef.current;
-    return () => {
-      scheduler.cancel();
-    };
-  }, []);
-
-  const scrollBy = useCallback((delta: number) => {
-    scrollSchedulerRef.current.enqueue(delta);
-  }, []);
 
   // 鼠标滚轮 / Mac 触摸板（需终端 mouse tracking，全屏启动时已开启）
   // useMouseScroll 内部已 rAF 合并；这里 steps 即本帧累计行数，不再 *3 放大抖动
@@ -763,20 +781,11 @@ export function App({
   // Header: location line(1) + divider(1) = 2; + error(1) if present
   const headerHeight = runtimeError ? 3 : 2;
   // paddingX 1 on each side doesn't affect height
-  const messageViewportHeight = Math.max(
-    4,
-    rows - headerHeight - footerHeight - 1 // -1 for safety gap
-  );
-
-  const handleScrollBounds = useCallback(
-    (bounds: { maxScrollOffset: number; totalRows: number }) => {
-      maxScrollOffsetRef.current = bounds.maxScrollOffset;
-      setScrollOffset((current) =>
-        Math.min(current, bounds.maxScrollOffset)
-      );
-    },
-    []
-  );
+  const messageViewportHeight = resolveMessageViewportHeight({
+    rows,
+    headerHeight,
+    footerHeight
+  });
 
   const header = (
     <HeaderBar
@@ -856,34 +865,18 @@ export function App({
     />
   );
 
-  // 全屏壳：固定高度三区；测试/非 TTY 退化为文档流
-  // 顶栏统一走 HeaderBar（branch + cwd），避免首页/对话两套路径逻辑
-  if (shellMode) {
-    return (
-      <Box flexDirection="column" width={columns} height={rows} paddingX={1}>
-        {header}
-        <Box
-          flexGrow={1}
-          flexShrink={1}
-          flexDirection="column"
-          overflowY="hidden"
-          justifyContent={isHome ? 'center' : 'flex-end'}
-          alignItems={isHome ? 'center' : 'stretch'}
-          minHeight={3}
-        >
-          {isHome ? homeBody : chatBody}
-        </Box>
-        {footer}
-      </Box>
-    );
-  }
-
   return (
-    <Box flexDirection="column" paddingX={1} paddingY={1} width={contentWidth}>
-      {header}
-      {isHome ? homeBody : chatBody}
-      {footer}
-    </Box>
+    <AppShell
+      shellMode={shellMode}
+      columns={columns}
+      rows={rows}
+      contentWidth={contentWidth}
+      isHome={isHome}
+      header={header}
+      homeBody={homeBody}
+      chatBody={chatBody}
+      footer={footer}
+    />
   );
 }
 
@@ -891,400 +884,6 @@ function createMemoryRuntime(): AgentRuntime {
   return new AgentRuntime({
     traceStore: new ObservableTraceStore(new InMemoryTraceStore())
   });
-}
-
-function handleTraceEvent(
-  event: TraceEvent,
-  handlers: {
-    upsertToolMessage: (key: string, tool: ToolCallState) => number;
-    setLoadingVariant: (variant: 'thinking' | 'tool') => void;
-    setAwaitingReply: (value: boolean) => void;
-    setStreamingMessageId: (id: number | undefined) => void;
-  }
-): void {
-  const payload = event.payload;
-  const toolName = typeof payload.toolName === 'string' ? payload.toolName : undefined;
-  if (!toolName) {
-    return;
-  }
-
-  const callId = typeof payload.callId === 'string' ? payload.callId : undefined;
-  // 始终带 runId，避免跨 run 用短 callId 串历史卡片
-  const key = `${event.runId}:${callId ?? toolName}`;
-  const risk = typeof payload.risk === 'string' ? payload.risk : undefined;
-  const summary = typeof payload.summary === 'string' ? payload.summary : undefined;
-  const durationMs =
-    typeof payload.durationMs === 'number' ? payload.durationMs : undefined;
-  const inputPreview = formatToolInputPreview(payload.input);
-
-  if (event.type === 'tool_call.approval_required') {
-    handlers.setLoadingVariant('tool');
-    handlers.setAwaitingReply(false);
-    handlers.setStreamingMessageId(undefined);
-    handlers.upsertToolMessage(key, {
-      callId,
-      name: toolName,
-      risk,
-      status: 'awaiting',
-      summary: typeof payload.reason === 'string' ? payload.reason : 'awaiting approval',
-      inputPreview
-    });
-    return;
-  }
-
-  if (event.type === 'tool_call.started') {
-    handlers.setLoadingVariant('tool');
-    handlers.setAwaitingReply(true);
-    handlers.setStreamingMessageId(undefined);
-    handlers.upsertToolMessage(key, {
-      callId,
-      name: toolName,
-      risk,
-      status: 'running',
-      inputPreview
-    });
-    return;
-  }
-
-  if (event.type === 'tool_call.completed') {
-    handlers.upsertToolMessage(key, {
-      callId,
-      name: toolName,
-      risk,
-      status: 'completed',
-      summary,
-      inputPreview,
-      durationMs
-    });
-    return;
-  }
-
-  if (event.type === 'tool_call.failed') {
-    handlers.upsertToolMessage(key, {
-      callId,
-      name: toolName,
-      risk,
-      status: 'failed',
-      summary:
-        summary ??
-        (typeof payload.message === 'string' ? payload.message : 'tool failed'),
-      inputPreview,
-      durationMs
-    });
-    return;
-  }
-
-  if (event.type === 'tool_call.denied') {
-    handlers.upsertToolMessage(key, {
-      callId,
-      name: toolName,
-      risk,
-      status: 'denied',
-      summary: typeof payload.reason === 'string' ? payload.reason : 'denied',
-      inputPreview
-    });
-  }
-}
-
-function appendApprovalResult(
-  append: (
-    from: ChatMessage['from'],
-    text: string,
-    options?: { expanded?: boolean }
-  ) => void,
-  result: AgentResult
-): void {
-  if (result.thinking && result.thinking.trim().length > 0) {
-    append('thinking', result.thinking);
-  }
-  if (result.summary.trim().length > 0) {
-    append('agent', result.summary);
-  }
-}
-
-function formatToolInputPreview(input: unknown): string | undefined {
-  if (input === undefined || input === null) {
-    return undefined;
-  }
-  if (typeof input === 'string') {
-    return input;
-  }
-  try {
-    return JSON.stringify(input);
-  } catch {
-    return String(input);
-  }
-}
-
-function handleCommand(
-  value: string,
-  append: (
-    from: ChatMessage['from'],
-    text: string,
-    options?: { expanded?: boolean }
-  ) => void,
-  setMode: (mode: AgentMode) => void,
-  setPermissionMode: (mode: PermissionMode) => void,
-  runtime: AgentRuntime,
-  mode: AgentMode,
-  importPrompt: ConfigImportPrompt | undefined,
-  configImportController: ConfigImportController | undefined,
-  setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void,
-  refreshRuntime: () => void,
-  toggleLastCollapsible: () => void,
-  hasPendingCrossRepoPlan: boolean,
-  choosePlanApproval: (approved: boolean) => Promise<void>
-): boolean {
-  if (!value.startsWith('/')) {
-    return false;
-  }
-
-  if (value === '/help') {
-    append('agent', formatSlashHelp(), { expanded: true });
-    return true;
-  }
-
-  if (value === '/status') {
-    append(
-      'agent',
-      `当前运行在本地 TUI。mode=${mode} · perm=${runtime.getPermissionMode()}`
-    );
-    return true;
-  }
-
-  if (value === '/context') {
-    append(
-      'agent',
-      formatContextInspection(
-        runtime.inspectContext({
-          requestedMode: mode,
-          currentUserInput: ''
-        })
-      ),
-      { expanded: true }
-    );
-    return true;
-  }
-
-  if (value === '/expand') {
-    toggleLastCollapsible();
-    append('system', '已切换最近一条 thinking 的折叠状态（也可用 ctrl+o）。');
-    return true;
-  }
-
-  if (value === '/approve' || value === '/reject') {
-    if (!hasPendingCrossRepoPlan) {
-      append('system', '当前没有等待确认的 cross-repo 计划。');
-      return true;
-    }
-    void choosePlanApproval(value === '/approve');
-    return true;
-  }
-
-  if (value === '/import' || value.startsWith('/import ')) {
-    handleImportCommand({
-      value,
-      append,
-      importPrompt,
-      configImportController,
-      setImportPrompt,
-      refreshRuntime
-    });
-    return true;
-  }
-
-  if (value === '/mode') {
-    append('agent', '用法：/mode auto|normal|cross-repo');
-    return true;
-  }
-
-  if (value.startsWith('/mode ')) {
-    const nextMode = value.replace('/mode ', '').trim();
-    if (isAgentMode(nextMode)) {
-      setMode(nextMode);
-      append('system', `已切换到 ${nextMode} 模式`);
-    } else {
-      append('agent', '未知模式，可选：auto、normal、cross-repo');
-    }
-    return true;
-  }
-
-  if (value === '/perm') {
-    append('agent', '用法：/perm default|classifier|auto · 也可按 shift+tab 循环切换');
-    return true;
-  }
-
-  if (value.startsWith('/perm ')) {
-    const nextPerm = value.replace('/perm ', '').trim();
-    if (isPermissionMode(nextPerm)) {
-      runtime.setPermissionMode(nextPerm);
-      setPermissionMode(nextPerm);
-      // 状态已反映在 header / 输入框页脚，无需再输出提示
-    } else {
-      append('agent', '未知权限模式，可选：default、classifier、auto');
-    }
-    return true;
-  }
-
-  if (value === '/trace' || value.startsWith('/trace ')) {
-    const argument = value === '/trace' ? undefined : value.slice('/trace'.length).trim();
-    void runSlashAsync(
-      () => runtime.formatTraceCommand(argument),
-      append,
-      '/trace'
-    );
-    return true;
-  }
-
-  if (value === '/diff' || value.startsWith('/diff ')) {
-    const argument = value === '/diff' ? undefined : value.slice('/diff'.length).trim();
-    void runSlashAsync(
-      () => runtime.formatDiffCommand(argument),
-      append,
-      '/diff'
-    );
-    return true;
-  }
-
-  append('agent', `未知命令：${value}。输入 /help 查看可用命令。`);
-  return true;
-}
-
-function isAgentMode(value: string): value is AgentMode {
-  return value === 'auto' || value === 'normal' || value === 'cross-repo';
-}
-
-/** 异步 slash 命令统一错误处理，避免 unhandled rejection。 */
-async function runSlashAsync(
-  run: () => Promise<string>,
-  append: (
-    from: ChatMessage['from'],
-    text: string,
-    options?: { expanded?: boolean }
-  ) => void,
-  command: string
-): Promise<void> {
-  try {
-    const text = await run();
-    append('agent', text, { expanded: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    append('system', `${command} 失败：${message}`);
-  }
-}
-
-function handleImportCommand(input: {
-  value: string;
-  append: (
-    from: ChatMessage['from'],
-    text: string,
-    options?: { expanded?: boolean }
-  ) => void;
-  importPrompt: ConfigImportPrompt | undefined;
-  configImportController: ConfigImportController | undefined;
-  setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void;
-  refreshRuntime: () => void;
-}): void {
-  if (!input.configImportController) {
-    input.append('agent', '当前没有可导入的 Claude Code 或 Codex 配置。');
-    return;
-  }
-
-  const target = input.value.replace('/import', '').trim();
-  if (target.length === 0) {
-    input.append('agent', formatImportUsage(input.importPrompt));
-    return;
-  }
-  if (target === 'skip') {
-    const result = input.configImportController.skip();
-    input.setImportPrompt(undefined);
-    input.append('agent', `已跳过配置导入。记录已保存到 ${result.configPath}`);
-    return;
-  }
-  if (!isExternalAgentSource(target)) {
-    input.append('agent', formatImportUsage(input.importPrompt));
-    return;
-  }
-
-  try {
-    const result = input.configImportController.importSource(target);
-    input.setImportPrompt(undefined);
-    input.refreshRuntime();
-    input.append(
-      'agent',
-      [
-        `已导入 ${result.candidate.displayName} 配置。`,
-        `配置文件: ${result.configPath}`,
-        `provider: ${result.config.llm?.provider}`,
-        `model: ${result.config.llm?.model}`,
-        `baseUrl: ${result.config.llm?.baseUrl ?? '默认'}`,
-        `credential: ${
-          result.config.llm?.apiKey || result.config.llm?.authToken ? '已配置' : '未配置'
-        }`
-      ].join('\n'),
-      { expanded: true }
-    );
-  } catch (error) {
-    input.append(
-      'agent',
-      error instanceof Error ? error.message : `导入失败：${String(error)}`
-    );
-  }
-}
-
-function isExternalAgentSource(value: string): value is ExternalAgentSource {
-  return value === 'claude' || value === 'codex';
-}
-
-function formatImportPrompt(prompt: ConfigImportPrompt): string {
-  const sources = prompt.candidates.map((candidate) => candidate.displayName);
-  if (prompt.candidates.length === 1) {
-    const candidate = prompt.candidates[0];
-    return [
-      `检测到 ${candidate?.displayName} 配置。`,
-      `输入 /import ${candidate?.source} 一键导入，或输入 /import skip 跳过。`
-    ].join('\n');
-  }
-
-  return [
-    `检测到 ${sources.join(' 和 ')} 配置。`,
-    '请选择一个导入：/import claude 或 /import codex；也可以输入 /import skip 跳过。'
-  ].join('\n');
-}
-
-function formatImportUsage(prompt: ConfigImportPrompt | undefined): string {
-  const commands =
-    prompt?.candidates.length
-      ? prompt.candidates.map((candidate) => `/import ${candidate.source}`).join(' | ')
-      : '/import claude | /import codex';
-  return `用法：${commands} | /import skip`;
-}
-
-function formatContextInspection(snapshot: ContextInspection): string {
-  const sectionLines = Object.entries(snapshot.report.sections)
-    .map(([section, chars]) => `- ${section}: ${chars}`)
-    .join('\n');
-  const contributorLines = snapshot.report.contributors
-    .slice()
-    .sort((left, right) => right.injectedChars - left.injectedChars)
-    .slice(0, 6)
-    .map(
-      (contributor) =>
-        `- ${contributor.title} [${contributor.section}/${contributor.status}]: ${contributor.injectedChars}/${contributor.rawChars}`
-    )
-    .join('\n');
-
-  return [
-    'Context',
-    `mode: ${snapshot.mode}`,
-    `总字符: ${snapshot.estimatedChars}`,
-    `included sources: ${snapshot.includedSources.length}`,
-    `dropped sources: ${snapshot.droppedSources.length}`,
-    'sections:',
-    sectionLines,
-    'contributors:',
-    contributorLines.length > 0 ? contributorLines : '- none'
-  ].join('\n');
 }
 
 class InMemoryTraceStore implements TraceStore {

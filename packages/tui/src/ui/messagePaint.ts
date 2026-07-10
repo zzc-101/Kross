@@ -58,6 +58,17 @@ export interface PaintWindow {
   hasMoreBelow: boolean;
 }
 
+interface PaintLayoutEntry {
+  item: PaintItem;
+  start: number;
+  end: number;
+}
+
+export interface PaintLayout {
+  entries: PaintLayoutEntry[];
+  totalRows: number;
+}
+
 type CacheEntry = {
   fingerprint: string;
   columns: number;
@@ -134,26 +145,20 @@ export class MessagePaintCache {
  * 将消息列表 paint 后按视觉行窗口化。
  * 部分可见时按行切片（样式在 segment 里，不丢 MD 格式）。
  */
-export function windowPaintRows(input: {
+export function buildPaintLayout(input: {
   messages: ChatMessage[];
   columns: number;
-  viewportRows: number;
-  scrollOffset: number;
   streamingMessageId?: number;
   paintCache?: MessagePaintCache;
-}): PaintWindow {
+}): PaintLayout {
   const {
     messages,
     columns,
     streamingMessageId,
     paintCache = new MessagePaintCache()
   } = input;
-  const viewportRows = Math.max(1, input.viewportRows);
   const width = Math.max(20, columns);
-
-  // 展平所有 paint items，记录全局行区间
-  type Flat = { item: PaintItem; start: number; end: number };
-  const flat: Flat[] = [];
+  const entries: PaintLayoutEntry[] = [];
   let cursor = 0;
 
   for (const message of messages) {
@@ -162,12 +167,22 @@ export function windowPaintRows(input: {
     for (const item of items) {
       const start = cursor;
       const end = cursor + item.height;
-      flat.push({ item, start, end });
+      entries.push({ item, start, end });
       cursor = end;
     }
   }
 
-  const totalRows = cursor;
+  return { entries, totalRows: cursor };
+}
+
+export function windowPaintLayout(input: {
+  layout: PaintLayout;
+  viewportRows: number;
+  scrollOffset: number;
+}): PaintWindow {
+  const viewportRows = Math.max(1, input.viewportRows);
+  const { entries, totalRows } = input.layout;
+
   const maxScrollOffset = Math.max(0, totalRows - viewportRows);
   const scrollOffset = Math.min(
     Math.max(0, input.scrollOffset),
@@ -176,7 +191,7 @@ export function windowPaintRows(input: {
   const endLine = totalRows - scrollOffset;
   const startLine = Math.max(0, endLine - viewportRows);
 
-  if (flat.length === 0) {
+  if (entries.length === 0) {
     return {
       items: [],
       maxScrollOffset: 0,
@@ -187,10 +202,13 @@ export function windowPaintRows(input: {
   }
 
   const visible: PaintItem[] = [];
-  for (const { item, start, end } of flat) {
-    if (end <= startLine || start >= endLine) {
-      continue;
+  const firstVisible = findFirstVisibleEntry(entries, startLine);
+  for (let index = firstVisible; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!entry || entry.start >= endLine) {
+      break;
     }
+    const { item, start, end } = entry;
 
     // 工具卡：整块带上（避免半卡）
     if (item.kind === 'tool') {
@@ -215,6 +233,40 @@ export function windowPaintRows(input: {
     hasMoreAbove: startLine > 0,
     hasMoreBelow: scrollOffset > 0
   };
+}
+
+export function windowPaintRows(input: {
+  messages: ChatMessage[];
+  columns: number;
+  viewportRows: number;
+  scrollOffset: number;
+  streamingMessageId?: number;
+  paintCache?: MessagePaintCache;
+}): PaintWindow {
+  const layout = buildPaintLayout(input);
+  return windowPaintLayout({
+    layout,
+    viewportRows: input.viewportRows,
+    scrollOffset: input.scrollOffset
+  });
+}
+
+function findFirstVisibleEntry(
+  entries: PaintLayoutEntry[],
+  startLine: number
+): number {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    const entry = entries[middle];
+    if (entry && entry.end <= startLine) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
 }
 
 function paintMessageUncached(

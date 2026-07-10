@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import type { ChatMessage } from './MessageLine';
 import {
+  buildPaintLayout,
   MessagePaintCache,
   paintItemPlainText,
+  windowPaintLayout,
   windowPaintRows
 } from './messagePaint';
 import { parseMarkdownStreaming, clearMarkdownParseCache } from './markdownParse';
@@ -96,6 +98,23 @@ describe('windowPaintRows', () => {
     expect(b).toBe(a);
   });
 
+  it('builds layout once and reuses it across scroll windows', () => {
+    const cache = new CountingPaintCache();
+    const messages = Array.from({ length: 40 }, (_, index) =>
+      msg({ id: index + 1, from: 'user', text: `line-${index}` })
+    );
+
+    const layout = buildPaintLayout({
+      messages,
+      columns: 80,
+      paintCache: cache
+    });
+    windowPaintLayout({ layout, viewportRows: 10, scrollOffset: 0 });
+    windowPaintLayout({ layout, viewportRows: 10, scrollOffset: 12 });
+
+    expect(cache.paintCalls).toBe(messages.length);
+  });
+
   it('embeds tool cards as tool paint items', () => {
     const messages = [
       msg({
@@ -153,6 +172,17 @@ describe('windowPaintRows', () => {
     expect(styled || plain.includes('outro') || plain.includes('│')).toBe(true);
   });
 });
+
+class CountingPaintCache extends MessagePaintCache {
+  paintCalls = 0;
+
+  override paintMessage(
+    ...args: Parameters<MessagePaintCache['paintMessage']>
+  ): ReturnType<MessagePaintCache['paintMessage']> {
+    this.paintCalls += 1;
+    return super.paintMessage(...args);
+  }
+}
 
 describe('parseMarkdownStreaming', () => {
   it('only re-parses the growing tail across deltas', () => {
