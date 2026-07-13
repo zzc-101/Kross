@@ -273,20 +273,18 @@ function buildCompletedDetail(
     if (contentPreview && contentPreview !== summary) {
       const maxLines = toolName === 'Glob' || toolName === 'Grep' ? 16 : 10;
       for (const line of contentPreview.split('\n').slice(0, maxLines)) {
-        if (line.trim().length === 0) {
+        if (line.length === 0) {
           continue;
         }
-        // Grep 结果常带 line: 前缀，保留；纯行号样式则剥掉
-        const text =
-          toolName === 'Grep' ? line : stripLineNumberPrefix(line);
-        lines.push({ text: clip(text, 140), op: 'meta' });
+        // 正文原样展示，不做剥离/改写
+        lines.push({ text: line, op: 'meta' });
       }
       if (contentPreview.split('\n').length > maxLines) {
         lines.push({ text: '… more', op: 'meta' });
       }
     }
     if (lines.length === 0 && inputPreview) {
-      lines.push({ text: clip(inputPreview, 120), op: 'meta' });
+      lines.push({ text: inputPreview, op: 'meta' });
     }
     return { lines: lines.length > 0 ? lines : [{ text: 'done', op: 'meta' }] };
   }
@@ -312,7 +310,7 @@ function buildCompletedDetail(
         });
       }
       for (const line of tail) {
-        lines.push({ text: clip(line, 200), op: 'meta' });
+        lines.push({ text: line, op: 'meta' });
       }
     }
     return {
@@ -327,7 +325,7 @@ function buildCompletedDetail(
   }
   if (contentPreview) {
     for (const line of contentPreview.split('\n').slice(0, 16)) {
-      lines.push({ text: clip(line, 160), op: 'meta' });
+      lines.push({ text: line, op: 'meta' });
     }
   }
   return {
@@ -335,7 +333,7 @@ function buildCompletedDetail(
   };
 }
 
-/** unified patch / git diff 风格：+/- 行着色 */
+/** unified patch / git diff 风格：+/- 行着色（正文原样） */
 function buildPatchStyleDetail(
   contentPreview: string | undefined,
   summary: string | undefined,
@@ -351,12 +349,12 @@ function buildPatchStyleDetail(
   const raw = contentPreview.split('\n');
   const body = raw.slice(0, maxLines).map((line): ToolDetailLine => {
     if (line.startsWith('+') && !line.startsWith('+++')) {
-      return { text: clip(line, 200), op: 'add' };
+      return { text: line, op: 'add' };
     }
     if (line.startsWith('-') && !line.startsWith('---')) {
-      return { text: clip(line, 200), op: 'del' };
+      return { text: line, op: 'del' };
     }
-    return { text: clip(line, 200), op: 'meta' };
+    return { text: line, op: 'meta' };
   });
   lines.push(...body);
   const truncated = raw.length > maxLines;
@@ -411,26 +409,4 @@ function extractDiffPreview(
   };
 }
 
-/**
- * 去掉常见行号前缀，Read 展开不展示行号：
- * "  12|code" / "12:code" / "12| code"
- */
-function stripLineNumberPrefix(line: string): string {
-  return line
-    .replace(/^\s*\d+\s*[|:\u2502]\s?/, '')
-    .replace(/^\s*\d+\s+/, (match, offset, whole) => {
-      // 仅当后面像代码且数字较短时剥掉（避免误伤 "2020 was a year"）
-      if (match.trim().length <= 5 && whole.length > match.length) {
-        return '';
-      }
-      return match;
-    });
-}
 
-function clip(text: string, max: number): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  if (flat.length <= max) {
-    return flat;
-  }
-  return `${flat.slice(0, Math.max(0, max - 1))}…`;
-}

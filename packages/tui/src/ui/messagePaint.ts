@@ -554,19 +554,21 @@ function paintTool(message: ChatMessage, columns: number): PaintItem[] {
   return out;
 }
 
+/**
+ * 渲染 diff 行：左侧 gutter（行号 + 标记）与正文分离。
+ * 正文 text 原样拼接，不做任何裁剪/改写。
+ */
 function detailLineSegments(line: {
   text: string;
   op?: 'add' | 'del' | 'meta' | 'ctx';
   lineNo?: number;
 }): PaintSegment[] {
-  const gutter = formatLineGutter(line.lineNo);
-  const content = stripLineWordPrefix(line.text);
+  const gutter = formatDiffGutter(line.op, line.lineNo);
 
-  // 增删：绿/红背景；左侧行号用数字（5 而非 Line 5）
   if (line.op === 'add') {
     return [
       {
-        text: `${gutter}+ ${content}`,
+        text: `${gutter}${line.text}`,
         color: theme.diffOnBg,
         backgroundColor: theme.diffAddBg
       }
@@ -575,29 +577,37 @@ function detailLineSegments(line: {
   if (line.op === 'del') {
     return [
       {
-        text: `${gutter}- ${content}`,
+        text: `${gutter}${line.text}`,
         color: theme.diffOnBg,
         backgroundColor: theme.diffDelBg
       }
     ];
   }
   if (line.op === 'ctx') {
-    return [{ text: `${gutter}  ${content}`, dim: true }];
+    return [{ text: `${gutter}${line.text}`, dim: true }];
   }
   return [{ text: line.text, dim: true }];
 }
 
-/** 左侧行号：仅数字，如 "  5 " */
-function formatLineGutter(lineNo: number | undefined): string {
-  if (typeof lineNo !== 'number' || !Number.isFinite(lineNo) || lineNo < 1) {
-    return '     ';
+/** 行号 + 标记；正文不经此函数处理 */
+function formatDiffGutter(
+  op: 'add' | 'del' | 'meta' | 'ctx' | undefined,
+  lineNo: number | undefined
+): string {
+  const num =
+    typeof lineNo === 'number' && Number.isFinite(lineNo) && lineNo >= 1
+      ? String(Math.floor(lineNo)).padStart(4, ' ')
+      : '    ';
+  if (op === 'add') {
+    return `${num} + `;
   }
-  return `${String(Math.floor(lineNo)).padStart(4, ' ')} `;
-}
-
-/** 去掉正文里多余的 "Line 12:" 前缀，避免与 gutter 重复 */
-function stripLineWordPrefix(text: string): string {
-  return text.replace(/^Line\s+(\d+)\s*:?\s*/i, '');
+  if (op === 'del') {
+    return `${num} - `;
+  }
+  if (op === 'ctx') {
+    return `${num}   `;
+  }
+  return '';
 }
 
 function buildToolTitleSegments(

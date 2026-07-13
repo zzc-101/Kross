@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import type { ToolDefinition } from '../toolGateway';
 import {
+  buildOverwriteDiffPreview,
   buildReplaceDiffPreview,
   type DiffPreview
 } from '../diffPreview';
@@ -225,13 +226,18 @@ export function createEditTool(workspaceRoot: string): ToolDefinition<EditInput>
         linesRemoved: totalRemoved
       });
 
-      // 预览：首个成功 hunk + 原文件上下文
-      const first = applied[0]!;
-      const diffPreview = buildReplaceDiffPreview(
-        first.old_string,
-        first.new_string,
-        { fileContent: original, contextLines: 3 }
-      );
+      // 单处：替换块 + 文件上下文；多处：全文 before/after LCS（含全部变更）
+      const diffPreview: DiffPreview =
+        applied.length === 1
+          ? buildReplaceDiffPreview(
+              applied[0]!.old_string,
+              applied[0]!.new_string,
+              { fileContent: original, contextLines: 3 }
+            )
+          : buildOverwriteDiffPreview(original, content, {
+              contextLines: 3,
+              maxLines: 80
+            });
 
       const multi =
         edits.length > 1 ? ` · ${edits.length} edits` : '';

@@ -138,34 +138,34 @@ function ExpandedToolBody({
 }
 
 function DetailLineView({ line }: { line: ToolDetailLine }) {
-  const gutter =
+  // 正文 line.text 原样展示，不做裁剪/替换
+  const num =
     typeof line.lineNo === 'number' && line.lineNo >= 1
-      ? `${String(line.lineNo).padStart(4, ' ')} `
-      : '     ';
-  const content = line.text.replace(/^Line\s+(\d+)\s*:?\s*/i, '');
+      ? String(line.lineNo).padStart(4, ' ')
+      : '    ';
 
   if (line.op === 'add') {
     return (
       <Text color={theme.diffOnBg} backgroundColor={theme.diffAddBg}>
-        {gutter}+ {content}
+        {num} + {line.text}
       </Text>
     );
   }
   if (line.op === 'del') {
     return (
       <Text color={theme.diffOnBg} backgroundColor={theme.diffDelBg}>
-        {gutter}- {content}
+        {num} - {line.text}
       </Text>
     );
   }
   if (line.op === 'ctx') {
     return (
       <Text dimColor>
-        {gutter}  {content}
+        {num}   {line.text}
       </Text>
     );
   }
-  return <Text dimColor>{'  '}{line.text}</Text>;
+  return <Text dimColor>{line.text}</Text>;
 }
 
 function LineDeltaText({

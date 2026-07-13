@@ -220,11 +220,12 @@ describe('windowPaintRows', () => {
       false
     );
     const plains = items.map(paintItemPlainText).join('\n');
-    // 左侧行号是数字 5，不是 "Line 5"
-    expect(plains).toMatch(/\b5\s+-\s+old/);
-    expect(plains).toMatch(/\b5\s+\+\s+new/);
-    expect(plains).not.toMatch(/Line 5/);
-    const del = items.find((i) => paintItemPlainText(i).includes('- old'));
+    // 正文原样（含 Line … 字面量）；gutter 另附数字行号
+    expect(plains).toContain('Line 5: old');
+    expect(plains).toContain('Line 5: new');
+    expect(plains).toContain('Line 2: keep');
+    expect(plains).toMatch(/5\s+-\s*Line 5: old/);
+    const del = items.find((i) => paintItemPlainText(i).includes('Line 5: old'));
     expect(
       del &&
         del.kind === 'line' &&

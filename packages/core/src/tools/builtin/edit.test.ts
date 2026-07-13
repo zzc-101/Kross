@@ -105,6 +105,13 @@ describe('Edit', () => {
     expect(res.summary).toContain('replaced 2');
     expect(res.summary).toContain('2 edits');
     expect(await readFile(join(root, 'm.txt'), 'utf8')).toBe('AAA\nbbb\nCCC\n');
+    // 多处编辑用全文 diff，应同时覆盖两处变更
+    const preview = (res.data as { diffPreview?: { lines: Array<{ op: string; text: string }> } })
+      .diffPreview;
+    expect(preview?.lines.some((l) => l.op === 'del' && l.text === 'aaa')).toBe(true);
+    expect(preview?.lines.some((l) => l.op === 'add' && l.text === 'AAA')).toBe(true);
+    expect(preview?.lines.some((l) => l.op === 'del' && l.text === 'ccc')).toBe(true);
+    expect(preview?.lines.some((l) => l.op === 'add' && l.text === 'CCC')).toBe(true);
   });
 
   it('returns nearby hint when no match', async () => {
