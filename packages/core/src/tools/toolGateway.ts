@@ -2,6 +2,16 @@ import { ZodError, type z } from 'zod';
 
 import type { TraceEvent } from '../domain';
 import type { TraceStore } from '../trace/traceStore';
+import {
+  errorMessage,
+  formatToolFailureObservation,
+  resolveToolRetryPolicy,
+  retryBackoffMs,
+  type ToolAttemptFailure,
+  type ToolRetryPolicy
+} from './toolRetry';
+
+export type { ToolRetryPolicy } from './toolRetry';
 
 export type ToolRisk = 'read' | 'write' | 'execute' | 'network';
 export type ToolApprovalAction = 'allow' | 'ask' | 'deny';
@@ -42,6 +52,13 @@ export interface ToolHandlerResult {
 export interface ToolDefinition<TInput = unknown> extends ToolMetadata {
   inputSchema: z.ZodType<TInput>;
   timeoutMs?: number;
+  /**
+   * 工具级重试策略。
+   * - false：禁止重试
+   * - 对象：覆盖默认 maxAttempts / backoff / retryOn
+   * - 省略：使用 Gateway 默认（瞬时错误最多 2 次 attempt）
+   */
+  retry?: ToolRetryPolicy | false;
   enabled?: (context: ToolListContext) => boolean;
   summarize?: (result: ToolHandlerResult) => string;
   execute(context: ToolExecutionContext<TInput>): Promise<ToolHandlerResult>;
@@ -55,6 +72,12 @@ export interface ToolCallInput {
   callId?: string;
   approved?: boolean;
   returnErrors?: boolean;
+  /**
+   * 调用级重试覆盖。
+   * - false：本次强制不重试
+   * - 对象：覆盖工具/网关策略
+   */
+  retry?: ToolRetryPolicy | false;
 }
 
 export interface ToolApprovalDecision {
@@ -77,6 +100,16 @@ export interface ToolGatewayOptions {
   approvalPolicy?: ToolApprovalPolicy;
   defaultTimeoutMs?: number;
   maxSummaryChars?: number;
+  /** completed 事件 contentPreview 最大字符，供 TUI 展开预览（默认 4000） */
+  maxContentPreviewChars?: number;
+  /**
+   * Gateway 默认重试策略。
+   * - false：全局关闭（工具仍可单独开启）
+   * - 对象：覆盖 DEFAULT_TOOL_RETRY_POLICY 字段
+   */
+  defaultRetry?: ToolRetryPolicy | false;
+  /** 测试可注入；默认 setTimeout。 */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export class ToolGateway {
@@ -84,11 +117,15 @@ export class ToolGateway {
   private readonly now: () => Date;
   private approvalPolicy: ToolApprovalPolicy;
   private readonly maxSummaryChars: number;
+  private readonly maxContentPreviewChars: number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(private readonly options: ToolGatewayOptions = {}) {
     this.now = options.now ?? (() => new Date());
     this.approvalPolicy = options.approvalPolicy ?? defaultApprovalPolicy;
     this.maxSummaryChars = options.maxSummaryChars ?? 240;
+    this.maxContentPreviewChars = options.maxContentPreviewChars ?? 4000;
+    this.sleep = options.sleep ?? defaultSleep;
   }
 
   setApprovalPolicy(policy: ToolApprovalPolicy): void {
@@ -161,50 +198,134 @@ export class ToolGateway {
       );
     }
 
+    const retryPolicy = resolveToolRetryPolicy({
+      callRetry: input.retry,
+      definitionRetry: definition.retry,
+      gatewayRetry: this.options.defaultRetry
+    });
+
     const startedAt = this.now().getTime();
     await this.record(input.runId, 'tool_call.started', {
       ...callMeta,
-      input: parsedInput
+      input: parsedInput,
+      maxAttempts: retryPolicy.maxAttempts
     });
 
-    try {
-      const rawResult = await executeWithTimeout(definition, {
-        runId: input.runId,
-        toolName: input.name,
-        input: parsedInput
-      }, this.options.defaultTimeoutMs);
-      const result: ToolResult = {
-        ...rawResult,
-        status: 'completed',
-        summary: summarizeResult(definition, rawResult, this.maxSummaryChars)
-      };
-      await this.record(input.runId, 'tool_call.completed', {
-        ...callMeta,
-        status: result.status,
-        contentPreview: result.content.slice(0, 240),
-        summary: result.summary,
-        durationMs: this.now().getTime() - startedAt
-      });
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const failed: ToolResult = {
-        status: 'failed',
-        content: `Tool ${input.name} failed: ${message}`,
-        summary: `failed: ${message}`
-      };
-      await this.record(input.runId, 'tool_call.failed', {
-        ...callMeta,
-        status: failed.status,
-        message,
-        summary: failed.summary,
-        durationMs: this.now().getTime() - startedAt
-      });
-      if (input.returnErrors === true) {
-        return failed;
+    const failures: ToolAttemptFailure[] = [];
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
+      try {
+        const rawResult = await executeWithTimeout(
+          definition,
+          {
+            runId: input.runId,
+            toolName: input.name,
+            input: parsedInput
+          },
+          this.options.defaultTimeoutMs
+        );
+        const attemptMeta = {
+          attempts: attempt,
+          maxAttempts: retryPolicy.maxAttempts,
+          retried: attempt > 1
+        };
+        const mergedData =
+          rawResult.data !== undefined
+            ? { ...(asRecord(rawResult.data) ?? { value: rawResult.data }), ...attemptMeta }
+            : attemptMeta;
+        const result: ToolResult = {
+          ...rawResult,
+          status: 'completed',
+          summary: summarizeResult(definition, rawResult, this.maxSummaryChars),
+          data: mergedData
+        };
+        await this.record(input.runId, 'tool_call.completed', {
+          ...callMeta,
+          status: result.status,
+          contentPreview: result.content.slice(0, this.maxContentPreviewChars),
+          summary: result.summary,
+          durationMs: this.now().getTime() - startedAt,
+          ...attemptMeta,
+          data: result.data
+        });
+        return result;
+      } catch (error) {
+        lastError = error;
+        const message = errorMessage(error);
+        failures.push({ attempt, message });
+
+        const canRetry =
+          attempt < retryPolicy.maxAttempts && retryPolicy.retryOn(error, attempt);
+
+        if (canRetry) {
+          const delayMs = retryBackoffMs(retryPolicy, attempt);
+          await this.record(input.runId, 'tool_call.retry', {
+            ...callMeta,
+            attempt,
+            maxAttempts: retryPolicy.maxAttempts,
+            message,
+            retryable: true,
+            nextDelayMs: delayMs
+          });
+          if (delayMs > 0) {
+            await this.sleep(delayMs);
+          }
+          continue;
+        }
+
+        // 不可重试或已耗尽
+        if (attempt < retryPolicy.maxAttempts) {
+          await this.record(input.runId, 'tool_call.retry', {
+            ...callMeta,
+            attempt,
+            maxAttempts: retryPolicy.maxAttempts,
+            message,
+            retryable: false,
+            nextDelayMs: 0
+          });
+        }
+
+        const observation = formatToolFailureObservation({
+          toolName: input.name,
+          failures,
+          maxAttempts: retryPolicy.maxAttempts
+        });
+        const failed: ToolResult = {
+          status: 'failed',
+          content: observation.content,
+          summary: observation.summary,
+          data: observation.data
+        };
+        await this.record(input.runId, 'tool_call.failed', {
+          ...callMeta,
+          status: failed.status,
+          message,
+          summary: failed.summary,
+          durationMs: this.now().getTime() - startedAt,
+          attempts: failures.length,
+          maxAttempts: retryPolicy.maxAttempts,
+          retried: failures.length > 1,
+          data: failed.data
+        });
+        if (input.returnErrors === true) {
+          return failed;
+        }
+        throw error;
       }
-      throw error;
     }
+
+    // 理论上不会到达
+    const fallbackMessage = errorMessage(lastError);
+    const failed: ToolResult = {
+      status: 'failed',
+      content: `Tool ${input.name} failed: ${fallbackMessage}`,
+      summary: `failed: ${fallbackMessage}`
+    };
+    if (input.returnErrors === true) {
+      return failed;
+    }
+    throw lastError instanceof Error ? lastError : new Error(fallbackMessage);
   }
 
   private async record(
@@ -344,4 +465,17 @@ function summarizeResult(
 ): string {
   const summary = result.summary ?? definition.summarize?.(result) ?? result.content;
   return summary.length > maxChars ? `${summary.slice(0, maxChars)}...` : summary;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

@@ -29,9 +29,28 @@ function run(input: any) {
 describe('Write', () => {
   it('writes file and creates parent dirs', async () => {
     const res = await run({ path: 'sub/dir/a.txt', content: 'hello' });
-    expect(res.summary).toContain('wrote');
+    expect(res.summary).toContain('created');
+    expect(res.summary).toContain('+1');
+    expect(res.data).toMatchObject({
+      path: 'sub/dir/a.txt',
+      created: true,
+      linesAdded: 1,
+      linesRemoved: 0
+    });
     const back = await readFile(join(root, 'sub/dir/a.txt'), 'utf8');
     expect(back).toBe('hello');
+  });
+
+  it('reports overwrite line stats', async () => {
+    await run({ path: 'a.txt', content: 'a\nb\nc\n' });
+    const res = await run({ path: 'a.txt', content: 'a\nx\nc\n' });
+    expect(res.summary).toContain('overwrote');
+    expect(res.summary).toContain('+1 -1');
+    expect(res.data).toMatchObject({
+      created: false,
+      linesAdded: 1,
+      linesRemoved: 1
+    });
   });
 
   it('rejects paths outside workspace', async () => {

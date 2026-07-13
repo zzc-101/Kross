@@ -68,7 +68,16 @@ const readLikeTools = new Set([
   'GitLog',
   'fs.read'
 ]);
-const writeLikeTools = new Set(['Write', 'Edit', 'fs.write', 'fs.edit']);
+const writeLikeTools = new Set([
+  'Write',
+  'Edit',
+  'Delete',
+  'Move',
+  'fs.write',
+  'fs.edit',
+  'fs.delete',
+  'fs.move'
+]);
 
 const dangerousBashPatterns: RegExp[] = [
   /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/\b/,

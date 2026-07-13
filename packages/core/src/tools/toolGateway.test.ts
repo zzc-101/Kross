@@ -173,7 +173,10 @@ describe('ToolGateway', () => {
   });
 
   it('times out slow tools and records a structured failure', async () => {
-    const gateway = new ToolGateway({ defaultTimeoutMs: 5 });
+    const gateway = new ToolGateway({
+      defaultTimeoutMs: 5,
+      sleep: async () => undefined
+    });
 
     gateway.register({
       name: 'slow',
@@ -197,7 +200,10 @@ describe('ToolGateway', () => {
 
   it('can return tool failures as observations for the agent loop', async () => {
     const traceStore = new InMemoryTraceStore();
-    const gateway = new ToolGateway({ traceStore });
+    const gateway = new ToolGateway({
+      traceStore,
+      sleep: async () => undefined
+    });
 
     gateway.register({
       name: 'boom',
@@ -216,15 +222,149 @@ describe('ToolGateway', () => {
       returnErrors: true
     });
 
+    // 默认最多 2 次 attempt，耗尽后仍回填模型
     expect(result).toMatchObject({
       status: 'failed',
-      content: 'Tool boom failed: exploded',
-      summary: 'failed: exploded'
+      content: expect.stringContaining('failed after 2 attempts'),
+      summary: expect.stringContaining('failed after 2 attempts')
+    });
+    expect(result.data).toMatchObject({
+      attempts: 2,
+      maxAttempts: 2,
+      retried: true
     });
     expect(traceStore.events.map((event) => event.type)).toEqual([
       'tool_call.started',
+      'tool_call.retry',
       'tool_call.failed'
     ]);
+  });
+
+  it('retries timeout then succeeds without extra tool loop iteration', async () => {
+    const traceStore = new InMemoryTraceStore();
+    let calls = 0;
+    const gateway = new ToolGateway({
+      traceStore,
+      defaultTimeoutMs: 20,
+      sleep: async () => undefined
+    });
+
+    gateway.register({
+      name: 'flaky',
+      description: '先超时再成功',
+      risk: 'read',
+      inputSchema: z.object({}),
+      execute: async () => {
+        calls += 1;
+        if (calls === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        }
+        return { content: 'ok' };
+      }
+    });
+
+    const result = await gateway.call({
+      runId: 'run-1',
+      name: 'flaky',
+      input: {}
+    });
+
+    expect(calls).toBe(2);
+    expect(result).toMatchObject({
+      status: 'completed',
+      content: 'ok',
+      data: { attempts: 2, retried: true }
+    });
+    expect(traceStore.events.map((event) => event.type)).toEqual([
+      'tool_call.started',
+      'tool_call.retry',
+      'tool_call.completed'
+    ]);
+  });
+
+  it('does not retry validation or boundary-style deterministic errors', async () => {
+    const traceStore = new InMemoryTraceStore();
+    let calls = 0;
+    const gateway = new ToolGateway({
+      traceStore,
+      sleep: async () => undefined
+    });
+
+    gateway.register({
+      name: 'strict',
+      description: '参数校验',
+      risk: 'read',
+      inputSchema: z.object({ n: z.number() }),
+      execute: async () => {
+        calls += 1;
+        return { content: 'unreachable' };
+      }
+    });
+
+    await expect(
+      gateway.call({
+        runId: 'run-1',
+        name: 'strict',
+        input: { n: 'x' },
+        returnErrors: true
+      })
+    ).rejects.toBeInstanceOf(ToolValidationError);
+    expect(calls).toBe(0);
+    // 校验失败发生在 execute 前，无 started
+    expect(traceStore.events).toEqual([]);
+
+    // 非 retryable 业务错误：单次失败即返回
+    let boomCalls = 0;
+    gateway.register({
+      name: 'enoent-like',
+      description: '确定性 IO 错误',
+      risk: 'read',
+      inputSchema: z.object({}),
+      execute: async () => {
+        boomCalls += 1;
+        const error = new Error('not found') as Error & { code: string };
+        error.code = 'ENOENT';
+        throw error;
+      }
+    });
+
+    const failed = await gateway.call({
+      runId: 'run-2',
+      name: 'enoent-like',
+      input: {},
+      returnErrors: true
+    });
+    expect(boomCalls).toBe(1);
+    expect(failed).toMatchObject({
+      status: 'failed',
+      content: 'Tool enoent-like failed: not found',
+      data: { attempts: 1, retried: false }
+    });
+  });
+
+  it('respects call-level retry: false', async () => {
+    let calls = 0;
+    const gateway = new ToolGateway({ sleep: async () => undefined });
+    gateway.register({
+      name: 'boom',
+      description: '失败',
+      risk: 'read',
+      inputSchema: z.object({}),
+      execute: async () => {
+        calls += 1;
+        throw new Error('once');
+      }
+    });
+
+    const result = await gateway.call({
+      runId: 'run-1',
+      name: 'boom',
+      input: {},
+      returnErrors: true,
+      retry: false
+    });
+    expect(calls).toBe(1);
+    expect(result.summary).toBe('failed: once');
   });
 
   it('stores result summaries separately from raw output', async () => {

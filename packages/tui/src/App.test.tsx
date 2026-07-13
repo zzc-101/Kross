@@ -411,11 +411,11 @@ describe('App', () => {
 
     toggleCollapse?.();
     await waitUntil(() => lastFrame()?.includes('think-line-15') === true);
-    expect(lastFrame()).toContain('折叠');
+    expect(lastFrame()).toMatch(/Thought for \d+s/);
 
     toggleCollapse?.();
-    await waitUntil(() => lastFrame()?.includes('展开') === true);
-    expect(lastFrame()).not.toContain('think-line-15');
+    await waitUntil(() => lastFrame()?.includes('think-line-15') !== true);
+    expect(lastFrame()).toMatch(/Thought for \d+s/);
   });
 
   it('shows current context status with /context', async () => {
@@ -705,8 +705,8 @@ describe('App', () => {
     await waitUntil(() => submit !== undefined);
     const done = submit?.('读一下文件');
     await waitUntil(() => lastFrame()?.includes('Read') === true);
-    // 单行摘要（▸ Read …），不是多行 tool 卡片
-    expect(lastFrame()).toMatch(/[▸▾].*Read/);
+    // 单行摘要（▪ Read …），不是多行 tool 卡片
+    expect(lastFrame()).toMatch(/[▪▸▾].*Read/);
 
     await done;
     await waitUntil(() => lastFrame()?.includes('读完了') === true);

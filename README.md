@@ -55,7 +55,7 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - 结果摘要：保留原始输出，同时生成 summary 写入 trace 和上下文，避免大输出污染后续 prompt。
 - Trace：记录 `tool_call.started`、`tool_call.completed`、`tool_call.failed`、`tool_call.approval_required`、`tool_call.denied`。
 - 原生 tool-call loop：OpenAI-compatible 解析 `tool_calls`，Anthropic-compatible 解析 `tool_use`，Runtime 执行工具后把 tool result 回填给模型，支持多轮工具迭代直到模型返回最终文本。
-- 内置文件工具：`Read`、`Write`、`Edit`、`Glob`、`Grep`、`List`、`Stat` 默认限制在 workspace 内，并使用真实路径校验阻断 symlink 越界。
+- 内置文件工具：`Read`、`Write`、`Edit`、`Delete`、`Move`、`Glob`、`Grep`、`List`、`Stat` 默认限制在 workspace 内，并使用真实路径校验阻断 symlink 越界。`Edit` 支持 `edits[]` 一次多处替换与失败时附近内容提示。
 - 内置 Git 工具：`GitStatus`、`GitDiff`、`GitLog` 提供只读的结构化仓库检查，并拒绝读取仓库根目录位于 workspace 外的 Git 仓库。
 - `Read` 支持 `offset` / `limit` 分段读取大文件，避免先把超大文件完整塞进上下文。
 - `Bash` 会以 workspace 内目录作为 cwd 启动命令，但当前版本没有 OS 级沙箱；命令本身的系统访问能力主要由审批策略约束。

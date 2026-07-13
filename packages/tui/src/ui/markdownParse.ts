@@ -682,6 +682,22 @@ export function clearMarkdownParseCache(): void {
   streamStates.clear();
 }
 
+/**
+ * 去掉消息末尾 blank 行。
+ * 模型常带结尾 \\n\\n；若不裁掉会与消息间距叠成大块留白。
+ */
+export function trimTrailingBlankMdLines(lines: MdLine[]): MdLine[] {
+  let end = lines.length;
+  while (end > 0 && lines[end - 1]?.kind === 'blank') {
+    end -= 1;
+  }
+  if (end === lines.length) {
+    return lines;
+  }
+  // 全是 blank 时保留一行，避免变成空消息
+  return end === 0 ? lines.slice(0, 1) : lines.slice(0, end);
+}
+
 export function mdLineText(line: MdLine): string {
   return line.spans.map((span) => span.text).join('');
 }

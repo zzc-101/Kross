@@ -39,21 +39,91 @@ export function extractToolPath(inputPreview: string | undefined): string | unde
       }
     }
   } catch {
-    // raw string preview
+    // human-readable preview（Edit/Write/Bash）
   }
-  const trimmed = inputPreview.replace(/\s+/g, ' ').trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+
+  // Bash: "$ command"
+  if (inputPreview.startsWith('$ ')) {
+    const flat = inputPreview.replace(/\s+/g, ' ').trim();
+    return flat.length > 0 ? flat : undefined;
+  }
+
+  // 多行预览：首行常为 path；Write 也可能是 "path · N lines · …"
+  const firstLine = inputPreview.split('\n')[0]?.trim() ?? '';
+  if (firstLine.length === 0) {
+    return undefined;
+  }
+  const beforeDot = firstLine.split(' · ')[0]?.trim() ?? firstLine;
+  // path · replace_all 也会落在 first segment
+  const withoutFlag = beforeDot.replace(/\s·\s*replace_all$/i, '').trim();
+  return withoutFlag.length > 0 ? withoutFlag : firstLine;
 }
 
 export function toToolItem(tool: ToolCallState): ToolCallItem {
+  const stats = resolveLineStats(tool);
   return {
     callId: tool.callId,
     path: extractToolPath(tool.inputPreview),
     preview: tool.inputPreview,
     status: tool.status,
     summary: tool.summary,
-    durationMs: tool.durationMs
+    durationMs: tool.durationMs,
+    linesAdded: stats?.linesAdded,
+    linesRemoved: stats?.linesRemoved
   };
+}
+
+export function resolveLineStats(tool: {
+  linesAdded?: number;
+  linesRemoved?: number;
+  summary?: string;
+}): { linesAdded: number; linesRemoved: number } | undefined {
+  if (
+    typeof tool.linesAdded === 'number' ||
+    typeof tool.linesRemoved === 'number'
+  ) {
+    return {
+      linesAdded: tool.linesAdded ?? 0,
+      linesRemoved: tool.linesRemoved ?? 0
+    };
+  }
+  return parseLineStatsFromSummary(tool.summary);
+}
+
+/** 从 summary 解析 `+3 -1` / `created +12` / `replaced 1 · +2 -1` */
+export function parseLineStatsFromSummary(
+  summary: string | undefined
+): { linesAdded: number; linesRemoved: number } | undefined {
+  if (!summary) {
+    return undefined;
+  }
+  const addedMatch = summary.match(/(?<![.\d])\+(\d+)\b/);
+  const removedMatch = summary.match(/(?<![.\d])-(\d+)\b/);
+  if (!addedMatch && !removedMatch) {
+    return undefined;
+  }
+  return {
+    linesAdded: addedMatch ? Number(addedMatch[1]) : 0,
+    linesRemoved: removedMatch ? Number(removedMatch[1]) : 0
+  };
+}
+
+export function formatLineStatsLabel(stats: {
+  linesAdded: number;
+  linesRemoved: number;
+}): string {
+  const { linesAdded, linesRemoved } = stats;
+  if (linesAdded === 0 && linesRemoved === 0) {
+    return '±0';
+  }
+  const parts: string[] = [];
+  if (linesAdded > 0) {
+    parts.push(`+${linesAdded}`);
+  }
+  if (linesRemoved > 0) {
+    parts.push(`-${linesRemoved}`);
+  }
+  return parts.join(' ');
 }
 
 export function ensureToolItems(tool: ToolCallState): ToolCallItem[] {
@@ -102,11 +172,16 @@ export function formatToolTitle(tool: ToolCallState): string {
 
   // 单次非聚合工具：名称 + 简短预览
   const path = items[0]?.path;
+  const stats = resolveLineStats(items[0] ?? tool);
+  const delta =
+    stats && (name === 'Edit' || name === 'Write')
+      ? ` ${formatLineStatsLabel(stats)}`
+      : '';
   if (path) {
     const short = path.length > 48 ? `${path.slice(0, 47)}…` : path;
-    return `${name} ${short}`;
+    return `${name} ${short}${delta}`;
   }
-  return name;
+  return `${name}${delta}`;
 }
 
 function isReadLike(name: string): boolean {
@@ -133,7 +208,9 @@ export function mergeToolItem(
     preview: next.preview ?? prev?.preview,
     status: next.status,
     summary: next.summary ?? prev?.summary,
-    durationMs: next.durationMs ?? prev?.durationMs
+    durationMs: next.durationMs ?? prev?.durationMs,
+    linesAdded: next.linesAdded ?? prev?.linesAdded,
+    linesRemoved: next.linesRemoved ?? prev?.linesRemoved
   };
   return copy;
 }
@@ -141,20 +218,31 @@ export function mergeToolItem(
 export function buildToolState(
   name: string,
   risk: string | undefined,
-  items: ToolCallItem[]
+  items: ToolCallItem[],
+  extras?: Partial<
+    Pick<
+      ToolCallState,
+      'detailLines' | 'detailTruncated' | 'linesAdded' | 'linesRemoved' | 'summary'
+    >
+  >
 ): ToolCallState {
   const status = aggregateToolStatus(items);
+  const single = items.length === 1 ? items[0] : undefined;
   return {
     name,
     risk,
     status,
     items,
-    callId: items.length === 1 ? items[0]?.callId : undefined,
-    inputPreview: items.length === 1 ? items[0]?.preview : undefined,
-    summary: items.length === 1 ? items[0]?.summary : undefined,
+    callId: single?.callId,
+    inputPreview: single?.preview,
+    summary: extras?.summary ?? single?.summary,
     durationMs:
       items.length === 1
-        ? items[0]?.durationMs
-        : items.reduce((sum, item) => sum + (item.durationMs ?? 0), 0)
+        ? single?.durationMs
+        : items.reduce((sum, item) => sum + (item.durationMs ?? 0), 0),
+    linesAdded: extras?.linesAdded ?? single?.linesAdded,
+    linesRemoved: extras?.linesRemoved ?? single?.linesRemoved,
+    detailLines: extras?.detailLines,
+    detailTruncated: extras?.detailTruncated
   };
 }

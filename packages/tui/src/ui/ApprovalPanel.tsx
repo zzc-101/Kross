@@ -23,6 +23,7 @@ export function ApprovalPanel({
   const innerWidth = width - 4; // border + space + content + space + border
   const hRule = symbols.boxHorizontal.repeat(width - 2);
   const riskColor = riskTone(approval.risk);
+  const previewLines = splitPreviewLines(approval.inputPreview ?? '', innerWidth - 6);
 
   /** 带左右边框的内容行 */
   const Row = ({ children }: { children: React.ReactNode }) => (
@@ -58,10 +59,12 @@ export function ApprovalPanel({
         </Text>
       </Row>
 
-      <Row>
-        <Text dimColor>input </Text>
-        <Text>{truncate(approval.inputPreview ?? '', innerWidth - 6)}</Text>
-      </Row>
+      {previewLines.map((line, index) => (
+        <Row key={`preview-${index}`}>
+          {index === 0 ? <Text dimColor>input </Text> : <Text dimColor>      </Text>}
+          <PreviewLine text={line} />
+        </Row>
+      ))}
 
       {approval.reason ? (
         <Row>
@@ -100,12 +103,31 @@ export function ApprovalPanel({
   );
 }
 
-function truncate(value: string, max: number): string {
-  if (value.length <= max) {
-    return value;
+function PreviewLine({ text }: { text: string }) {
+  if (text.startsWith('+ ') || text.startsWith('+')) {
+    return <Text color={theme.statusReady}>{text}</Text>;
   }
-  if (max <= 1) {
-    return '…';
+  if (text.startsWith('- ') || (text.startsWith('-') && !text.startsWith('---'))) {
+    return <Text color={theme.statusError}>{text}</Text>;
   }
-  return `${value.slice(0, max - 1)}…`;
+  return <Text>{text}</Text>;
+}
+
+function splitPreviewLines(preview: string, maxWidth: number): string[] {
+  if (!preview) {
+    return [''];
+  }
+  const lines = preview.split('\n').map((line) => truncate(line, maxWidth));
+  // 审批面板最多展示 4 行，避免占满屏幕
+  if (lines.length <= 4) {
+    return lines;
+  }
+  return [...lines.slice(0, 3), '…'];
+}
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, max - 1))}…`;
 }

@@ -9,9 +9,26 @@ import type { ChatMessage } from './MessageLine';
  * 消息行高估算（tool 卡片等仍用；全屏主路径以 MessagePaintCache 为准）。
  */
 export function layoutFingerprint(message: ChatMessage): string {
-  const toolItems = message.tool?.items;
-  const toolSig = toolItems
-    ? `${toolItems.length}:${toolItems.map((item) => item.status).join(',')}`
+  const tool = message.tool;
+  const toolItems = tool?.items;
+  const toolSig = tool
+    ? [
+        tool.name,
+        tool.status,
+        tool.summary ?? '',
+        String(tool.linesAdded ?? ''),
+        String(tool.linesRemoved ?? ''),
+        String(tool.detailLines?.length ?? 0),
+        tool.detailTruncated === true ? '1' : '0',
+        toolItems
+          ? `${toolItems.length}:${toolItems
+              .map(
+                (item) =>
+                  `${item.status}:${item.path ?? ''}:${item.summary ?? ''}`
+              )
+              .join(',')}`
+          : ''
+      ].join('|')
     : '';
   const text = message.text;
   const head = text.slice(0, 24);
@@ -37,8 +54,17 @@ export function estimateMessageRows(
   const width = Math.max(20, columns);
 
   if (message.from === 'tool') {
-    const items = message.tool?.items?.length ?? 1;
-    return message.expanded === true ? 1 + items : 1;
+    // 全屏 paint：标题 + 展开 detailLines + gap
+    const gap = 1;
+    if (message.expanded !== true) {
+      return 1 + gap;
+    }
+    const detailCount = message.tool?.detailLines?.length ?? 0;
+    if (detailCount > 0) {
+      return 1 + detailCount + (message.tool?.detailTruncated ? 1 : 0) + gap;
+    }
+    const itemCount = message.tool?.items?.length ?? 1;
+    return 1 + itemCount + gap;
   }
 
   if (message.from === 'system') {

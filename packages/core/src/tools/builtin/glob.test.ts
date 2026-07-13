@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ToolBoundaryError } from './paths';
-import { compileGlob, createGlobTool } from './glob';
+import { compileGlob, createGlobTool, normalizeGlobPattern } from './glob';
 
 let root: string;
 
@@ -36,6 +36,18 @@ describe('compileGlob', () => {
   });
 });
 
+describe('normalizeGlobPattern', () => {
+  it('prepends **/ for bare filenames and globs', () => {
+    expect(normalizeGlobPattern('test.txt')).toBe('**/test.txt');
+    expect(normalizeGlobPattern('*.ts')).toBe('**/*.ts');
+  });
+
+  it('leaves path patterns and explicit ** alone', () => {
+    expect(normalizeGlobPattern('src/**/*.ts')).toBe('src/**/*.ts');
+    expect(normalizeGlobPattern('**/a.ts')).toBe('**/a.ts');
+  });
+});
+
 describe('Glob', () => {
   it('lists matching files relative to workspace', async () => {
     await writeFile(join(root, 'a.ts'), '');
@@ -46,6 +58,36 @@ describe('Glob', () => {
     expect(res.content).toContain('a.ts');
     expect(res.content).toContain('src/b.ts');
     expect(res.content).not.toContain('src/c.md');
+  });
+
+  it('finds bare filename at workspace root even with huge node_modules', async () => {
+    await writeFile(join(root, 'test.txt'), 'hello');
+    // 模拟 node_modules 先被 readdir 扫到、深度巨大的情况
+    const nm = join(root, 'node_modules', 'pkg');
+    await mkdir(nm, { recursive: true });
+    for (let i = 0; i < 50; i += 1) {
+      await writeFile(join(nm, `f-${i}.js`), '');
+    }
+
+    const res = await run({ pattern: 'test.txt' });
+    expect(res.content).toContain('test.txt');
+    expect(res.summary).toContain('matched 1');
+  });
+
+  it('matches nested files with bare *.ext pattern', async () => {
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src', 'a.ts'), '');
+    const res = await run({ pattern: '*.ts' });
+    expect(res.content).toContain('src/a.ts');
+  });
+
+  it('skips node_modules contents by default', async () => {
+    await mkdir(join(root, 'node_modules', 'x'), { recursive: true });
+    await writeFile(join(root, 'node_modules', 'x', 'hidden.ts'), '');
+    await writeFile(join(root, 'keep.ts'), '');
+    const res = await run({ pattern: '**/*.ts' });
+    expect(res.content).toContain('keep.ts');
+    expect(res.content).not.toContain('hidden.ts');
   });
 
   it('rejects path outside workspace', async () => {

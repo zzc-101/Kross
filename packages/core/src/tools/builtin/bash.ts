@@ -7,6 +7,7 @@ import type {
   ToolExecutionContext,
   ToolHandlerResult
 } from '../toolGateway';
+import { TIMEOUT_ONLY_RETRY_POLICY } from '../toolRetry';
 import { resolveExistingPathWithinWorkspace } from './paths';
 
 const MAX_OUTPUT_CHARS = 200_000;
@@ -61,6 +62,8 @@ export function createBashTool(workspaceRoot: string): ToolDefinition<BashInput>
     risk: 'execute',
     category: 'shell',
     timeoutMs: 120_000,
+    // 仅网关层超时可重试；exit≠0 是合法结果，不会触发重试
+    retry: TIMEOUT_ONLY_RETRY_POLICY,
     inputSchema: z.object({
       command: z.string().min(1),
       timeoutMs: z.number().int().positive().optional(),

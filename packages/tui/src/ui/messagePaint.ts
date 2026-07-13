@@ -4,22 +4,29 @@
  * 思路对齐 pi 的 string[] 行缓冲 + Claude Code 的虚拟视口：
  * - 消息先 paint 成 PaintRow[]（每行是带样式的 segments，已 bake）
  * - 视口只挂载可见行，不再为每条消息重建 Markdown React 树
- * - 工具卡片仍 embed 为 MessageLine（交互复杂）
+ * - 工具也 paint 成行（禁止 embed MessageLine+margin，否则滚动窗口行高与
+ *   Ink 实测不一致，flex-end 重绘时会出现消息/tool 之间空洞）
  * - MessagePaintCache 按 fingerprint+columns 缓存 paint 结果
  */
 
 import {
   countWrappedRows,
-  estimateMessageRows,
   layoutFingerprint
 } from './messageLayout';
 import {
   displayWidth,
   parseMarkdownStreaming,
+  trimTrailingBlankMdLines,
   type MdLine,
   type MdSpan
 } from './markdownParse';
-import type { ChatMessage } from './MessageLine';
+import type { ChatMessage, ToolCallState } from './MessageLine';
+import {
+  ensureToolItems,
+  formatLineStatsLabel,
+  formatToolTitle,
+  resolveLineStats
+} from './toolDisplay';
 import { symbols, theme } from './theme';
 
 export type PaintSegment = {
@@ -28,24 +35,18 @@ export type PaintSegment = {
   italic?: boolean;
   dim?: boolean;
   color?: string;
+  backgroundColor?: string;
   inverse?: boolean;
 };
 
-/** 视口中的一个绘制单元：一行文本，或一张工具卡 */
-export type PaintItem =
-  | {
-      kind: 'line';
-      key: string;
-      segments: PaintSegment[];
-      /** 终端折行后占用行数 */
-      height: number;
-    }
-  | {
-      kind: 'tool';
-      key: string;
-      message: ChatMessage;
-      height: number;
-    };
+/** 视口中的一个绘制单元：一行文本（含工具摘要行） */
+export type PaintItem = {
+  kind: 'line';
+  key: string;
+  segments: PaintSegment[];
+  /** 终端折行后占用行数（paint 阶段保证为 1） */
+  height: number;
+};
 
 export interface PaintWindow {
   items: PaintItem[];
@@ -205,22 +206,16 @@ export function windowPaintLayout(input: {
     if (!entry || entry.start >= endLine) {
       break;
     }
-    const { item, start, end } = entry;
+    // 行级 paint：相交即纳入（每项 height=1，不会半卡）
+    visible.push(entry.item);
+  }
 
-    // 工具卡：整块带上（避免半卡）
-    if (item.kind === 'tool') {
-      visible.push(item);
-      continue;
-    }
-
-    // 行高 >1（折行）且部分可见：整行带上，避免切断
-    if (item.height === 1 || (start >= startLine && end <= endLine)) {
-      visible.push(item);
-      continue;
-    }
-
-    // 折行块部分可见仍整行保留（与 messageLayout 策略一致）
-    visible.push(item);
+  // 防御 end 对齐 flex-end：若因边界取整多带了行，从顶部丢掉，
+  // 保证挂载行数 ≤ viewportRows，避免 Ink 在固定 height 盒子里重排出空洞。
+  let used = visible.reduce((sum, item) => sum + item.height, 0);
+  while (used > viewportRows && visible.length > 0) {
+    const removed = visible.shift();
+    used -= removed?.height ?? 0;
   }
 
   return {
@@ -248,6 +243,164 @@ export function windowPaintRows(input: {
   });
 }
 
+/** 滚动提示文案（底部居中悬浮，极简）。 */
+export function formatScrollHint(
+  hasMoreAbove: boolean,
+  hasMoreBelow: boolean
+): string | null {
+  if (hasMoreAbove && hasMoreBelow) {
+    return '↑ 历史  ·  ↓ 底部';
+  }
+  if (hasMoreAbove) {
+    return '↑ 历史';
+  }
+  if (hasMoreBelow) {
+    return '↓ 回底部';
+  }
+  return null;
+}
+
+/**
+ * 与 MessageViewport 一致：满高窗口化后是否显示底部 scroll hint，
+ * 以及内容区实际可用行数。
+ */
+export function resolveViewportContentRows(input: {
+  messages: ChatMessage[];
+  columns: number;
+  viewportRows: number;
+  scrollOffset: number;
+  streamingMessageId?: number;
+  paintCache?: MessagePaintCache;
+}): { contentRows: number; scrollHint: string | null } {
+  const viewportRows = Math.max(1, input.viewportRows);
+  const windowed = windowPaintRows({
+    ...input,
+    viewportRows
+  });
+  const scrollHint = formatScrollHint(
+    windowed.hasMoreAbove,
+    windowed.hasMoreBelow
+  );
+  return {
+    contentRows: Math.max(1, viewportRows - (scrollHint ? 1 : 0)),
+    scrollHint
+  };
+}
+
+export type ClickableMessageHit =
+  | { kind: 'thinking'; messageId: number }
+  | { kind: 'tool'; messageId: number };
+
+/**
+ * 将终端点击行映射到可展开消息（thinking / tool）。
+ * 坐标系：clickRow / viewportTopRow 均为终端 1-based 行号。
+ */
+export function hitTestClickableMessage(input: {
+  messages: ChatMessage[];
+  columns: number;
+  /** 消息内容区可用行数（不含底部 scroll hint 行） */
+  contentRows: number;
+  scrollOffset: number;
+  clickRow: number;
+  viewportTopRow: number;
+  streamingMessageId?: number;
+  paintCache?: MessagePaintCache;
+}): ClickableMessageHit | undefined {
+  const contentRows = Math.max(1, input.contentRows);
+  if (
+    input.clickRow < input.viewportTopRow ||
+    input.clickRow >= input.viewportTopRow + contentRows
+  ) {
+    return undefined;
+  }
+
+  const windowed = windowPaintRows({
+    messages: input.messages,
+    columns: input.columns,
+    viewportRows: contentRows,
+    scrollOffset: input.scrollOffset,
+    streamingMessageId: input.streamingMessageId,
+    paintCache: input.paintCache
+  });
+
+  const contentHeight = windowed.items.reduce(
+    (sum, item) => sum + item.height,
+    0
+  );
+  const padTop = Math.max(0, contentRows - contentHeight);
+  const contentTopRow = input.viewportTopRow + padTop;
+  const localRow = input.clickRow - contentTopRow;
+  if (localRow < 0 || localRow >= contentHeight) {
+    return undefined;
+  }
+
+  let cursor = 0;
+  for (const item of windowed.items) {
+    if (localRow >= cursor && localRow < cursor + item.height) {
+      return clickableHitFromPaintKey(item.key);
+    }
+    cursor += item.height;
+  }
+  return undefined;
+}
+
+/** @deprecated 使用 hitTestClickableMessage */
+export function hitTestThinkingMessageId(input: {
+  messages: ChatMessage[];
+  columns: number;
+  contentRows: number;
+  scrollOffset: number;
+  clickRow: number;
+  viewportTopRow: number;
+  streamingMessageId?: number;
+  paintCache?: MessagePaintCache;
+}): number | undefined {
+  const hit = hitTestClickableMessage(input);
+  return hit?.kind === 'thinking' ? hit.messageId : undefined;
+}
+
+/** paint key → thinking message id；非 thinking 行返回 undefined */
+export function thinkingMessageIdFromPaintKey(key: string): number | undefined {
+  const hit = clickableHitFromPaintKey(key);
+  return hit?.kind === 'thinking' ? hit.messageId : undefined;
+}
+
+export function clickableHitFromPaintKey(
+  key: string
+): ClickableMessageHit | undefined {
+  const thHeader = /^th-h-(\d+)/.exec(key);
+  if (thHeader) {
+    return { kind: 'thinking', messageId: Number(thHeader[1]) };
+  }
+  const thGap = /^th-gap-(\d+)/.exec(key);
+  if (thGap) {
+    return { kind: 'thinking', messageId: Number(thGap[1]) };
+  }
+  const thBody = /^th-(\d+)-/.exec(key);
+  if (thBody) {
+    return { kind: 'thinking', messageId: Number(thBody[1]) };
+  }
+
+  // tool-123-title-W0 / tool-123-detail-0 / tool-gap-123
+  const toolTitle = /^tool-(\d+)-title/.exec(key);
+  if (toolTitle) {
+    return { kind: 'tool', messageId: Number(toolTitle[1]) };
+  }
+  const toolDetail = /^tool-(\d+)-detail/.exec(key);
+  if (toolDetail) {
+    return { kind: 'tool', messageId: Number(toolDetail[1]) };
+  }
+  const toolGap = /^tool-gap-(\d+)/.exec(key);
+  if (toolGap) {
+    return { kind: 'tool', messageId: Number(toolGap[1]) };
+  }
+  const toolItem = /^tool-(\d+)-item-/.exec(key);
+  if (toolItem) {
+    return { kind: 'tool', messageId: Number(toolItem[1]) };
+  }
+  return undefined;
+}
+
 function findFirstVisibleEntry(
   entries: PaintLayoutEntry[],
   startLine: number
@@ -272,15 +425,7 @@ function paintMessageUncached(
   streaming: boolean
 ): PaintItem[] {
   if (message.from === 'tool' && message.tool) {
-    const height = estimateMessageRows(message, columns);
-    return [
-      {
-        kind: 'tool',
-        key: `tool-${message.id}`,
-        message,
-        height
-      }
-    ];
+    return paintTool(message, columns);
   }
 
   if (message.from === 'system') {
@@ -295,13 +440,13 @@ function paintMessageUncached(
   }
 
   if (message.from === 'user') {
-    // Claude Code: "> body"
+    // 用户历史输入：高亮前缀 + 正文（非 dim，便于回看）
     const body = message.text.replace(/^\>\s*/, '');
     const prefix = `${symbols.userPrefix} `;
     const prefixWidth = displayWidth(prefix);
     const bodyWidth = Math.max(1, columns - prefixWidth);
     const wrappedBody = wrapPaintSegments(
-      [{ text: body, dim: true }],
+      [{ text: body, color: theme.user }],
       bodyWidth
     );
     const items: PaintItem[] = [];
@@ -312,8 +457,8 @@ function paintMessageUncached(
         key: `user-${message.id}-W${i}`,
         segments:
           i === 0
-            ? [{ text: prefix, dim: true }, ...line]
-            : [{ text: ' '.repeat(prefixWidth), dim: true }, ...line],
+            ? [{ text: prefix, color: theme.user, bold: true }, ...line]
+            : [{ text: ' '.repeat(prefixWidth), color: theme.user }, ...line],
         height: 1
       });
     }
@@ -329,6 +474,251 @@ function paintMessageUncached(
   return paintAgent(message, columns, streaming);
 }
 
+/**
+ * 工具 → 纯 paint 行（与 agent 相同路径）。
+ * 展开时按工具类型渲染 detailLines（Edit/Write 红绿 diff）。
+ */
+function paintTool(message: ChatMessage, columns: number): PaintItem[] {
+  const tool = message.tool as ToolCallState;
+  const expanded = message.expanded === true;
+  const items = ensureToolItems(tool);
+  const out: PaintItem[] = [];
+  const width = Math.max(1, columns);
+
+  const titleSegs = buildToolTitleSegments(tool, expanded, items.length > 1);
+  const wrappedTitle = wrapPaintSegments(titleSegs, width);
+  for (let w = 0; w < wrappedTitle.length; w++) {
+    out.push({
+      kind: 'line',
+      key: `tool-${message.id}-title-W${w}`,
+      segments: wrappedTitle[w] ?? [{ text: ' ' }],
+      height: 1
+    });
+  }
+
+  if (expanded) {
+    // 聚合多文件：始终列路径（detail 只反映最后一次 completed，不适合整组）
+    if (items.length > 1) {
+      items.forEach((item, index) => {
+        const segs: PaintSegment[] = [
+          { text: `  ${symbols.systemPrefix} `, dim: true },
+          {
+            text: item.path ?? item.preview ?? item.summary ?? tool.name,
+            dim: true
+          }
+        ];
+        if (item.status === 'failed' || item.status === 'denied') {
+          segs.push({
+            text: `  ${item.status}`,
+            color: theme.statusError
+          });
+        }
+        out.push({
+          kind: 'line',
+          key: `tool-${message.id}-item-${index}`,
+          segments: segs,
+          height: 1
+        });
+      });
+    } else {
+      const detail = tool.detailLines ?? [];
+      detail.forEach((line, index) => {
+        const prefix = '  ';
+        const bodyWidth = Math.max(1, width - prefix.length);
+        const colored = detailLineSegments(line);
+        const wrapped = wrapPaintSegments(colored, bodyWidth);
+        for (let w = 0; w < wrapped.length; w++) {
+          out.push({
+            kind: 'line',
+            key: `tool-${message.id}-detail-${index}-W${w}`,
+            segments: [
+              { text: prefix, dim: true },
+              ...(wrapped[w] ?? [{ text: ' ' }])
+            ],
+            height: 1
+          });
+        }
+      });
+      if (tool.detailTruncated) {
+        out.push({
+          kind: 'line',
+          key: `tool-${message.id}-detail-trunc`,
+          segments: [{ text: '  … truncated', dim: true }],
+          height: 1
+        });
+      }
+    }
+  }
+
+  out.push(blankItem(`tool-gap-${message.id}`));
+  return out;
+}
+
+function detailLineSegments(line: {
+  text: string;
+  op?: 'add' | 'del' | 'meta' | 'ctx';
+  lineNo?: number;
+}): PaintSegment[] {
+  const gutter = formatLineGutter(line.lineNo);
+  const content = stripLineWordPrefix(line.text);
+
+  // 增删：绿/红背景；左侧行号用数字（5 而非 Line 5）
+  if (line.op === 'add') {
+    return [
+      {
+        text: `${gutter}+ ${content}`,
+        color: theme.diffOnBg,
+        backgroundColor: theme.diffAddBg
+      }
+    ];
+  }
+  if (line.op === 'del') {
+    return [
+      {
+        text: `${gutter}- ${content}`,
+        color: theme.diffOnBg,
+        backgroundColor: theme.diffDelBg
+      }
+    ];
+  }
+  if (line.op === 'ctx') {
+    return [{ text: `${gutter}  ${content}`, dim: true }];
+  }
+  return [{ text: line.text, dim: true }];
+}
+
+/** 左侧行号：仅数字，如 "  5 " */
+function formatLineGutter(lineNo: number | undefined): string {
+  if (typeof lineNo !== 'number' || !Number.isFinite(lineNo) || lineNo < 1) {
+    return '     ';
+  }
+  return `${String(Math.floor(lineNo)).padStart(4, ' ')} `;
+}
+
+/** 去掉正文里多余的 "Line 12:" 前缀，避免与 gutter 重复 */
+function stripLineWordPrefix(text: string): string {
+  return text.replace(/^Line\s+(\d+)\s*:?\s*/i, '');
+}
+
+function buildToolTitleSegments(
+  tool: ToolCallState,
+  expanded: boolean,
+  multiItem: boolean
+): PaintSegment[] {
+  const segs: PaintSegment[] = [];
+  const canExpand = ensureToolItems(tool).length > 0;
+  // 小实心方块（展开/折叠同一标记，靠明细行区分状态）
+  segs.push({
+    text: canExpand ? `${symbols.markerSquare} ` : '  ',
+    color: theme.marker
+  });
+
+  const stats = resolveLineStats(tool);
+  const showDelta =
+    stats !== undefined &&
+    (tool.name === 'Edit' || tool.name === 'Write') &&
+    tool.status !== 'running' &&
+    tool.status !== 'awaiting';
+
+  const fullTitle = formatToolTitle(tool);
+  let baseTitle = fullTitle;
+  if (showDelta && stats) {
+    const label = formatLineStatsLabel(stats);
+    if (fullTitle.endsWith(` ${label}`)) {
+      baseTitle = fullTitle.slice(0, -(label.length + 1));
+    }
+  }
+  segs.push({ text: baseTitle, color: theme.brand, bold: true });
+
+  if (showDelta && stats) {
+    segs.push({ text: ' ' });
+    if (stats.linesAdded === 0 && stats.linesRemoved === 0) {
+      segs.push({ text: '±0', dim: true });
+    } else {
+      if (stats.linesAdded > 0) {
+        segs.push({ text: `+${stats.linesAdded}`, color: theme.statusReady });
+      }
+      if (stats.linesAdded > 0 && stats.linesRemoved > 0) {
+        segs.push({ text: ' ' });
+      }
+      if (stats.linesRemoved > 0) {
+        segs.push({ text: `-${stats.linesRemoved}`, color: theme.statusError });
+      }
+    }
+  }
+
+  const status = toolStatusSegments(tool);
+  if (status) {
+    segs.push({ text: '  ' });
+    segs.push(status);
+  }
+
+  const hint = toolStatusHint(tool);
+  if (hint) {
+    segs.push({ text: ` · ${hint}`, dim: true });
+  }
+  // 多文件聚合折叠时提示可展开（单次工具点标题即可，不刷屏）
+  if (canExpand && !expanded && multiItem) {
+    segs.push({ text: ' · ctrl+e', dim: true });
+  }
+  return segs;
+}
+
+function toolStatusSegments(tool: ToolCallState): PaintSegment | null {
+  switch (tool.status) {
+    case 'running':
+      return { text: symbols.toolWait, color: theme.statusBusy };
+    case 'completed':
+      return null;
+    case 'failed':
+      return {
+        text: `${symbols.toolFail} failed`,
+        color: theme.statusError
+      };
+    case 'denied':
+      return {
+        text: `${symbols.toolFail} denied`,
+        color: theme.statusError
+      };
+    case 'awaiting':
+      return {
+        text: `${symbols.toolWait} await`,
+        color: theme.statusWarn
+      };
+    default:
+      return { text: tool.status, dim: true };
+  }
+}
+
+function toolStatusHint(tool: ToolCallState): string | undefined {
+  const summary = tool.summary?.replace(/\s+/g, ' ').trim();
+  if (!summary) {
+    return undefined;
+  }
+  if (tool.status === 'failed' || tool.status === 'denied') {
+    return summary.length > 48 ? `${summary.slice(0, 47)}…` : summary;
+  }
+  if (tool.status !== 'completed') {
+    return undefined;
+  }
+  if (tool.name === 'Edit') {
+    if (summary === 'no match' || summary.startsWith('ambiguous')) {
+      return summary.length > 40 ? `${summary.slice(0, 39)}…` : summary;
+    }
+    const replaced = summary.match(/^replaced\s+(\d+)/i);
+    if (replaced && Number(replaced[1]) > 1) {
+      return `${replaced[1]}×`;
+    }
+  }
+  if (tool.name === 'Bash') {
+    const exit = summary.match(/exit=(-?\d+)/i);
+    if (exit && exit[1] !== '0') {
+      return `exit ${exit[1]}`;
+    }
+  }
+  return undefined;
+}
+
 function paintAgent(
   message: ChatMessage,
   columns: number,
@@ -336,10 +726,8 @@ function paintAgent(
 ): PaintItem[] {
   const items: PaintItem[] = [];
   // Claude Code: ● 与正文同一流，无标题行
-  const mdLines = parseMarkdownStreaming(
-    message.text,
-    `msg-${message.id}`,
-    streaming
+  const mdLines = trimTrailingBlankMdLines(
+    parseMarkdownStreaming(message.text, `msg-${message.id}`, streaming)
   );
 
   const bullet = `${symbols.agentBullet} `;
@@ -351,6 +739,8 @@ function paintAgent(
     const md = mdLines[i];
     if (!md) continue;
     if (md.kind === 'blank') {
+      // 文中空行保留；尾部空行已在 trimTrailingBlankMdLines 去掉，
+      // 避免与 agent-gap 叠成「消息和 tool 之间一大块留白」
       items.push({
         kind: 'line',
         key: `agent-${message.id}-L${i}-blank`,
@@ -376,6 +766,7 @@ function paintAgent(
     }
   }
 
+  // 模型常输出结尾 \n\n；统一只保留一条消息间距
   items.push(blankItem(`agent-gap-${message.id}`));
   return items;
 }
@@ -393,14 +784,8 @@ function paintThinking(
     lineItem(
       `th-h-${message.id}`,
       [
-        {
-          text: expanded
-            ? `${label} · ctrl+o/click 折叠`
-            : streaming
-              ? label
-              : `${label} · ctrl+o/click 展开`,
-          dim: true
-        }
+        { text: `${symbols.markerSquare} `, color: theme.marker },
+        { text: label, dim: true }
       ],
       columns
     )
@@ -408,8 +793,9 @@ function paintThinking(
 
   if (expanded) {
     const bodyWidth = Math.max(1, columns - 2);
-    const raw =
-      message.text.length === 0 ? [''] : message.text.split('\n');
+    const raw = trimTrailingEmptyLines(
+      message.text.length === 0 ? [''] : message.text.split('\n')
+    );
     for (let i = 0; i < raw.length; i++) {
       const wrapped = wrapPaintSegments(
         [{ text: raw[i] ?? '', dim: true }],
@@ -629,6 +1015,17 @@ function blankItem(key: string): PaintItem {
   };
 }
 
+function trimTrailingEmptyLines(lines: string[]): string[] {
+  let end = lines.length;
+  while (end > 0 && (lines[end - 1] ?? '').trim() === '') {
+    end -= 1;
+  }
+  if (end === lines.length) {
+    return lines;
+  }
+  return end === 0 ? [''] : lines.slice(0, end);
+}
+
 function formatTime(iso?: string): string | undefined {
   if (!iso) return undefined;
   const date = new Date(iso);
@@ -643,8 +1040,5 @@ function formatTime(iso?: string): string | undefined {
 
 /** 测试辅助：可见纯文本 */
 export function paintItemPlainText(item: PaintItem): string {
-  if (item.kind === 'tool') {
-    return `[tool:${item.message.tool?.name ?? '?'}]`;
-  }
   return item.segments.map((s) => s.text).join('');
 }

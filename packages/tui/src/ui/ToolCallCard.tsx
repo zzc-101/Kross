@@ -1,18 +1,19 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-import type { ToolCallItem, ToolCallState } from './MessageLine';
+import type { ToolCallItem, ToolCallState, ToolDetailLine } from './MessageLine';
 import { symbols, theme } from './theme';
 import { usePulse } from './usePulse';
 import {
   ensureToolItems,
-  formatToolTitle
+  formatLineStatsLabel,
+  formatToolTitle,
+  resolveLineStats
 } from './toolDisplay';
-import { riskTone } from './theme';
 
 /**
- * 工具调用单行摘要；可展开看明细（尤其是 Read N files 聚合）。
- * 终端里用 ctrl+e 切换最近一条工具组展开/折叠。
+ * 工具调用单行摘要（默认折叠）；展开时渲染 detailLines（与全屏 paint 一致）。
+ * 非全屏文档流用；全屏视口走 messagePaint。
  */
 export function ToolCallCard({
   tool,
@@ -23,96 +24,243 @@ export function ToolCallCard({
 }) {
   const spinner = usePulse(symbols.busyFrames, 80, tool.status === 'running');
   const items = ensureToolItems(tool);
-  const title = formatToolTitle({ ...tool, items });
-  const statusLabel = formatToolStatus(tool.status, spinner);
-  const statusColor = toolStatusColor(tool.status);
-  const riskColor = tool.risk ? riskTone(tool.risk) : undefined;
-  const chevron = expanded ? '▾' : '▸';
-  const canExpand = items.length > 0;
+  const baseTitle = formatToolTitleWithoutDelta({ ...tool, items });
+  const stats = resolveLineStats(tool);
+  const showDelta =
+    stats !== undefined &&
+    (tool.name === 'Edit' || tool.name === 'Write') &&
+    tool.status !== 'running' &&
+    tool.status !== 'awaiting';
+  const status = formatToolStatus(tool.status, spinner);
+  const canExpand =
+    items.length > 0 || (tool.detailLines !== undefined && tool.detailLines.length > 0);
+  const statusHint = statusExtraHint(tool);
 
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
-        <Text dimColor>{canExpand ? `${chevron} ` : '  '}</Text>
-        <Text color={theme.brand} bold>{title}</Text>
-        {tool.risk ? (
-          <Text dimColor> · </Text>
+        <Text color={theme.marker}>
+          {canExpand ? `${symbols.markerSquare} ` : '  '}
+        </Text>
+        <Text color={theme.brand} bold>
+          {baseTitle}
+        </Text>
+        {showDelta && stats ? (
+          <>
+            <Text> </Text>
+            <LineDeltaText stats={stats} />
+          </>
         ) : null}
-        {tool.risk ? (
-          <Text color={riskColor} bold>{tool.risk}</Text>
+        {status ? (
+          <>
+            <Text dimColor>  </Text>
+            <Text color={status.color}>{status.label}</Text>
+          </>
         ) : null}
-        <Text dimColor>  </Text>
-        <Text color={statusColor}>{statusLabel}</Text>
-        {tool.durationMs !== undefined &&
-        tool.status !== 'running' &&
-        items.length === 1 ? (
-          <Text dimColor> · {formatDuration(tool.durationMs)}</Text>
-        ) : null}
+        {statusHint ? <Text dimColor> · {statusHint}</Text> : null}
         {canExpand && !expanded && items.length > 1 ? (
           <Text dimColor> · ctrl+e</Text>
         ) : null}
       </Box>
 
-      {expanded
-        ? items.map((item, index) => (
-            <Box key={item.callId ?? `${item.path ?? 'item'}-${index}`}>
-              <Text dimColor>  {symbols.systemPrefix} </Text>
-              <Text dimColor>
-                {item.path ?? item.preview ?? item.summary ?? tool.name}
-              </Text>
-              {item.status === 'failed' || item.status === 'denied' ? (
-                <Text color={theme.statusError}>  {item.status}</Text>
-              ) : null}
-              {item.durationMs !== undefined && item.status !== 'running' ? (
-                <Text dimColor> · {formatDuration(item.durationMs)}</Text>
-              ) : null}
-            </Box>
-          ))
-        : null}
+      {expanded ? <ExpandedToolBody tool={tool} items={items} /> : null}
     </Box>
   );
+}
+
+function ExpandedToolBody({
+  tool,
+  items
+}: {
+  tool: ToolCallState;
+  items: ToolCallItem[];
+}) {
+  // 聚合多文件：列路径
+  if (items.length > 1) {
+    return (
+      <Box flexDirection="column">
+        {items.map((item, index) => (
+          <Box key={item.callId ?? `${item.path ?? 'item'}-${index}`}>
+            <Text dimColor>
+              {'  '}
+              {symbols.systemPrefix}{' '}
+            </Text>
+            <Text dimColor>
+              {item.path ?? item.preview ?? item.summary ?? tool.name}
+            </Text>
+            {item.status === 'failed' || item.status === 'denied' ? (
+              <Text color={theme.statusError}>  {item.status}</Text>
+            ) : null}
+          </Box>
+        ))}
+      </Box>
+    );
+  }
+
+  const detail = tool.detailLines ?? [];
+  if (detail.length > 0) {
+    return (
+      <Box flexDirection="column">
+        {detail.map((line, index) => (
+          <DetailLineView key={`d-${index}`} line={line} />
+        ))}
+        {tool.detailTruncated ? (
+          <Text dimColor>  … truncated</Text>
+        ) : null}
+      </Box>
+    );
+  }
+
+  // 单 item 兜底
+  const item = items[0];
+  if (!item) {
+    return null;
+  }
+  return (
+    <Box flexDirection="column">
+      <Box>
+        <Text dimColor>
+          {'  '}
+          {symbols.systemPrefix}{' '}
+        </Text>
+        <Text dimColor>
+          {item.path ?? item.preview ?? item.summary ?? tool.name}
+        </Text>
+      </Box>
+      {item.summary ? (
+        <Text dimColor>
+          {'    '}
+          {item.summary}
+        </Text>
+      ) : null}
+    </Box>
+  );
+}
+
+function DetailLineView({ line }: { line: ToolDetailLine }) {
+  const gutter =
+    typeof line.lineNo === 'number' && line.lineNo >= 1
+      ? `${String(line.lineNo).padStart(4, ' ')} `
+      : '     ';
+  const content = line.text.replace(/^Line\s+(\d+)\s*:?\s*/i, '');
+
+  if (line.op === 'add') {
+    return (
+      <Text color={theme.diffOnBg} backgroundColor={theme.diffAddBg}>
+        {gutter}+ {content}
+      </Text>
+    );
+  }
+  if (line.op === 'del') {
+    return (
+      <Text color={theme.diffOnBg} backgroundColor={theme.diffDelBg}>
+        {gutter}- {content}
+      </Text>
+    );
+  }
+  if (line.op === 'ctx') {
+    return (
+      <Text dimColor>
+        {gutter}  {content}
+      </Text>
+    );
+  }
+  return <Text dimColor>{'  '}{line.text}</Text>;
+}
+
+function LineDeltaText({
+  stats
+}: {
+  stats: { linesAdded: number; linesRemoved: number };
+}) {
+  const { linesAdded, linesRemoved } = stats;
+  if (linesAdded === 0 && linesRemoved === 0) {
+    return <Text dimColor>±0</Text>;
+  }
+  return (
+    <Text>
+      {linesAdded > 0 ? (
+        <Text color={theme.statusReady}>+{linesAdded}</Text>
+      ) : null}
+      {linesAdded > 0 && linesRemoved > 0 ? <Text> </Text> : null}
+      {linesRemoved > 0 ? (
+        <Text color={theme.statusError}>-{linesRemoved}</Text>
+      ) : null}
+    </Text>
+  );
+}
+
+function formatToolTitleWithoutDelta(tool: ToolCallState): string {
+  const full = formatToolTitle(tool);
+  const stats = resolveLineStats(tool);
+  if (!stats || (tool.name !== 'Edit' && tool.name !== 'Write')) {
+    return full;
+  }
+  const label = formatLineStatsLabel(stats);
+  if (full.endsWith(` ${label}`)) {
+    return full.slice(0, -(label.length + 1));
+  }
+  return full;
 }
 
 function formatToolStatus(
   status: ToolCallState['status'],
   spinner: string
-): string {
+): { label: string; color: string } | null {
   switch (status) {
     case 'running':
-      return spinner;
+      return { label: spinner, color: theme.statusBusy };
     case 'completed':
-      return `${symbols.toolOk} done`;
+      return null;
     case 'failed':
-      return `${symbols.toolFail} failed`;
+      return { label: `${symbols.toolFail} failed`, color: theme.statusError };
     case 'denied':
-      return `${symbols.toolFail} denied`;
+      return { label: `${symbols.toolFail} denied`, color: theme.statusError };
     case 'awaiting':
-      return `${symbols.toolWait} awaiting`;
+      return { label: `${symbols.toolWait} await`, color: theme.statusWarn };
     default:
-      return status;
+      return { label: status, color: theme.chip };
   }
 }
 
-function toolStatusColor(status: ToolCallState['status']): string {
-  switch (status) {
-    case 'running':
-      return theme.statusBusy;
-    case 'completed':
-      return theme.statusReady;
-    case 'failed':
-      return theme.statusError;
-    case 'denied':
-      return theme.statusError;
-    case 'awaiting':
-      return theme.statusWarn;
-    default:
-      return theme.chip;
+function statusExtraHint(tool: ToolCallState): string | undefined {
+  const summary = tool.summary?.replace(/\s+/g, ' ').trim();
+  if (!summary) {
+    return undefined;
   }
+
+  if (tool.status === 'failed' || tool.status === 'denied') {
+    return clip(summary, 48);
+  }
+
+  if (tool.status === 'awaiting' || tool.status !== 'completed') {
+    return undefined;
+  }
+
+  if (tool.name === 'Edit') {
+    if (summary === 'no match' || summary.startsWith('ambiguous')) {
+      return clip(summary, 40);
+    }
+    const replaced = summary.match(/^replaced\s+(\d+)/i);
+    if (replaced && Number(replaced[1]) > 1) {
+      return `${replaced[1]}×`;
+    }
+    return undefined;
+  }
+
+  if (tool.name === 'Bash') {
+    const exit = summary.match(/exit=(-?\d+)/i);
+    if (exit && exit[1] !== '0') {
+      return `exit ${exit[1]}`;
+    }
+  }
+
+  return undefined;
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${ms}ms`;
+function clip(text: string, max: number): string {
+  if (text.length <= max) {
+    return text;
   }
-  return `${(ms / 1000).toFixed(1)}s`;
+  return `${text.slice(0, Math.max(0, max - 1))}…`;
 }

@@ -8,7 +8,8 @@ export const theme = {
   brandSoft: '#22d3ee',
   /** 欢迎页 headline 强调色（对齐 Grok Build 的金色提示） */
   accent: 'yellow',
-  user: 'gray',
+  /** 用户历史输入高亮 */
+  user: 'yellow',
   agent: 'cyan',
   system: 'gray',
   statusReady: 'green',
@@ -23,18 +24,30 @@ export const theme = {
   riskNetwork: 'magenta',
   chip: 'gray',
   tip: 'gray',
+  /** 底部滚动提示高亮 */
+  scrollHint: 'yellow',
   divider: 'gray',
   border: 'gray',
   prompt: 'cyan',
-  selection: 'cyan'
+  selection: 'cyan',
+  /** tool / thinking 行左侧方块 */
+  marker: 'cyan',
+  /** diff 新增行背景（深青绿） */
+  diffAddBg: '#14532d',
+  /** diff 删除行背景（深红） */
+  diffDelBg: '#7f1d1d',
+  /** diff 行上的浅色字，保证对比度 */
+  diffOnBg: '#ecfdf5'
 } as const;
 
 export const symbols = {
   brandMark: 'Kross',
-  /** Claude Code 风格：用户消息前缀 */
+  /** 用户消息前缀 */
   userPrefix: '>',
-  /** Claude Code 风格：助手回复小圆点 */
+  /** 助手回复小圆点 */
   agentBullet: '●',
+  /** tool / thinking 行左侧小实心方块 */
+  markerSquare: '▪',
   systemPrefix: '·',
   prompt: '❯',
   readyDot: '●',

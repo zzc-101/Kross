@@ -33,7 +33,7 @@ const defaultActions: WelcomeAction[] = [
   { label: 'Help', shortcut: '/help' },
   { label: 'Switch agent mode', shortcut: '/mode' },
   { label: 'Toggle permission', shortcut: 'shift+tab' },
-  { label: 'Expand thinking', shortcut: 'ctrl+o' },
+  { label: 'Thought', shortcut: 'ctrl+o' },
   { label: 'Expand tool details', shortcut: 'ctrl+e' }
 ];
 

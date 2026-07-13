@@ -4,6 +4,7 @@ import { Box, Text, useStdout } from 'ink';
 import {
   cachedParseMarkdown,
   displayWidth,
+  trimTrailingBlankMdLines,
   type MdLine,
   type MdSpan
 } from './markdownParse';
@@ -13,6 +14,7 @@ import { theme } from './theme';
  * 将 Markdown 渲染为 Ink 终端片段。
  * - 模块级 cachedParseMarkdown，滚动 remount 不重 parse
  * - 长行按列宽硬折；可选 bullet 前缀（Claude Code ●）
+ * - 去掉文末 blank，避免与 marginBottom 叠成大块留白
  */
 export function Markdown({
   source,
@@ -34,7 +36,7 @@ export function Markdown({
   const bodyWidth = Math.max(1, columns - prefixWidth);
 
   const lines = useMemo(
-    () => cachedParseMarkdown(source ?? ''),
+    () => trimTrailingBlankMdLines(cachedParseMarkdown(source ?? '')),
     [source]
   );
 

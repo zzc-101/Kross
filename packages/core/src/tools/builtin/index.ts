@@ -1,5 +1,6 @@
 import type { ToolDefinition } from '../toolGateway';
 import { createBashTool } from './bash';
+import { createDeleteTool } from './delete';
 import { createEditTool } from './edit';
 import {
   createGitDiffTool,
@@ -9,6 +10,7 @@ import {
 import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createListTool } from './list';
+import { createMoveTool } from './move';
 import { createReadTool } from './read';
 import { createStatTool } from './stat';
 import { createWriteTool } from './write';
@@ -18,6 +20,8 @@ export const builtinToolNames = [
   'Read',
   'Write',
   'Edit',
+  'Delete',
+  'Move',
   'Glob',
   'Grep',
   'List',
@@ -37,6 +41,8 @@ export function createBuiltinTools(workspaceRoot: string): ToolDefinition[] {
     createReadTool(workspaceRoot),
     createWriteTool(workspaceRoot),
     createEditTool(workspaceRoot),
+    createDeleteTool(workspaceRoot),
+    createMoveTool(workspaceRoot),
     createGlobTool(workspaceRoot),
     createGrepTool(workspaceRoot),
     createListTool(workspaceRoot),

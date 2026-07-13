@@ -22,6 +22,17 @@ export interface ToolCallItem {
   status: ToolCallStatus;
   summary?: string;
   durationMs?: number;
+  /** Edit/Write 行变更量 */
+  linesAdded?: number;
+  linesRemoved?: number;
+}
+
+/** 展开区一行：diff 红绿或 meta 灰字 */
+export interface ToolDetailLine {
+  text: string;
+  op?: 'add' | 'del' | 'meta' | 'ctx';
+  /** 1-based 行号，左侧显示为数字（如 5），不是 "Line 5" */
+  lineNo?: number;
 }
 
 export interface ToolCallState {
@@ -32,6 +43,11 @@ export interface ToolCallState {
   summary?: string;
   inputPreview?: string;
   durationMs?: number;
+  linesAdded?: number;
+  linesRemoved?: number;
+  /** 点击展开时的明细（diff / 极简 meta） */
+  detailLines?: ToolDetailLine[];
+  detailTruncated?: boolean;
   /** Read 等多文件调用聚合明细 */
   items?: ToolCallItem[];
 }
@@ -89,15 +105,15 @@ export function MessageLine({
   }
 
   if (message.from === 'user') {
-    // Claude Code：> 前缀，不再显示 "you"
+    // 用户历史输入高亮，便于回看
     const body = message.text.replace(/^\>\s*/, '');
     return (
       <Box marginBottom={1} flexDirection="column">
         <Box>
-          <Text dimColor>
+          <Text color={theme.user} bold>
             {symbols.userPrefix}{' '}
           </Text>
-          <Text dimColor wrap="wrap">
+          <Text color={theme.user} wrap="wrap">
             {body}
           </Text>
         </Box>
@@ -143,15 +159,11 @@ function ThinkingBlock({
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {/* 折叠态：单行 Thought for Ns（Claude Code 风格） */}
-      <Text dimColor>
-        {label}
-        {!streaming ? (
-          <Text dimColor>
-            {expanded ? ' · ctrl+o/click 折叠' : ' · ctrl+o/click 展开'}
-          </Text>
-        ) : null}
-      </Text>
+      {/* 折叠态：▪ Thought for Ns；展开快捷键见页脚 */}
+      <Box>
+        <Text color={theme.marker}>{symbols.markerSquare} </Text>
+        <Text dimColor>{label}</Text>
+      </Box>
       {expanded && !streaming
         ? bodyLines.map((line, index) => (
             <Box key={`thinking-${index}`}>

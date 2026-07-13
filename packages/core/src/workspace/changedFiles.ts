@@ -1,7 +1,7 @@
 import type { TraceEvent } from '../domain';
 
 /** 会改写工作区文件的内置工具。 */
-const MUTATING_FILE_TOOLS = new Set(['Write', 'Edit']);
+const MUTATING_FILE_TOOLS = new Set(['Write', 'Edit', 'Delete', 'Move']);
 
 export interface TouchedFile {
   path: string;
@@ -11,12 +11,11 @@ export interface TouchedFile {
 /**
  * 从 run 的 tool_call 事件提取 agent 实际触达的文件。
  * 路径通常在 started.input 里，completed 只带 summary；按 callId 配对。
- * Edit 在未匹配 / 歧义时虽 completed，但不计入变更。
+ * Edit/Delete/Move 在未真正变更时虽 completed，但不计入。
  */
 export function extractTouchedFilesFromEvents(events: TraceEvent[]): TouchedFile[] {
-  const startedPaths = new Map<string, { toolName: string; path: string }>();
-  // 无 callId 时按工具名 FIFO 兜底
-  const startedQueues = new Map<string, string[]>();
+  const startedPaths = new Map<string, { toolName: string; paths: string[] }>();
+  const startedQueues = new Map<string, string[][]>();
   const byPath = new Map<string, Set<string>>();
 
   for (const event of events) {
@@ -25,16 +24,16 @@ export function extractTouchedFilesFromEvents(events: TraceEvent[]): TouchedFile
       if (!toolName || !MUTATING_FILE_TOOLS.has(toolName)) {
         continue;
       }
-      const path = extractPathFromInput(event.payload.input);
-      if (!path) {
+      const paths = extractPathsFromInput(event.payload.input);
+      if (paths.length === 0) {
         continue;
       }
       const callId = asString(event.payload.callId);
       if (callId) {
-        startedPaths.set(callId, { toolName, path });
+        startedPaths.set(callId, { toolName, paths });
       } else {
         const queue = startedQueues.get(toolName) ?? [];
-        queue.push(path);
+        queue.push(paths);
         startedQueues.set(toolName, queue);
       }
       continue;
@@ -49,27 +48,33 @@ export function extractTouchedFilesFromEvents(events: TraceEvent[]): TouchedFile
       continue;
     }
 
-    if (toolName === 'Edit' && !didEditMutate(event.payload)) {
+    if (!didMutate(toolName, event.payload)) {
       continue;
     }
 
     const callId = asString(event.payload.callId);
-    let path =
-      extractPathFromInput(event.payload.input) ??
-      (callId ? startedPaths.get(callId)?.path : undefined);
-
-    if (!path) {
-      const queue = startedQueues.get(toolName);
-      path = queue?.shift();
+    // completed 事件通常无 input，优先 callId 配对 started
+    let paths = extractPathsFromInput(event.payload.input);
+    if (paths.length === 0 && callId) {
+      paths = startedPaths.get(callId)?.paths ?? [];
+    }
+    if (paths.length === 0) {
+      paths = startedQueues.get(toolName)?.shift() ?? [];
+    }
+    // completed.data 可能含 path / from / to
+    if (paths.length === 0 && event.payload.data) {
+      paths = extractPathsFromInput(event.payload.data);
     }
 
-    if (!path) {
+    if (paths.length === 0) {
       continue;
     }
 
-    const tools = byPath.get(path) ?? new Set<string>();
-    tools.add(toolName);
-    byPath.set(path, tools);
+    for (const path of paths) {
+      const tools = byPath.get(path) ?? new Set<string>();
+      tools.add(toolName);
+      byPath.set(path, tools);
+    }
   }
 
   return [...byPath.entries()]
@@ -84,29 +89,66 @@ export function extractChangedFilesFromEvents(events: TraceEvent[]): string[] {
   return extractTouchedFilesFromEvents(events).map((item) => item.path);
 }
 
-function didEditMutate(payload: Record<string, unknown>): boolean {
+function didMutate(toolName: string, payload: Record<string, unknown>): boolean {
+  const data = payload.data;
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const mutated = (data as { mutated?: unknown }).mutated;
+    if (typeof mutated === 'boolean') {
+      return mutated;
+    }
+  }
+
   const summary = asString(payload.summary) ?? '';
-  if (summary === 'no match' || summary.startsWith('ambiguous:')) {
-    return false;
+
+  if (toolName === 'Edit') {
+    if (
+      summary === 'no match' ||
+      summary === 'no change' ||
+      summary.startsWith('ambiguous:')
+    ) {
+      return false;
+    }
+    if (summary.startsWith('replaced ')) {
+      return true;
+    }
+    return summary.length === 0 || !summary.includes('未做修改');
   }
-  // 正常替换：replaced N occurrence(s)
-  if (summary.startsWith('replaced ')) {
-    return true;
+
+  if (toolName === 'Delete') {
+    if (summary.startsWith('refused') || summary.includes('no-op')) {
+      return false;
+    }
+    return summary.startsWith('deleted') || summary.length === 0;
   }
-  // 未知 summary 时保守计入（避免漏报）
-  return summary.length === 0 || !summary.includes('未做修改');
+
+  if (toolName === 'Move') {
+    if (summary.includes('no-op')) {
+      return false;
+    }
+    return summary.startsWith('moved') || summary.length === 0;
+  }
+
+  return true;
 }
 
-function extractPathFromInput(input: unknown): string | undefined {
+function extractPathsFromInput(input: unknown): string[] {
   if (!input || typeof input !== 'object') {
-    return undefined;
+    return [];
   }
-  const path = (input as { path?: unknown }).path;
-  if (typeof path !== 'string') {
-    return undefined;
+  const record = input as Record<string, unknown>;
+  const paths: string[] = [];
+
+  if (typeof record.path === 'string' && record.path.trim().length > 0) {
+    paths.push(record.path.trim());
   }
-  const trimmed = path.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  if (typeof record.from === 'string' && record.from.trim().length > 0) {
+    paths.push(record.from.trim());
+  }
+  if (typeof record.to === 'string' && record.to.trim().length > 0) {
+    paths.push(record.to.trim());
+  }
+
+  return paths;
 }
 
 function asString(value: unknown): string | undefined {

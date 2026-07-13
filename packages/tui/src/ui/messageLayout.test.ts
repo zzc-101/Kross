@@ -58,6 +58,24 @@ describe('estimateMessageRows', () => {
     const open = { ...base, expanded: true as const };
     expect(layoutFingerprint(base)).not.toBe(layoutFingerprint(open));
   });
+
+  it('counts collapsed tool as title + gap rows', () => {
+    const rows = estimateMessageRows(
+      {
+        id: 1,
+        from: 'tool',
+        text: '',
+        tool: {
+          name: 'Edit',
+          status: 'completed',
+          items: [{ path: 'a.ts', status: 'completed' }]
+        }
+      },
+      80
+    );
+    // 标题 1 + gap 1（paint 行路径，无 marginBottom）
+    expect(rows).toBe(2);
+  });
 });
 
 describe('markdownToVisualLines', () => {

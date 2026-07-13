@@ -5,7 +5,8 @@ export {
   type ChatMessage,
   type ToolCallItem,
   type ToolCallState,
-  type ToolCallStatus
+  type ToolCallStatus,
+  type ToolDetailLine
 } from './MessageLine';
 export { MessageViewport } from './MessageViewport';
 export {
@@ -16,8 +17,15 @@ export {
 } from './messageLayout';
 export {
   MessagePaintCache,
+  formatScrollHint,
+  hitTestClickableMessage,
+  hitTestThinkingMessageId,
+  resolveViewportContentRows,
+  thinkingMessageIdFromPaintKey,
+  clickableHitFromPaintKey,
   windowPaintRows,
   wrapPaintSegments,
+  type ClickableMessageHit,
   type PaintItem,
   type PaintSegment,
   type PaintWindow

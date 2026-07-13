@@ -12,6 +12,7 @@ import type {
   LlmToolCall,
   LlmToolDefinition
 } from '../llm/types';
+import { formatToolInputPreview } from '../tools/formatToolInputPreview';
 import {
   ToolPermissionError,
   type ToolGateway,
@@ -766,7 +767,11 @@ export class RuntimeToolLoop {
       toolName: session.call.name,
       risk: metadata?.risk ?? error.risk,
       reason: error.reason,
-      inputPreview: JSON.stringify(session.call.input).slice(0, 500)
+      inputPreview: formatToolInputPreview(
+        session.call.name,
+        session.call.input,
+        500
+      )
     };
     this.pendingToolSessions.set(session.runId, session);
 

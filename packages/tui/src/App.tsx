@@ -44,6 +44,11 @@ import {
   type ToolCallState
 } from './ui';
 import {
+  hitTestClickableMessage,
+  MessagePaintCache,
+  resolveViewportContentRows
+} from './ui/messagePaint';
+import {
   mergeToolItem,
   toToolItem
 } from './ui/toolDisplay';
@@ -264,6 +269,14 @@ export function App({
   }, [agentRuntime, permissionMode]);
 
   const upsertToolMessage = useCallback((key: string, tool: ToolCallState) => {
+    const extras = {
+      detailLines: tool.detailLines,
+      detailTruncated: tool.detailTruncated,
+      linesAdded: tool.linesAdded,
+      linesRemoved: tool.linesRemoved,
+      summary: tool.summary
+    };
+
     const existingId = toolMessageIdsRef.current.get(key);
     if (existingId !== undefined) {
       setMessages((current) =>
@@ -278,7 +291,15 @@ export function App({
           const merged = buildToolState(
             message.tool.name,
             tool.risk ?? message.tool.risk,
-            items
+            items,
+            {
+              detailLines: tool.detailLines ?? message.tool.detailLines,
+              detailTruncated:
+                tool.detailTruncated ?? message.tool.detailTruncated,
+              linesAdded: tool.linesAdded ?? message.tool.linesAdded,
+              linesRemoved: tool.linesRemoved ?? message.tool.linesRemoved,
+              summary: tool.summary ?? message.tool.summary
+            }
           );
           return {
             ...message,
@@ -306,7 +327,15 @@ export function App({
         const merged = buildToolState(
           last.tool.name,
           tool.risk ?? last.tool.risk,
-          items
+          items,
+          {
+            detailLines: tool.detailLines ?? last.tool.detailLines,
+            detailTruncated:
+              tool.detailTruncated ?? last.tool.detailTruncated,
+            linesAdded: tool.linesAdded ?? last.tool.linesAdded,
+            linesRemoved: tool.linesRemoved ?? last.tool.linesRemoved,
+            summary: tool.summary ?? last.tool.summary
+          }
         );
         return current.map((message) =>
           message.id === last.id
@@ -322,7 +351,7 @@ export function App({
       const id = nextMessageIdRef.current;
       nextMessageIdRef.current += 1;
       holder.id = id;
-      const state = buildToolState(tool.name, tool.risk, [toToolItem(tool)]);
+      const state = buildToolState(tool.name, tool.risk, [toToolItem(tool)], extras);
       return [
         ...current,
         {
@@ -367,7 +396,57 @@ export function App({
     });
   }, []);
 
-  /** 切换最近一条 thinking 的展开/折叠。 */
+  const clickPaintCacheRef = useRef(new MessagePaintCache());
+
+  const toggleThinkingById = useCallback((messageId: number) => {
+    setMessages((current) => {
+      const index = current.findIndex(
+        (message) => message.id === messageId && message.from === 'thinking'
+      );
+      if (index < 0) {
+        return current;
+      }
+      const message = current[index];
+      if (!message) {
+        return current;
+      }
+      const next = current.slice();
+      const durationMs =
+        message.durationMs ??
+        (message.createdAt
+          ? Math.max(0, Date.now() - new Date(message.createdAt).getTime())
+          : undefined);
+      next[index] = {
+        ...message,
+        expanded: message.expanded !== true,
+        durationMs
+      };
+      return next;
+    });
+  }, []);
+
+  const toggleToolById = useCallback((messageId: number) => {
+    setMessages((current) => {
+      const index = current.findIndex(
+        (message) => message.id === messageId && message.from === 'tool'
+      );
+      if (index < 0) {
+        return current;
+      }
+      const message = current[index];
+      if (!message) {
+        return current;
+      }
+      const next = current.slice();
+      next[index] = {
+        ...message,
+        expanded: message.expanded !== true
+      };
+      return next;
+    });
+  }, []);
+
+  /** 切换最近一条 thinking 的展开/折叠（ctrl+o / 命令）。 */
   const toggleLastCollapsible = useCallback(() => {
     setMessages((current) => {
       for (let index = current.length - 1; index >= 0; index -= 1) {
@@ -391,16 +470,6 @@ export function App({
       return current;
     });
   }, []);
-
-  // 左键单击：切换最近一条 thinking（Claude Code 式收拢/展开）
-  useEffect(() => {
-    return subscribeClick(() => {
-      if (pendingToolApproval || modelSettingsOpen) {
-        return;
-      }
-      toggleLastCollapsible();
-    });
-  }, [pendingToolApproval, modelSettingsOpen, toggleLastCollapsible]);
 
   /** 切换最近一条工具组展开/折叠（Read N files 明细）。 */
   const toggleLastToolGroup = useCallback(() => {
@@ -1071,6 +1140,53 @@ export function App({
     footerHeight
   });
 
+  // 左键单击：命中 Thought / Tool 行才展开折叠（全屏坐标命中）
+  useEffect(() => {
+    return subscribeClick((event) => {
+      if (pendingToolApproval || modelSettingsOpen || !shellMode) {
+        return;
+      }
+      const { contentRows } = resolveViewportContentRows({
+        messages,
+        columns: contentWidth,
+        viewportRows: messageViewportHeight,
+        scrollOffset,
+        streamingMessageId,
+        paintCache: clickPaintCacheRef.current
+      });
+      const hit = hitTestClickableMessage({
+        messages,
+        columns: contentWidth,
+        contentRows,
+        scrollOffset,
+        clickRow: event.row,
+        viewportTopRow: headerHeight + 1,
+        streamingMessageId,
+        paintCache: clickPaintCacheRef.current
+      });
+      if (!hit) {
+        return;
+      }
+      if (hit.kind === 'thinking') {
+        toggleThinkingById(hit.messageId);
+      } else {
+        toggleToolById(hit.messageId);
+      }
+    });
+  }, [
+    pendingToolApproval,
+    modelSettingsOpen,
+    shellMode,
+    headerHeight,
+    contentWidth,
+    messageViewportHeight,
+    scrollOffset,
+    messages,
+    streamingMessageId,
+    toggleThinkingById,
+    toggleToolById
+  ]);
+
   const header = (
     <HeaderBar
       projectName={projectName}
@@ -1140,7 +1256,7 @@ export function App({
       }
       headline={modelLabel !== 'no model' ? `${modelLabel} ready` : 'Ready when you are'}
       subtitle="Local-first agent · plan, tools, and traces in your workspace."
-      tip="ctrl+p 模型 · shift+tab 权限 · click/ctrl+o 展开 Thought"
+      tip="ctrl+p 模型 · shift+tab 权限 · ctrl+o 展开 Thought"
     />
   );
 

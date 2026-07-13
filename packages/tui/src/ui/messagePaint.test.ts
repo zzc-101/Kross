@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { ChatMessage } from './MessageLine';
 import {
   buildPaintLayout,
+  formatScrollHint,
+  hitTestClickableMessage,
+  hitTestThinkingMessageId,
   MessagePaintCache,
   paintItemPlainText,
   windowPaintLayout,
@@ -167,27 +170,263 @@ describe('windowPaintRows', () => {
     expect(cache.paintCalls).toBe(messages.length);
   });
 
-  it('embeds tool cards as tool paint items', () => {
-    const messages = [
+  it('paints tools as plain lines with a single trailing gap', () => {
+    const cache = new MessagePaintCache();
+    const items = cache.paintMessage(
       msg({
         id: 1,
         from: 'tool',
         text: '',
         tool: {
+          name: 'Edit',
+          status: 'completed',
+          linesAdded: 2,
+          linesRemoved: 1,
+          items: [{ path: 'test.txt', status: 'completed', linesAdded: 2, linesRemoved: 1 }]
+        }
+      }),
+      80,
+      false
+    );
+    expect(items.every((i) => i.kind === 'line' && i.height === 1)).toBe(true);
+    expect(items).toHaveLength(2); // title + gap
+    expect(paintItemPlainText(items[0]!)).toContain('Edit');
+    expect(paintItemPlainText(items[0]!)).toContain('+2');
+    expect(items[1]?.key).toContain('tool-gap');
+  });
+
+  it('paints expanded Edit diff with bg colors, context, and numeric line gutter', () => {
+    const cache = new MessagePaintCache();
+    const items = cache.paintMessage(
+      msg({
+        id: 9,
+        from: 'tool',
+        text: '',
+        expanded: true,
+        tool: {
+          name: 'Edit',
+          status: 'completed',
+          linesAdded: 1,
+          linesRemoved: 1,
+          detailLines: [
+            { text: 'Line 2: keep', op: 'ctx', lineNo: 2 },
+            { text: 'Line 5: old', op: 'del', lineNo: 5 },
+            { text: 'Line 5: new', op: 'add', lineNo: 5 },
+            { text: 'tail', op: 'ctx', lineNo: 6 }
+          ]
+        }
+      }),
+      80,
+      false
+    );
+    const plains = items.map(paintItemPlainText).join('\n');
+    // 左侧行号是数字 5，不是 "Line 5"
+    expect(plains).toMatch(/\b5\s+-\s+old/);
+    expect(plains).toMatch(/\b5\s+\+\s+new/);
+    expect(plains).not.toMatch(/Line 5/);
+    const del = items.find((i) => paintItemPlainText(i).includes('- old'));
+    expect(
+      del &&
+        del.kind === 'line' &&
+        del.segments.some((s) => s.backgroundColor === '#7f1d1d')
+    ).toBe(true);
+  });
+
+  it('hit-tests tool title rows for expand', () => {
+    const messages = [
+      msg({
+        id: 5,
+        from: 'tool',
+        text: '',
+        tool: {
           name: 'Read',
           status: 'completed',
-          risk: 'read',
-          items: [{ path: 'a.ts', status: 'completed' }]
+          summary: 'read 3 lines',
+          detailLines: [{ text: 'read 3 lines', op: 'meta' }]
         }
       })
     ];
+    const contentRows = 20;
+    const windowed = windowPaintRows({
+      messages,
+      columns: 80,
+      viewportRows: contentRows,
+      scrollOffset: 0
+    });
+    const height = windowed.items.reduce((s, i) => s + i.height, 0);
+    const viewportTopRow = 2;
+    const padTop = contentRows - height;
+    let local = 0;
+    let titleLocal: number | undefined;
+    for (const item of windowed.items) {
+      if (item.key.startsWith('tool-5-title')) {
+        titleLocal = local;
+        break;
+      }
+      local += item.height;
+    }
+    expect(titleLocal).toBeDefined();
+    const hit = hitTestClickableMessage({
+      messages,
+      columns: 80,
+      contentRows,
+      scrollOffset: 0,
+      clickRow: viewportTopRow + padTop + (titleLocal ?? 0),
+      viewportTopRow
+    });
+    expect(hit).toEqual({ kind: 'tool', messageId: 5 });
+  });
+
+  it('keeps windowed row count within viewport (no flex-end overfill)', () => {
+    const messages = Array.from({ length: 40 }, (_, index) => {
+      if (index % 3 === 0) {
+        return msg({
+          id: index + 1,
+          from: 'tool',
+          text: '',
+          tool: {
+            name: 'Read',
+            status: 'completed',
+            items: [{ path: `f-${index}.ts`, status: 'completed' }]
+          }
+        });
+      }
+      return msg({ id: index + 1, from: 'agent', text: `line-${index}` });
+    });
     const result = windowPaintRows({
       messages,
       columns: 80,
-      viewportRows: 20,
+      viewportRows: 12,
       scrollOffset: 0
     });
-    expect(result.items.some((i) => i.kind === 'tool')).toBe(true);
+    const used = result.items.reduce((sum, item) => sum + item.height, 0);
+    expect(used).toBeLessThanOrEqual(12);
+    expect(used).toBeGreaterThan(0);
+  });
+
+  it('formats compact scroll hints', () => {
+    expect(formatScrollHint(true, false)).toBe('↑ 历史');
+    expect(formatScrollHint(false, true)).toBe('↓ 回底部');
+    expect(formatScrollHint(true, true)).toContain('↑');
+    expect(formatScrollHint(false, false)).toBeNull();
+  });
+
+  it('hit-tests thinking only on Thought paint rows', () => {
+    const messages = [
+      msg({ id: 1, from: 'user', text: 'hi' }),
+      msg({
+        id: 2,
+        from: 'thinking',
+        text: 'secret thought',
+        durationMs: 1000
+      }),
+      msg({ id: 3, from: 'agent', text: 'answer' })
+    ];
+    // 构造：viewport 足够大，内容贴底
+    const viewportRows = 20;
+    const contentRows = 20;
+    const layoutHeight = (() => {
+      const w = windowPaintRows({
+        messages,
+        columns: 80,
+        viewportRows: contentRows,
+        scrollOffset: 0
+      });
+      return w.items.reduce((s, i) => s + i.height, 0);
+    })();
+    const viewportTopRow = 3;
+    const padTop = contentRows - layoutHeight;
+    // Thought 摘要是 thinking 消息的首行（在 agent 之前）
+    // 从 window 取 thinking 行的相对位置
+    const windowed = windowPaintRows({
+      messages,
+      columns: 80,
+      viewportRows: contentRows,
+      scrollOffset: 0
+    });
+    let offset = 0;
+    let thoughtLocal: number | undefined;
+    for (const item of windowed.items) {
+      if (item.key.startsWith('th-h-2')) {
+        thoughtLocal = offset;
+        break;
+      }
+      offset += item.height;
+    }
+    expect(thoughtLocal).toBeDefined();
+    const thoughtRow = viewportTopRow + padTop + (thoughtLocal ?? 0);
+
+    expect(
+      hitTestThinkingMessageId({
+        messages,
+        columns: 80,
+        contentRows,
+        scrollOffset: 0,
+        clickRow: thoughtRow,
+        viewportTopRow
+      })
+    ).toBe(2);
+
+    // 点 agent 行不应命中
+    let agentLocal: number | undefined;
+    offset = 0;
+    for (const item of windowed.items) {
+      if (item.key.startsWith('agent-3')) {
+        agentLocal = offset;
+        break;
+      }
+      offset += item.height;
+    }
+    expect(agentLocal).toBeDefined();
+    const agentRow = viewportTopRow + padTop + (agentLocal ?? 0);
+    expect(
+      hitTestThinkingMessageId({
+        messages,
+        columns: 80,
+        contentRows,
+        scrollOffset: 0,
+        clickRow: agentRow,
+        viewportTopRow
+      })
+    ).toBeUndefined();
+
+    // 点视口上方空白（flex-end pad）
+    if (padTop > 0) {
+      expect(
+        hitTestThinkingMessageId({
+          messages,
+          columns: 80,
+          contentRows,
+          scrollOffset: 0,
+          clickRow: viewportTopRow,
+          viewportTopRow
+        })
+      ).toBeUndefined();
+    }
+    void viewportRows;
+  });
+
+  it('does not stack trailing agent blanks with message gap before tools', () => {
+    const cache = new MessagePaintCache();
+    const tight = cache.paintMessage(
+      msg({ id: 1, from: 'agent', text: '准备修改文件。' }),
+      80,
+      false
+    );
+    const trailing = cache.paintMessage(
+      msg({
+        id: 2,
+        from: 'agent',
+        text: '准备修改文件。\n\n\n'
+      }),
+      80,
+      false
+    );
+    // 文末 \\n\\n 产生的 blank 应被裁掉，只保留一条 gap
+    expect(trailing.filter((i) => i.kind === 'line').length).toBe(
+      tight.filter((i) => i.kind === 'line').length
+    );
+    expect(trailing.at(-1)?.key).toContain('agent-gap');
   });
 
   it('clips tall agent content by rows while keeping segment styles', () => {
