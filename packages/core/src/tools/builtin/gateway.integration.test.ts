@@ -25,10 +25,25 @@ function makeGateway(): ToolGateway {
 }
 
 describe('builtin tools integration', () => {
-  it('registers all builtin tools', () => {
+  it('registers core builtin tools (Task requires runSubagent wiring)', () => {
     const gateway = makeGateway();
     const names = gateway.listTools({ mode: 'normal' }).map((t) => t.name);
-    expect(names.sort()).toEqual([...builtinToolNames].sort());
+    const withoutTask = [...builtinToolNames].filter((name) => name !== 'Task');
+    expect(names.sort()).toEqual(withoutTask.sort());
+  });
+
+  it('registers Task when runSubagent is provided', () => {
+    const gateway = new ToolGateway({ defaultTimeoutMs: 1000 });
+    for (const tool of createBuiltinTools(root, {
+      includeTask: true,
+      runSubagent: async () => {
+        throw new Error('not used');
+      }
+    })) {
+      gateway.register(tool);
+    }
+    const names = gateway.listTools({ mode: 'normal' }).map((t) => t.name);
+    expect(names).toContain('Task');
   });
 
   it('allows read tools without approval', async () => {

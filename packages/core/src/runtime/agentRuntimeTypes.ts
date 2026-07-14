@@ -15,6 +15,11 @@ export interface AgentRuntimeOptions {
   now?: () => Date;
   workspaceRoot?: string;
   runGit?: GitRunner;
+  /**
+   * Nesting depth for subagent runs (0 = main agent).
+   * Used by Task tool to forbid nested spawn when depth >= 1.
+   */
+  subagentDepth?: number;
 }
 
 export interface AgentRunInput {

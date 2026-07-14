@@ -115,7 +115,11 @@ async function main(): Promise<void> {
   }
 
   const sharedTooling = tooling
-    ? { toolGateway: tooling.toolGateway, traceStore: tooling.traceStore }
+    ? {
+        toolGateway: tooling.toolGateway,
+        traceStore: tooling.traceStore,
+        setLlmClient: tooling.setLlmClient
+      }
     : undefined;
 
   app = render(

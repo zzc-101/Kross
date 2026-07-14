@@ -66,6 +66,7 @@ const readLikeTools = new Set([
   'GitStatus',
   'GitDiff',
   'GitLog',
+  'Task',
   'fs.read'
 ]);
 const writeLikeTools = new Set([
