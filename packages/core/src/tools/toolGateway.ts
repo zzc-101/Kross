@@ -110,6 +110,11 @@ export interface ToolGatewayOptions {
   defaultRetry?: ToolRetryPolicy | false;
   /** 测试可注入；默认 setTimeout。 */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Merged into every tool_call.* payload (e.g. `{ isSubagent: true }` so TUI
+   * can hard-filter subagent traffic from the main transcript).
+   */
+  tracePayloadExtras?: Record<string, unknown>;
 }
 
 export class ToolGateway {
@@ -344,7 +349,10 @@ export class ToolGateway {
       runId,
       type,
       timestamp: this.now().toISOString(),
-      payload
+      payload: {
+        ...(this.options.tracePayloadExtras ?? {}),
+        ...payload
+      }
     };
     await this.options.traceStore.append(event);
   }

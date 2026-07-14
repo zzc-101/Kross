@@ -20,10 +20,32 @@ export function isSubagentRunId(runId: string): boolean {
   return runId.startsWith('sub-');
 }
 
+/** Hard filter: subagent tool traffic must not paint into main transcript. */
+export function isSubagentTraceEvent(event: TraceEvent): boolean {
+  if (event.payload?.isSubagent === true) {
+    // Lifecycle events on the parent run still carry isSubagent=true but must
+    // drive the panel (subagent.started/completed/failed).
+    if (
+      event.type === 'subagent.started' ||
+      event.type === 'subagent.completed' ||
+      event.type === 'subagent.failed'
+    ) {
+      return false;
+    }
+    return true;
+  }
+  if (
+    isSubagentRunId(event.runId) &&
+    (event.type.startsWith('tool_call.') ||
+      event.type.startsWith('llm.subagent'))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Reduce trace events into a list of subagent cards for the footer panel.
- * - Ignores main-session tool cards (those stay in the message stream).
- * - Routes child tool_call.* into the matching subagent's currentTool.
  */
 export function applySubagentTraceEvent(
   current: SubagentUiState[],
@@ -40,7 +62,10 @@ export function applySubagentTraceEvent(
     }
     const next: SubagentUiState = {
       subRunId,
-      parentRunId: event.runId,
+      parentRunId:
+        typeof payload.parentRunId === 'string'
+          ? payload.parentRunId
+          : event.runId,
       mode: typeof payload.mode === 'string' ? payload.mode : 'explore',
       status: 'running',
       promptPreview:
@@ -83,21 +108,23 @@ export function applySubagentTraceEvent(
 
   // Child tool activity → update the matching subagent row only.
   if (
-    isSubagentRunId(event.runId) &&
+    (isSubagentRunId(event.runId) || payload.isSubagent === true) &&
     (event.type === 'tool_call.started' ||
       event.type === 'tool_call.completed' ||
       event.type === 'tool_call.failed')
   ) {
     const toolName =
       typeof payload.toolName === 'string' ? payload.toolName : undefined;
+    const targetId =
+      typeof payload.subRunId === 'string' ? payload.subRunId : event.runId;
     return current.map((item) => {
-      if (item.subRunId !== event.runId) {
+      if (item.subRunId !== targetId && item.subRunId !== event.runId) {
         return item;
       }
       if (event.type === 'tool_call.started') {
         return {
           ...item,
-          status: 'running',
+          status: 'running' as const,
           currentTool: toolName ?? item.currentTool,
           toolCount: item.toolCount + 1,
           updatedAt: now
@@ -114,10 +141,13 @@ export function applySubagentTraceEvent(
   return current;
 }
 
-/** Drop finished subagents older than maxAgeMs (keep running ones). */
+/**
+ * Drop finished subagents older than maxAgeMs (keep running ones).
+ * Default 60s so users can still expand and read the summary.
+ */
 export function pruneSubagentUi(
   current: SubagentUiState[],
-  maxAgeMs = 12_000,
+  maxAgeMs = 60_000,
   now = Date.now()
 ): SubagentUiState[] {
   return current.filter(

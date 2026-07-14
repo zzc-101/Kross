@@ -1,13 +1,21 @@
-import { InMemoryContextManager } from '../context/contextManager';
 import {
   subagentResultSchema,
   type SubagentResult
 } from '../domain';
-import type { LlmClient } from '../llm/types';
+import type {
+  LlmClient,
+  LlmMessage,
+  LlmResponse,
+  LlmToolCall,
+  LlmToolDefinition
+} from '../llm/types';
 import { createSubagentTools } from '../tools/builtin/exploreTools';
-import { ToolGateway } from '../tools/toolGateway';
+import {
+  ToolGateway,
+  type ToolMetadata
+} from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
-import { AgentRuntime } from './agentRuntime';
+import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
 
 export type SubagentMode = 'explore' | 'general';
 
@@ -40,18 +48,22 @@ export interface SubagentRunOutcome {
   modeForcedToExplore: boolean;
 }
 
-const SUBAGENT_SYSTEM_HINT = [
+/** Dedicated system prompt — NOT the main planner prompt. */
+export const SUBAGENT_SYSTEM_PROMPT = [
   'You are a focused subagent of Kross.',
+  'Complete the assigned task using only the available tools.',
   'Allowed tools: Read, Glob, Grep, List, Stat, GitStatus/Diff/Log, Edit, Write.',
   'Not available: Bash, Delete, Move, Task, network/MCP, or other high-risk tools.',
-  'No user approval is required inside this subagent — use tools freely within the allowlist.',
-  'Stay on the assigned task; finish with a clear summary for the parent agent',
-  '(what you found/changed, key paths, risks, suggested next steps).'
+  'No user approval is required — use tools freely within the allowlist.',
+  'Do not invent tool names. Prefer concrete file paths and a clear final summary:',
+  'what you found or changed, key paths, risks, and suggested next steps for the parent agent.'
 ].join(' ');
 
 /**
- * Run an isolated subagent (independent context + filtered tools, no approvals).
- * Does not inject parent conversation history.
+ * Run an isolated subagent turn (no AgentRuntime planner shell).
+ * - Own system prompt + empty history
+ * - Filtered tools with auto-allow
+ * - Trace payload always tagged `isSubagent: true`
  */
 export async function runSubagent(
   request: SubagentRunRequest,
@@ -66,93 +78,118 @@ export async function runSubagent(
   }
 
   const mode: SubagentMode = request.mode === 'general' ? 'general' : 'explore';
-
   const prompt = request.prompt.trim();
   if (!prompt) {
     throw new Error('Subagent prompt must not be empty');
   }
-
-  if (request.signal?.aborted) {
-    throw new Error('Subagent run aborted');
-  }
+  assertNotAborted(request.signal);
 
   const subRunId =
     deps.createRunId?.() ??
-    `sub-${request.parentRunId}-${Date.now().toString(36)}`;
+    `sub-${sanitizeRunIdPart(request.parentRunId)}-${Date.now().toString(36)}`;
+
+  const lifecycleExtras = {
+    isSubagent: true,
+    subRunId,
+    parentRunId: request.parentRunId
+  };
 
   await appendTrace(deps.traceStore, request.parentRunId, 'subagent.started', {
-    subRunId,
+    ...lifecycleExtras,
     mode,
     parentDepth,
     promptPreview: prompt.slice(0, 240),
     autoApprove: true
   });
 
-  // Auto-allow every registered tool — no interactive approval in subagents.
+  if (!deps.llmClient) {
+    const failed = subagentResultSchema.parse({
+      status: 'failed',
+      summary: 'Subagent failed: no LLM client configured',
+      changedFiles: [],
+      diffSummary: [],
+      commandsRun: [],
+      evidence: ['子代理未检测到可用 LLM client'],
+      risks: ['请配置模型后再派生子代理'],
+      needsReview: []
+    });
+    await appendTrace(deps.traceStore, request.parentRunId, 'subagent.failed', {
+      ...lifecycleExtras,
+      mode,
+      error: failed.summary
+    });
+    return {
+      result: failed,
+      subRunId,
+      mode,
+      modeForcedToExplore: false
+    };
+  }
+
+  const toolDefs = createSubagentTools(deps.workspaceRoot);
   const childGateway = new ToolGateway({
     traceStore: deps.traceStore,
     defaultTimeoutMs: 120_000,
-    approvalPolicy: () => ({ action: 'allow' })
+    approvalPolicy: () => ({ action: 'allow' }),
+    tracePayloadExtras: {
+      isSubagent: true,
+      subRunId,
+      parentRunId: request.parentRunId
+    }
   });
-  for (const tool of createSubagentTools(deps.workspaceRoot)) {
+  for (const tool of toolDefs) {
     childGateway.register(tool);
   }
 
-  const childContext = new InMemoryContextManager({
-    maxHistoryMessages: 16,
-    autoCompact: true
-  });
-  childContext.addSource({
-    id: 'subagent-role',
-    kind: 'user',
-    title: 'Subagent role',
-    content: SUBAGENT_SYSTEM_HINT,
-    priority: 100
-  });
-
-  const childRuntime = new AgentRuntime({
-    traceStore: deps.traceStore,
-    llmClient: deps.llmClient,
-    toolGateway: childGateway,
-    contextManager: childContext,
-    workspaceRoot: deps.workspaceRoot,
-    maxToolIterations: deps.maxToolIterations ?? 40,
-    createRunId: () => subRunId,
-    now: deps.now,
-    subagentDepth: parentDepth + 1
-  });
-  // Keep runtime permission mode in sync with gateway auto-allow.
-  childRuntime.setPermissionMode('auto');
+  const toolMeta: ToolMetadata[] = toolDefs.map(
+    ({ name, description, risk, category, parameters }) => ({
+      name,
+      description,
+      risk,
+      category,
+      parameters
+    })
+  );
 
   try {
-    const agentResult = await childRuntime.run({
-      input: prompt,
-      requestedMode: 'normal'
+    const summary = await runSubagentToolLoop({
+      runId: subRunId,
+      prompt,
+      llmClient: deps.llmClient,
+      gateway: childGateway,
+      tools: toolMeta,
+      maxIterations: deps.maxToolIterations ?? 40,
+      signal: request.signal,
+      traceStore: deps.traceStore,
+      lifecycleExtras
     });
 
-    const status =
-      agentResult.status === 'completed'
-        ? 'completed'
-        : agentResult.status === 'failed'
-          ? 'failed'
-          : 'needs-review';
+    let changedFiles: string[] = [];
+    try {
+      const events = await deps.traceStore.readRun(subRunId);
+      changedFiles = extractChangedFilesFromEvents(events);
+    } catch {
+      // ignore
+    }
 
     const result = subagentResultSchema.parse({
-      status,
-      summary: agentResult.summary,
-      changedFiles: agentResult.report.changedFiles ?? [],
+      status: 'completed',
+      summary,
+      changedFiles,
       diffSummary: [],
       commandsRun: [],
-      evidence: agentResult.report.evidence ?? [],
-      risks: agentResult.report.risks ?? [],
-      needsReview:
-        status === 'needs-review'
-          ? [agentResult.pendingApproval?.reason ?? 'needs review']
-          : []
+      evidence: [
+        '子代理已完成独立工具环',
+        ...(changedFiles.length > 0
+          ? [`修改文件 ${changedFiles.length} 个`]
+          : [])
+      ],
+      risks: [],
+      needsReview: []
     });
 
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.completed', {
-      subRunId,
+      ...lifecycleExtras,
       mode,
       status: result.status,
       summaryPreview: result.summary.slice(0, 240),
@@ -169,7 +206,7 @@ export async function runSubagent(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.failed', {
-      subRunId,
+      ...lifecycleExtras,
       mode,
       error: message
     });
@@ -194,6 +231,143 @@ export function formatSubagentToolContent(outcome: SubagentRunOutcome): string {
       : undefined
   ].filter((line): line is string => line !== undefined);
   return lines.join('\n');
+}
+
+async function runSubagentToolLoop(input: {
+  runId: string;
+  prompt: string;
+  llmClient: LlmClient;
+  gateway: ToolGateway;
+  tools: ToolMetadata[];
+  maxIterations: number;
+  signal?: AbortSignal;
+  traceStore: TraceStore;
+  lifecycleExtras: Record<string, unknown>;
+}): Promise<string> {
+  let messages: LlmMessage[] = [
+    { role: 'system', content: SUBAGENT_SYSTEM_PROMPT },
+    { role: 'user', content: input.prompt }
+  ];
+
+  let iteration = 1;
+  let lastText = '';
+
+  while (iteration <= input.maxIterations) {
+    assertNotAborted(input.signal);
+
+    await appendTrace(input.traceStore, input.runId, 'llm.subagent.turn', {
+      ...input.lifecycleExtras,
+      iteration
+    });
+
+    const response = await input.llmClient.complete({
+      messages,
+      tools: toLlmTools(input.tools),
+      temperature: 0.2,
+      metadata: {
+        purpose: 'subagent',
+        iteration,
+        isSubagent: true
+      }
+    });
+    lastText = response.text?.trim() ?? '';
+
+    await appendTrace(input.traceStore, input.runId, 'llm.subagent.completed', {
+      ...input.lifecycleExtras,
+      iteration,
+      textPreview: lastText.slice(0, 240),
+      toolCallCount: response.toolCalls?.length ?? 0
+    });
+
+    const toolCalls = response.toolCalls ?? [];
+    if (toolCalls.length === 0) {
+      return (
+        lastText ||
+        'Subagent finished without a text summary.'
+      );
+    }
+
+    const assistantMessage: LlmMessage = {
+      role: 'assistant',
+      content: response.text ?? '',
+      toolCalls
+    };
+    const toolMessages = await executeToolCalls({
+      runId: input.runId,
+      gateway: input.gateway,
+      calls: toolCalls,
+      signal: input.signal
+    });
+    messages = [...messages, assistantMessage, ...toolMessages];
+    iteration += 1;
+  }
+
+  // Soft land: one final text-only turn.
+  assertNotAborted(input.signal);
+  const soft = await input.llmClient.complete({
+    messages: [
+      ...messages,
+      {
+        role: 'user',
+        content:
+          'Tool iteration limit reached. Summarize findings and remaining work for the parent agent. Do not call tools.'
+      }
+    ],
+    temperature: 0.2,
+    metadata: { purpose: 'subagent-soft-land', isSubagent: true }
+  });
+  return (
+    soft.text?.trim() ||
+    lastText ||
+    `Subagent reached tool iteration limit (${input.maxIterations}).`
+  );
+}
+
+async function executeToolCalls(input: {
+  runId: string;
+  gateway: ToolGateway;
+  calls: LlmToolCall[];
+  signal?: AbortSignal;
+}): Promise<LlmMessage[]> {
+  const out: LlmMessage[] = [];
+  for (const call of input.calls) {
+    assertNotAborted(input.signal);
+    const result = await input.gateway.call({
+      runId: input.runId,
+      name: call.name,
+      input: call.input,
+      callId: call.id,
+      returnErrors: true
+    });
+    out.push({
+      role: 'tool',
+      toolCallId: call.id,
+      name: call.name,
+      content: result.content
+    });
+  }
+  return out;
+}
+
+function toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined {
+  if (tools.length === 0) {
+    return undefined;
+  }
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters
+  }));
+}
+
+function assertNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new Error('Subagent run aborted');
+  }
+}
+
+function sanitizeRunIdPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80) || 'parent';
 }
 
 async function appendTrace(

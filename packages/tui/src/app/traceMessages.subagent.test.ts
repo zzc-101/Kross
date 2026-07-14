@@ -19,9 +19,19 @@ describe('handleTraceEvent subagent isolation', () => {
       runId: 'sub-parent-xyz',
       type: 'tool_call.started',
       timestamp: new Date().toISOString(),
-      payload: { toolName: 'Read', callId: 'c1' }
+      payload: { toolName: 'Read', callId: 'c1', isSubagent: true }
     };
     handleTraceEvent(event, handlers);
+    expect(upsertToolMessage).not.toHaveBeenCalled();
+
+    const taggedMainId: TraceEvent = {
+      id: 'e1b',
+      runId: 'run-main',
+      type: 'tool_call.started',
+      timestamp: new Date().toISOString(),
+      payload: { toolName: 'Write', callId: 'c1b', isSubagent: true }
+    };
+    handleTraceEvent(taggedMainId, handlers);
     expect(upsertToolMessage).not.toHaveBeenCalled();
 
     const mainEvent: TraceEvent = {

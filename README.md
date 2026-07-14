@@ -82,13 +82,11 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 已实现（Subagent P0）：
 
 - **`Task` 工具**：主 agent 可派生子代理执行聚焦任务。
-- 子代理 **独立 ContextManager**，不注入主会话全文。
-- **工具白名单**：Read / Glob / Grep / List / Stat / Git* / **Edit** / **Write**。
-- **不注册高危工具**：Bash、Delete、Move、Task、MCP 等。
-- **子代理内无需审批**：Gateway 对白名单工具全部 auto-allow。
-- **maxDepth=1**：子代理不能再派生 Task。
-- Trace：`subagent.started` / `subagent.completed` / `subagent.failed`（挂在父 runId 上，payload 含 subRunId）。
-- **TUI**：对话区下方单行 `▸ Subagent …`（点击展开明细）；子代理内部 `tool_call.*` **不写入主会话消息流**（避免穿透）。
+- **专用执行路径**（不走主 `AgentRuntime.run` 规划器壳）：独立 system prompt + 独立工具环。
+- **工具白名单**：Read / Glob / Grep / List / Stat / Git* / Edit / Write（无 Bash/Delete/Move/Task/MCP）。
+- **子代理内 auto-allow**；**maxDepth=1**。
+- Trace：lifecycle 在父 run；子工具事件带 **`isSubagent: true`**，主 transcript 硬过滤。
+- **TUI**：对话区下单行 `▸ Subagent …`（点击展开）；完成态约保留 60s。
 
 已实现（MCP）：
 

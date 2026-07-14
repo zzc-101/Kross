@@ -77,31 +77,39 @@ export function createTaskTool(
       }
 
       const mode = (input.mode ?? 'explore') as SubagentMode;
-      const outcome = await options.run({
-        prompt: input.prompt,
-        mode,
-        parentRunId: runId,
-        parentDepth,
-        signal
-      });
+      try {
+        const outcome = await options.run({
+          prompt: input.prompt,
+          mode,
+          parentRunId: runId,
+          parentDepth,
+          signal
+        });
 
-      const content = formatSubagentToolContent(outcome);
-      const label = input.description?.trim() || mode;
-      return {
-        content,
-        summary: `Task(${label}) → ${outcome.result.status}: ${clip(
-          outcome.result.summary,
-          160
-        )}`,
-        data: {
-          subRunId: outcome.subRunId,
-          mode: outcome.mode,
-          modeForcedToExplore: outcome.modeForcedToExplore,
-          status: outcome.result.status,
-          evidence: outcome.result.evidence,
-          risks: outcome.result.risks
-        }
-      };
+        const content = formatSubagentToolContent(outcome);
+        const label = input.description?.trim() || mode;
+        return {
+          content,
+          summary: `Task(${label}) → ${outcome.result.status}: ${clip(
+            outcome.result.summary,
+            160
+          )}`,
+          data: {
+            subRunId: outcome.subRunId,
+            mode: outcome.mode,
+            status: outcome.result.status,
+            evidence: outcome.result.evidence,
+            risks: outcome.result.risks,
+            changedFiles: outcome.result.changedFiles
+          }
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: `Task failed: ${message}`,
+          summary: `Task failed: ${clip(message, 120)}`
+        };
+      }
     }
   };
 }

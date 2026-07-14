@@ -915,16 +915,19 @@ export function App({
     });
   }, [agentRuntime, upsertToolMessage]);
 
-  // Prune finished subagent cards so the footer does not grow forever.
+  // Prune finished subagent cards (keep ~60s; keep while expanded).
   useEffect(() => {
     if (subagents.length === 0) {
       return;
     }
     const timer = setInterval(() => {
+      if (subagentExpanded) {
+        return;
+      }
       setSubagents((current) => pruneSubagentUi(current));
-    }, 3000);
+    }, 5000);
     return () => clearInterval(timer);
-  }, [subagents.length]);
+  }, [subagents.length, subagentExpanded]);
 
   const runTurn = useCallback(async (
     prompt: string,

@@ -87,6 +87,10 @@ describe('runSubagent', () => {
       const types = traceStore.events.map((event) => event.type);
       expect(types).toContain('subagent.started');
       expect(types).toContain('subagent.completed');
+      // Dedicated path uses SUBAGENT system prompt, not planner shell.
+      const system = llm.requests[0]?.messages.find((m) => m.role === 'system');
+      expect(system?.content).toContain('focused subagent');
+      expect(system?.content).not.toContain('规划器');
       // Child should not see parent history — only the task prompt as user turn.
       const userMessages = llm.requests.flatMap((request) =>
         request.messages.filter((message) => message.role === 'user')
@@ -94,6 +98,13 @@ describe('runSubagent', () => {
       expect(userMessages.some((message) => message.content.includes('Summarize'))).toBe(
         true
       );
+      // Lifecycle + any tool traffic tagged isSubagent.
+      expect(
+        traceStore.events.some(
+          (event) =>
+            event.type === 'subagent.started' && event.payload.isSubagent === true
+        )
+      ).toBe(true);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
