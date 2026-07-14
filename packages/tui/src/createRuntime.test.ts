@@ -48,6 +48,24 @@ describe('createRuntimeOptionsFromEnv', () => {
     expect(invalid.maxToolIterations).toBeUndefined();
   });
 
+  it('reuses injected tooling gateway when provided', () => {
+    const first = createRuntimeOptionsFromEnv('/tmp/local-agent', {});
+    expect(first.toolGateway).toBeDefined();
+    const second = createRuntimeOptionsFromEnv(
+      '/tmp/local-agent',
+      {},
+      undefined,
+      {},
+      {
+        toolGateway: first.toolGateway!,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test reuses opaque store instance
+        traceStore: first.traceStore as any
+      }
+    );
+    expect(second.toolGateway).toBe(first.toolGateway);
+    expect(second.traceStore).toBe(first.traceStore);
+  });
+
   it('applies config contextWindow even when credentials come from env', () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'kross-runtime-home-'));
     try {

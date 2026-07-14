@@ -10,6 +10,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 
 import { isAppLocale, type AppLocale } from '../i18n';
+import type { McpServersConfig } from '../mcp/types';
 import { createLlmClient } from '../llm/createLlmClient';
 import { isLlmProvider } from '../llm/llmProviders';
 import { isUsableLlmConfig } from '../llm/resolveCredentials';
@@ -34,6 +35,8 @@ export interface KrossConfig {
   /** UI language preference (`zh` | `en`). */
   locale?: AppLocale;
   llm?: ImportedLlmConfig;
+  /** MCP server map (also loadable from ~/.kross/mcp.json). */
+  mcpServers?: McpServersConfig;
   setup?: {
     importedFrom?: ExternalAgentSource;
     importedAt?: string;

@@ -64,11 +64,33 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - 工具调用循环默认最多 **200 轮**（一轮 = 模型 tool_calls → 执行 → 回填），作死循环安全网，不是“正常任务配额”。触顶时 **软着陆**：丢弃未执行 tool_calls、强制一轮无工具文本总结（`completed`），并记录 `llm.tool_loop.max_iterations` + `llm.soft_land.completed`；可用 `AGENT_MAX_TOOL_ITERATIONS` 覆盖。
   - 对照：OpenCode 默认不限步，可选 `steps`，触顶要求 summarize；实现层约 1000 步硬保险。Codex 基本不按步数掐断。Claude Code 会话可跑大量工具调用，另有产品侧单 turn 工具次数限制。
 
+已实现（MCP）：
+
+- stdio MCP：从 `~/.kross/mcp.json` 或 `~/.kross/config.json` 的 `mcpServers` 启动外部 server。
+- 启动时 `tools/list`，注册为 Gateway 工具，命名 `serverId__toolName`（描述带 `[MCP:serverId]` 前缀）。
+- 调用走现有审批 / 超时 / trace；默认 risk 为 `network`（需确认），可用 tool annotations 的 `readOnlyHint` 降为 `read`，或在 server 配置里写 `risk`。
+- 单 server 失败不阻断启动（stderr 打印 `[kross:mcp] ...`）。
+
+```json
+// ~/.kross/mcp.json
+{
+  "mcpServers": {
+    "mock": {
+      "command": "npx",
+      "args": ["-y", "some-mcp-server"],
+      "env": {},
+      "disabled": false
+    }
+  }
+}
+```
+
 尚未实现：
 
-- MCP 工具发现和延迟加载。
+- MCP resources / prompts、SSE/HTTP transport、运行时热重载 MCP 列表。
 - OS 级 Bash 沙箱。
 - `apply_patch` 专用内置工具。
+
 
 ### 权限和安全边界
 

@@ -16,7 +16,11 @@ import {
 } from '@kross/core';
 import { App, type AppTestApi } from './App';
 import { formatSessionStoreInitializationError } from './app/sessionStartup';
-import { createRuntimeOptionsFromEnv } from './createRuntime';
+import {
+  bootstrapRuntimeTooling,
+  createRuntimeOptionsFromEnv,
+  type RuntimeTooling
+} from './createRuntime';
 import {
   canUseAlternateScreen,
   enterAlternateScreen,
@@ -43,9 +47,11 @@ const renderStdout = useAltScreen
 
 const sessionSetup = createSessionStore();
 let sessionStoreClosed = false;
+let toolingClosed = false;
 let appApi: AppTestApi | undefined;
 let shuttingDown = false;
 let app: ReturnType<typeof render>;
+let tooling: RuntimeTooling | undefined;
 
 const restoreTerminal = (): void => {
   if (useAltScreen) {
@@ -65,12 +71,20 @@ const closeSessionStore = (): void => {
   }
 };
 
+const closeTooling = (): void => {
+  if (toolingClosed || !tooling) {
+    return;
+  }
+  toolingClosed = true;
+  void tooling.close().catch(() => undefined);
+};
+
 const shutdown = (): void => {
   if (shuttingDown) {
     return;
   }
   shuttingDown = true;
-  // 主动退出统一保证：合并流式缓冲 → 写 JSONL/SQLite → 卸载 UI → 关闭 DB。
+  // 主动退出统一保证：合并流式缓冲 → 写 JSONL/SQLite → 卸载 UI → 关闭 DB/MCP。
   appApi?.flushSession();
   try {
     app?.unmount();
@@ -78,6 +92,7 @@ const shutdown = (): void => {
     // ignore
   }
   closeSessionStore();
+  closeTooling();
   restoreTerminal();
 };
 
@@ -86,45 +101,78 @@ const exitProcess = (): void => {
   process.exit(0);
 };
 
-app = render(
-  <App
-    createRuntime={() =>
-      new AgentRuntime(createRuntimeOptionsFromEnv(process.cwd(), process.env))
-    }
-    configImportController={createConfigImportController({
-      env: process.env,
-      pathEnv: process.env.PATH
-    })}
-    fullscreen
-    cwd={process.cwd()}
-    branch={detectGitBranch()}
-    version={readPackageVersion()}
-    sessionStore={sessionSetup.store}
-    sessionStoreError={sessionSetup.error}
-    onReady={(api) => {
-      appApi = api;
-    }}
-    onExitRequest={exitProcess}
-  />,
-  {
-    stdout: renderStdout,
-    // Ctrl+C 交给 App，自行 flush 后再卸载，避免 Ink 抢先关闭进程。
-    exitOnCtrlC: false,
-    patchConsole: true
+async function main(): Promise<void> {
+  const cwd = process.cwd();
+  try {
+    tooling = await bootstrapRuntimeTooling(cwd, process.env);
+  } catch (error) {
+    // MCP bootstrap should soft-fail inside connectAndRegister; this is a hard failure.
+    console.error(
+      '[kross:mcp] bootstrap failed:',
+      error instanceof Error ? error.message : error
+    );
+    tooling = undefined;
   }
-);
 
-const onSignal = (): void => {
-  exitProcess();
-};
+  const sharedTooling = tooling
+    ? { toolGateway: tooling.toolGateway, traceStore: tooling.traceStore }
+    : undefined;
 
-process.once('SIGINT', onSignal);
-process.once('SIGTERM', onSignal);
+  app = render(
+    <App
+      createRuntime={() =>
+        new AgentRuntime(
+          createRuntimeOptionsFromEnv(
+            cwd,
+            process.env,
+            undefined,
+            {},
+            sharedTooling
+          )
+        )
+      }
+      configImportController={createConfigImportController({
+        env: process.env,
+        pathEnv: process.env.PATH
+      })}
+      fullscreen
+      cwd={cwd}
+      branch={detectGitBranch()}
+      version={readPackageVersion()}
+      sessionStore={sessionSetup.store}
+      sessionStoreError={sessionSetup.error}
+      onReady={(api) => {
+        appApi = api;
+      }}
+      onExitRequest={exitProcess}
+    />,
+    {
+      stdout: renderStdout,
+      // Ctrl+C 交给 App，自行 flush 后再卸载，避免 Ink 抢先关闭进程。
+      exitOnCtrlC: false,
+      patchConsole: true
+    }
+  );
 
-void app.waitUntilExit().finally(() => {
-  appApi?.flushSession();
-  closeSessionStore();
+  const onSignal = (): void => {
+    exitProcess();
+  };
+
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+
+  void app.waitUntilExit().finally(() => {
+    appApi?.flushSession();
+    closeSessionStore();
+    closeTooling();
+    restoreTerminal();
+  });
+}
+
+void main().catch((error) => {
+  console.error(error);
   restoreTerminal();
+  process.exit(1);
 });
 
 function createSessionStore(): {
