@@ -24,15 +24,18 @@ describe('App', () => {
   it('renders a Claude Code style full-width chat shell', () => {
     const { lastFrame } = render(<App />);
 
-    expect(lastFrame()).toContain('Kross');
-    // 新会话首页（Grok Build 风格）
-    expect(lastFrame()).toContain('Ready when you are');
-    expect(lastFrame()).toContain('/help');
-    expect(lastFrame()).toContain('shift+tab');
+    expect(lastFrame()).toContain('__ __  ____');
+    // 新会话首页只保留三个主动作和一个上下文提示
+    expect(lastFrame()).toContain('随时可以开始');
+    expect(lastFrame()).toContain('查看命令');
+    expect(lastFrame()).toContain('模型与思考强度');
+    expect(lastFrame()).toContain('输入 / 查看全部命令');
+    expect(lastFrame()).not.toContain('Thought');
+    expect(lastFrame()).not.toContain('Expand tool details');
     expect(lastFrame()).toContain('❯');
     // 输入框右下角：模型 · 权限模式
-    expect(lastFrame()).toContain('no model');
-    expect(lastFrame()).toContain('default');
+    expect(lastFrame()).toContain('未配置模型');
+    expect(lastFrame()).toContain('权限：默认');
     // 顶栏上下文占用 used/max
     expect(lastFrame()).toMatch(/\d+(\.\d+)?[KM]?\/\d+(\.\d+)?[KM]?/);
     expect(lastFrame()).not.toContain('Task Tree');
@@ -41,9 +44,9 @@ describe('App', () => {
 
   it('accepts fullscreen prop without breaking non-TTY test render', () => {
     const { lastFrame } = render(<App fullscreen />);
-    expect(lastFrame()).toContain('Kross');
+    expect(lastFrame()).toContain('__ __  ____');
     expect(lastFrame()).toContain('❯');
-    expect(lastFrame()).toContain('Ready when you are');
+    expect(lastFrame()).toContain('随时可以开始');
   });
 
   it('leaves home screen after the first user message', async () => {
@@ -57,7 +60,7 @@ describe('App', () => {
     );
 
     await waitUntil(() => submit !== undefined);
-    expect(lastFrame()).toContain('Ready when you are');
+    expect(lastFrame()).toContain('随时可以开始');
     expect(lastFrame()).toContain('main');
     expect(lastFrame()).toContain('~/MyProject/agent');
     // 路径只出现在顶栏，欢迎卡片内不再重复
@@ -66,8 +69,8 @@ describe('App', () => {
     await submit?.('hello task');
     await waitUntil(() => lastFrame()?.includes('hello task') === true);
     expect(lastFrame()).toContain('>');
-    expect(lastFrame()).toContain('ready');
-    expect(lastFrame()).toContain('perm: default');
+    expect(lastFrame()).toContain('就绪');
+    expect(lastFrame()).toContain('权限：默认');
     // 进入对话后仍显示 branch/cwd，而不是 projectName=local
     expect(lastFrame()).toContain('main');
     expect(lastFrame()).toContain('~/MyProject/agent');
@@ -86,11 +89,11 @@ describe('App', () => {
 
     await waitUntil(() => submit !== undefined);
     expect(lastFrame()).toContain('fake-model');
-    expect(lastFrame()).toContain('default');
+    expect(lastFrame()).toContain('权限：默认');
 
     await submit?.('/perm auto');
-    await waitUntil(() => lastFrame()?.includes('always-approve') === true);
-    expect(lastFrame()).toContain('fake-model (medium) · always-approve');
+    await waitUntil(() => lastFrame()?.includes('权限：自动允许') === true);
+    expect(lastFrame()).toContain('fake-model (medium) · 权限：自动允许');
   });
 
   it('refreshes composer model label after /model switch', async () => {
@@ -166,7 +169,7 @@ describe('App', () => {
     await submit?.('nihao');
     await waitUntil(() => lastFrame()?.includes('你好，我在。') === true);
 
-    expect(lastFrame()).toContain('ready');
+    expect(lastFrame()).toContain('就绪');
     expect(lastFrame()).toContain('●');
     expect(lastFrame()).toContain('你好，我在。');
   });
@@ -193,7 +196,7 @@ describe('App', () => {
     await submission;
     await waitUntil(() => lastFrame()?.includes('流式完成') === true);
 
-    expect(lastFrame()).toContain('ready');
+    expect(lastFrame()).toContain('就绪');
     expect(lastFrame()).toContain('流式完成');
   });
 
@@ -353,7 +356,7 @@ describe('App', () => {
     await choosePlanApproval?.(true);
     await waitUntil(() => lastFrame()?.includes('跨仓库任务计划已创建') === true);
 
-    expect(lastFrame()).toContain('ready');
+    expect(lastFrame()).toContain('就绪');
     expect(lastFrame()).toContain('跨仓库任务计划已创建');
   });
 
@@ -403,19 +406,19 @@ describe('App', () => {
     await submit?.('带思考');
     await waitUntil(() => lastFrame()?.includes('最终结论') === true);
 
-    // Claude Code 风格：默认收拢为 Thought for Ns
-    expect(lastFrame()).toMatch(/Thought for \d+s/);
+    // 默认收拢为中文耗时摘要
+    expect(lastFrame()).toMatch(/思考了 \d+ 秒/);
     expect(lastFrame()).not.toContain('think-line-15');
     expect(lastFrame()).toContain('最终结论');
     expect(lastFrame()).toContain('●');
 
     toggleCollapse?.();
     await waitUntil(() => lastFrame()?.includes('think-line-15') === true);
-    expect(lastFrame()).toMatch(/Thought for \d+s/);
+    expect(lastFrame()).toMatch(/思考了 \d+ 秒/);
 
     toggleCollapse?.();
     await waitUntil(() => lastFrame()?.includes('think-line-15') !== true);
-    expect(lastFrame()).toMatch(/Thought for \d+s/);
+    expect(lastFrame()).toMatch(/思考了 \d+ 秒/);
   });
 
   it('shows current context status with /context', async () => {
@@ -626,7 +629,7 @@ describe('App', () => {
 
     const frame = lastFrame() ?? '';
     // thinking 默认收拢，正文不直接露出
-    expect(frame).toMatch(/Thought for \d+s|Thinking/);
+    expect(frame).toMatch(/思考了 \d+ 秒|思考中/);
     expect(frame).toMatch(/Read/);
     expect(frame).toContain('最终总结');
     expect(frame).toContain('●');
@@ -666,13 +669,37 @@ describe('App', () => {
 
     await waitUntil(() => submit !== undefined);
     await submit?.('写 README');
-    await waitUntil(() => lastFrame()?.includes('需要确认工具调用') === true);
-    expect(lastFrame()).toContain('awaiting');
+    await waitUntil(() => lastFrame()?.includes('允许修改工作区？') === true);
+    expect(lastFrame()).toContain('等待工具确认');
 
     await chooseToolApproval?.(true);
     await waitUntil(() => lastFrame()?.includes('写入完成') === true);
-    expect(lastFrame()).toMatch(/Thought for \d+s|Thinking|审批后继续思考/);
+    expect(lastFrame()).toMatch(/思考了 \d+ 秒|思考中|审批后继续思考/);
     expect(lastFrame()).toContain('写入完成');
+  });
+
+  it('selects reject by default for execute approvals', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const llmClient = new WriteToolCallingLlmClient();
+    const traceStore = new ObservableTraceStore(new InMemoryTraceStore());
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.write',
+      description: '执行外部命令',
+      risk: 'execute',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async () => ({ content: 'executed' })
+    });
+    const runtime = new AgentRuntime({ traceStore, llmClient, toolGateway });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('执行命令');
+    await waitUntil(() => lastFrame()?.includes('允许执行命令？') === true);
+
+    expect(lastFrame()).toMatch(/[▸▹] 拒绝/);
   });
 
   it('renders live tool call lines while tools run', async () => {
@@ -791,23 +818,23 @@ describe('App', () => {
 
       await waitUntil(() => submit !== undefined);
       await submit?.('写 README');
-      await waitUntil(() => lastFrame()?.includes('需要确认工具调用') === true);
+      await waitUntil(() => lastFrame()?.includes('允许修改工作区？') === true);
 
       expect(lastFrame()).toContain('fs.write');
-      expect(lastFrame()).toContain('Approve');
-      expect(lastFrame()).toContain('Reject');
+      expect(lastFrame()).toContain('允许一次');
+      expect(lastFrame()).toContain('拒绝');
       // 工具为单行摘要，审批面板仍用圆角框
       expect(lastFrame()).not.toContain('/approve');
 
       const approval = chooseToolApproval?.(true);
-      await waitUntil(() => lastFrame()?.includes('working') === true);
-      expect(lastFrame()).toContain('已批准工具调用');
+      await waitUntil(() => lastFrame()?.includes('正在执行') === true);
+      expect(lastFrame()).toContain('已允许一次 fs.write');
 
       llmClient.releaseFollowup();
       await approval;
       await waitUntil(() => lastFrame()?.includes('写入完成') === true);
 
-      expect(lastFrame()).toContain('ready');
+      expect(lastFrame()).toContain('就绪');
       expect(lastFrame()).toContain('写入完成');
     },
     15_000
@@ -833,17 +860,17 @@ describe('App', () => {
 
     await waitUntil(() => submit !== undefined);
     // 首页只在 Composer 页脚展示权限；进入对话后 header 也有 perm:
-    expect(lastFrame()).toMatch(/default/);
+    expect(lastFrame()).toContain('权限：默认');
 
     await submit?.('/perm classifier');
-    await waitUntil(() => lastFrame()?.includes('classifier') === true);
+    await waitUntil(() => lastFrame()?.includes('权限：智能判断') === true);
     expect(runtime.getPermissionMode()).toBe('classifier');
-    expect(lastFrame()).toMatch(/perm: classifier|classifier/);
+    expect(lastFrame()).toContain('权限：智能判断');
 
     await submit?.('/perm auto');
-    await waitUntil(() => lastFrame()?.includes('always-approve') === true);
+    await waitUntil(() => lastFrame()?.includes('权限：自动允许') === true);
     expect(runtime.getPermissionMode()).toBe('auto');
-    expect(lastFrame()).toContain('always-approve');
+    expect(lastFrame()).toContain('权限：自动允许');
   });
 
   it('shows slash command suggestions while typing a prefix', async () => {
@@ -854,12 +881,13 @@ describe('App', () => {
 
     await waitUntil(() => setInput !== undefined);
     setInput?.('/');
-    await waitUntil(() => lastFrame()?.includes('查看可用命令') === true);
-    expect(lastFrame()).toContain('commands');
+    await waitUntil(() => lastFrame()?.includes('查看全部命令') === true);
+    expect(lastFrame()).toContain('命令');
     expect(lastFrame()).toContain('/help');
+    expect(lastFrame()).toContain('还有 2 项，继续输入筛选');
 
     setInput?.('/mo');
-    await waitUntil(() => lastFrame()?.includes('切换 agent 模式') === true);
+    await waitUntil(() => lastFrame()?.includes('切换 Agent 模式') === true);
     expect(lastFrame()).toContain('/mode');
     expect(lastFrame()).not.toContain('/import');
   });

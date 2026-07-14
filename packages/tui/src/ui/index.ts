@@ -55,12 +55,24 @@ export {
   type StreamParseState
 } from './markdownParse';
 export { ThinkingIndicator } from './ThinkingIndicator';
-export { ApprovalPanel } from './ApprovalPanel';
+export {
+  ApprovalPanel,
+  defaultApprovalSelection,
+  resolveApprovalPanelHeight,
+  resolveApprovalPanelWidth
+} from './ApprovalPanel';
+export {
+  formatApprovalReason,
+  formatApprovalPresentation,
+  type ApprovalPresentation,
+  type ApprovalSelection
+} from './approvalPresentation';
 export {
   COMPOSER_BOTTOM_GAP,
   COMPOSER_FOOTER_HEIGHT,
   COMPOSER_HEIGHT,
   Composer,
+  createComposerBorder,
   HelpHint
 } from './Composer';
 export { ModelSettingsPanel } from './ModelSettingsPanel';
@@ -74,23 +86,34 @@ export {
   type ModelSettingsState,
   type SettingsSection
 } from './modelSettings';
-export { SlashSuggest } from './SlashSuggest';
+export {
+  SlashSuggest,
+  resolveSlashSuggestHeight,
+  resolveSlashUsageWidth
+} from './SlashSuggest';
 export {
   WelcomeHome,
   formatCwdLabel,
+  resolveWelcomeLayout,
   type WelcomeHomeProps,
   type WelcomeAction
 } from './WelcomeHome';
 export {
   slashCommands,
   filterSlashCommands,
+  getSlashCommandSuggestions,
   formatSlashHelp,
-  type SlashCommand
+  type SlashCommand,
+  type SlashCommandCategory,
+  type SlashSuggestionOptions,
+  type SlashSuggestionResult
 } from './slashCommands';
 export {
   theme,
   symbols,
   formatStatusLabel,
+  formatModeLabel,
+  formatPermissionModeLabel,
   statusTone,
   riskTone,
   makeDivider,

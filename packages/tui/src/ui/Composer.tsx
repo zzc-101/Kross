@@ -2,9 +2,10 @@ import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 
-import { formatPermissionFooter, type PermissionMode } from '@kross/core';
+import type { PermissionMode } from '@kross/core';
 
-import { symbols, theme } from './theme';
+import { displayWidth } from './markdownParse';
+import { formatPermissionModeLabel, symbols, theme } from './theme';
 
 export const COMPOSER_HEIGHT = 3;
 export const COMPOSER_BOTTOM_GAP = 3;
@@ -30,9 +31,10 @@ export function Composer({
   /** 全宽时传入终端列数 */
   width?: number;
 }) {
+  const displayModelLabel = modelLabel === 'no model' ? '未配置模型' : modelLabel;
   const footerLabel = useMemo(
-    () => `${modelLabel} · ${formatPermissionFooter(permissionMode)}`,
-    [modelLabel, permissionMode]
+    () => `${displayModelLabel} · ${formatPermissionModeLabel(permissionMode)}`,
+    [displayModelLabel, permissionMode]
   );
 
   if (disabled) {
@@ -60,7 +62,12 @@ export function Composer({
         <Box paddingX={1} flexGrow={1}>
           <Text bold>{symbols.prompt} </Text>
           <Box flexGrow={1}>
-            <TextInput value={value} onChange={onChange} onSubmit={onSubmit} />
+            <TextInput
+              value={value}
+              onChange={onChange}
+              onSubmit={onSubmit}
+              placeholder="描述任务，输入 / 查看命令"
+            />
           </Box>
         </Box>
         <Text color={theme.border}>{symbols.boxVertical}</Text>
@@ -74,7 +81,7 @@ export function Composer({
   );
 }
 
-function createComposerBorder(
+export function createComposerBorder(
   width: number,
   footerLabel: string
 ): {
@@ -87,10 +94,11 @@ function createComposerBorder(
   const labelWidth = Math.max(1, innerWidth - 4);
   const fittedLabel = truncateLabel(footerLabel, labelWidth);
   const bottomLabel = ` ${fittedLabel} `;
+  const bottomLabelWidth = displayWidth(bottomLabel);
   const rightRuleWidth = 1;
   const leftRuleWidth = Math.max(
     1,
-    innerWidth - bottomLabel.length - rightRuleWidth
+    innerWidth - bottomLabelWidth - rightRuleWidth
   );
 
   return {
@@ -104,26 +112,37 @@ function createComposerBorder(
     bottomLabel,
     bottomRight:
       symbols.boxHorizontal.repeat(
-        innerWidth - leftRuleWidth - bottomLabel.length
+        innerWidth - leftRuleWidth - bottomLabelWidth
       ) + symbols.boxBottomRight
   };
 }
 
 function truncateLabel(label: string, maxWidth: number): string {
-  if (label.length <= maxWidth) {
+  if (displayWidth(label) <= maxWidth) {
     return label;
   }
   if (maxWidth <= 1) {
     return '…';
   }
-  return `${label.slice(0, maxWidth - 1)}…`;
+  const target = maxWidth - 1;
+  let output = '';
+  let used = 0;
+  for (const char of label) {
+    const charWidth = displayWidth(char);
+    if (used + charWidth > target) {
+      break;
+    }
+    output += char;
+    used += charWidth;
+  }
+  return `${output}…`;
 }
 
 export function HelpHint() {
   return (
     <Box marginTop={0}>
       <Text dimColor>
-        /help · ctrl+p 模型 · shift+tab 权限 · ctrl+o Thought
+        /help · ctrl+p 模型与思考强度 · shift+tab 权限 · ctrl+o 思考过程
       </Text>
     </Box>
   );

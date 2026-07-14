@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Text, useStdout } from 'ink';
 
 import {
+  formatModeLabel,
+  formatPermissionModeLabel,
   formatStatusLabel,
   makeDivider,
   statusTone,
@@ -84,8 +86,8 @@ export function HeaderBar({
               <Text color={tone}>
                 {dot} {statusLabel}
               </Text>
-              <StatusChip label={mode} dim />
-              <StatusChip label={`perm: ${permissionMode}`} dim />
+              <StatusChip label={formatModeLabel(mode)} dim />
+              <StatusChip label={formatPermissionModeLabel(permissionMode)} dim />
               {queueLength > 0 ? (
                 <StatusChip label={`队列：${queueLength}`} color={theme.statusBusy} />
               ) : null}

@@ -3,19 +3,19 @@ import { describe, expect, it } from 'vitest';
 import { formatThinkingLabel } from './MessageLine';
 
 describe('formatThinkingLabel', () => {
-  it('shows Thought for Ns when duration known', () => {
+  it('shows Chinese duration when known', () => {
     expect(
       formatThinkingLabel({ text: 'x', durationMs: 8200 }, false)
-    ).toBe('Thought for 8s');
+    ).toBe('思考了 8 秒');
   });
 
-  it('shows Thinking… while streaming', () => {
+  it('shows a Chinese streaming label', () => {
     expect(formatThinkingLabel({ text: 'x' }, true, '⠋')).toContain(
-      'Thinking…'
+      '思考中…'
     );
   });
 
-  it('falls back to Thought without duration', () => {
-    expect(formatThinkingLabel({ text: 'x' }, false)).toBe('Thought');
+  it('falls back to a Chinese label without duration', () => {
+    expect(formatThinkingLabel({ text: 'x' }, false)).toBe('思考过程');
   });
 });

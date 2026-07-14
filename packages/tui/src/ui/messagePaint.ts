@@ -679,20 +679,20 @@ function toolStatusSegments(tool: ToolCallState): PaintSegment | null {
     case 'running':
       return { text: symbols.toolWait, color: theme.statusBusy };
     case 'completed':
-      return null;
+      return { text: symbols.toolOk, color: theme.statusReady };
     case 'failed':
       return {
-        text: `${symbols.toolFail} failed`,
+        text: `${symbols.toolFail} 失败`,
         color: theme.statusError
       };
     case 'denied':
       return {
-        text: `${symbols.toolFail} denied`,
+        text: `${symbols.toolFail} 已拒绝`,
         color: theme.statusError
       };
     case 'awaiting':
       return {
-        text: `${symbols.toolWait} await`,
+        text: `${symbols.toolWait} 等待确认`,
         color: theme.statusWarn
       };
     default:
@@ -834,22 +834,22 @@ function formatThinkingSummary(
   streaming: boolean
 ): string {
   if (streaming) {
-    return 'Thinking…';
+    return '思考中…';
   }
   if (typeof message.durationMs === 'number' && message.durationMs >= 0) {
     const sec = Math.max(1, Math.round(message.durationMs / 1000));
-    return `Thought for ${sec}s`;
+    return `思考了 ${sec} 秒`;
   }
   if (message.createdAt) {
     const start = new Date(message.createdAt).getTime();
     if (!Number.isNaN(start)) {
       const elapsed = Date.now() - start;
       if (elapsed > 0 && elapsed < 24 * 3600 * 1000) {
-        return `Thought for ${Math.max(1, Math.round(elapsed / 1000))}s`;
+        return `思考了 ${Math.max(1, Math.round(elapsed / 1000))} 秒`;
       }
     }
   }
-  return 'Thought';
+  return '思考过程';
 }
 
 function mdLineToSegments(line: MdLine): PaintSegment[] {

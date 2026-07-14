@@ -3,14 +3,16 @@ import { Box, Text } from 'ink';
 
 import { theme } from './theme';
 
-const LOGO = [
-  '    ╱╲    ',
-  '   ╱  ╲   ',
-  '  ╱──K─╲  ',
-  '  ╲    ╱  ',
-  '   ╲  ╱   ',
-  '    ╲╱    '
+export const ASCII_WORDMARK = [
+  '   __ __  ____   ____   ____   ____',
+  '  / //_/ / __ \\ / __ \\ / __/  / __/',
+  ' / ,<   / /_/ // /_/ /_\\ \\   _\\ \\',
+  '/_/|_| /_____/ \\____//___/  /___/'
 ] as const;
+
+const ASCII_WORDMARK_WIDTH = Math.max(
+  ...ASCII_WORDMARK.map((line) => line.length)
+);
 
 export interface WelcomeAction {
   label: string;
@@ -29,12 +31,9 @@ export interface WelcomeHomeProps {
 }
 
 const defaultActions: WelcomeAction[] = [
-  { label: 'Describe a task to start', shortcut: '↵' },
-  { label: 'Help', shortcut: '/help' },
-  { label: 'Switch agent mode', shortcut: '/mode' },
-  { label: 'Toggle permission', shortcut: 'shift+tab' },
-  { label: 'Thought', shortcut: 'ctrl+o' },
-  { label: 'Expand tool details', shortcut: 'ctrl+e' }
+  { label: '描述任务开始', shortcut: '↵' },
+  { label: '查看命令', shortcut: '/' },
+  { label: '模型与思考强度', shortcut: 'ctrl+p' }
 ];
 
 /**
@@ -43,14 +42,14 @@ const defaultActions: WelcomeAction[] = [
 export function WelcomeHome({
   version = '0.1.0',
   modelLabel,
-  headline = 'Local agent runtime',
-  subtitle = 'Plan, call tools, and iterate in your workspace.',
+  headline = '随时可以开始',
+  subtitle = '在当前工作区规划、调用工具并保留运行记录。',
   notice,
   actions = defaultActions,
-  tip = 'Press shift+tab to cycle permission mode.',
+  tip = '输入 / 查看全部命令',
   width = 72
 }: WelcomeHomeProps) {
-  const cardWidth = Math.max(48, Math.min(width, 88));
+  const { cardWidth, brandMode } = resolveWelcomeLayout(width);
 
   return (
     <Box flexDirection="column" alignItems="center" width={width}>
@@ -58,64 +57,77 @@ export function WelcomeHome({
         borderStyle="round"
         borderColor={theme.border}
         paddingX={2}
-        paddingY={1}
         width={cardWidth}
-        flexDirection="row"
+        flexDirection="column"
       >
-        <Box flexDirection="column" marginRight={2}>
-          {LOGO.map((line) => (
-            <Text key={line} color={theme.brandMuted}>
-              {line}
+        <Box flexDirection="column" alignItems="center" width="100%">
+          {brandMode === 'wordmark' ? (
+            ASCII_WORDMARK.map((line) => (
+              <Text key={line} color={theme.brandMuted}>
+                {line}
+              </Text>
+            ))
+          ) : (
+            <Text bold color={theme.brand}>
+              KROSS
             </Text>
-          ))}
+          )}
         </Box>
 
-        <Box flexDirection="column" flexGrow={1}>
-          <Box>
-            <Text bold color={theme.brand}>
-              Kross
-            </Text>
-            <Text dimColor>  {version}</Text>
+        <Box justifyContent="flex-end" width="100%">
+          <Text dimColor>v{version}</Text>
+        </Box>
+
+        <Box marginTop={1}>
+          <Text color={theme.accent} bold>
+            {headline}
+          </Text>
+        </Box>
+        <Text dimColor>{subtitle}</Text>
+
+        {modelLabel ? (
+          <Box marginTop={0}>
+            <Text dimColor>模型 </Text>
+            <Text color={theme.brandSoft}>{modelLabel}</Text>
           </Box>
+        ) : null}
 
-          <Box marginTop={1}>
-            <Text color={theme.accent} bold>
-              {headline}
-            </Text>
-          </Box>
-          <Text dimColor>{subtitle}</Text>
-
-          {modelLabel ? (
-            <Box marginTop={0}>
-              <Text dimColor>model </Text>
-              <Text color={theme.brandSoft}>{modelLabel}</Text>
-            </Box>
-          ) : null}
-
-          {notice ? (
-            <Box marginTop={1} flexDirection="column">
-              <Text color={theme.statusWarn}>{notice}</Text>
-            </Box>
-          ) : null}
-
+        {notice ? (
           <Box marginTop={1} flexDirection="column">
-            {actions.map((action) => (
-              <Box key={action.label}>
-                <Text>{action.label.padEnd(28)}</Text>
-                <Text dimColor>{action.shortcut}</Text>
-              </Box>
-            ))}
+            <Text color={theme.statusWarn}>{notice}</Text>
           </Box>
+        ) : null}
+
+        <Box marginTop={1} flexDirection="column">
+          {actions.map((action) => (
+            <Box key={action.label} justifyContent="space-between">
+              <Text>{action.label}</Text>
+              <Text dimColor>{action.shortcut}</Text>
+            </Box>
+          ))}
         </Box>
       </Box>
 
       {tip ? (
-        <Box marginTop={2} width={cardWidth}>
-          <Text dimColor>Tip: {tip}</Text>
+        <Box marginTop={1} width={cardWidth}>
+          <Text dimColor>提示：{tip}</Text>
         </Box>
       ) : null}
     </Box>
   );
+}
+
+export function resolveWelcomeLayout(width: number): {
+  cardWidth: number;
+  brandMode: 'wordmark' | 'compact';
+} {
+  const availableWidth = Math.max(36, Math.floor(width));
+  const cardWidth = Math.min(availableWidth, 88);
+  return {
+    cardWidth,
+    brandMode:
+      cardWidth - 6 >= ASCII_WORDMARK_WIDTH ? 'wordmark' : 'compact'
+  };
 }
 
 export function formatCwdLabel(cwd: string, home = process.env.HOME): string {

@@ -24,9 +24,10 @@ import {
   COMPOSER_FOOTER_HEIGHT,
   Composer,
   createModelSettingsState,
+  defaultApprovalSelection,
   buildToolState,
   ensureToolItems,
-  filterSlashCommands,
+  getSlashCommandSuggestions,
   formatCwdLabel,
   formatToolTitle,
   HeaderBar,
@@ -35,6 +36,8 @@ import {
   ModelSettingsPanel,
   moveSettingsSelection,
   SlashSuggest,
+  resolveSlashSuggestHeight,
+  resolveApprovalPanelHeight,
   switchSettingsSection,
   ThinkingIndicator,
   WelcomeHome,
@@ -227,10 +230,14 @@ export function App({
     setPermissionMode(agentRuntime.getPermissionMode());
   }, [agentRuntime]);
 
-  const slashSuggestions = useMemo(
-    () => filterSlashCommands(input),
-    [input]
+  const slashSuggestionResult = useMemo(
+    () =>
+      getSlashCommandSuggestions(input, {
+        hasPendingCrossRepoPlan: pendingCrossRepoPlan !== undefined
+      }),
+    [input, pendingCrossRepoPlan]
   );
+  const slashSuggestions = slashSuggestionResult.commands;
 
   useEffect(() => {
     setSlashSelectedIndex(0);
@@ -608,7 +615,7 @@ export function App({
     if (result.status === 'approval-required' && result.pendingApproval) {
       setStatus('approval-required');
       setPendingToolApproval(result.pendingApproval);
-      setApprovalSelection('approve');
+      setApprovalSelection(defaultApprovalSelection(result.pendingApproval.risk));
       append('system', result.summary);
       finalizeThinkingDurations();
       return;
@@ -641,7 +648,9 @@ export function App({
     setPendingToolApproval(undefined);
     append(
       'system',
-      approved ? '已批准工具调用，继续执行。' : '已拒绝工具调用，继续让模型调整方案。'
+      approved
+        ? `已允许一次 ${pendingToolApproval.toolName}，继续执行。`
+        : `已拒绝 ${pendingToolApproval.toolName}，继续让模型调整方案。`
     );
 
     // 与首轮 runTurn 相同：审批后续也走 stream，避免 complete() 整包倾倒。
@@ -737,7 +746,7 @@ export function App({
       setStatus('approval-required');
       setAwaitingReply(false);
       setPendingToolApproval(result.pendingApproval);
-      setApprovalSelection('approve');
+      setApprovalSelection(defaultApprovalSelection(result.pendingApproval.risk));
       append('system', result.summary);
       return;
     }
@@ -1100,7 +1109,7 @@ export function App({
   const footerHeight = useMemo(() => {
     let h = 0;
     if (pendingToolApproval) {
-      h += 9; // ApprovalPanel
+      h += resolveApprovalPanelHeight(pendingToolApproval);
     } else if (modelSettings) {
       // title + tabs + rule + options + border + hint
       const optionRows =
@@ -1119,7 +1128,10 @@ export function App({
       !modelSettingsOpen &&
       slashSuggestions.length > 0
     ) {
-      h += slashSuggestions.length;
+      h += resolveSlashSuggestHeight(
+        slashSuggestions,
+        slashSuggestionResult.hiddenCount
+      );
     }
     return h;
   }, [
@@ -1128,7 +1140,8 @@ export function App({
     modelSettingsOpen,
     status,
     awaitingReply,
-    slashSuggestions.length
+    slashSuggestions.length,
+    slashSuggestionResult.hiddenCount
   ]);
 
   // Header: location line(1) + divider(1) = 2; + error(1) if present
@@ -1214,6 +1227,7 @@ export function App({
         <ApprovalPanel
           approval={pendingToolApproval}
           selection={approvalSelection}
+          width={contentWidth}
         />
       ) : null}
 
@@ -1227,6 +1241,8 @@ export function App({
         <SlashSuggest
           commands={slashSuggestions}
           selectedIndex={slashSelectedIndex}
+          hiddenCount={slashSuggestionResult.hiddenCount}
+          width={contentWidth}
         />
       ) : null}
 
@@ -1254,9 +1270,9 @@ export function App({
             ? formatImportPrompt(importPrompt)
             : undefined
       }
-      headline={modelLabel !== 'no model' ? `${modelLabel} ready` : 'Ready when you are'}
-      subtitle="Local-first agent · plan, tools, and traces in your workspace."
-      tip="ctrl+p 模型 · shift+tab 权限 · ctrl+o 展开 Thought"
+      headline="随时可以开始"
+      subtitle="在当前工作区规划、调用工具并保留运行记录。"
+      tip="输入 / 查看全部命令"
     />
   );
 

@@ -5,17 +5,17 @@ import { symbols, theme } from './theme';
 import { usePulse } from './usePulse';
 
 const thinkingPhases = [
-  'reading workspace',
-  'planning next step',
-  'waiting for model',
-  'preparing reply'
+  '读取工作区',
+  '规划下一步',
+  '等待模型',
+  '整理回复'
 ] as const;
 
 const toolPhases = [
-  'running approved tool',
-  'collecting tool output',
-  'feeding results to model',
-  'waiting for model'
+  '运行已允许的工具',
+  '收集工具输出',
+  '将结果交给模型',
+  '等待模型'
 ] as const;
 
 export function ThinkingIndicator({
@@ -46,7 +46,7 @@ export function ThinkingIndicator({
     return null;
   }
 
-  const label = variant === 'tool' ? 'working' : 'thinking';
+  const label = variant === 'tool' ? '正在执行' : '思考中';
 
   return (
     <Box marginBottom={1}>

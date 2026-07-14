@@ -113,7 +113,7 @@ export function MessageLine({
           <Text color={theme.user} bold>
             {symbols.userPrefix}{' '}
           </Text>
-          <Text color={theme.user} wrap="wrap">
+          <Text wrap="wrap">
             {body}
           </Text>
         </Box>
@@ -184,13 +184,13 @@ export function formatThinkingLabel(
   spinner?: string
 ): string {
   if (streaming) {
-    return spinner ? `Thinking… ${spinner}` : 'Thinking…';
+    return spinner ? `思考中… ${spinner}` : '思考中…';
   }
   const seconds = formatThoughtSeconds(message);
   if (seconds !== undefined) {
-    return `Thought for ${seconds}s`;
+    return `思考了 ${seconds} 秒`;
   }
-  return 'Thought';
+  return '思考过程';
 }
 
 function formatThoughtSeconds(
@@ -247,4 +247,3 @@ function wrapPlainText(text: string, maxWidth: number): string[] {
   }
   return lines.length > 0 ? lines : [''];
 }
-

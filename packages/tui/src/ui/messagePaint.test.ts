@@ -113,7 +113,7 @@ describe('windowPaintRows', () => {
     expect(sawBullet).toBe(true);
   });
 
-  it('collapses thinking to a Thought summary line by default', () => {
+  it('collapses thinking to a Chinese summary line by default', () => {
     const cache = new MessagePaintCache();
     const message = msg({
       id: 2,
@@ -123,7 +123,7 @@ describe('windowPaintRows', () => {
     });
     const items = cache.paintMessage(message, 80, false);
     const plains = items.map(paintItemPlainText).join('\n');
-    expect(plains).toContain('Thought for 8s');
+    expect(plains).toContain('思考了 8 秒');
     expect(plains).not.toContain('long thought');
   });
 
@@ -192,6 +192,7 @@ describe('windowPaintRows', () => {
     expect(items).toHaveLength(2); // title + gap
     expect(paintItemPlainText(items[0]!)).toContain('Edit');
     expect(paintItemPlainText(items[0]!)).toContain('+2');
+    expect(paintItemPlainText(items[0]!)).toContain('✓');
     expect(items[1]?.key).toContain('tool-gap');
   });
 

@@ -4,12 +4,12 @@
  */
 export const theme = {
   brand: 'cyan',
-  brandMuted: '#164e63',
+  brandMuted: '#0e7490',
   brandSoft: '#22d3ee',
   /** 欢迎页 headline 强调色（对齐 Grok Build 的金色提示） */
   accent: 'yellow',
-  /** 用户历史输入高亮 */
-  user: 'yellow',
+  /** 用户消息前缀高亮；正文使用终端默认前景色 */
+  user: 'cyan',
   agent: 'cyan',
   system: 'gray',
   statusReady: 'green',
@@ -20,8 +20,8 @@ export const theme = {
   reject: 'red',
   riskRead: 'green',
   riskWrite: 'yellow',
-  riskExecute: 'red',
-  riskNetwork: 'magenta',
+  riskExecute: 'yellow',
+  riskNetwork: 'yellow',
   chip: 'gray',
   tip: 'gray',
   /** 底部滚动提示高亮 */
@@ -104,15 +104,41 @@ export function statusTone(
 export function formatStatusLabel(status: UiStatus): string {
   switch (status) {
     case 'ready':
-      return 'ready';
+      return '就绪';
     case 'responding':
-      return 'thinking';
+      return '思考中';
     case 'waiting-approval':
-      return 'awaiting plan';
+      return '等待计划确认';
     case 'approval-required':
-      return 'awaiting tool';
+      return '等待工具确认';
     default:
       return status;
+  }
+}
+
+export function formatModeLabel(mode: string): string {
+  switch (mode) {
+    case 'auto':
+      return '自动';
+    case 'normal':
+      return '普通';
+    case 'cross-repo':
+      return '跨仓库';
+    default:
+      return mode;
+  }
+}
+
+export function formatPermissionModeLabel(mode: string): string {
+  switch (mode) {
+    case 'default':
+      return '权限：默认';
+    case 'classifier':
+      return '权限：智能判断';
+    case 'auto':
+      return '权限：自动允许';
+    default:
+      return `权限：${mode}`;
   }
 }
 

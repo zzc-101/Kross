@@ -211,13 +211,13 @@ function formatToolStatus(
     case 'running':
       return { label: spinner, color: theme.statusBusy };
     case 'completed':
-      return null;
+      return { label: symbols.toolOk, color: theme.statusReady };
     case 'failed':
-      return { label: `${symbols.toolFail} failed`, color: theme.statusError };
+      return { label: `${symbols.toolFail} 失败`, color: theme.statusError };
     case 'denied':
-      return { label: `${symbols.toolFail} denied`, color: theme.statusError };
+      return { label: `${symbols.toolFail} 已拒绝`, color: theme.statusError };
     case 'awaiting':
-      return { label: `${symbols.toolWait} await`, color: theme.statusWarn };
+      return { label: `${symbols.toolWait} 等待确认`, color: theme.statusWarn };
     default:
       return { label: status, color: theme.chip };
   }

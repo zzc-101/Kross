@@ -3,15 +3,25 @@ import { Box, Text, useStdout } from 'ink';
 
 import type { PendingToolApproval } from '@kross/core';
 
+import {
+  formatApprovalReason,
+  formatApprovalPresentation,
+  type ApprovalSelection
+} from './approvalPresentation';
+import { displayWidth } from './markdownParse';
 import { riskTone, symbols, theme } from './theme';
 import { usePulse } from './usePulse';
 
+export { defaultApprovalSelection } from './approvalPresentation';
+
 export function ApprovalPanel({
   approval,
-  selection
+  selection,
+  width: availableWidth
 }: {
   approval: PendingToolApproval;
-  selection: 'approve' | 'reject';
+  selection: ApprovalSelection;
+  width?: number;
 }) {
   const highlight = usePulse(
     [symbols.approvePointer, symbols.approvePointerSoft],
@@ -19,10 +29,13 @@ export function ApprovalPanel({
     true
   );
   const { stdout } = useStdout();
-  const width = Math.max(30, Math.min((stdout?.columns ?? 48) - 4, 72));
+  const width = resolveApprovalPanelWidth(
+    availableWidth ?? (stdout?.columns ?? 48) - 4
+  );
   const innerWidth = width - 4; // border + space + content + space + border
   const hRule = symbols.boxHorizontal.repeat(width - 2);
   const riskColor = riskTone(approval.risk);
+  const presentation = formatApprovalPresentation(approval.risk);
   const previewLines = splitPreviewLines(approval.inputPreview ?? '', innerWidth - 6);
 
   /** 带左右边框的内容行 */
@@ -46,30 +59,36 @@ export function ApprovalPanel({
 
       <Row>
         <Text color={theme.statusWarn} bold>
-          需要确认工具调用
+          {presentation.title}
         </Text>
       </Row>
 
       <Row>
-        <Text dimColor>tool  </Text>
+        <Text dimColor>工具  </Text>
         <Text bold>{approval.toolName}</Text>
-        <Text dimColor>  ·  risk </Text>
+        <Text dimColor>  ·  风险  </Text>
         <Text color={riskColor} bold>
-          {approval.risk}
+          {presentation.riskLabel}
         </Text>
       </Row>
 
       {previewLines.map((line, index) => (
         <Row key={`preview-${index}`}>
-          {index === 0 ? <Text dimColor>input </Text> : <Text dimColor>      </Text>}
+          {index === 0 ? (
+            <Text dimColor>{presentation.inputLabel}  </Text>
+          ) : (
+            <Text dimColor>      </Text>
+          )}
           <PreviewLine text={line} />
         </Row>
       ))}
 
       {approval.reason ? (
         <Row>
-          <Text dimColor>why   </Text>
-          <Text>{truncate(approval.reason, innerWidth - 6)}</Text>
+          <Text dimColor>说明  </Text>
+          <Text>
+            {truncate(formatApprovalReason(approval.reason), innerWidth - 6)}
+          </Text>
         </Row>
       ) : null}
 
@@ -80,7 +99,7 @@ export function ApprovalPanel({
           dimColor={selection !== 'approve'}
         >
           {selection === 'approve' ? `${highlight} ` : '  '}
-          Approve
+          允许一次
         </Text>
         <Text>    </Text>
         <Text
@@ -89,7 +108,7 @@ export function ApprovalPanel({
           dimColor={selection !== 'reject'}
         >
           {selection === 'reject' ? `${highlight} ` : '  '}
-          Reject
+          拒绝
         </Text>
       </Row>
 
@@ -98,9 +117,21 @@ export function ApprovalPanel({
         {hRule}
         {symbols.boxBottomRight}
       </Text>
-      <Text dimColor>{' ←/-> 切换 · Enter 确认 · a/r 快捷键'}</Text>
+      <Text dimColor>{' ←/→ 切换 · Enter 确认 · a/r 快捷键'}</Text>
     </Box>
   );
+}
+
+export function resolveApprovalPanelWidth(availableWidth: number): number {
+  return Math.max(30, Math.min(Math.floor(availableWidth), 72));
+}
+
+export function resolveApprovalPanelHeight(
+  approval: Pick<PendingToolApproval, 'inputPreview' | 'reason'>
+): number {
+  const previewRows = Math.min(4, (approval.inputPreview || '').split('\n').length);
+  // 上下留白 2 + 框内固定行 5 + 预览 + 可选说明 + 框外提示 1
+  return 8 + previewRows + (approval.reason ? 1 : 0);
 }
 
 function PreviewLine({ text }: { text: string }) {
@@ -126,8 +157,19 @@ function splitPreviewLines(preview: string, maxWidth: number): string[] {
 }
 
 function truncate(text: string, max: number): string {
-  if (text.length <= max) {
+  if (displayWidth(text) <= max) {
     return text;
   }
-  return `${text.slice(0, Math.max(0, max - 1))}…`;
+  const target = Math.max(0, max - 1);
+  let output = '';
+  let used = 0;
+  for (const char of text) {
+    const charWidth = displayWidth(char);
+    if (used + charWidth > target) {
+      break;
+    }
+    output += char;
+    used += charWidth;
+  }
+  return `${output}…`;
 }
