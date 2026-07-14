@@ -7,7 +7,10 @@
     "agent": "./src/main.tsx"
   },
   "dependencies": {
-    "@kross/core": "file:../core",
-    "marked": "^15.0.12"
+    "@kross/core": "0.1.0",
+    "ink": "^5.0.1",
+    "ink-text-input": "^6.0.0",
+    "marked": "^15.0.12",
+    "react": "^18.3.1"
   }
 }

@@ -44,7 +44,7 @@ export interface StdioJsonRpcClientOptions {
 export class StdioJsonRpcClient extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | undefined;
   private nextId = 1;
-  private buffer = Buffer.alloc(0);
+  private buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
   private readonly pending = new Map<
     number | string,
     {
@@ -229,8 +229,8 @@ export class StdioJsonRpcClient extends EventEmitter {
 
 /** Exported for unit tests. */
 export function tryReadFramedMessage(
-  buffer: Buffer
-): { message: unknown; rest: Buffer } | undefined {
+  buffer: Buffer<ArrayBufferLike>
+): { message: unknown; rest: Buffer<ArrayBufferLike> } | undefined {
   const headerEnd = indexOfHeaderEnd(buffer);
   if (headerEnd < 0) {
     return undefined;

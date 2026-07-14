@@ -158,7 +158,8 @@ export function formatTodoHeaderLines(
     ? ordered.slice(0, maxItems)
     : ordered;
   const hidden = ordered.length - visible.length;
-  const lines = visible.map((item) => {
+  const lines: Array<{ key: string; text: string; color?: string; dim?: boolean }> =
+    visible.map((item) => {
     const mark = TODO_STATUS_MARK[item.status];
     const raw = `${mark} ${item.content}`;
     return {
@@ -167,7 +168,7 @@ export function formatTodoHeaderLines(
       color: todoItemTone(item.status),
       dim: item.status === 'pending' || item.status === 'cancelled'
     };
-  });
+    });
   if (hidden > 0) {
     lines.push({
       key: '__more__',

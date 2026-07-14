@@ -8,7 +8,6 @@ import {
 import type {
   LlmClient,
   LlmMessage,
-  LlmResponse,
   LlmToolCall,
   LlmToolDefinition
 } from '../llm/types';
@@ -23,34 +22,32 @@ import type {
   AgentRunStreamEvent,
   ResolveToolApprovalInput
 } from './agentRuntimeTypes';
-
-export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
+import {
+  createMissingLlmAfterApprovalResult,
+  DEFAULT_MAX_TOOL_ITERATIONS,
+  formatMaxIterationsNotice,
+  runStreamingToolLoop,
+  type StreamingToolLoopDeps,
+  type StreamingToolLoopParams,
+  type ToolBatchOutcome
+} from './streamingToolLoop';
 
 const SOFT_LAND_FALLBACK =
   '已达到工具调用轮次上限。请查看上文工具结果；如需继续，请再发一条指令推进剩余工作。';
 
+export {
+  DEFAULT_MAX_TOOL_ITERATIONS,
+  formatMaxIterationsNotice
+} from './streamingToolLoop';
+
 export const PLANNER_SYSTEM_PROMPT =
   '你是本地 agent 的规划器。请基于模式和用户目标给出简短、可执行的计划。需要工具时，只能基于可用工具清单提出调用意图，不要编造工具。';
-
-export type PlannerOutcome =
-  | { kind: 'response'; response: LlmResponse }
-  | { kind: 'approval'; result: AgentResult }
-  | { kind: 'max-iterations'; message: string }
-  | { kind: 'failure'; message: string }
-  | undefined;
-
-type ToolLoopOutcome =
-  | { kind: 'response'; response: LlmResponse }
-  | { kind: 'approval'; result: AgentResult }
-  | { kind: 'max-iterations'; message: string };
-
-export type ToolBatchOutcome =
-  | { kind: 'completed'; toolMessages: LlmMessage[] }
-  | { kind: 'approval'; result: AgentResult };
 
 interface PendingToolSession {
   runId: string;
   mode: Exclude<AgentMode, 'auto'>;
+  /** 挂起时所属 run 的用户原始输入，连环审批沿用同一值 */
+  originalUserInput: string;
   call: LlmToolCall;
   remainingCalls: LlmToolCall[];
   completedToolMessages: LlmMessage[];
@@ -82,6 +79,41 @@ export class RuntimeToolLoop {
 
   setLlmClient(client: LlmClient | undefined): void {
     this.options.llmClient = client;
+  }
+
+  /**
+   * 取消所有内存中悬挂的工具审批会话（进程退出等场景）。
+   * 为每个 run 写入 run.completed(cancelled) 并将 (原始用户输入, 取消说明) 追加进对话历史。
+   */
+  async cancelPendingApprovals(reason?: string): Promise<string[]> {
+    const reasonText = reason ?? 'pending tool approval cancelled';
+    const cancelledRunIds: string[] = [];
+
+    for (const [runId, session] of this.pendingToolSessions) {
+      this.pendingToolSessions.delete(runId);
+      const summary = `工具调用等待审批时运行已取消：${reasonText}`;
+      const cancelled = await this.options.attachChangedFiles(
+        agentResultSchema.parse({
+          runId,
+          mode: session.mode,
+          status: 'cancelled',
+          summary,
+          report: {
+            changedFiles: [],
+            evidence: ['运行因审批未决被取消'],
+            risks: []
+          }
+        })
+      );
+      await this.options.record(runId, 'run.completed', {
+        ...cancelled,
+        reason: reasonText
+      });
+      this.options.appendConversation(session.originalUserInput, cancelled.summary);
+      cancelledRunIds.push(runId);
+    }
+
+    return cancelledRunIds;
   }
 
   async resolveToolApproval(
@@ -119,6 +151,7 @@ export class RuntimeToolLoop {
     const batch = await this.executeToolBatch({
       runId: session.runId,
       mode: session.mode,
+      originalUserInput: session.originalUserInput,
       calls: session.remainingCalls,
       completedToolMessages: [...session.completedToolMessages, toolMessage],
       messages: session.messages,
@@ -134,289 +167,102 @@ export class RuntimeToolLoop {
       return;
     }
 
-    let messages: LlmMessage[] = [...session.messages, ...batch.toolMessages];
-    const maxIterations =
-      this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
-    // First LLM after tools is the follow-up for this iteration; then match runStreaming.
-    let iteration = session.iteration;
-    let fullText = '';
-    let fullThinking = '';
+    const messages: LlmMessage[] = [...session.messages, ...batch.toolMessages];
 
     if (!this.options.llmClient) {
       const failed = await this.options.attachChangedFiles(
-        agentResultSchema.parse({
-          runId: session.runId,
-          mode: session.mode,
-          status: 'failed',
-          summary: '工具审批后无法继续：未配置 LLM',
-          report: {
-            changedFiles: [],
-            evidence: ['tool approval resolved without llmClient'],
-            risks: ['请配置模型后重试']
-          }
-        })
+        createMissingLlmAfterApprovalResult(session.runId, session.mode)
       );
       await this.options.record(session.runId, 'run.completed', { ...failed });
+      this.options.appendConversation(session.originalUserInput, failed.summary);
       yield { type: 'result', result: failed };
       return;
     }
 
-    try {
-      while (true) {
-        let turnText = '';
-        let turnThinking = '';
-        const toolCalls: LlmToolCall[] = [];
-
-        yield { type: 'turn-start', iteration };
-
-        for await (const chunk of this.options.llmClient.stream({
-          messages,
-          tools: toLlmTools(session.tools),
-          temperature: 0.2,
-          metadata: {
-            purpose: 'planner-tool-followup',
-            iteration,
-            approvalResolved: input.approved
-          }
-        })) {
-          if (chunk.type === 'thinking-delta') {
-            if (turnThinking.length === 0 && fullThinking.length > 0) {
-              fullThinking += '\n\n';
-            }
-            turnThinking += chunk.text;
-            fullThinking += chunk.text;
-            yield { type: 'thinking-delta', text: chunk.text };
-          } else if (chunk.type === 'text-delta') {
-            if (turnText.length === 0 && fullText.length > 0) {
-              fullText += '\n\n';
-            }
-            turnText += chunk.text;
-            fullText += chunk.text;
-            yield { type: 'text-delta', text: chunk.text };
-          } else if (chunk.type === 'tool-call') {
-            toolCalls.push(chunk.call);
-          }
-        }
-
-        await this.options.record(session.runId, 'llm.tool_followup.completed', {
-          provider: this.options.llmClient.provider,
-          model: 'stream',
-          textPreview: turnText.slice(0, 240),
-          thinkingPreview: turnThinking.slice(0, 240) || undefined,
-          toolCallCount: toolCalls.length,
-          iteration,
-          approvalResolved: input.approved
-        });
-
-        if (toolCalls.length > 0 && iteration > maxIterations) {
-          await this.options.record(session.runId, 'llm.tool_loop.max_iterations', {
-            maxIterations,
-            iteration,
-            pendingToolCallCount: toolCalls.length,
-            calls: toolCalls.map((call) => ({ id: call.id, name: call.name })),
-            softLand: true
-          });
-
-          yield { type: 'turn-start', iteration };
-          let softText = '';
-          for await (const chunk of this.streamSoftLand({
-            runId: session.runId,
-            messages,
-            maxIterations,
-            iteration
-          })) {
-            if (chunk.type === 'text-delta') {
-              softText += chunk.text;
-              fullText =
-                fullText.length > 0
-                  ? `${fullText}\n\n${chunk.text}`
-                  : chunk.text;
-              yield chunk;
-            }
-          }
-
-          const summary =
-            softText.trim() ||
-            fullText.trim() ||
-            formatMaxIterationsNotice(maxIterations);
+    yield* runStreamingToolLoop(this.createStreamingDeps(), {
+      runId: session.runId,
+      mode: session.mode,
+      originalUserInput: session.originalUserInput,
+      messages,
+      tools: session.tools,
+      startIteration: session.iteration,
+      firstStreamPurpose: 'planner-tool-followup',
+      streamMetadata: { approvalResolved: input.approved },
+      handlers: {
+        onSuccess: async ({ fullText, fullThinking }) => {
+          const result = await this.options.attachChangedFiles(
+            agentResultSchema.parse({
+              runId: session.runId,
+              mode: session.mode,
+              status: 'completed',
+              summary: fullText,
+              thinking: fullThinking || undefined,
+              report: {
+                changedFiles: [],
+                evidence: [],
+                risks: []
+              }
+            })
+          );
+          await this.options.record(session.runId, 'run.completed', { ...result });
+          this.options.appendConversation(
+            session.originalUserInput,
+            result.summary
+          );
+          return result;
+        },
+        onSoftLand: async ({ summary }) => {
           const landed = await this.createMaxToolIterationsResult(
             session.runId,
             session.mode,
             summary
           );
-          await this.options.record(session.runId, 'run.completed', {
-            ...landed
-          });
-          this.options.appendConversation('[tool approval]', landed.summary);
-          yield { type: 'result', result: landed };
-          return;
-        }
-
-        if (toolCalls.length === 0) {
-          break;
-        }
-
-        yield {
-          type: 'tools-start',
-          iteration,
-          count: toolCalls.length
-        };
-
-        await this.options.record(session.runId, 'llm.tool_calls.received', {
-          count: toolCalls.length,
-          iteration,
-          calls: toolCalls.map((call) => ({ id: call.id, name: call.name }))
-        });
-
-        const assistantMessage: LlmMessage = {
-          role: 'assistant',
-          content: turnText,
-          toolCalls
-        };
-        const batchMessages: LlmMessage[] = [...messages, assistantMessage];
-        const nextBatch = await this.executeToolBatch({
-          runId: session.runId,
-          mode: session.mode,
-          calls: toolCalls,
-          completedToolMessages: [],
-          messages: batchMessages,
-          tools: session.tools,
-          iteration
-        });
-        if (nextBatch.kind === 'approval') {
-          const approval = await this.options.attachChangedFiles(
-            nextBatch.result
+          await this.options.record(session.runId, 'run.completed', { ...landed });
+          this.options.appendConversation(
+            session.originalUserInput,
+            landed.summary
           );
-          await this.options.record(session.runId, 'run.awaiting_approval', {
-            pendingApproval: approval.pendingApproval
-          });
-          yield { type: 'result', result: approval };
-          return;
+          return landed;
+        },
+        onFailure: async (message) => {
+          const failed = await this.options.attachChangedFiles(
+            agentResultSchema.parse({
+              runId: session.runId,
+              mode: session.mode,
+              status: 'failed',
+              summary: `工具审批后续请求失败：${message}`,
+              report: {
+                changedFiles: [],
+                evidence: [`LLM 请求失败: ${message}`],
+                risks: ['请检查模型配置或网络连通性']
+              }
+            })
+          );
+          await this.options.record(session.runId, 'run.completed', { ...failed });
+          this.options.appendConversation(
+            session.originalUserInput,
+            failed.summary
+          );
+          return failed;
         }
-
-        messages = [...batchMessages, ...nextBatch.toolMessages];
-        iteration += 1;
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const failed = await this.options.attachChangedFiles(
-        agentResultSchema.parse({
-          runId: session.runId,
-          mode: session.mode,
-          status: 'failed',
-          summary: `工具审批后续请求失败：${message}`,
-          report: {
-            changedFiles: [],
-            evidence: [`LLM 请求失败: ${message}`],
-            risks: ['请检查模型配置或网络连通性']
-          }
-        })
-      );
-      await this.options.record(session.runId, 'run.completed', { ...failed });
-      yield { type: 'result', result: failed };
-      return;
-    }
-
-    const result = await this.options.attachChangedFiles(
-      agentResultSchema.parse({
-        runId: session.runId,
-        mode: session.mode,
-        status: 'completed',
-        summary: fullText,
-        thinking: fullThinking || undefined,
-        report: {
-          changedFiles: [],
-          evidence: ['工具审批已处理，planner LLM 已返回最终回复'],
-          risks: []
-        }
-      })
-    );
-
-    await this.options.record(session.runId, 'run.completed', { ...result });
-    this.options.appendConversation('[tool approval]', result.summary);
-    yield { type: 'result', result };
+    });
   }
 
-  async createPlannerSuggestion(
-    runId: string,
-    goal: string,
-    mode: Exclude<AgentMode, 'auto'>
-  ): Promise<PlannerOutcome> {
+  /** 供 AgentRuntime 委托的共享流式工具循环 */
+  runStreamingToolLoop(
+    params: StreamingToolLoopParams
+  ): AsyncIterable<AgentRunStreamEvent> {
     if (!this.options.llmClient) {
-      return undefined;
+      throw new Error('runStreamingToolLoop requires llmClient');
     }
-
-    try {
-      const availableTools = this.options.toolGateway?.listTools({ mode }) ?? [];
-      this.options.syncTodoContext?.();
-      const context = this.options.contextManager.build({
-        systemPrompt: PLANNER_SYSTEM_PROMPT,
-        currentUserInput: goal,
-        mode,
-        tools: availableTools
-      });
-
-      await this.options.record(runId, 'context.built', {
-        includedSources: context.includedSources,
-        droppedSources: context.droppedSources,
-        estimatedChars: context.estimatedChars,
-        report: context.report
-      });
-      const maintenance = this.options.contextManager.getLastMaintenance();
-      if (
-        maintenance &&
-        (maintenance.compacted ||
-          maintenance.droppedMessageCount > 0 ||
-          (maintenance.clearedToolResults ?? 0) > 0)
-      ) {
-        await this.options.record(runId, 'context.compacted', {
-          ...maintenance
-        });
-      }
-
-      const response = await this.options.llmClient.complete({
-        messages: context.messages,
-        tools: toLlmTools(availableTools),
-        temperature: 0.2,
-        metadata: {
-          purpose: 'planner',
-          includedSources: context.includedSources,
-          droppedSources: context.droppedSources,
-          contextReport: context.report
-        }
-      });
-
-      await this.options.record(runId, 'llm.planner.completed', {
-        provider: response.provider,
-        model: response.model,
-        textPreview: response.text.slice(0, 240),
-        thinkingPreview: response.thinking?.slice(0, 240),
-        usage: response.usage,
-        toolCallCount: response.toolCalls?.length ?? 0
-      });
-
-      if (response.toolCalls?.length && this.options.toolGateway) {
-        return this.runToolLoop({
-          runId,
-          mode,
-          response,
-          messages: context.messages,
-          tools: availableTools,
-          iteration: 1
-        });
-      }
-
-      return { kind: 'response', response };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await this.options.record(runId, 'llm.planner.failed', { message });
-      return { kind: 'failure', message };
-    }
+    return runStreamingToolLoop(this.createStreamingDeps(), params);
   }
 
   async executeToolBatch(input: {
     runId: string;
     mode: Exclude<AgentMode, 'auto'>;
+    originalUserInput: string;
     calls: LlmToolCall[];
     completedToolMessages: LlmMessage[];
     messages: LlmMessage[];
@@ -464,6 +310,7 @@ export class RuntimeToolLoop {
           const session: PendingToolSession = {
             runId: input.runId,
             mode: input.mode,
+            originalUserInput: input.originalUserInput,
             call,
             remainingCalls: queue,
             completedToolMessages: toolMessages,
@@ -565,155 +412,21 @@ export class RuntimeToolLoop {
     );
   }
 
-  private async runToolLoop(input: {
-    runId: string;
-    mode: Exclude<AgentMode, 'auto'>;
-    response: LlmResponse;
-    messages: LlmMessage[];
-    tools: ToolMetadata[];
-    iteration: number;
-  }): Promise<ToolLoopOutcome> {
-    const maxIterations =
-      this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
-    let response = input.response;
-    let messages = input.messages;
-    let iteration = input.iteration;
-
-    while (response.toolCalls?.length && iteration <= maxIterations) {
-      await this.options.record(input.runId, 'llm.tool_calls.received', {
-        count: response.toolCalls.length,
-        iteration,
-        calls: response.toolCalls.map((call) => ({
-          id: call.id,
-          name: call.name
-        }))
-      });
-
-      const assistantMessage: LlmMessage = {
-        role: 'assistant',
-        content: response.text,
-        toolCalls: response.toolCalls
-      };
-      const batchMessages: LlmMessage[] = [...messages, assistantMessage];
-      const batch = await this.executeToolBatch({
-        runId: input.runId,
-        mode: input.mode,
-        calls: response.toolCalls,
-        completedToolMessages: [],
-        messages: batchMessages,
-        tools: input.tools,
-        iteration
-      });
-      if (batch.kind === 'approval') {
-        return batch;
-      }
-
-      messages = [...batchMessages, ...batch.toolMessages];
-      response = await this.completeToolFollowup({
-        runId: input.runId,
-        messages,
-        tools: input.tools,
-        iteration
-      });
-      iteration += 1;
-    }
-
-    if (response.toolCalls?.length) {
-      await this.options.record(
-        input.runId,
-        'llm.tool_loop.max_iterations',
-        {
-          maxIterations,
-          iteration,
-          pendingToolCallCount: response.toolCalls.length,
-          calls: response.toolCalls.map((call) => ({
-            id: call.id,
-            name: call.name
-          })),
-          softLand: true
-        }
-      );
-      const soft = await this.completeSoftLand({
-        runId: input.runId,
-        messages,
-        maxIterations,
-        iteration
-      });
-      return { kind: 'response', response: soft };
-    }
-
-    return { kind: 'response', response };
-  }
-
-  private async completeSoftLand(input: {
-    runId: string;
-    messages: LlmMessage[];
-    maxIterations: number;
-    iteration: number;
-  }): Promise<LlmResponse> {
+  private createStreamingDeps(): StreamingToolLoopDeps {
     if (!this.options.llmClient) {
-      return {
-        provider: 'openai',
-        model: 'none',
-        text: formatMaxIterationsNotice(input.maxIterations),
-        raw: {}
-      };
+      throw new Error('llmClient is required for streaming tool loop');
     }
-
-    const response = await this.options.llmClient.complete({
-      messages: [
-        ...input.messages,
-        softLandUserMessage(input.maxIterations, input.iteration)
-      ],
-      temperature: 0.2,
-      metadata: {
-        purpose: 'max-iterations-soft-land',
-        maxIterations: input.maxIterations,
-        iteration: input.iteration
-      }
-    });
-
-    await this.options.record(input.runId, 'llm.soft_land.completed', {
-      maxIterations: input.maxIterations,
-      iteration: input.iteration,
-      textPreview: response.text.slice(0, 240),
-      droppedToolCalls: true
-    });
-
-    const text =
-      response.text.trim() || formatMaxIterationsNotice(input.maxIterations);
-    return { ...response, text, toolCalls: undefined };
-  }
-
-  private async completeToolFollowup(input: {
-    runId: string;
-    messages: LlmMessage[];
-    tools: ToolMetadata[];
-    iteration: number;
-    metadata?: Record<string, unknown>;
-  }): Promise<LlmResponse> {
-    const response = await this.options.llmClient!.complete({
-      messages: input.messages,
-      tools: toLlmTools(input.tools),
-      temperature: 0.2,
-      metadata: {
-        purpose: 'planner-tool-followup',
-        iteration: input.iteration,
-        ...input.metadata
-      }
-    });
-
-    await this.options.record(input.runId, 'llm.tool_followup.completed', {
-      provider: response.provider,
-      model: response.model,
-      textPreview: response.text.slice(0, 240),
-      thinkingPreview: response.thinking?.slice(0, 240),
-      usage: response.usage,
-      toolCallCount: response.toolCalls?.length ?? 0,
-      iteration: input.iteration
-    });
-
-    return response;
+    return {
+      llmClient: this.options.llmClient,
+      toolGateway: this.options.toolGateway,
+      maxToolIterations: this.options.maxToolIterations,
+      record: (runId, type, payload) =>
+        this.options.record(runId, type, payload),
+      executeToolBatch: (input) => this.executeToolBatch(input),
+      streamSoftLand: (input) => this.streamSoftLand(input),
+      attachChangedFiles: (result) => this.options.attachChangedFiles(result),
+      toLlmTools
+    };
   }
 
   private async executeApprovedToolCall(
@@ -835,8 +548,4 @@ function softLandUserMessage(
       '不要再发起 tool_calls。'
     ].join('\n')
   };
-}
-
-export function formatMaxIterationsNotice(maxIterations: number): string {
-  return `${SOFT_LAND_FALLBACK}（上限 ${maxIterations} 轮）`;
 }

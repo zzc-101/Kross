@@ -22,9 +22,7 @@ import {
   type ThinkingEffort
 } from '../llm/thinkingEffort';
 import type {
-  LlmClient,
-  LlmMessage,
-  LlmToolCall
+  LlmClient
 } from '../llm/types';
 import { detectMode } from '../modes/modeDetector';
 import {
@@ -53,10 +51,8 @@ import type {
 import { RuntimeInspection } from './runtimeInspection';
 import {
   DEFAULT_MAX_TOOL_ITERATIONS,
-  formatMaxIterationsNotice,
   PLANNER_SYSTEM_PROMPT,
-  RuntimeToolLoop,
-  toLlmTools
+  RuntimeToolLoop
 } from './toolLoop';
 
 export { DEFAULT_MAX_TOOL_ITERATIONS } from './toolLoop';
@@ -301,78 +297,262 @@ export class AgentRuntime extends EventEmitter {
   }
 
   async run(input: AgentRunInput): Promise<AgentResult> {
+    let result: AgentResult | undefined;
+    for await (const event of this.executeRun(input)) {
+      if (event.type === 'result') {
+        result = event.result;
+      }
+    }
+    if (!result) {
+      throw new Error('Run finished without a result event');
+    }
+    return result;
+  }
+
+  async *runStreaming(input: AgentRunInput): AsyncIterable<AgentRunStreamEvent> {
+    yield* this.executeRun(input);
+  }
+
+  /**
+   * run / runStreaming 共用编排：模式检测、context 构建、工具循环或缺模型/跨仓分支。
+   * normal + llm 时 yield 完整流式事件；其余模式只 yield 最终 result。
+   */
+  private async *executeRun(
+    input: AgentRunInput
+  ): AsyncIterable<AgentRunStreamEvent> {
+    const detection = detectMode({
+      requestedMode: input.requestedMode,
+      input: input.input
+    });
     const runId = this.createRunId();
 
     await this.record(runId, 'run.started', { input: input.input });
     await this.record(runId, 'planner.started', {
       requestedMode: input.requestedMode
     });
-
-    const detection = detectMode({
-      requestedMode: input.requestedMode,
-      input: input.input
-    });
-
     await this.record(runId, 'mode.detected', { ...detection });
 
-    const plannerOutcome = await this.toolLoop.createPlannerSuggestion(
-      runId,
-      input.input,
-      detection.mode
-    );
-    if (plannerOutcome?.kind === 'approval') {
-      const approval = await this.attachChangedFiles(plannerOutcome.result);
-      await this.record(runId, 'run.awaiting_approval', {
-        pendingApproval: approval.pendingApproval
-      });
-      return approval;
+    if (detection.mode === 'normal' && this.options.llmClient) {
+      yield* this.runNormalModeWithToolLoop(input, detection.mode, runId);
+      return;
     }
-    if (plannerOutcome?.kind === 'max-iterations') {
-      const failed = await this.toolLoop.createMaxToolIterationsResult(
-        runId,
+
+    if (detection.mode === 'cross-repo' && this.options.llmClient) {
+      const result = await this.runCrossRepoWithToolLoop(
+        input,
         detection.mode,
-        plannerOutcome.message
+        runId,
+        detection.reason
       );
-      await this.record(runId, 'review.completed', {
-        status: failed.status,
-        summary: failed.summary
-      });
-      await this.record(runId, 'run.completed', { ...failed });
-      this.appendConversation(input.input, failed.summary);
-      return failed;
+      yield { type: 'result', result };
+      return;
     }
-    if (plannerOutcome?.kind === 'failure') {
-      const failed = await this.attachChangedFiles(
-        agentResultSchema.parse({
-          runId,
-          mode: detection.mode,
-          status: 'failed',
-          summary: `模型请求失败：${plannerOutcome.message}`,
-          report: {
-            changedFiles: [],
-            evidence: [`LLM 请求失败: ${plannerOutcome.message}`],
-            risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
-          }
-        })
-      );
-      await this.record(runId, 'review.completed', {
-        status: failed.status,
-        summary: failed.summary
-      });
-      await this.record(runId, 'run.completed', { ...failed });
-      return failed;
+
+    const result = await this.finishRunWithoutLlm(
+      input,
+      detection.mode,
+      runId,
+      detection.reason
+    );
+    yield { type: 'result', result };
+  }
+
+  private async *runNormalModeWithToolLoop(
+    input: AgentRunInput,
+    mode: Exclude<AgentMode, 'auto'>,
+    runId: string
+  ): AsyncIterable<AgentRunStreamEvent> {
+    const { context, tools } = this.buildPlannerContext(input.input, mode);
+    await this.recordPlannerContext(runId, context);
+
+    yield* this.toolLoop.runStreamingToolLoop({
+      runId,
+      mode,
+      originalUserInput: input.input,
+      messages: context.messages,
+      tools,
+      startIteration: 1,
+      firstStreamPurpose: 'planner',
+      firstIterationMetadata: {
+        includedSources: context.includedSources,
+        droppedSources: context.droppedSources,
+        contextReport: context.report
+      },
+      handlers: {
+        onSuccess: async ({ fullText }) => {
+          const result = await this.attachChangedFiles(
+            agentResultSchema.parse({
+              runId,
+              mode,
+              status: 'completed',
+              summary: fullText,
+              report: {
+                changedFiles: [],
+                evidence: [],
+                risks: []
+              }
+            })
+          );
+          await this.record(runId, 'run.completed', { ...result });
+          this.appendConversation(input.input, result.summary);
+          return result;
+        },
+        onSoftLand: async ({ summary }) => {
+          const landed = await this.attachChangedFiles(
+            agentResultSchema.parse({
+              runId,
+              mode,
+              status: 'completed',
+              summary,
+              report: {
+                changedFiles: [],
+                evidence: [
+                  `工具调用达到上限 ${this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS} 轮，已软着陆为总结`
+                ],
+                risks: ['部分计划可能未执行完，可继续对话推进']
+              }
+            })
+          );
+          await this.record(runId, 'run.completed', { ...landed });
+          this.appendConversation(input.input, landed.summary);
+          return landed;
+        },
+        onFailure: async (message) => {
+          const failed = await this.attachChangedFiles(
+            agentResultSchema.parse({
+              runId,
+              mode,
+              status: 'failed',
+              summary: `模型请求失败：${message}`,
+              report: {
+                changedFiles: [],
+                evidence: [`LLM 请求失败: ${message}`],
+                risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
+              }
+            })
+          );
+          await this.record(runId, 'run.completed', { ...failed });
+          return failed;
+        }
+      }
+    });
+  }
+
+  private async runCrossRepoWithToolLoop(
+    input: AgentRunInput,
+    mode: Exclude<AgentMode, 'auto'>,
+    runId: string,
+    crossRepoReason: string | undefined
+  ): Promise<AgentResult> {
+    const { context, tools } = this.buildPlannerContext(input.input, mode);
+    await this.recordPlannerContext(runId, context);
+
+    let loopResult: AgentResult | undefined;
+    // 软着陆用本地标志位判定，避免依赖 evidence 文案字符串匹配
+    let softLanded = false;
+    for await (const event of this.toolLoop.runStreamingToolLoop({
+      runId,
+      mode,
+      originalUserInput: input.input,
+      messages: context.messages,
+      tools,
+      startIteration: 1,
+      firstStreamPurpose: 'planner',
+      firstIterationMetadata: {
+        includedSources: context.includedSources,
+        droppedSources: context.droppedSources,
+        contextReport: context.report
+      },
+      handlers: {
+        onSuccess: async ({ fullText }) =>
+          this.attachChangedFiles(
+            agentResultSchema.parse({
+              runId,
+              mode,
+              status: 'completed',
+              summary: fullText,
+              report: {
+                changedFiles: [],
+                evidence: ['planner LLM 已返回计划建议'],
+                risks: []
+              }
+            })
+          ),
+        onSoftLand: async ({ summary }) => {
+          softLanded = true;
+          const landed = await this.toolLoop.createMaxToolIterationsResult(
+            runId,
+            mode,
+            summary
+          );
+          await this.record(runId, 'review.completed', {
+            status: landed.status,
+            summary: landed.summary
+          });
+          await this.record(runId, 'run.completed', { ...landed });
+          this.appendConversation(input.input, landed.summary);
+          return landed;
+        },
+        onFailure: async (message) => {
+          const failed = await this.attachChangedFiles(
+            agentResultSchema.parse({
+              runId,
+              mode,
+              status: 'failed',
+              summary: `模型请求失败：${message}`,
+              report: {
+                changedFiles: [],
+                evidence: [`LLM 请求失败: ${message}`],
+                risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
+              }
+            })
+          );
+          await this.record(runId, 'review.completed', {
+            status: failed.status,
+            summary: failed.summary
+          });
+          await this.record(runId, 'run.completed', { ...failed });
+          return failed;
+        }
+      }
+    })) {
+      if (event.type === 'result') {
+        loopResult = event.result;
+      }
     }
-    const plannerSuggestion =
-      plannerOutcome?.kind === 'response' ? plannerOutcome.response : undefined;
 
-    const plan = createPlan(input.input, detection.mode, plannerSuggestion?.text);
-    await this.record(runId, 'plan.created', plan);
+    if (!loopResult) {
+      throw new Error(`Cross-repo run finished without result: ${runId}`);
+    }
 
-    if (detection.mode === 'normal' && !plannerSuggestion) {
+    if (
+      loopResult.status === 'approval-required' ||
+      loopResult.status === 'failed' ||
+      softLanded
+    ) {
+      return loopResult;
+    }
+
+    return this.finalizeCrossRepoRun(
+      input,
+      mode,
+      runId,
+      loopResult.summary,
+      crossRepoReason
+    );
+  }
+
+  private async finishRunWithoutLlm(
+    input: AgentRunInput,
+    mode: Exclude<AgentMode, 'auto'>,
+    runId: string,
+    crossRepoReason: string | undefined
+  ): Promise<AgentResult> {
+    if (mode === 'normal') {
       const missingModel = await this.attachChangedFiles(
         agentResultSchema.parse({
           runId,
-          mode: detection.mode,
+          mode,
           status: 'failed',
           summary:
             '未配置模型，无法生成真实回复。请配置 AGENT_LLM_PROVIDER 以及对应的 OPENAI_* 或 ANTHROPIC_* 环境变量后重试。',
@@ -384,74 +564,75 @@ export class AgentRuntime extends EventEmitter {
         })
       );
 
-      await this.record(runId, 'review.completed', {
-        status: missingModel.status,
-        summary: missingModel.summary
-      });
       await this.record(runId, 'run.completed', { ...missingModel });
       return missingModel;
     }
 
-    if (detection.mode === 'cross-repo') {
-      await this.record(runId, 'approval.required', {
-        scope: 'cross-repo-plan',
-        reason: detection.reason
-      });
+    return this.finalizeCrossRepoRun(
+      input,
+      mode,
+      runId,
+      undefined,
+      crossRepoReason
+    );
+  }
 
-      if (input.approvals?.plan !== true) {
-        const cancelled = await this.attachChangedFiles(
-          agentResultSchema.parse({
-            runId,
-            mode: detection.mode,
-            status: 'cancelled',
-            summary: '跨仓库计划等待确认，当前运行已取消',
-            report: {
-              changedFiles: [],
-              evidence: [
-                ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
-                '已在执行前触发确认门'
-              ],
-              risks: []
-            }
-          })
-        );
-        await this.record(runId, 'run.completed', { ...cancelled });
-        this.appendConversation(input.input, cancelled.summary);
-        return cancelled;
-      }
+  private async finalizeCrossRepoRun(
+    input: AgentRunInput,
+    mode: Exclude<AgentMode, 'auto'>,
+    runId: string,
+    llmSuggestion: string | undefined,
+    crossRepoReason: string | undefined
+  ): Promise<AgentResult> {
+    const plan = createPlan(input.input, mode, llmSuggestion);
+    await this.record(runId, 'plan.created', plan);
 
-      await this.record(runId, 'impact_map.created', {
-        strategy: 'codegraph-placeholder',
-        repos: [],
-        note: '后续接入 codegraph adapter 后填充真实影响面'
-      });
+    await this.record(runId, 'approval.required', {
+      scope: 'cross-repo-plan',
+      reason: crossRepoReason
+    });
+
+    if (input.approvals?.plan !== true) {
+      const cancelled = await this.attachChangedFiles(
+        agentResultSchema.parse({
+          runId,
+          mode,
+          status: 'cancelled',
+          summary: '跨仓库计划等待确认，当前运行已取消',
+          report: {
+            changedFiles: [],
+            evidence: [
+              ...(llmSuggestion ? ['planner LLM 已返回计划建议'] : []),
+              '已在执行前触发确认门'
+            ],
+            risks: []
+          }
+        })
+      );
+      await this.record(runId, 'run.completed', { ...cancelled });
+      this.appendConversation(input.input, cancelled.summary);
+      return cancelled;
     }
+
+    await this.record(runId, 'impact_map.created', {
+      strategy: 'codegraph-placeholder',
+      repos: [],
+      note: '后续接入 codegraph adapter 后填充真实影响面'
+    });
 
     const result = await this.attachChangedFiles(
       agentResultSchema.parse({
         runId,
-        mode: detection.mode,
+        mode,
         status: 'completed',
-        summary:
-          detection.mode === 'cross-repo'
-            ? '跨仓库任务计划已创建，等待接入子代理执行'
-            : plannerSuggestion?.text ?? '未配置模型，无法生成真实回复。',
+        summary: '跨仓库任务计划已创建，等待接入子代理执行',
         report: {
           changedFiles: [],
-          evidence:
-            detection.mode === 'cross-repo'
-              ? [
-                  ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
-                  '已生成跨仓库影响面占位图'
-                ]
-              : [
-                  ...(plannerSuggestion ? ['planner LLM 已返回计划建议'] : []),
-                  '已记录普通任务 trace'
-                ],
-          risks:
-            detection.mode === 'cross-repo'
-              ? ['当前版本尚未接入真实 codegraph 和子代理执行']
-              : []
+          evidence: [
+            ...(llmSuggestion ? ['planner LLM 已返回计划建议'] : []),
+            '已生成跨仓库影响面占位图'
+          ],
+          risks: ['当前版本尚未接入真实 codegraph 和子代理执行']
         }
       })
     );
@@ -462,37 +643,29 @@ export class AgentRuntime extends EventEmitter {
     });
     await this.record(runId, 'run.completed', { ...result });
     this.appendConversation(input.input, result.summary);
-
     return result;
   }
 
-  async *runStreaming(input: AgentRunInput): AsyncIterable<AgentRunStreamEvent> {
-    const detection = detectMode({
-      requestedMode: input.requestedMode,
-      input: input.input
-    });
-    if (detection.mode !== 'normal' || !this.options.llmClient) {
-      yield { type: 'result', result: await this.run(input) };
-      return;
-    }
-
-    const runId = this.createRunId();
-
-    await this.record(runId, 'run.started', { input: input.input });
-    await this.record(runId, 'planner.started', {
-      requestedMode: input.requestedMode
-    });
-    await this.record(runId, 'mode.detected', { ...detection });
-
-    const tools = this.toolGateway?.listTools({ mode: detection.mode }) ?? [];
+  private buildPlannerContext(
+    userInput: string,
+    mode: Exclude<AgentMode, 'auto'>
+  ) {
+    const tools = this.toolGateway?.listTools({ mode }) ?? [];
     this.syncTodoContextSource();
     const context = this.contextManager.build({
       systemPrompt: PLANNER_SYSTEM_PROMPT,
-      currentUserInput: input.input,
-      mode: detection.mode,
+      currentUserInput: userInput,
+      mode,
       tools
     });
 
+    return { context, tools };
+  }
+
+  private async recordPlannerContext(
+    runId: string,
+    context: ReturnType<ContextManager['build']>
+  ): Promise<void> {
     await this.record(runId, 'context.built', {
       includedSources: context.includedSources,
       droppedSources: context.droppedSources,
@@ -500,220 +673,6 @@ export class AgentRuntime extends EventEmitter {
       report: context.report
     });
     await this.recordContextMaintenance(runId);
-
-    const maxIterations =
-      this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
-    let messages = context.messages;
-    let iteration = 1;
-    let fullText = '';
-    let fullThinking = '';
-
-    try {
-      while (true) {
-        let turnText = '';
-        let turnThinking = '';
-        const toolCalls: LlmToolCall[] = [];
-
-        yield { type: 'turn-start', iteration };
-
-        for await (const chunk of this.options.llmClient.stream({
-          messages,
-          tools: toLlmTools(tools),
-          temperature: 0.2,
-          metadata: {
-            purpose: iteration === 1 ? 'planner' : 'planner-tool-followup',
-            iteration,
-            includedSources: context.includedSources,
-            droppedSources: context.droppedSources,
-            contextReport: context.report
-          }
-        })) {
-          if (chunk.type === 'thinking-delta') {
-            if (turnThinking.length === 0 && fullThinking.length > 0) {
-              fullThinking += '\n\n';
-            }
-            turnThinking += chunk.text;
-            fullThinking += chunk.text;
-            yield { type: 'thinking-delta', text: chunk.text };
-          } else if (chunk.type === 'text-delta') {
-            if (turnText.length === 0 && fullText.length > 0) {
-              fullText += '\n\n';
-            }
-            turnText += chunk.text;
-            fullText += chunk.text;
-            yield { type: 'text-delta', text: chunk.text };
-          } else if (chunk.type === 'tool-call') {
-            toolCalls.push(chunk.call);
-          }
-        }
-
-        await this.record(
-          runId,
-          iteration === 1 ? 'llm.planner.completed' : 'llm.tool_followup.completed',
-          {
-            provider: this.options.llmClient.provider,
-            model: 'stream',
-            textPreview: turnText.slice(0, 240),
-            thinkingPreview: turnThinking.slice(0, 240) || undefined,
-            toolCallCount: toolCalls.length,
-            ...(iteration === 1 ? {} : { iteration })
-          }
-        );
-
-        if (toolCalls.length > 0 && iteration > maxIterations) {
-          // 触顶：不执行本轮 tool_calls，软着陆为文本总结（对齐 OpenCode steps 行为）
-          await this.record(runId, 'llm.tool_loop.max_iterations', {
-            maxIterations,
-            iteration,
-            pendingToolCallCount: toolCalls.length,
-            calls: toolCalls.map((call) => ({ id: call.id, name: call.name })),
-            softLand: true
-          });
-
-          yield { type: 'turn-start', iteration };
-          let softText = '';
-          for await (const chunk of this.toolLoop.streamSoftLand({
-            runId,
-            messages,
-            maxIterations,
-            iteration
-          })) {
-            if (chunk.type === 'text-delta') {
-              softText += chunk.text;
-              fullText = fullText.length > 0 ? `${fullText}\n\n${chunk.text}` : chunk.text;
-              yield chunk;
-            }
-          }
-
-          const summary =
-            softText.trim() ||
-            fullText.trim() ||
-            formatMaxIterationsNotice(maxIterations);
-          const landed = await this.attachChangedFiles(
-            agentResultSchema.parse({
-              runId,
-              mode: detection.mode,
-              status: 'completed',
-              summary,
-              report: {
-                changedFiles: [],
-                evidence: [
-                  `工具调用达到上限 ${maxIterations} 轮，已软着陆为总结`
-                ],
-                risks: ['部分计划可能未执行完，可继续对话推进']
-              }
-            })
-          );
-          await this.record(runId, 'review.completed', {
-            status: landed.status,
-            summary: landed.summary
-          });
-          await this.record(runId, 'run.completed', { ...landed });
-          this.appendConversation(input.input, landed.summary);
-          yield { type: 'result', result: landed };
-          return;
-        }
-
-        if (toolCalls.length === 0 || !this.toolGateway) {
-          break;
-        }
-
-        yield {
-          type: 'tools-start',
-          iteration,
-          count: toolCalls.length
-        };
-
-        await this.record(runId, 'llm.tool_calls.received', {
-          count: toolCalls.length,
-          iteration,
-          calls: toolCalls.map((call) => ({ id: call.id, name: call.name }))
-        });
-
-        const assistantMessage: LlmMessage = {
-          role: 'assistant',
-          content: turnText,
-          toolCalls
-        };
-        const batchMessages: LlmMessage[] = [...messages, assistantMessage];
-        const batch = await this.toolLoop.executeToolBatch({
-          runId,
-          mode: detection.mode,
-          calls: toolCalls,
-          completedToolMessages: [],
-          messages: batchMessages,
-          tools,
-          iteration
-        });
-        if (batch.kind === 'approval') {
-          const approval = await this.attachChangedFiles(batch.result);
-          await this.record(runId, 'run.awaiting_approval', {
-            pendingApproval: approval.pendingApproval
-          });
-          yield { type: 'result', result: approval };
-          return;
-        }
-
-        messages = [...batchMessages, ...batch.toolMessages];
-        iteration += 1;
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await this.record(runId, 'llm.planner.failed', { message });
-      const failed = await this.attachChangedFiles(
-        agentResultSchema.parse({
-          runId,
-          mode: detection.mode,
-          status: 'failed',
-          summary: `模型请求失败：${message}`,
-          report: {
-            changedFiles: [],
-            evidence: [`LLM 请求失败: ${message}`],
-            risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
-          }
-        })
-      );
-      await this.record(runId, 'review.completed', {
-        status: failed.status,
-        summary: failed.summary
-      });
-      await this.record(runId, 'run.completed', { ...failed });
-      yield { type: 'result', result: failed };
-      return;
-    }
-
-    const plan = createPlan(input.input, detection.mode, fullText);
-    await this.record(runId, 'plan.created', {
-      ...plan,
-      thinkingPreview: fullThinking.slice(0, 240) || undefined
-    });
-
-    const result = await this.attachChangedFiles(
-      agentResultSchema.parse({
-        runId,
-        mode: detection.mode,
-        status: 'completed',
-        summary: fullText,
-        report: {
-          changedFiles: [],
-          evidence: [
-            'planner LLM 已返回计划建议',
-            '已记录普通任务 trace',
-            ...(fullThinking.length > 0 ? ['模型返回了 thinking 过程'] : [])
-          ],
-          risks: []
-        }
-      })
-    );
-
-    await this.record(runId, 'review.completed', {
-      status: result.status,
-      summary: result.summary
-    });
-    await this.record(runId, 'run.completed', { ...result });
-    this.appendConversation(input.input, result.summary);
-
-    yield { type: 'result', result };
   }
 
   inspectContext(input: ContextInspectionInput): ContextInspection {
@@ -743,6 +702,13 @@ export class AgentRuntime extends EventEmitter {
 
   async resolveToolApproval(input: ResolveToolApprovalInput): Promise<AgentResult> {
     return this.toolLoop.resolveToolApproval(input);
+  }
+
+  /**
+   * 取消所有悬挂的工具审批（如进程退出）。返回被取消的 runId 列表。
+   */
+  async cancelPendingApprovals(reason?: string): Promise<string[]> {
+    return this.toolLoop.cancelPendingApprovals(reason);
   }
 
   /** Stream follow-up after tool approval (preferred by TUI). */
@@ -825,25 +791,17 @@ export class AgentRuntime extends EventEmitter {
 
 function createPlan(
   goal: string,
-  mode: Exclude<AgentMode, 'auto'>,
+  _mode: Exclude<AgentMode, 'auto'>,
   llmSuggestion?: string
 ) {
-  if (mode === 'cross-repo') {
-    return {
-      goal,
-      llmSuggestion,
-      steps: [
-        '读取 project registry',
-        '使用 codegraph 生成跨仓库影响面',
-        '拆分 repo 级子任务',
-        '等待用户确认后执行'
-      ]
-    };
-  }
-
   return {
     goal,
     llmSuggestion,
-    steps: ['理解目标', '探索当前 workspace', '执行修改或回答', '验收并记录 trace']
+    steps: [
+      '读取 project registry',
+      '使用 codegraph 生成跨仓库影响面',
+      '拆分 repo 级子任务',
+      '等待用户确认后执行'
+    ]
   };
 }

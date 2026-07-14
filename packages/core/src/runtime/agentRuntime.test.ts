@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { AgentRuntime } from './agentRuntime';
-import { InMemoryContextManager } from '../context/contextManager';
+import { InMemoryContextManager, type ContextManager } from '../context/contextManager';
+import type { LlmMessage } from '../llm/types';
 import type { TraceEvent } from '../domain';
 import type {
   LlmClient,
@@ -12,6 +13,38 @@ import type {
 import { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import { z } from 'zod';
+
+/** Adapt complete()-style fakes for run() which now drains the streaming tool loop. */
+async function* streamFromComplete(
+  response: LlmResponse
+): AsyncIterable<LlmStreamChunk> {
+  if (response.thinking) {
+    yield { type: 'thinking-delta', text: response.thinking };
+  }
+  if (response.text) {
+    yield { type: 'text-delta', text: response.text };
+  }
+  for (const call of response.toolCalls ?? []) {
+    yield { type: 'tool-call', call };
+  }
+  yield { type: 'done' };
+}
+
+function getStoredConversation(
+  contextManager: ContextManager
+): LlmMessage[] {
+  const snapshot = contextManager.build({
+    systemPrompt: '',
+    currentUserInput: '',
+    mode: 'normal'
+  });
+  return snapshot.messages.filter(
+    (message) =>
+      (message.role === 'user' || message.role === 'assistant') &&
+      typeof message.content === 'string' &&
+      message.content.length > 0
+  );
+}
 
 describe('AgentRuntime', () => {
   it('runs a normal task and records trace events', async () => {
@@ -30,8 +63,6 @@ describe('AgentRuntime', () => {
       'run.started',
       'planner.started',
       'mode.detected',
-      'plan.created',
-      'review.completed',
       'run.completed'
     ]);
   });
@@ -108,7 +139,7 @@ describe('AgentRuntime', () => {
     expect(llmClient.requests[0]?.messages[1]?.content).toContain(
       '帮我设计一下登录测试'
     );
-    expect(result.report.evidence).toContain('planner LLM 已返回计划建议');
+    expect(result.report.evidence).toEqual([]);
     expect(traceStore.events.map((event) => event.type)).toContain(
       'llm.planner.completed'
     );
@@ -787,6 +818,142 @@ describe('AgentRuntime', () => {
     });
   });
 
+  it('appends the original user input after tool approval instead of a pseudo message', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new WriteToolCallingLlmClient('写入完成');
+    const contextManager = new InMemoryContextManager();
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.write',
+      description: '写文件',
+      risk: 'write',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async ({ input }) => ({ content: `wrote ${input.path}` })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      contextManager,
+      toolGateway
+    });
+
+    const pending = await runtime.run({
+      input: '写 README',
+      requestedMode: 'auto'
+    });
+    expect(pending.status).toBe('approval-required');
+    expect(getStoredConversation(contextManager)).toHaveLength(0);
+
+    const resumed = await runtime.resolveToolApproval({
+      runId: pending.runId,
+      approved: true
+    });
+    expect(resumed.status).toBe('completed');
+
+    const history = getStoredConversation(contextManager);
+    expect(history).toEqual([
+      { role: 'user', content: '写 README' },
+      { role: 'assistant', content: '写入完成' }
+    ]);
+    expect(
+      history.some(
+        (message) =>
+          message.role === 'user' && message.content === '[tool approval]'
+      )
+    ).toBe(false);
+  });
+
+  it('carries the same original user input through chained tool approvals', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new DoubleWriteApprovalLlmClient();
+    const contextManager = new InMemoryContextManager();
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.write',
+      description: '写文件',
+      risk: 'write',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async ({ input }) => ({ content: `wrote ${input.path}` })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      contextManager,
+      toolGateway
+    });
+
+    const firstPending = await runtime.run({
+      input: '连续写两个文件',
+      requestedMode: 'auto'
+    });
+    expect(firstPending.status).toBe('approval-required');
+
+    const secondPending = await runtime.resolveToolApproval({
+      runId: firstPending.runId,
+      approved: true
+    });
+    expect(secondPending.status).toBe('approval-required');
+
+    const completed = await runtime.resolveToolApproval({
+      runId: secondPending.runId,
+      approved: true
+    });
+    expect(completed.status).toBe('completed');
+
+    const history = getStoredConversation(contextManager);
+    expect(history).toEqual([
+      { role: 'user', content: '连续写两个文件' },
+      { role: 'assistant', content: '两次写入完成' }
+    ]);
+  });
+
+  it('cancelPendingApprovals records cancelled runs and appends conversation', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new WriteToolCallingLlmClient();
+    const contextManager = new InMemoryContextManager();
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.write',
+      description: '写文件',
+      risk: 'write',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async () => ({ content: 'should not run' })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      contextManager,
+      toolGateway
+    });
+
+    const pending = await runtime.run({
+      input: '写 README',
+      requestedMode: 'auto'
+    });
+    expect(pending.status).toBe('approval-required');
+
+    const cancelledRunIds = await runtime.cancelPendingApprovals('process exit');
+    expect(cancelledRunIds).toEqual([pending.runId]);
+
+    const completed = traceStore.events.find(
+      (event) =>
+        event.runId === pending.runId && event.type === 'run.completed'
+    );
+    expect(completed?.payload).toMatchObject({
+      status: 'cancelled',
+      reason: 'process exit'
+    });
+    expect(String(completed?.payload.summary)).toContain('process exit');
+
+    expect(getStoredConversation(contextManager)).toEqual([
+      { role: 'user', content: '写 README' },
+      {
+        role: 'assistant',
+        content: expect.stringContaining('process exit')
+      }
+    ]);
+  });
+
   it('streams text deltas across tool-call iterations', async () => {
     const traceStore = new InMemoryTraceStore();
     const llmClient = new StreamingToolCallingLlmClient();
@@ -1109,8 +1276,17 @@ class FakeLlmClient implements LlmClient {
     return response;
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
-    yield { type: 'done' };
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    this.requests.push(request);
+    const response: LlmResponse = {
+      provider: this.provider,
+      model: 'fake-model',
+      text: this.text,
+      raw: { ok: true },
+      usage: { inputTokens: 10, outputTokens: 8, totalTokens: 18 }
+    };
+    this.lastUsage = response.usage;
+    yield* streamFromComplete(response);
   }
 }
 
@@ -1124,7 +1300,7 @@ class FailingLlmClient implements LlmClient {
   }
 
   async *stream(): AsyncIterable<LlmStreamChunk> {
-    yield { type: 'done' };
+    throw new Error(this.message);
   }
 }
 
@@ -1218,12 +1394,11 @@ class ToolCallingLlmClient implements LlmClient {
     };
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
-    yield { type: 'done' };
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield* streamFromComplete(await this.complete(request));
   }
 }
 
-/** 调用内置 Write 工具名，用于 changedFiles / /diff 测试。 */
 class BuiltinWriteToolCallingLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   readonly requests: LlmRequest[] = [];
@@ -1254,8 +1429,8 @@ class BuiltinWriteToolCallingLlmClient implements LlmClient {
     };
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
-    yield { type: 'done' };
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield* streamFromComplete(await this.complete(request));
   }
 }
 
@@ -1292,8 +1467,8 @@ class MultiStepToolCallingLlmClient implements LlmClient {
     };
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
-    yield { type: 'done' };
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield* streamFromComplete(await this.complete(request));
   }
 }
 
@@ -1327,8 +1502,8 @@ class LoopingToolCallingLlmClient implements LlmClient {
     };
   }
 
-  async *stream(): AsyncIterable<LlmStreamChunk> {
-    yield { type: 'done' };
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield* streamFromComplete(await this.complete(request));
   }
 }
 
@@ -1501,18 +1676,52 @@ class WriteToolCallingLlmClient implements LlmClient {
   }
 }
 
-/** Adapt complete()-style fakes for approval-resume streaming. */
-async function* streamFromComplete(
-  response: LlmResponse
-): AsyncIterable<LlmStreamChunk> {
-  if (response.thinking) {
-    yield { type: 'thinking-delta', text: response.thinking };
+class DoubleWriteApprovalLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly requests: LlmRequest[] = [];
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request);
+    if (this.requests.length === 1) {
+      return {
+        provider: this.provider,
+        model: 'fake-model',
+        text: '',
+        raw: {},
+        toolCalls: [
+          {
+            id: 'write-1',
+            name: 'fs.write',
+            input: { path: 'a.txt', content: 'a' }
+          }
+        ]
+      };
+    }
+    if (this.requests.length === 2) {
+      return {
+        provider: this.provider,
+        model: 'fake-model',
+        text: '',
+        raw: {},
+        toolCalls: [
+          {
+            id: 'write-2',
+            name: 'fs.write',
+            input: { path: 'b.txt', content: 'b' }
+          }
+        ]
+      };
+    }
+
+    return {
+      provider: this.provider,
+      model: 'fake-model',
+      text: '两次写入完成',
+      raw: {}
+    };
   }
-  if (response.text) {
-    yield { type: 'text-delta', text: response.text };
+
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield* streamFromComplete(await this.complete(request));
   }
-  for (const call of response.toolCalls ?? []) {
-    yield { type: 'tool-call', call };
-  }
-  yield { type: 'done' };
 }

@@ -95,6 +95,16 @@ export function summarizeTraceEvents(
         summaryPreview = previewText(asString(event.payload.summary), 120);
         break;
       }
+      case 'review.completed': {
+        // 旧 trace 兼容：新 normal 路径不再写入 review.completed
+        if (!summaryPreview) {
+          summaryPreview = previewText(asString(event.payload.summary), 120);
+        }
+        if (!TERMINAL_STATUSES.has(status)) {
+          status = asString(event.payload.status) ?? status;
+        }
+        break;
+      }
       case 'run.awaiting_approval': {
         // 仅非终态时更新，避免乱序/补写事件把已完成 run 盖成审批中
         if (!TERMINAL_STATUSES.has(status)) {

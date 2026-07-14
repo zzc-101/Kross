@@ -114,13 +114,13 @@ export function resolveToolRetryPolicy(input: {
   }
 
   const layers: Array<ToolRetryPolicy | undefined> = [];
-  if (input.gatewayRetry && input.gatewayRetry !== false) {
+  if (input.gatewayRetry) {
     layers.push(input.gatewayRetry);
   }
-  if (input.definitionRetry && input.definitionRetry !== false) {
+  if (input.definitionRetry) {
     layers.push(input.definitionRetry);
   }
-  if (input.callRetry && input.callRetry !== false) {
+  if (input.callRetry) {
     layers.push(input.callRetry);
   }
 

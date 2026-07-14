@@ -159,6 +159,21 @@ describe('traceSummary', () => {
     expect(summary?.toolStats.approvalRequired).toBe(1);
     expect(summary?.tools).toContain('Bash');
   });
+
+  it('falls back to review.completed for legacy traces without run.completed', () => {
+    const events = [
+      event('run-legacy', 'run.started', { input: 'old task' }, 't1'),
+      event(
+        'run-legacy',
+        'review.completed',
+        { status: 'completed', summary: 'legacy summary' },
+        't2'
+      )
+    ];
+    const summary = summarizeTraceEvents('run-legacy', events);
+    expect(summary?.status).toBe('completed');
+    expect(summary?.summaryPreview).toBe('legacy summary');
+  });
 });
 
 function event(

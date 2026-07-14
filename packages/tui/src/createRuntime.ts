@@ -66,7 +66,7 @@ export function createRuntimeOptionsFromEnv(
     traceStore = created.traceStore;
     todoStore = created.todoStore;
   } else {
-    tooling.setLlmClient?.(llmClient);
+    tooling?.setLlmClient?.(llmClient);
   }
 
   return {
