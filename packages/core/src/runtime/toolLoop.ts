@@ -359,6 +359,17 @@ export class RuntimeToolLoop {
         estimatedChars: context.estimatedChars,
         report: context.report
       });
+      const maintenance = this.options.contextManager.getLastMaintenance();
+      if (
+        maintenance &&
+        (maintenance.compacted ||
+          maintenance.droppedMessageCount > 0 ||
+          (maintenance.clearedToolResults ?? 0) > 0)
+      ) {
+        await this.options.record(runId, 'context.compacted', {
+          ...maintenance
+        });
+      }
 
       const response = await this.options.llmClient.complete({
         messages: context.messages,

@@ -280,4 +280,98 @@ describe('InMemoryContextManager', () => {
       ])
     );
   });
+
+  it('auto-compacts when history exceeds maxHistoryMessages instead of silent drop', () => {
+    const manager = new InMemoryContextManager({
+      maxHistoryMessages: 6,
+      compactPreserveLastN: 2,
+      autoCompact: true
+    });
+
+    for (let i = 1; i <= 5; i += 1) {
+      manager.appendConversation({ role: 'user', content: `问题${i}` });
+      manager.appendConversation({ role: 'assistant', content: `回答${i}` });
+    }
+
+    const stats = manager.getHistoryStats();
+    expect(stats.messageCount).toBeLessThanOrEqual(6);
+    const maintenance = manager.getLastMaintenance();
+    expect(maintenance?.compacted).toBe(true);
+    expect(maintenance?.droppedMessageCount).toBeGreaterThan(0);
+
+    const snapshot = manager.build({
+      systemPrompt: 'sys',
+      currentUserInput: '继续',
+      mode: 'normal'
+    });
+    const body = snapshot.messages.map((message) => message.content).join('\n');
+    expect(body).toContain('CONTEXT COMPACTION');
+    expect(body).toContain('问题5');
+    expect(body).toContain('回答5');
+    // earliest turns live in summary, not as raw history rows
+    expect(snapshot.messages.some((m) => m.content === '问题1')).toBe(false);
+  });
+
+  it('compacts on restore when conversation is longer than the history cap', () => {
+    const manager = new InMemoryContextManager({
+      maxHistoryMessages: 4,
+      compactPreserveLastN: 2,
+      autoCompact: true
+    });
+    const longHistory = Array.from({ length: 10 }, (_, index) => ({
+      role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      content: `turn-${index + 1}`
+    }));
+
+    const result = manager.replaceConversation(longHistory);
+    expect(result.compacted).toBe(true);
+    expect(result.reason).toBe('restore_truncation');
+    expect(result.droppedMessageCount).toBeGreaterThan(0);
+    expect(manager.getHistoryStats().messageCount).toBeLessThanOrEqual(4);
+
+    const snapshot = manager.build({
+      systemPrompt: 'sys',
+      currentUserInput: 'now',
+      mode: 'normal'
+    });
+    expect(snapshot.messages.some((m) => m.content.includes('CONTEXT COMPACTION'))).toBe(
+      true
+    );
+    expect(snapshot.messages.some((m) => m.content === 'turn-10')).toBe(true);
+  });
+
+  it('evicts oldest tool-result summaries beyond maxToolResults', () => {
+    const manager = new InMemoryContextManager({ maxToolResults: 2 });
+    manager.recordToolResult({
+      id: 't1',
+      toolName: 'Read',
+      inputPreview: 'a',
+      output: 'A',
+      summary: 'sum-a'
+    });
+    manager.recordToolResult({
+      id: 't2',
+      toolName: 'Read',
+      inputPreview: 'b',
+      output: 'B',
+      summary: 'sum-b'
+    });
+    manager.recordToolResult({
+      id: 't3',
+      toolName: 'Read',
+      inputPreview: 'c',
+      output: 'C',
+      summary: 'sum-c'
+    });
+
+    const snapshot = manager.build({
+      systemPrompt: 'sys',
+      currentUserInput: 'x',
+      mode: 'normal'
+    });
+    expect(snapshot.messages[0]?.content).toContain('sum-b');
+    expect(snapshot.messages[0]?.content).toContain('sum-c');
+    expect(snapshot.messages[0]?.content).not.toContain('sum-a');
+    expect(manager.getHistoryStats().toolResultCount).toBe(2);
+  });
 });

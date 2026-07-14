@@ -8,6 +8,7 @@ import {
 } from '../domain';
 import {
   InMemoryContextManager,
+  type ContextMaintenanceResult,
   type ContextManager
 } from '../context/contextManager';
 import {
@@ -172,13 +173,20 @@ export class AgentRuntime extends EventEmitter {
    * 恢复持久化会话时整体替换对话历史。UI 记录中的 thinking/tool/system
    * 不应进入模型上下文，调用方只传 user/assistant 即可。
    * 同时清空上一会话的 lastUsage，避免顶栏继续显示陈旧 token。
+   * 超长历史会自动压缩为摘要（见返回值），而不是静默丢弃。
    */
   restoreConversation(
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
-  ): void {
-    this.contextManager.replaceConversation(messages);
+  ): ContextMaintenanceResult {
+    const maintenance = this.contextManager.replaceConversation(messages);
     this.contextManager.clearToolResults();
     this.options.llmClient?.clearLastUsage?.();
+    return maintenance;
+  }
+
+  /** 最近一次上下文维护（压缩/截断）结果，供 TUI 提示。 */
+  getLastContextMaintenance(): ContextMaintenanceResult | undefined {
+    return this.contextManager.getLastMaintenance();
   }
 
   /**
@@ -462,6 +470,7 @@ export class AgentRuntime extends EventEmitter {
       estimatedChars: context.estimatedChars,
       report: context.report
     });
+    await this.recordContextMaintenance(runId);
 
     const maxIterations =
       this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
@@ -746,6 +755,21 @@ export class AgentRuntime extends EventEmitter {
     this.contextManager.appendConversation({
       role: 'assistant',
       content: assistantOutput
+    });
+  }
+
+  private async recordContextMaintenance(runId: string): Promise<void> {
+    const maintenance = this.contextManager.getLastMaintenance();
+    if (
+      !maintenance ||
+      (!maintenance.compacted &&
+        maintenance.droppedMessageCount === 0 &&
+        !(maintenance.clearedToolResults && maintenance.clearedToolResults > 0))
+    ) {
+      return;
+    }
+    await this.record(runId, 'context.compacted', {
+      ...maintenance
     });
   }
 

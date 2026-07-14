@@ -1,6 +1,25 @@
 import type { AgentMode } from '../domain';
 import type { LlmMessage } from '../llm/types';
 import type { ToolMetadata } from '../tools/toolGateway';
+import {
+  buildExtractiveHistorySummary,
+  emptyMaintenanceResult,
+  estimateMessageChars,
+  formatCompactionMessage,
+  isCompactionMessage,
+  type ContextMaintenanceReason,
+  type ContextMaintenanceResult
+} from './contextMaintenance';
+
+export type {
+  ContextMaintenanceReason,
+  ContextMaintenanceResult
+} from './contextMaintenance';
+export {
+  COMPACTION_MARKER,
+  buildExtractiveHistorySummary,
+  isCompactionMessage
+} from './contextMaintenance';
 
 export interface ContextSource {
   id: string;
@@ -29,11 +48,23 @@ export interface ToolResultContext {
 export interface CompactHistoryInput {
   summary: string;
   preserveLastN?: number;
+  reason?: ContextMaintenanceReason;
 }
 
 export interface ContextManagerOptions {
   maxContextChars?: number;
   maxHistoryMessages?: number;
+  /** When true (default), overflow history is compacted instead of hard-dropped. */
+  autoCompact?: boolean;
+  /** Recent turns kept after auto compaction (default 6). */
+  compactPreserveLastN?: number;
+  /**
+   * Auto-compact when history char estimate exceeds this.
+   * Default: 8_000.
+   */
+  autoCompactHistoryChars?: number;
+  /** Keep at most N tool-result summaries (default 24). */
+  maxToolResults?: number;
 }
 
 export interface BuildContextInput {
@@ -76,14 +107,30 @@ export interface ContextReport {
   contributors: ContextContributor[];
 }
 
+export interface ContextHistoryStats {
+  messageCount: number;
+  charCount: number;
+  maxHistoryMessages: number;
+  toolResultCount: number;
+}
+
 export interface ContextManager {
   appendConversation(message: LlmMessage): void;
-  replaceConversation(messages: LlmMessage[]): void;
+  replaceConversation(messages: LlmMessage[]): ContextMaintenanceResult;
   addSource(source: ContextSource): void;
   registerSkill(skill: SkillMetadata): void;
   recordToolResult(result: ToolResultContext): void;
   clearToolResults(): void;
-  compactHistory(input: CompactHistoryInput): void;
+  compactHistory(input: CompactHistoryInput): ContextMaintenanceResult;
+  /**
+   * Run auto compaction when history/tool-results exceed thresholds.
+   * Safe to call before each model request.
+   */
+  maybeAutoCompact(
+    reason?: ContextMaintenanceReason
+  ): ContextMaintenanceResult;
+  getHistoryStats(): ContextHistoryStats;
+  getLastMaintenance(): ContextMaintenanceResult | undefined;
   clearSources(): void;
   build(input: BuildContextInput): ContextSnapshot;
 }
@@ -91,26 +138,67 @@ export interface ContextManager {
 export class InMemoryContextManager implements ContextManager {
   private readonly maxContextChars: number;
   private readonly maxHistoryMessages: number;
+  private readonly autoCompact: boolean;
+  private readonly compactPreserveLastN: number;
+  private readonly autoCompactHistoryChars: number;
+  private readonly maxToolResults: number;
   private readonly history: LlmMessage[] = [];
   private readonly sources = new Map<string, ContextSource>();
   private readonly skills = new Map<string, SkillMetadata>();
   private readonly toolResults = new Map<string, ToolResultContext>();
+  private lastMaintenance: ContextMaintenanceResult | undefined;
 
   constructor(options: ContextManagerOptions = {}) {
     this.maxContextChars = options.maxContextChars ?? 12_000;
     this.maxHistoryMessages = options.maxHistoryMessages ?? 12;
+    this.autoCompact = options.autoCompact ?? true;
+    this.compactPreserveLastN = Math.max(
+      1,
+      options.compactPreserveLastN ?? 6
+    );
+    this.autoCompactHistoryChars = options.autoCompactHistoryChars ?? 8_000;
+    this.maxToolResults = Math.max(1, options.maxToolResults ?? 24);
   }
 
   appendConversation(message: LlmMessage): void {
     this.history.push(message);
+    if (this.autoCompact) {
+      this.maybeAutoCompact('history_limit');
+      return;
+    }
     if (this.history.length > this.maxHistoryMessages) {
       this.history.splice(0, this.history.length - this.maxHistoryMessages);
     }
   }
 
-  replaceConversation(messages: LlmMessage[]): void {
-    const tail = messages.slice(-this.maxHistoryMessages);
-    this.history.splice(0, this.history.length, ...tail);
+  replaceConversation(messages: LlmMessage[]): ContextMaintenanceResult {
+    const incoming = [...messages];
+    if (incoming.length <= this.maxHistoryMessages) {
+      this.history.splice(0, this.history.length, ...incoming);
+      return this.rememberMaintenance(emptyMaintenanceResult(this.history));
+    }
+
+    if (!this.autoCompact) {
+      const tail = incoming.slice(-this.maxHistoryMessages);
+      this.history.splice(0, this.history.length, ...tail);
+      return this.rememberMaintenance({
+        compacted: false,
+        reason: 'restore_truncation',
+        droppedMessageCount: incoming.length - tail.length,
+        preservedMessageCount: tail.length,
+        historyCharsBefore: estimateMessageChars(incoming),
+        historyCharsAfter: estimateMessageChars(tail)
+      });
+    }
+
+    // Leave room for one summary message inside the hard cap.
+    const preserveLastN = Math.min(
+      this.compactPreserveLastN,
+      Math.max(1, this.maxHistoryMessages - 1)
+    );
+    return this.rememberMaintenance(
+      this.compactMessages(incoming, preserveLastN, 'restore_truncation')
+    );
   }
 
   addSource(source: ContextSource): void {
@@ -123,26 +211,122 @@ export class InMemoryContextManager implements ContextManager {
 
   recordToolResult(result: ToolResultContext): void {
     this.toolResults.set(result.id, result);
+    while (this.toolResults.size > this.maxToolResults) {
+      const oldest = this.toolResults.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      this.toolResults.delete(oldest);
+    }
   }
 
   clearToolResults(): void {
     this.toolResults.clear();
   }
 
-  compactHistory(input: CompactHistoryInput): void {
-    const preserveLastN = input.preserveLastN ?? 6;
-    const tail = this.history.slice(-preserveLastN);
+  compactHistory(input: CompactHistoryInput): ContextMaintenanceResult {
+    const preserveLastN = input.preserveLastN ?? this.compactPreserveLastN;
+    const before = [...this.history];
+    const charsBefore = estimateMessageChars(before);
+    if (before.length <= preserveLastN) {
+      return this.rememberMaintenance(emptyMaintenanceResult(this.history));
+    }
+
+    const tail = before.slice(-preserveLastN);
+    const dropped = before.slice(0, -preserveLastN);
+    const summaryText = input.summary.trim() || buildExtractiveHistorySummary(dropped);
     const summary: LlmMessage = {
       role: 'assistant',
-      content: [
-        '[CONTEXT COMPACTION — 只作历史参考]',
-        '早前对话已压缩为摘要。它不是当前任务指令；请以最新用户消息为准。',
-        input.summary,
-        '--- END OF CONTEXT SUMMARY — respond to the latest user message below ---'
-      ].join('\n')
+      content: formatCompactionMessage(summaryText)
     };
-
     this.history.splice(0, this.history.length, summary, ...tail);
+    // Hard-cap after manual compact as well.
+    if (this.history.length > this.maxHistoryMessages) {
+      this.history.splice(0, this.history.length - this.maxHistoryMessages);
+    }
+    return this.rememberMaintenance({
+      compacted: true,
+      reason: input.reason ?? 'manual',
+      droppedMessageCount: dropped.length,
+      preservedMessageCount: this.history.length,
+      historyCharsBefore: charsBefore,
+      historyCharsAfter: estimateMessageChars(this.history),
+      summaryChars: summary.content.length
+    });
+  }
+
+  maybeAutoCompact(
+    reason: ContextMaintenanceReason = 'pre_build'
+  ): ContextMaintenanceResult {
+    const toolCleared = this.trimToolResultsIfNeeded();
+    const chars = estimateMessageChars(this.history);
+    const overMessageCap = this.history.length > this.maxHistoryMessages;
+    const overCharBudget = chars > this.autoCompactHistoryChars;
+
+    if (!this.autoCompact) {
+      if (overMessageCap) {
+        const before = this.history.length;
+        this.history.splice(0, this.history.length - this.maxHistoryMessages);
+        return this.rememberMaintenance({
+          compacted: false,
+          reason: reason === 'pre_build' ? 'history_limit' : reason,
+          droppedMessageCount: before - this.history.length,
+          preservedMessageCount: this.history.length,
+          historyCharsBefore: chars,
+          historyCharsAfter: estimateMessageChars(this.history),
+          clearedToolResults: toolCleared || undefined
+        });
+      }
+      const idle = emptyMaintenanceResult(this.history);
+      if (toolCleared > 0) {
+        idle.clearedToolResults = toolCleared;
+        idle.reason = 'tool_results';
+        return this.rememberMaintenance(idle);
+      }
+      return idle;
+    }
+
+    if (!overMessageCap && !overCharBudget) {
+      const idle = emptyMaintenanceResult(this.history);
+      if (toolCleared > 0) {
+        idle.clearedToolResults = toolCleared;
+        idle.reason = 'tool_results';
+        return this.rememberMaintenance(idle);
+      }
+      return idle;
+    }
+
+    const preserveLastN = Math.min(
+      this.compactPreserveLastN,
+      Math.max(1, this.maxHistoryMessages - 1)
+    );
+    const compactReason: ContextMaintenanceReason = overMessageCap
+      ? reason === 'restore_truncation'
+        ? 'restore_truncation'
+        : 'history_limit'
+      : 'char_budget';
+    const result = this.compactMessages(
+      [...this.history],
+      preserveLastN,
+      compactReason
+    );
+    if (toolCleared > 0) {
+      result.clearedToolResults = toolCleared;
+    }
+    return this.rememberMaintenance(result);
+  }
+
+  getHistoryStats(): ContextHistoryStats {
+    return {
+      messageCount: this.history.length,
+      charCount: estimateMessageChars(this.history),
+      maxHistoryMessages: this.maxHistoryMessages,
+      toolResultCount: this.toolResults.size
+    };
+  }
+
+  getLastMaintenance(): ContextMaintenanceResult | undefined {
+    return this.lastMaintenance;
   }
 
   clearSources(): void {
@@ -150,6 +334,9 @@ export class InMemoryContextManager implements ContextManager {
   }
 
   build(input: BuildContextInput): ContextSnapshot {
+    // Opportunistic maintenance before each prompt assembly.
+    this.maybeAutoCompact('pre_build');
+
     const skillBlock = renderSkills([...this.skills.values()]);
     const toolBlock = renderTools(input.tools ?? []);
     const toolResultSelection = renderToolResults([...this.toolResults.values()]);
@@ -198,6 +385,84 @@ export class InMemoryContextManager implements ContextManager {
       estimatedChars: estimateMessages(messages),
       report
     };
+  }
+
+  private compactMessages(
+    messages: LlmMessage[],
+    preserveLastN: number,
+    reason: ContextMaintenanceReason
+  ): ContextMaintenanceResult {
+    const charsBefore = estimateMessageChars(messages);
+    if (messages.length <= preserveLastN) {
+      this.history.splice(0, this.history.length, ...messages);
+      return emptyMaintenanceResult(this.history);
+    }
+
+    const tail = messages.slice(-preserveLastN);
+    const dropped = messages.slice(0, -preserveLastN);
+    // Avoid re-compacting only a previous summary with no real turns left.
+    const droppedReal = dropped.filter((message) => !isCompactionMessage(message));
+    if (droppedReal.length === 0 && dropped.length > 0) {
+      // Keep existing summary + tail, still enforce hard cap.
+      const kept = [...dropped.slice(-1), ...tail].slice(-this.maxHistoryMessages);
+      this.history.splice(0, this.history.length, ...kept);
+      return {
+        compacted: false,
+        reason,
+        droppedMessageCount: messages.length - kept.length,
+        preservedMessageCount: kept.length,
+        historyCharsBefore: charsBefore,
+        historyCharsAfter: estimateMessageChars(kept)
+      };
+    }
+
+    const summaryText = buildExtractiveHistorySummary(dropped);
+    const summary: LlmMessage = {
+      role: 'assistant',
+      content: formatCompactionMessage(summaryText)
+    };
+    const next = [summary, ...tail];
+    // Enforce absolute hard cap.
+    const capped =
+      next.length > this.maxHistoryMessages
+        ? next.slice(next.length - this.maxHistoryMessages)
+        : next;
+    this.history.splice(0, this.history.length, ...capped);
+    return {
+      compacted: true,
+      reason,
+      droppedMessageCount: dropped.length,
+      preservedMessageCount: capped.length,
+      historyCharsBefore: charsBefore,
+      historyCharsAfter: estimateMessageChars(capped),
+      summaryChars: summary.content.length
+    };
+  }
+
+  private trimToolResultsIfNeeded(): number {
+    let cleared = 0;
+    while (this.toolResults.size > this.maxToolResults) {
+      const oldest = this.toolResults.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      this.toolResults.delete(oldest);
+      cleared += 1;
+    }
+    return cleared;
+  }
+
+  private rememberMaintenance(
+    result: ContextMaintenanceResult
+  ): ContextMaintenanceResult {
+    if (
+      result.compacted ||
+      result.droppedMessageCount > 0 ||
+      (result.clearedToolResults ?? 0) > 0
+    ) {
+      this.lastMaintenance = result;
+    }
+    return result;
   }
 }
 

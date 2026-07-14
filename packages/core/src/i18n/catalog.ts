@@ -190,7 +190,13 @@ export const zhCatalog = {
   'cmd.lang.current': '当前界面语言：{locale}',
   'cmd.lang.switched': '界面语言已切换为 {locale}',
   'cmd.lang.unknown': '未知语言，可选：zh、en',
-  'cmd.lang.and': ' 和 '
+  'cmd.lang.and': ' 和 ',
+
+  // context maintenance
+  'context.restoredTruncated':
+    '已恢复会话：模型上下文保留最近 {kept} 条（含摘要），另有 {dropped} 条较早对话已压缩为摘要。',
+  'context.restoredHardTrim':
+    '已恢复会话：模型上下文仅保留最近 {kept} 条对话，另有 {dropped} 条较早记录未载入模型。'
 } as const satisfies MessageCatalog;
 
 export type MessageKey = keyof typeof zhCatalog;
@@ -365,7 +371,12 @@ export const enCatalog: Record<MessageKey, string> = {
   'cmd.lang.current': 'UI language: {locale}',
   'cmd.lang.switched': 'UI language switched to {locale}',
   'cmd.lang.unknown': 'Unknown language. Choose: zh, en',
-  'cmd.lang.and': ' and '
+  'cmd.lang.and': ' and ',
+
+  'context.restoredTruncated':
+    'Session restored: model context keeps the latest {kept} items (incl. summary); {dropped} earlier turns were compacted.',
+  'context.restoredHardTrim':
+    'Session restored: model context keeps only the latest {kept} turns; {dropped} earlier turns were not loaded into the model.'
 };
 
 export const catalogs: Record<AppLocale, Record<MessageKey, string>> = {

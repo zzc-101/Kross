@@ -588,13 +588,37 @@ export function App({
           conversation.push({ role: 'assistant', content: message.text });
         }
       }
-      agentRuntime.restoreConversation(conversation);
+      const maintenance = agentRuntime.restoreConversation(conversation);
       setRecentSessions((current) => [
         restored.summary,
         ...current.filter((session) => session.id !== restored.summary.id)
       ].slice(0, 4));
       setSelectedRecentSession(undefined);
       setSessionNotice(undefined);
+      if (
+        maintenance.droppedMessageCount > 0 ||
+        maintenance.compacted
+      ) {
+        const notice = maintenance.compacted
+          ? t('context.restoredTruncated', {
+              kept: maintenance.preservedMessageCount,
+              dropped: maintenance.droppedMessageCount
+            })
+          : t('context.restoredHardTrim', {
+              kept: maintenance.preservedMessageCount,
+              dropped: maintenance.droppedMessageCount
+            });
+        // UI-only system line; model history already holds the summary.
+        setMessages((current) => [
+          ...current,
+          {
+            id: nextMessageIdRef.current++,
+            from: 'system',
+            text: notice,
+            createdAt: new Date().toISOString()
+          }
+        ]);
+      }
       resetToBottom();
       return true;
     } catch (error) {
