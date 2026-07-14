@@ -38,6 +38,9 @@ export const zhCatalog = {
 
   // header
   'header.queue': '队列：{count}',
+  'header.todo.empty': 'Todo · —',
+  'header.todo.progress': 'Todo {done}/{total}',
+  'header.todo.more': '+{count}',
 
   // status / mode / permission
   'status.ready': '就绪',
@@ -223,6 +226,9 @@ export const enCatalog: Record<MessageKey, string> = {
   'composer.placeholder': 'Describe a task, type / for commands',
 
   'header.queue': 'Queue: {count}',
+  'header.todo.empty': 'Todo · —',
+  'header.todo.progress': 'Todo {done}/{total}',
+  'header.todo.more': '+{count}',
 
   'status.ready': 'Ready',
   'status.responding': 'Thinking',

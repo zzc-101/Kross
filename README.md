@@ -76,6 +76,7 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - **`TodoWrite` / `TodoRead`**：会话级任务清单（pending / in_progress / completed / cancelled）。
 - 默认按 id **merge**；`merge: false` 整表替换。
 - 每轮请求前注入 context source `session-todos`，模型可持续看到进度。
+- **TUI 顶栏右上**：原权限芯片改为 `Todo done/total ▸/▾`；**点击展开**查看全部 todo（完成项 `✓` 打勾），再点收起。权限仍在 Composer 页脚（shift+tab）。
 - 内存态（进程内）；不跨重启持久化。
 
 已实现（Subagent P0）：
@@ -87,6 +88,7 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - **子代理内无需审批**：Gateway 对白名单工具全部 auto-allow。
 - **maxDepth=1**：子代理不能再派生 Task。
 - Trace：`subagent.started` / `subagent.completed` / `subagent.failed`（挂在父 runId 上，payload 含 subRunId）。
+- **TUI**：对话区下方单行 `▸ Subagent …`（点击展开明细）；子代理内部 `tool_call.*` **不写入主会话消息流**（避免穿透）。
 
 已实现（MCP）：
 

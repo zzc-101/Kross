@@ -40,6 +40,7 @@ const STATUS_MARK: Record<TodoStatus, string> = {
  */
 export class TodoStore {
   private items: TodoItem[] = [];
+  private readonly listeners = new Set<() => void>();
 
   list(): TodoItem[] {
     return this.items.map((item) => ({ ...item }));
@@ -59,12 +60,21 @@ export class TodoStore {
     return { todos, counts };
   }
 
+  /** Subscribe to list changes (for TUI refresh). */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
   write(input: TodoWriteInput): TodoStoreSnapshot {
     const incoming = input.todos.map(normalizeTodoItem);
     const merge = input.merge !== false;
 
     if (!merge) {
       this.items = dedupeById(incoming);
+      this.emitChange();
       return this.snapshot();
     }
 
@@ -73,11 +83,19 @@ export class TodoStore {
       map.set(item.id, item);
     }
     this.items = [...map.values()];
+    this.emitChange();
     return this.snapshot();
   }
 
   clear(): void {
     this.items = [];
+    this.emitChange();
+  }
+
+  private emitChange(): void {
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
 
   /** Prompt-friendly block for context injection. */

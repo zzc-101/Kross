@@ -19,6 +19,7 @@ import {
   type PermissionMode,
   type SessionSummary,
   type StoredSessionMessage,
+  type TodoStoreSnapshot,
   type TraceEvent,
   type TraceStore
 } from '@kross/core';
@@ -36,6 +37,8 @@ import {
   formatCwdLabel,
   formatToolTitle,
   HeaderBar,
+  hitTestTodoToggle,
+  resolveHeaderHeight,
   isAggregatableTool,
   MessageViewport,
   ModelSettingsPanel,
@@ -45,6 +48,9 @@ import {
   resolveApprovalPanelHeight,
   switchSettingsSection,
   ThinkingIndicator,
+  SubagentPanel,
+  resolveSubagentPanelHeight,
+  hitTestSubagentPanel,
   WelcomeHome,
   useTerminalSize,
   type ChatMessage,
@@ -74,6 +80,11 @@ import {
   appendApprovalResult,
   handleTraceEvent
 } from './app/traceMessages';
+import {
+  applySubagentTraceEvent,
+  pruneSubagentUi,
+  type SubagentUiState
+} from './app/subagentUi';
 import { useViewportScroll } from './app/useViewportScroll';
 import {
   createMessageUpdateBuffer,
@@ -118,6 +129,10 @@ export interface AppTestApi {
   setInput: (value: string) => void;
   toggleCollapse: () => void;
   toggleToolGroup: () => void;
+  /** Expand/collapse the header todo list (same as clicking Todo chip). */
+  toggleTodoExpand: () => void;
+  /** Expand/collapse the subagent strip under the conversation. */
+  toggleSubagentExpand: () => void;
   resumeSession: (selector?: string) => Promise<boolean>;
   flushSession: () => void;
   requestExit: () => void;
@@ -174,6 +189,12 @@ export function App({
   // 不 memo：/model 会就地 setModel/setLlmClient，依赖 agentRuntime 引用不变，
   // 需在 append 触发的重渲染中重新读取，否则底栏一直显示旧模型。
   const modelLabel = agentRuntime.getModelLabel();
+  const [todoSnapshot, setTodoSnapshot] = useState<TodoStoreSnapshot | undefined>(
+    () => agentRuntime.getTodoStore()?.snapshot()
+  );
+  const [todoExpanded, setTodoExpanded] = useState(false);
+  const [subagents, setSubagents] = useState<SubagentUiState[]>([]);
+  const [subagentExpanded, setSubagentExpanded] = useState(false);
   const [input, setInput] = useState('');
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);
@@ -402,6 +423,18 @@ export function App({
 
   useEffect(() => {
     setPermissionMode(agentRuntime.getPermissionMode());
+  }, [agentRuntime]);
+
+  // Subscribe to session todos so TodoWrite refreshes the header list.
+  useEffect(() => {
+    const store = agentRuntime.getTodoStore();
+    setTodoSnapshot(store?.snapshot());
+    if (!store) {
+      return;
+    }
+    return store.onChange(() => {
+      setTodoSnapshot(store.snapshot());
+    });
   }, [agentRuntime]);
 
   const slashSuggestionResult = useMemo(
@@ -870,6 +903,9 @@ export function App({
 
   useEffect(() => {
     return agentRuntime.onTrace((event) => {
+      setSubagents((current) =>
+        pruneSubagentUi(applySubagentTraceEvent(current, event))
+      );
       handleTraceEvent(event, {
         upsertToolMessage,
         setLoadingVariant,
@@ -878,6 +914,17 @@ export function App({
       });
     });
   }, [agentRuntime, upsertToolMessage]);
+
+  // Prune finished subagent cards so the footer does not grow forever.
+  useEffect(() => {
+    if (subagents.length === 0) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setSubagents((current) => pruneSubagentUi(current));
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [subagents.length]);
 
   const runTurn = useCallback(async (
     prompt: string,
@@ -1524,6 +1571,14 @@ export function App({
     toggleLastCollapsible
   ]);
 
+  const toggleTodoExpand = useCallback(() => {
+    setTodoExpanded((current) => !current);
+  }, []);
+
+  const toggleSubagentExpand = useCallback(() => {
+    setSubagentExpanded((current) => !current);
+  }, []);
+
   useEffect(() => {
     onReady?.({
       submit,
@@ -1532,6 +1587,8 @@ export function App({
       setInput,
       toggleCollapse: toggleLastCollapsible,
       toggleToolGroup: toggleLastToolGroup,
+      toggleTodoExpand,
+      toggleSubagentExpand,
       resumeSession,
       flushSession,
       requestExit,
@@ -1546,7 +1603,9 @@ export function App({
     flushSession,
     requestExit,
     toggleLastCollapsible,
-    toggleLastToolGroup
+    toggleLastToolGroup,
+    toggleTodoExpand,
+    toggleSubagentExpand
   ]);
 
   const contentWidth = Math.max(40, columns - (shellMode ? 2 : 4));
@@ -1569,6 +1628,7 @@ export function App({
     if (status === 'responding' && awaitingReply) {
       h += 2; // ThinkingIndicator
     }
+    h += resolveSubagentPanelHeight(subagents, subagentExpanded);
     if (
       !pendingToolApproval &&
       !modelSettingsOpen &&
@@ -1586,12 +1646,18 @@ export function App({
     modelSettingsOpen,
     status,
     awaitingReply,
+    subagents,
+    subagentExpanded,
     slashSuggestions.length,
     slashSuggestionResult.hiddenCount
   ]);
 
-  // Header: location line(1) + divider(1) = 2; + error(1) if present
-  const headerHeight = appError ? 3 : 2;
+  const headerHeight = resolveHeaderHeight({
+    compact: isHome,
+    hasError: Boolean(appError),
+    todoCount: todoSnapshot?.todos.length ?? 0,
+    todoExpanded
+  });
   // paddingX 1 on each side doesn't affect height
   const messageViewportHeight = resolveMessageViewportHeight({
     rows,
@@ -1599,10 +1665,43 @@ export function App({
     footerHeight
   });
 
-  // 左键单击：命中 Thought / Tool 行才展开折叠（全屏坐标命中）
+  // 左键单击：顶栏 Todo / 子代理条展开；消息区 Thought / Tool 折叠
   useEffect(() => {
     return subscribeClick((event) => {
       if (pendingToolApproval || modelSettingsOpen || !shellMode) {
+        return;
+      }
+      const todoCount = todoSnapshot?.todos.length ?? 0;
+      if (
+        hitTestTodoToggle({
+          clickRow: event.row,
+          clickCol: event.col,
+          columns,
+          compact: isHome,
+          hasError: Boolean(appError),
+          todoCount,
+          todoExpanded,
+          contentTopRow: 1
+        })
+      ) {
+        setTodoExpanded((current) => !current);
+        return;
+      }
+      const subagentPanelHeight = resolveSubagentPanelHeight(
+        subagents,
+        subagentExpanded
+      );
+      if (
+        hitTestSubagentPanel({
+          clickRow: event.row,
+          headerHeight,
+          viewportHeight: messageViewportHeight,
+          panelHeight: subagentPanelHeight,
+          hasSubagents: subagents.length > 0,
+          contentTopRow: 1
+        })
+      ) {
+        setSubagentExpanded((current) => !current);
         return;
       }
       const { contentRows } = resolveViewportContentRows({
@@ -1638,6 +1737,13 @@ export function App({
     shellMode,
     headerHeight,
     contentWidth,
+    columns,
+    isHome,
+    appError,
+    todoSnapshot,
+    todoExpanded,
+    subagents,
+    subagentExpanded,
     messageViewportHeight,
     scrollOffset,
     messages,
@@ -1654,7 +1760,8 @@ export function App({
       mode={mode}
       status={status}
       queueLength={queueLength}
-      permissionMode={permissionMode}
+      todoSnapshot={todoSnapshot}
+      todoExpanded={todoExpanded}
       runtimeError={appError}
       compact={isHome}
       contextUsageLabel={contextUsage.label}
@@ -1662,8 +1769,15 @@ export function App({
     />
   );
 
+  // 对话区正下方：子代理单行条（可点展开）→ 思考指示 → 输入区
   const footer = (
     <Box flexDirection="column" flexShrink={0} width={contentWidth}>
+      <SubagentPanel
+        subagents={subagents}
+        expanded={subagentExpanded}
+        width={contentWidth}
+      />
+
       <ThinkingIndicator
         active={status === 'responding' && awaitingReply}
         variant={loadingVariant}

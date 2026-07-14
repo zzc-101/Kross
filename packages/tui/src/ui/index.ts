@@ -1,4 +1,12 @@
-export { HeaderBar, formatLocationLabel } from './HeaderBar';
+export {
+  HeaderBar,
+  formatLocationLabel,
+  formatTodoHeaderLabel,
+  formatTodoHeaderLines,
+  hitTestTodoToggle,
+  resolveHeaderHeight,
+  TODO_STATUS_MARK
+} from './HeaderBar';
 export {
   MessageLine,
   formatThinkingLabel,
@@ -55,6 +63,12 @@ export {
   type StreamParseState
 } from './markdownParse';
 export { ThinkingIndicator } from './ThinkingIndicator';
+export {
+  SubagentPanel,
+  resolveSubagentPanelHeight,
+  hitTestSubagentPanel,
+  formatCollapsedLine
+} from './SubagentPanel';
 export {
   ApprovalPanel,
   defaultApprovalSelection,

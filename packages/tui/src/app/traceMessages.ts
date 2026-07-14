@@ -5,6 +5,7 @@ import {
 } from '@kross/core';
 
 import type { ChatMessage, ToolCallState, ToolDetailLine } from '../ui';
+import { isSubagentRunId } from './subagentUi';
 
 export function handleTraceEvent(
   event: TraceEvent,
@@ -15,6 +16,12 @@ export function handleTraceEvent(
     setStreamingMessageId: (id: number | undefined) => void;
   }
 ): void {
+  // Subagent tool calls share the ObservableTraceStore but must not paint
+  // into the main session transcript (they surface in SubagentPanel instead).
+  if (isSubagentRunId(event.runId)) {
+    return;
+  }
+
   const payload = event.payload;
   const toolName =
     typeof payload.toolName === 'string' ? payload.toolName : undefined;

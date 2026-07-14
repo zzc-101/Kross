@@ -117,7 +117,7 @@ describe('App', () => {
     await submit?.('hello task');
     await waitUntil(() => lastFrame()?.includes('hello task') === true);
     expect(lastFrame()).toContain('>');
-    expect(lastFrame()).toContain('就绪');
+    expect(lastFrame()).toContain('Todo · —');
     expect(lastFrame()).toContain('权限：默认');
     // 进入对话后仍显示 branch/cwd，而不是 projectName=local
     expect(lastFrame()).toContain('main');
@@ -547,9 +547,9 @@ describe('App', () => {
     await submit?.('nihao');
     await waitUntil(() => lastFrame()?.includes('你好，我在。') === true);
 
-    expect(lastFrame()).toContain('就绪');
     expect(lastFrame()).toContain('●');
     expect(lastFrame()).toContain('你好，我在。');
+    expect(lastFrame()).toContain('权限：默认');
   });
 
   it('renders streaming deltas before the final response completes', async () => {
@@ -574,7 +574,6 @@ describe('App', () => {
     await submission;
     await waitUntil(() => lastFrame()?.includes('流式完成') === true);
 
-    expect(lastFrame()).toContain('就绪');
     expect(lastFrame()).toContain('流式完成');
   });
 
@@ -734,7 +733,6 @@ describe('App', () => {
     await choosePlanApproval?.(true);
     await waitUntil(() => lastFrame()?.includes('跨仓库任务计划已创建') === true);
 
-    expect(lastFrame()).toContain('就绪');
     expect(lastFrame()).toContain('跨仓库任务计划已创建');
   });
 
@@ -1048,7 +1046,7 @@ describe('App', () => {
     await waitUntil(() => submit !== undefined);
     await submit?.('写 README');
     await waitUntil(() => lastFrame()?.includes('允许修改工作区？') === true);
-    expect(lastFrame()).toContain('等待工具确认');
+    expect(lastFrame()).toContain('允许修改工作区？');
 
     await chooseToolApproval?.(true);
     await waitUntil(() => lastFrame()?.includes('写入完成') === true);
@@ -1212,7 +1210,6 @@ describe('App', () => {
       await approval;
       await waitUntil(() => lastFrame()?.includes('写入完成') === true);
 
-      expect(lastFrame()).toContain('就绪');
       expect(lastFrame()).toContain('写入完成');
     },
     15_000
@@ -1237,8 +1234,9 @@ describe('App', () => {
     );
 
     await waitUntil(() => submit !== undefined);
-    // 首页只在 Composer 页脚展示权限；进入对话后 header 也有 perm:
+    // 权限只在 Composer 页脚；顶栏改为 Todo 进度。
     expect(lastFrame()).toContain('权限：默认');
+    expect(lastFrame()).toContain('Todo · —');
 
     await submit?.('/perm classifier');
     await waitUntil(() => lastFrame()?.includes('权限：智能判断') === true);
@@ -1249,6 +1247,45 @@ describe('App', () => {
     await waitUntil(() => lastFrame()?.includes('权限：自动允许') === true);
     expect(runtime.getPermissionMode()).toBe('auto');
     expect(lastFrame()).toContain('权限：自动允许');
+  });
+
+  it('shows session todos in the header and expands the full list on toggle', async () => {
+    const { TodoStore } = await import('@kross/core');
+    const todoStore = new TodoStore();
+    let api: AppTestApi | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      todoStore,
+      llmClient: new FakeLlmClient('ok')
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(next) => (api = next)} />
+    );
+
+    await waitUntil(() => api !== undefined);
+    expect(lastFrame()).toContain('Todo · —');
+
+    todoStore.write({
+      todos: [
+        { id: '1', content: '展示顶栏 Todo', status: 'completed' },
+        { id: '2', content: '继续实现列表', status: 'in_progress' },
+        { id: '3', content: '待办三项', status: 'pending' }
+      ]
+    });
+
+    await waitUntil(() => lastFrame()?.includes('Todo 1/3 ▸') === true);
+    // Collapsed: only progress chip, not the full list body.
+    expect(lastFrame()).not.toContain('继续实现列表');
+
+    api?.toggleTodoExpand();
+    await waitUntil(() => lastFrame()?.includes('Todo 1/3 ▾') === true);
+    expect(lastFrame()).toContain('✓ 展示顶栏 Todo');
+    expect(lastFrame()).toContain('◻ 继续实现列表');
+    expect(lastFrame()).toContain('☐ 待办三项');
+
+    api?.toggleTodoExpand();
+    await waitUntil(() => lastFrame()?.includes('Todo 1/3 ▸') === true);
+    expect(lastFrame()).not.toContain('待办三项');
   });
 
   it('shows slash command suggestions while typing a prefix', async () => {

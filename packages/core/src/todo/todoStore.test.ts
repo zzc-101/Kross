@@ -52,4 +52,21 @@ describe('TodoStore', () => {
     store.clear();
     expect(store.formatForPrompt()).toBe('');
   });
+
+  it('notifies onChange listeners', () => {
+    const store = new TodoStore();
+    let ticks = 0;
+    const stop = store.onChange(() => {
+      ticks += 1;
+    });
+    store.write({
+      todos: [{ id: '1', content: 'A', status: 'pending' }]
+    });
+    store.clear();
+    stop();
+    store.write({
+      todos: [{ id: '2', content: 'B', status: 'pending' }]
+    });
+    expect(ticks).toBe(2);
+  });
 });
