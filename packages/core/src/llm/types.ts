@@ -83,6 +83,7 @@ export type LlmStreamChunk =
     }
   | {
       type: 'done';
+      usage?: LlmUsage;
     };
 
 export interface LlmClient {
@@ -91,6 +92,10 @@ export interface LlmClient {
   readonly model?: string;
   /** 默认思考强度（状态栏与请求共用）。 */
   readonly thinkingEffort?: ThinkingEffort;
+  /** 配置后的模型上下文窗口。 */
+  readonly contextWindow?: number;
+  /** 最近一次模型响应返回的真实 usage。 */
+  readonly lastUsage?: LlmUsage;
   /** 会话内切换模型 id（同 provider）。 */
   setModel?(model: string): void;
   setThinkingEffort?(effort: ThinkingEffort): void;
@@ -107,6 +112,7 @@ export interface BaseLlmClientConfig {
   model: string;
   fetch?: LlmFetch;
   thinkingEffort?: ThinkingEffort;
+  contextWindow?: number;
 }
 
 export interface OpenAiFamilyClientConfig extends BaseLlmClientConfig {

@@ -166,6 +166,9 @@ describe('AnthropicProtocolClient', () => {
       fetch: async () =>
         new Response(
           [
+            'event: message_start',
+            'data: {"type":"message_start","message":{"usage":{"input_tokens":31,"output_tokens":0}}}',
+            '',
             'event: content_block_delta',
             'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"你"}}',
             '',
@@ -189,6 +192,7 @@ describe('AnthropicProtocolClient', () => {
     }
 
     expect(chunks).toEqual(['你', '好']);
+    expect(client.lastUsage?.inputTokens).toBe(31);
   });
 
   it('parses streamed tool_use blocks into complete tool-call chunks', async () => {

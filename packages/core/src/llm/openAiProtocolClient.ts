@@ -15,6 +15,8 @@ import type {
   LlmToolDefinition,
   OpenAiFamilyClientConfig
 } from './types';
+import type { LlmUsage } from './types';
+import { resolveModelContextWindow } from './modelContextWindows';
 
 interface OpenAiChatResponse {
   model?: string;
@@ -58,6 +60,11 @@ interface OpenAiStreamResponse {
       }>;
     };
   }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 interface StreamingToolCallAccumulator {
@@ -70,6 +77,7 @@ export class OpenAiProtocolClient implements LlmClient {
   readonly provider: 'openai' | 'openrouter' | 'deepseek' | 'xai';
   private _model: string;
   private _thinkingEffort: ThinkingEffort;
+  private _lastUsage: LlmUsage | undefined;
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
 
@@ -87,6 +95,18 @@ export class OpenAiProtocolClient implements LlmClient {
 
   get thinkingEffort(): ThinkingEffort {
     return this._thinkingEffort;
+  }
+
+  get contextWindow(): number {
+    return resolveModelContextWindow(
+      this._model,
+      process.env,
+      this.config.contextWindow
+    );
+  }
+
+  get lastUsage(): LlmUsage | undefined {
+    return this._lastUsage;
   }
 
   setModel(model: string): void {
@@ -113,7 +133,7 @@ export class OpenAiProtocolClient implements LlmClient {
     const message = raw.choices?.[0]?.message;
     const thinking = extractOpenAiThinking(message);
 
-    return {
+    const result: LlmResponse = {
       provider: this.provider,
       model: raw.model ?? request.model ?? this._model,
       text: message?.content ?? '',
@@ -126,9 +146,12 @@ export class OpenAiProtocolClient implements LlmClient {
         totalTokens: raw.usage?.total_tokens
       }
     };
+    this._lastUsage = result.usage;
+    return result;
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    this._lastUsage = undefined;
     const response = await this.fetchImpl(this.url(), {
       method: 'POST',
       headers: this.headers(),
@@ -138,15 +161,24 @@ export class OpenAiProtocolClient implements LlmClient {
     await ensureOk(this.provider, response);
 
     const pendingToolCalls = new Map<number, StreamingToolCallAccumulator>();
+    let usage: LlmUsage | undefined;
 
     for await (const event of parseSse(response)) {
       if (event.data === '[DONE]') {
         yield* flushToolCalls(pendingToolCalls);
-        yield { type: 'done' };
+        this._lastUsage = usage;
+        yield { type: 'done', ...(usage ? { usage } : {}) };
         return;
       }
 
       const parsed = JSON.parse(event.data) as OpenAiStreamResponse;
+      if (parsed.usage) {
+        usage = {
+          inputTokens: parsed.usage.prompt_tokens,
+          outputTokens: parsed.usage.completion_tokens,
+          totalTokens: parsed.usage.total_tokens
+        };
+      }
       const delta = parsed.choices?.[0]?.delta;
       const thinking = extractOpenAiThinking(delta);
       if (thinking) {
@@ -173,7 +205,8 @@ export class OpenAiProtocolClient implements LlmClient {
     }
 
     yield* flushToolCalls(pendingToolCalls);
-    yield { type: 'done' };
+    this._lastUsage = usage;
+    yield { type: 'done', ...(usage ? { usage } : {}) };
   }
 
   private url(): string {
@@ -194,6 +227,9 @@ export class OpenAiProtocolClient implements LlmClient {
       messages: request.messages.map(toOpenAiMessage),
       stream
     };
+    if (stream) {
+      body.stream_options = { include_usage: true };
+    }
     if (request.tools?.length) {
       body.tools = request.tools.map(toOpenAiTool);
     }

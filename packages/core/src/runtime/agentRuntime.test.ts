@@ -112,6 +112,13 @@ describe('AgentRuntime', () => {
     expect(traceStore.events.map((event) => event.type)).toContain(
       'llm.planner.completed'
     );
+    expect(
+      runtime.getContextUsage({ requestedMode: 'normal' })
+    ).toMatchObject({
+      usedTokens: 10,
+      maxTokens: 512_000,
+      label: '10/512K'
+    });
   });
 
   it('uses LLM text as the normal chat response', async () => {
@@ -1048,18 +1055,22 @@ class InMemoryTraceStore implements TraceStore {
 class FakeLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   readonly requests: LlmRequest[] = [];
+  readonly contextWindow = 512_000;
+  lastUsage = undefined as LlmResponse['usage'];
 
   constructor(public text = '1. 探索测试入口\n2. 补充断言') {}
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     this.requests.push(request);
-    return {
+    const response: LlmResponse = {
       provider: this.provider,
       model: 'fake-model',
       text: this.text,
       raw: { ok: true },
       usage: { inputTokens: 10, outputTokens: 8, totalTokens: 18 }
     };
+    this.lastUsage = response.usage;
+    return response;
   }
 
   async *stream(): AsyncIterable<LlmStreamChunk> {

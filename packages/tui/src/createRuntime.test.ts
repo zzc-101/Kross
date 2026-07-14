@@ -48,6 +48,38 @@ describe('createRuntimeOptionsFromEnv', () => {
     expect(invalid.maxToolIterations).toBeUndefined();
   });
 
+  it('applies config contextWindow even when credentials come from env', () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-runtime-home-'));
+    try {
+      mkdirSync(join(homeDir, '.kross'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.kross/config.json'),
+        JSON.stringify({
+          llm: {
+            provider: 'openai',
+            model: 'saved-model',
+            contextWindow: 384000
+          }
+        })
+      );
+
+      const options = createRuntimeOptionsFromEnv(
+        '/tmp/local-agent',
+        {
+          AGENT_LLM_PROVIDER: 'openai',
+          OPENAI_API_KEY: 'env-key',
+          OPENAI_MODEL: 'env-model'
+        },
+        undefined,
+        { homeDir }
+      );
+
+      expect(options.llmClient?.contextWindow).toBe(384_000);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('uses saved Kross config when provider env is not configured', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'kross-runtime-home-'));
     try {
@@ -59,7 +91,8 @@ describe('createRuntimeOptionsFromEnv', () => {
             provider: 'openai',
             apiKey: 'saved-key',
             model: 'gpt-saved',
-            baseUrl: 'https://saved.example/v1'
+            baseUrl: 'https://saved.example/v1',
+            contextWindow: 384000
           }
         })
       );
@@ -82,6 +115,7 @@ describe('createRuntimeOptionsFromEnv', () => {
       });
 
       expect(options.llmClient).toBeInstanceOf(OpenAiProtocolClient);
+      expect(options.llmClient?.contextWindow).toBe(384_000);
       expect(calls[0]?.url).toBe('https://saved.example/v1/chat/completions');
       expect(calls[0]?.init.headers).toMatchObject({
         authorization: 'Bearer saved-key'

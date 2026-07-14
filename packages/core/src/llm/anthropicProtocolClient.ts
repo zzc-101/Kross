@@ -15,8 +15,10 @@ import type {
   LlmStreamChunk,
   LlmToolCall,
   LlmToolDefinition,
-  LlmToolMessage
+  LlmToolMessage,
+  LlmUsage
 } from './types';
+import { resolveModelContextWindow } from './modelContextWindows';
 
 interface AnthropicMessageResponse {
   model?: string;
@@ -53,6 +55,16 @@ interface AnthropicStreamResponse {
     type?: string;
     message?: string;
   };
+  message?: {
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+    };
+  };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+  };
 }
 
 interface StreamingToolUseAccumulator {
@@ -65,6 +77,7 @@ export class AnthropicProtocolClient implements LlmClient {
   readonly provider = 'anthropic' as const;
   private _model: string;
   private _thinkingEffort: ThinkingEffort;
+  private _lastUsage: LlmUsage | undefined;
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
   private readonly anthropicVersion: string;
@@ -83,6 +96,18 @@ export class AnthropicProtocolClient implements LlmClient {
 
   get thinkingEffort(): ThinkingEffort {
     return this._thinkingEffort;
+  }
+
+  get contextWindow(): number {
+    return resolveModelContextWindow(
+      this._model,
+      process.env,
+      this.config.contextWindow
+    );
+  }
+
+  get lastUsage(): LlmUsage | undefined {
+    return this._lastUsage;
   }
 
   setModel(model: string): void {
@@ -110,7 +135,7 @@ export class AnthropicProtocolClient implements LlmClient {
     const outputTokens = raw.usage?.output_tokens;
 
     const thinking = extractAnthropicThinking(raw);
-    return {
+    const result: LlmResponse = {
       provider: this.provider,
       model: raw.model ?? request.model ?? this._model,
       text:
@@ -130,9 +155,12 @@ export class AnthropicProtocolClient implements LlmClient {
             : undefined
       }
     };
+    this._lastUsage = result.usage;
+    return result;
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    this._lastUsage = undefined;
     const response = await this.fetchImpl(this.url(), {
       method: 'POST',
       headers: this.headers(),
@@ -142,14 +170,29 @@ export class AnthropicProtocolClient implements LlmClient {
     await ensureOk(this.provider, response);
 
     const pendingToolUses = new Map<number, StreamingToolUseAccumulator>();
+    let usage: LlmUsage | undefined;
 
     for await (const event of parseSse(response)) {
       if (event.event === 'message_stop') {
-        yield { type: 'done' };
+        this._lastUsage = usage;
+        yield { type: 'done', ...(usage ? { usage } : {}) };
         return;
       }
 
       const parsed = JSON.parse(event.data) as AnthropicStreamResponse;
+      const eventUsage = parsed.message?.usage ?? parsed.usage;
+      if (eventUsage) {
+        const inputTokens = eventUsage.input_tokens ?? usage?.inputTokens;
+        const outputTokens = eventUsage.output_tokens ?? usage?.outputTokens;
+        usage = {
+          inputTokens,
+          outputTokens,
+          totalTokens:
+            inputTokens !== undefined && outputTokens !== undefined
+              ? inputTokens + outputTokens
+              : undefined
+        };
+      }
       if (parsed.type === 'error' || parsed.error) {
         throw new Error(
           `anthropic stream error: ${parsed.error?.message ?? 'unknown error'}`
@@ -210,7 +253,8 @@ export class AnthropicProtocolClient implements LlmClient {
       }
     }
 
-    yield { type: 'done' };
+    this._lastUsage = usage;
+    yield { type: 'done', ...(usage ? { usage } : {}) };
   }
 
   private url(): string {

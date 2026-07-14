@@ -28,7 +28,8 @@ import type {
   LlmClientConfig,
   LlmRequest,
   LlmResponse,
-  LlmStreamChunk
+  LlmStreamChunk,
+  LlmUsage
 } from './types';
 import { LlmProviderError } from './types';
 
@@ -42,6 +43,7 @@ export class PiAiLlmClient implements LlmClient {
   readonly provider: LlmProvider;
   private _model: string;
   private _thinkingEffort: ThinkingEffort;
+  private _lastUsage: LlmUsage | undefined;
 
   private readonly models: MutableModels;
   private piModel: Model<Api>;
@@ -72,6 +74,18 @@ export class PiAiLlmClient implements LlmClient {
     return this._thinkingEffort;
   }
 
+  get contextWindow(): number {
+    return resolveModelContextWindow(
+      this._model,
+      process.env,
+      this.config.contextWindow
+    );
+  }
+
+  get lastUsage(): LlmUsage | undefined {
+    return this._lastUsage;
+  }
+
   setModel(model: string): void {
     const next = model.trim();
     if (!next) {
@@ -82,7 +96,7 @@ export class PiAiLlmClient implements LlmClient {
       ...this.piModel,
       id: next,
       name: next,
-      contextWindow: resolveModelContextWindow(next)
+      contextWindow: this.contextWindow
     };
   }
 
@@ -110,10 +124,13 @@ export class PiAiLlmClient implements LlmClient {
       );
     }
 
-    return fromPiAssistantMessage(message, this.provider);
+    const response = fromPiAssistantMessage(message, this.provider);
+    this._lastUsage = response.usage;
+    return response;
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    this._lastUsage = undefined;
     const context = toPiContext(request.messages, request.tools, {
       provider: this.provider,
       model: request.model ?? this._model,
@@ -134,6 +151,9 @@ export class PiAiLlmClient implements LlmClient {
       if (mapped.type === 'error') {
         throw new LlmProviderError(mapped.message, this.provider);
       }
+      if (mapped.type === 'done') {
+        this._lastUsage = mapped.usage;
+      }
       yield mapped;
     }
   }
@@ -147,7 +167,11 @@ export class PiAiLlmClient implements LlmClient {
       ...this.piModel,
       id: modelId,
       name: modelId,
-      contextWindow: resolveModelContextWindow(modelId)
+      contextWindow: resolveModelContextWindow(
+        modelId,
+        process.env,
+        this.config.contextWindow
+      )
     };
   }
 
@@ -242,7 +266,11 @@ function buildModel(config: LlmClientConfig): Model<Api> {
       reasoning: true,
       input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: resolveModelContextWindow(config.model),
+      contextWindow: resolveModelContextWindow(
+        config.model,
+        process.env,
+        config.contextWindow
+      ),
       maxTokens: DEFAULT_MAX_TOKENS,
       compat: {
         supportsEagerToolInputStreaming: false,
@@ -260,7 +288,11 @@ function buildModel(config: LlmClientConfig): Model<Api> {
     reasoning: true,
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: resolveModelContextWindow(config.model),
+    contextWindow: resolveModelContextWindow(
+      config.model,
+      process.env,
+      config.contextWindow
+    ),
     maxTokens: DEFAULT_MAX_TOKENS,
     compat: openaiFamilyCompat(config.provider)
   } satisfies Model<'openai-completions'>;

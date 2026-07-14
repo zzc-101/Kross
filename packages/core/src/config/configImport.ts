@@ -25,6 +25,8 @@ export interface ImportedLlmConfig {
   model: string;
   anthropicVersion?: string;
   thinkingEffort?: ThinkingEffort;
+  /** 模型上下文窗口 token 数；未设置时统一使用 256K。 */
+  contextWindow?: number;
 }
 
 export interface KrossConfig {
@@ -138,11 +140,17 @@ export function saveImportedAgentConfig(
   input: SaveImportedAgentConfigInput
 ): ConfigImportResult {
   const configPath = resolveKrossConfigPath(input);
+  const existing = loadKrossConfig(input);
   const config: KrossConfig = {
-    ...loadKrossConfig(input),
-    llm: input.candidate.config,
+    ...existing,
+    llm: {
+      ...input.candidate.config,
+      ...(existing?.llm?.contextWindow !== undefined
+        ? { contextWindow: existing.llm.contextWindow }
+        : {})
+    },
     setup: {
-      ...loadKrossConfig(input)?.setup,
+      ...existing?.setup,
       importedFrom: input.candidate.source,
       importedAt: (input.now ?? (() => new Date()))().toISOString()
     }
@@ -201,6 +209,7 @@ export function createLlmClientFromKrossConfig(
       baseUrl: llm.baseUrl,
       anthropicVersion: llm.anthropicVersion,
       thinkingEffort: llm.thinkingEffort,
+      contextWindow: llm.contextWindow,
       fetch
     });
   }
@@ -215,6 +224,7 @@ export function createLlmClientFromKrossConfig(
     model: llm.model,
     baseUrl: llm.baseUrl,
     thinkingEffort: llm.thinkingEffort,
+    contextWindow: llm.contextWindow,
     fetch
   });
 }
@@ -302,7 +312,21 @@ export function mergeLlmConfigPatch(
     llm.thinkingEffort = thinkingEffort;
   }
 
+  const contextWindow = normalizePositiveInt(
+    patch.contextWindow ?? existing?.contextWindow
+  );
+  if (contextWindow !== undefined) {
+    llm.contextWindow = contextWindow;
+  }
+
   return llm;
+}
+
+function normalizePositiveInt(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.floor(value);
 }
 
 function firstNonEmpty(

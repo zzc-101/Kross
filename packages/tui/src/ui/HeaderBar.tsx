@@ -25,7 +25,7 @@ export interface HeaderBarProps {
   runtimeError?: string;
   /** 首页仅显示路径 + 上下文用量，不显示状态芯片 */
   compact?: boolean;
-  /** 会话上下文占用，如 12K/128K */
+  /** 会话上下文占用，如 12K/256K */
   contextUsageLabel?: string;
   /** 0–1，用于用量颜色 */
   contextUsageRatio?: number;

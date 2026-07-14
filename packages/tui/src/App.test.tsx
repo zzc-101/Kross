@@ -280,10 +280,27 @@ describe('App', () => {
     await waitUntil(() => submit !== undefined);
     expect(lastFrame()).toContain('fake-model');
     expect(lastFrame()).toContain('权限：默认');
+    expect(lastFrame()).toContain('0/256K');
 
     await submit?.('/perm auto');
     await waitUntil(() => lastFrame()?.includes('权限：自动允许') === true);
     expect(lastFrame()).toContain('fake-model (medium) · 权限：自动允许');
+  });
+
+  it('updates context usage from the latest API inputTokens', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('usage ok')
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('统计真实 token');
+    await waitUntil(() => lastFrame()?.includes('37/256K') === true);
+    expect(lastFrame()).toContain('usage ok');
   });
 
   it('refreshes composer model label after /model switch', async () => {
@@ -1113,6 +1130,7 @@ class FakeLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   model = 'fake-model';
   thinkingEffort: import('@kross/core').ThinkingEffort = 'medium';
+  lastUsage: LlmResponse['usage'];
 
   constructor(private readonly text: string) {}
 
@@ -1125,17 +1143,22 @@ class FakeLlmClient implements LlmClient {
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
-    return {
+    const response: LlmResponse = {
       provider: this.provider,
       model: request.model ?? this.model,
       text: this.text,
-      raw: {}
+      raw: {},
+      usage: { inputTokens: 37, outputTokens: 5, totalTokens: 42 }
     };
+    this.lastUsage = response.usage;
+    return response;
   }
 
   async *stream(): AsyncIterable<LlmStreamChunk> {
     yield { type: 'text-delta', text: this.text };
-    yield { type: 'done' };
+    const usage = { inputTokens: 37, outputTokens: 5, totalTokens: 42 };
+    this.lastUsage = usage;
+    yield { type: 'done', usage };
   }
 }
 

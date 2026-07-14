@@ -55,7 +55,8 @@ export function createLlmClient(
  */
 export function createLlmClientFromEnv(
   env: Record<string, string | undefined>,
-  fetch?: LlmFetch
+  fetch?: LlmFetch,
+  configuredContextWindow?: number
 ): LlmClient | undefined {
   const providerRaw = env.AGENT_LLM_PROVIDER?.trim();
   if (!providerRaw) {
@@ -73,7 +74,14 @@ export function createLlmClientFromEnv(
     return undefined;
   }
 
-  return createLlmClientFromCredentials(credentials, env, fetch);
+  return createLlmClientFromCredentials(
+    {
+      ...credentials,
+      contextWindow: credentials.contextWindow ?? configuredContextWindow
+    },
+    env,
+    fetch
+  );
 }
 
 /**
@@ -98,7 +106,8 @@ export function createLlmClientForProvider(
   return createLlmClientFromCredentials(
     {
       ...credentials,
-      model: model.trim() || credentials.model
+      model: model.trim() || credentials.model,
+      contextWindow: credentials.contextWindow ?? saved?.contextWindow
     },
     env,
     fetch
@@ -157,6 +166,7 @@ function createLlmClientFromCredentials(
     baseUrl?: string;
     anthropicVersion?: string;
     thinkingEffort?: ThinkingEffort;
+    contextWindow?: number;
   },
   env: Record<string, string | undefined>,
   fetch?: LlmFetch
@@ -177,6 +187,7 @@ function createLlmClientFromCredentials(
       baseUrl: credentials.baseUrl,
       anthropicVersion: credentials.anthropicVersion,
       thinkingEffort,
+      contextWindow: credentials.contextWindow,
       fetch,
       backend
     });
@@ -192,6 +203,7 @@ function createLlmClientFromCredentials(
     model: credentials.model,
     baseUrl: credentials.baseUrl,
     thinkingEffort,
+    contextWindow: credentials.contextWindow,
     fetch,
     backend
   });

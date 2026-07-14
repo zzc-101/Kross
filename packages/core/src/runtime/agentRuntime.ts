@@ -11,7 +11,6 @@ import {
   type ContextManager
 } from '../context/contextManager';
 import {
-  estimateTokensFromChars,
   formatContextUsage,
   resolveModelContextWindow
 } from '../llm/modelContextWindows';
@@ -181,8 +180,8 @@ export class AgentRuntime extends EventEmitter {
   }
 
   /**
-   * 当前会话上下文占用估算（用于顶栏 12K/128K 展示）。
-   * used 来自 ContextManager 字符预算 /4；max 来自模型窗口表或 AGENT_CONTEXT_WINDOW。
+   * 当前会话上下文占用（用于顶栏 12K/256K 展示）。
+   * used 仅采用最近一次模型响应返回的 usage.inputTokens，不再做字符估算。
    */
   getContextUsage(input: {
     requestedMode: AgentMode;
@@ -199,11 +198,11 @@ export class AgentRuntime extends EventEmitter {
       requestedMode: input.requestedMode,
       currentUserInput: input.currentUserInput
     });
-    const usedTokens = estimateTokensFromChars(snapshot.estimatedChars);
-    const maxTokens = resolveModelContextWindow(
-      this.options.llmClient?.model,
-      input.env ?? process.env
-    );
+    const client = this.options.llmClient;
+    const usedTokens = client?.lastUsage?.inputTokens ?? 0;
+    const maxTokens =
+      client?.contextWindow ??
+      resolveModelContextWindow(client?.model, input.env ?? process.env);
     return {
       usedChars: snapshot.estimatedChars,
       usedTokens,

@@ -107,21 +107,26 @@ describe('OpenAiProtocolClient', () => {
   });
 
   it('streams text deltas from OpenAI-compatible SSE responses', async () => {
+    const calls: RequestInit[] = [];
     const client = new OpenAiProtocolClient({
       apiKey: 'test-key',
       baseUrl: 'https://llm.example/v1',
       model: 'gpt-test',
-      fetch: async () =>
-        new Response(
+      fetch: async (_url, init) => {
+        calls.push(init);
+        return new Response(
           [
             'data: {"choices":[{"delta":{"content":"你"}}]}',
             '',
             'data: {"choices":[{"delta":{"content":"好"}}]}',
             '',
+            'data: {"choices":[],"usage":{"prompt_tokens":21,"completion_tokens":2,"total_tokens":23}}',
+            '',
             'data: [DONE]',
             ''
           ].join('\n')
-        )
+        );
+      }
     });
 
     const chunks: string[] = [];
@@ -134,6 +139,10 @@ describe('OpenAiProtocolClient', () => {
     }
 
     expect(chunks).toEqual(['你', '好']);
+    expect(client.lastUsage?.inputTokens).toBe(21);
+    expect(JSON.parse(String(calls[0]?.body))).toMatchObject({
+      stream_options: { include_usage: true }
+    });
   });
 
   it('parses streamed tool call fragments into complete tool-call chunks', async () => {

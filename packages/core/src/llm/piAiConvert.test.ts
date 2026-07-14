@@ -160,7 +160,24 @@ describe('piAiConvert', () => {
       type: 'tool-call',
       call: { id: '1', name: 'Glob', input: { pattern: '*' } }
     });
-    expect(mapPiStreamEvent({ type: 'done' })).toEqual({ type: 'done' });
+    expect(
+      mapPiStreamEvent({
+        type: 'done',
+        message: {
+          usage: {
+            input: 12,
+            output: 3,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 15,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+          }
+        }
+      })
+    ).toEqual({
+      type: 'done',
+      usage: { inputTokens: 12, outputTokens: 3, totalTokens: 15 }
+    });
     expect(
       mapPiStreamEvent({
         type: 'error',

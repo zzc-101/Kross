@@ -8,6 +8,7 @@ import type { ThinkingEffort } from './thinkingEffort';
 
 export interface ResolvedLlmCredentials extends ResolvedProviderCredentials {
   thinkingEffort?: ThinkingEffort;
+  contextWindow?: number;
 }
 
 /**
@@ -57,7 +58,10 @@ export function resolveProviderCredentials(
       provider === 'anthropic'
         ? firstNonEmpty(env.ANTHROPIC_VERSION, savedMatch?.anthropicVersion)
         : undefined,
-    thinkingEffort: savedMatch?.thinkingEffort
+    thinkingEffort: savedMatch?.thinkingEffort,
+    contextWindow: parsePositiveInt(
+      env.AGENT_CONTEXT_WINDOW ?? env.KROSS_CONTEXT_WINDOW
+    ) ?? savedMatch?.contextWindow
   };
 }
 
@@ -97,4 +101,15 @@ function firstNonEmpty(
     }
   }
   return undefined;
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return Math.floor(parsed);
 }

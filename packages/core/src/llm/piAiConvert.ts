@@ -146,6 +146,7 @@ export function mapPiStreamEvent(
     };
     error?: { errorMessage?: string };
     reason?: string;
+    message?: { usage?: Usage };
   }
 ): LlmStreamChunk | { type: 'error'; message: string } | undefined {
   switch (event.type) {
@@ -166,7 +167,12 @@ export function mapPiStreamEvent(
         }
       };
     case 'done':
-      return { type: 'done' };
+      return {
+        type: 'done',
+        ...(event.message?.usage
+          ? { usage: fromPiUsage(event.message.usage) }
+          : {})
+      };
     case 'error':
       return {
         type: 'error',

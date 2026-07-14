@@ -23,7 +23,12 @@ export function createRuntimeOptionsFromEnv(
   fetch?: LlmFetch,
   options: CreateRuntimeConfigOptions = {}
 ): AgentRuntimeOptions {
-  const envClient = createLlmClientFromEnv(env, fetch);
+  const savedConfig = loadKrossConfig(options);
+  const envClient = createLlmClientFromEnv(
+    env,
+    fetch,
+    savedConfig?.llm?.contextWindow
+  );
   const traceStore = new ObservableTraceStore(new JsonlTraceStore(join(cwd, 'runs')));
 
   const toolGateway = new ToolGateway({ traceStore, defaultTimeoutMs: 120_000 });
@@ -38,7 +43,7 @@ export function createRuntimeOptionsFromEnv(
     maxToolIterations: parseMaxToolIterations(env),
     llmClient:
       envClient ??
-      createLlmClientFromKrossConfig(loadKrossConfig(options), fetch)
+      createLlmClientFromKrossConfig(savedConfig, fetch)
   };
 }
 
