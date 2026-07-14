@@ -107,7 +107,8 @@ export class AgentRuntime extends EventEmitter {
       record: (runId, type, payload) => this.record(runId, type, payload),
       attachChangedFiles: (result) => this.attachChangedFiles(result),
       appendConversation: (userInput, assistantOutput) =>
-        this.appendConversation(userInput, assistantOutput)
+        this.appendConversation(userInput, assistantOutput),
+      syncTodoContext: () => this.syncTodoContextSource()
     });
     if (this.toolGateway) {
       this.toolGateway.setApprovalPolicy(createApprovalPolicy(this.permissionMode));
@@ -187,6 +188,33 @@ export class AgentRuntime extends EventEmitter {
   /** 最近一次上下文维护（压缩/截断）结果，供 TUI 提示。 */
   getLastContextMaintenance(): ContextMaintenanceResult | undefined {
     return this.contextManager.getLastMaintenance();
+  }
+
+  /** Session todo list (if wired). */
+  getTodoStore(): import('../todo/todoStore').TodoStore | undefined {
+    return this.options.todoStore;
+  }
+
+  /**
+   * Sync session todos into context sources so the model sees them every turn.
+   */
+  syncTodoContextSource(): void {
+    const store = this.options.todoStore;
+    if (!store) {
+      return;
+    }
+    const text = store.formatForPrompt();
+    if (!text) {
+      this.contextManager.removeSource('session-todos');
+      return;
+    }
+    this.contextManager.addSource({
+      id: 'session-todos',
+      kind: 'user',
+      title: 'Session todos',
+      content: text,
+      priority: 95
+    });
   }
 
   /**
@@ -457,6 +485,7 @@ export class AgentRuntime extends EventEmitter {
     await this.record(runId, 'mode.detected', { ...detection });
 
     const tools = this.toolGateway?.listTools({ mode: detection.mode }) ?? [];
+    this.syncTodoContextSource();
     const context = this.contextManager.build({
       systemPrompt: PLANNER_SYSTEM_PROMPT,
       currentUserInput: input.input,
@@ -698,6 +727,7 @@ export class AgentRuntime extends EventEmitter {
             }).mode
           : 'normal'
         : input.requestedMode;
+    this.syncTodoContextSource();
     const snapshot = this.contextManager.build({
       systemPrompt: PLANNER_SYSTEM_PROMPT,
       currentUserInput,

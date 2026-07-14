@@ -9,6 +9,7 @@ import {
   JsonlTraceStore,
   loadKrossConfig,
   ObservableTraceStore,
+  TodoStore,
   ToolGateway,
   type AgentRuntimeOptions,
   type LlmClient,
@@ -25,6 +26,7 @@ export interface CreateRuntimeConfigOptions {
 export interface RuntimeTooling {
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
+  todoStore: TodoStore;
   /** Update LLM used by Task subagents (e.g. after /import). */
   setLlmClient: (client: LlmClient | undefined) => void;
   mcpManager?: McpManager;
@@ -32,7 +34,7 @@ export interface RuntimeTooling {
 }
 
 /**
- * Build AgentRuntime options (sync). Registers builtin tools (+ Task).
+ * Build AgentRuntime options (sync). Registers builtin tools (+ Task + Todos).
  * For MCP, prefer `bootstrapRuntimeTooling` once at process start and pass
  * the shared gateway/trace into options.
  */
@@ -41,7 +43,10 @@ export function createRuntimeOptionsFromEnv(
   env: Record<string, string | undefined>,
   fetch?: LlmFetch,
   options: CreateRuntimeConfigOptions = {},
-  tooling?: Pick<RuntimeTooling, 'toolGateway' | 'traceStore' | 'setLlmClient'>
+  tooling?: Pick<
+    RuntimeTooling,
+    'toolGateway' | 'traceStore' | 'todoStore' | 'setLlmClient'
+  >
 ): AgentRuntimeOptions {
   const savedConfig = loadKrossConfig(options);
   const envClient = createLlmClientFromEnv(
@@ -54,10 +59,12 @@ export function createRuntimeOptionsFromEnv(
 
   let toolGateway = tooling?.toolGateway;
   let traceStore = tooling?.traceStore;
-  if (!toolGateway || !traceStore) {
+  let todoStore = tooling?.todoStore;
+  if (!toolGateway || !traceStore || !todoStore) {
     const created = createLocalTooling(cwd, llmClient);
     toolGateway = created.toolGateway;
     traceStore = created.traceStore;
+    todoStore = created.todoStore;
   } else {
     tooling.setLlmClient?.(llmClient);
   }
@@ -65,6 +72,7 @@ export function createRuntimeOptionsFromEnv(
   return {
     traceStore,
     toolGateway,
+    todoStore,
     workspaceRoot: cwd,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
@@ -73,8 +81,8 @@ export function createRuntimeOptionsFromEnv(
 }
 
 /**
- * One-shot tooling bootstrap: builtins (incl. Task) + MCP servers (stdio).
- * Reuse across runtime recreations so MCP/Task wiring survives /import refresh.
+ * One-shot tooling bootstrap: builtins (Task + Todos) + MCP servers (stdio).
+ * Reuse across runtime recreations so MCP/Task/todo wiring survives /import.
  */
 export async function bootstrapRuntimeTooling(
   cwd: string,
@@ -99,6 +107,7 @@ export async function bootstrapRuntimeTooling(
   return {
     toolGateway: created.toolGateway,
     traceStore: created.traceStore,
+    todoStore: created.todoStore,
     setLlmClient: created.setLlmClient,
     mcpManager,
     close: async () => {
@@ -113,6 +122,7 @@ function createLocalTooling(
 ): {
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
+  todoStore: TodoStore;
   setLlmClient: (client: LlmClient | undefined) => void;
 } {
   const traceStore = new ObservableTraceStore(
@@ -122,6 +132,7 @@ function createLocalTooling(
     traceStore,
     defaultTimeoutMs: 120_000
   });
+  const todoStore = new TodoStore();
 
   const subagentDeps: SubagentRunDeps = {
     workspaceRoot: cwd,
@@ -134,7 +145,8 @@ function createLocalTooling(
   for (const tool of createBuiltinTools(cwd, {
     includeTask: true,
     parentDepth: 0,
-    runSubagent: createDefaultSubagentRunner(subagentDeps)
+    runSubagent: createDefaultSubagentRunner(subagentDeps),
+    todoStore
   })) {
     toolGateway.register(tool);
   }
@@ -142,6 +154,7 @@ function createLocalTooling(
   return {
     toolGateway,
     traceStore,
+    todoStore,
     setLlmClient: (client) => {
       subagentDeps.llmClient = client;
     }

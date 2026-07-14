@@ -51,6 +51,7 @@ describe('createRuntimeOptionsFromEnv', () => {
   it('reuses injected tooling gateway when provided', () => {
     const first = createRuntimeOptionsFromEnv('/tmp/local-agent', {});
     expect(first.toolGateway).toBeDefined();
+    expect(first.todoStore).toBeDefined();
     const setLlmClient = vi.fn();
     const second = createRuntimeOptionsFromEnv(
       '/tmp/local-agent',
@@ -61,12 +62,21 @@ describe('createRuntimeOptionsFromEnv', () => {
         toolGateway: first.toolGateway!,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test reuses opaque store instance
         traceStore: first.traceStore as any,
+        todoStore: first.todoStore!,
         setLlmClient
       }
     );
     expect(second.toolGateway).toBe(first.toolGateway);
     expect(second.traceStore).toBe(first.traceStore);
+    expect(second.todoStore).toBe(first.todoStore);
     expect(setLlmClient).toHaveBeenCalled();
+  });
+
+  it('registers TodoWrite and TodoRead on the gateway', () => {
+    const options = createRuntimeOptionsFromEnv('/tmp/local-agent', {});
+    const names = options.toolGateway?.listTools().map((tool) => tool.name) ?? [];
+    expect(names).toContain('TodoWrite');
+    expect(names).toContain('TodoRead');
   });
 
   it('applies config contextWindow even when credentials come from env', () => {

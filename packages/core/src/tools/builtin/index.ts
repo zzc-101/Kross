@@ -19,7 +19,9 @@ import {
   createTaskTool,
   type CreateTaskToolOptions
 } from './task';
+import { createTodoReadTool, createTodoWriteTool } from './todo';
 import { createWriteTool } from './write';
+import type { TodoStore } from '../../todo/todoStore';
 
 export { createExploreTools, createSubagentTools } from './exploreTools';
 export {
@@ -27,6 +29,7 @@ export {
   createTaskTool,
   type CreateTaskToolOptions
 } from './task';
+export { createTodoReadTool, createTodoWriteTool } from './todo';
 
 export const builtinToolNames = [
   'Bash',
@@ -42,7 +45,9 @@ export const builtinToolNames = [
   'GitStatus',
   'GitDiff',
   'GitLog',
-  'Task'
+  'Task',
+  'TodoWrite',
+  'TodoRead'
 ] as const;
 
 export interface CreateBuiltinToolsOptions {
@@ -50,6 +55,8 @@ export interface CreateBuiltinToolsOptions {
   includeTask?: boolean;
   parentDepth?: number;
   runSubagent?: CreateTaskToolOptions['run'];
+  /** Session todo store; when set, registers TodoWrite + TodoRead. */
+  todoStore?: TodoStore;
 }
 
 /**
@@ -85,6 +92,13 @@ export function createBuiltinTools(
         parentDepth: options.parentDepth ?? 0,
         run: options.runSubagent
       })
+    );
+  }
+
+  if (options.todoStore) {
+    tools.push(
+      createTodoWriteTool(options.todoStore),
+      createTodoReadTool(options.todoStore)
     );
   }
 

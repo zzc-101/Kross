@@ -118,6 +118,7 @@ async function main(): Promise<void> {
     ? {
         toolGateway: tooling.toolGateway,
         traceStore: tooling.traceStore,
+        todoStore: tooling.todoStore,
         setLlmClient: tooling.setLlmClient
       }
     : undefined;

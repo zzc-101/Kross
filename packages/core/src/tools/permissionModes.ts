@@ -67,6 +67,8 @@ const readLikeTools = new Set([
   'GitDiff',
   'GitLog',
   'Task',
+  'TodoWrite',
+  'TodoRead',
   'fs.read'
 ]);
 const writeLikeTools = new Set([

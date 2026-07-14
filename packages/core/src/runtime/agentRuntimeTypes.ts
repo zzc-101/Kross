@@ -1,6 +1,7 @@
 import type { ContextManager, ContextSnapshot } from '../context/contextManager';
 import type { AgentMode, AgentResult, TraceEvent } from '../domain';
 import type { LlmClient } from '../llm/types';
+import type { TodoStore } from '../todo/todoStore';
 import type { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import type { GitRunner } from '../workspace/workspaceDiff';
@@ -20,6 +21,8 @@ export interface AgentRuntimeOptions {
    * Used by Task tool to forbid nested spawn when depth >= 1.
    */
   subagentDepth?: number;
+  /** Session todo list shared with TodoWrite/TodoRead tools. */
+  todoStore?: TodoStore;
 }
 
 export interface AgentRunInput {

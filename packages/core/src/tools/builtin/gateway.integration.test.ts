@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { TodoStore } from '../../todo/todoStore';
 import { ToolGateway, ToolPermissionError } from '../toolGateway';
 import { builtinToolNames, createBuiltinTools } from './index';
 
@@ -25,25 +26,30 @@ function makeGateway(): ToolGateway {
 }
 
 describe('builtin tools integration', () => {
-  it('registers core builtin tools (Task requires runSubagent wiring)', () => {
+  it('registers core builtin tools (Task/Todo require extra wiring)', () => {
     const gateway = makeGateway();
     const names = gateway.listTools({ mode: 'normal' }).map((t) => t.name);
-    const withoutTask = [...builtinToolNames].filter((name) => name !== 'Task');
-    expect(names.sort()).toEqual(withoutTask.sort());
+    const coreOnly = [...builtinToolNames].filter(
+      (name) => name !== 'Task' && name !== 'TodoWrite' && name !== 'TodoRead'
+    );
+    expect(names.sort()).toEqual(coreOnly.sort());
   });
 
-  it('registers Task when runSubagent is provided', () => {
+  it('registers Task and Todo tools when wired', () => {
     const gateway = new ToolGateway({ defaultTimeoutMs: 1000 });
     for (const tool of createBuiltinTools(root, {
       includeTask: true,
       runSubagent: async () => {
         throw new Error('not used');
-      }
+      },
+      todoStore: new TodoStore()
     })) {
       gateway.register(tool);
     }
     const names = gateway.listTools({ mode: 'normal' }).map((t) => t.name);
     expect(names).toContain('Task');
+    expect(names).toContain('TodoWrite');
+    expect(names).toContain('TodoRead');
   });
 
   it('allows read tools without approval', async () => {

@@ -71,6 +71,8 @@ export interface RuntimeToolLoopOptions {
   ): Promise<void>;
   attachChangedFiles(result: AgentResult): Promise<AgentResult>;
   appendConversation(userInput: string, assistantOutput: string): void;
+  /** Refresh session todo list into context sources before model calls. */
+  syncTodoContext?: () => void;
 }
 
 export class RuntimeToolLoop {
@@ -346,6 +348,7 @@ export class RuntimeToolLoop {
 
     try {
       const availableTools = this.options.toolGateway?.listTools({ mode }) ?? [];
+      this.options.syncTodoContext?.();
       const context = this.options.contextManager.build({
         systemPrompt: PLANNER_SYSTEM_PROMPT,
         currentUserInput: goal,

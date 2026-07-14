@@ -118,6 +118,7 @@ export interface ContextManager {
   appendConversation(message: LlmMessage): void;
   replaceConversation(messages: LlmMessage[]): ContextMaintenanceResult;
   addSource(source: ContextSource): void;
+  removeSource(id: string): void;
   registerSkill(skill: SkillMetadata): void;
   recordToolResult(result: ToolResultContext): void;
   clearToolResults(): void;
@@ -203,6 +204,10 @@ export class InMemoryContextManager implements ContextManager {
 
   addSource(source: ContextSource): void {
     this.sources.set(source.id, source);
+  }
+
+  removeSource(id: string): void {
+    this.sources.delete(id);
   }
 
   registerSkill(skill: SkillMetadata): void {

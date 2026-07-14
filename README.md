@@ -14,7 +14,7 @@
 - TUI 界面 i18n：默认中文，支持 `/lang en|zh` 与 `AGENT_LANG` / `KROSS_LANG` / `config.locale` 切换英文。
 - Context Manager：把 system prompt、对话历史、工作区/trace/memory 等上下文源、工具清单、技能 metadata、工具结果摘要组装为 LLM messages，并按字符预算裁剪低优先级上下文。
 - Tool Gateway：统一注册工具、暴露工具 metadata、校验工具入参、阻断高风险工具的未授权调用，并把工具调用事件写入 trace。
-- 内置工具集：文件读写、目录与元信息查询、Git 状态/差异/历史、文本检索、Bash，以及 **Task（子代理）** 均已接入 Tool Gateway，支持原生 tool-call loop、审批恢复和 trace 记录。
+- 内置工具集：文件读写、目录与元信息查询、Git 状态/差异/历史、文本检索、Bash，**Task（子代理）**，以及 **TodoWrite/TodoRead（会话任务清单）** 均已接入 Tool Gateway，支持原生 tool-call loop、审批恢复和 trace 记录。
 - 首次配置导入：首次进入 TUI 时，如果本机检测到 Claude Code 或 Codex 配置，会提示通过 `/import claude`、`/import codex` 或 `/import skip` 导入/跳过；导入后保存到 `~/.kross/config.json`。
 
 ## 上下文系统
@@ -70,6 +70,13 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - `Bash` 会以 workspace 内目录作为 cwd 启动命令，但当前版本没有 OS 级沙箱；命令本身的系统访问能力主要由审批策略约束。
 - 工具调用循环默认最多 **200 轮**（一轮 = 模型 tool_calls → 执行 → 回填），作死循环安全网，不是“正常任务配额”。触顶时 **软着陆**：丢弃未执行 tool_calls、强制一轮无工具文本总结（`completed`），并记录 `llm.tool_loop.max_iterations` + `llm.soft_land.completed`；可用 `AGENT_MAX_TOOL_ITERATIONS` 覆盖。
   - 对照：OpenCode 默认不限步，可选 `steps`，触顶要求 summarize；实现层约 1000 步硬保险。Codex 基本不按步数掐断。Claude Code 会话可跑大量工具调用，另有产品侧单 turn 工具次数限制。
+
+已实现（Todo list）：
+
+- **`TodoWrite` / `TodoRead`**：会话级任务清单（pending / in_progress / completed / cancelled）。
+- 默认按 id **merge**；`merge: false` 整表替换。
+- 每轮请求前注入 context source `session-todos`，模型可持续看到进度。
+- 内存态（进程内）；不跨重启持久化。
 
 已实现（Subagent P0）：
 
