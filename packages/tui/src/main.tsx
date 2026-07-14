@@ -9,7 +9,10 @@ import { fileURLToPath } from 'node:url';
 import {
   AgentRuntime,
   createConfigImportController,
-  HybridSessionStore
+  HybridSessionStore,
+  initI18n,
+  loadKrossConfig,
+  resolveLocale
 } from '@kross/core';
 import { App, type AppTestApi } from './App';
 import { formatSessionStoreInitializationError } from './app/sessionStartup';
@@ -20,6 +23,13 @@ import {
   leaveAlternateScreen
 } from './terminal/alternateScreen';
 import { createTerminalFrameOutput } from './terminal/frameOutput';
+
+initI18n(
+  resolveLocale({
+    env: process.env,
+    configLocale: loadKrossConfig()?.locale
+  })
+);
 
 const useAltScreen = canUseAlternateScreen();
 

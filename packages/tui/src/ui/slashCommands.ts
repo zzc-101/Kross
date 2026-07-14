@@ -1,3 +1,5 @@
+import { t } from '@kross/core';
+
 export type SlashCommandCategory =
   | 'common'
   | 'inspection'
@@ -13,89 +15,101 @@ export interface SlashCommand {
   requiresPendingCrossRepoPlan?: boolean;
 }
 
-export const slashCommands: SlashCommand[] = [
-  {
-    name: '/help',
-    description: '查看全部命令',
-    category: 'common'
-  },
-  {
-    name: '/settings',
-    description: '模型与思考强度',
-    usage: '/settings',
-    category: 'common'
-  },
-  {
-    name: '/model',
-    description: '切换模型或思考强度',
-    usage: '/model [model|effort]',
-    category: 'common'
-  },
-  {
-    name: '/mode',
-    description: '切换 Agent 模式',
-    usage: '/mode auto|normal|cross-repo',
-    category: 'common'
-  },
-  {
-    name: '/resume',
-    description: '打开会话选择或恢复指定会话',
-    usage: '/resume [sessionId]',
-    category: 'common'
-  },
-  {
-    name: '/status',
-    description: '查看当前运行状态',
-    category: 'inspection'
-  },
-  {
-    name: '/context',
-    description: '查看会话上下文占用',
-    category: 'inspection'
-  },
-  {
-    name: '/trace',
-    description: '查看最近运行记录',
-    usage: '/trace [runId]',
-    category: 'inspection'
-  },
-  {
-    name: '/diff',
-    description: '查看文件与 Git 变更',
-    usage: '/diff [runId]',
-    category: 'inspection'
-  },
-  {
-    name: '/perm',
-    description: '切换工具权限模式',
-    usage: '/perm default|classifier|auto',
-    category: 'settings'
-  },
-  {
-    name: '/import',
-    description: '导入 Claude Code / Codex 配置',
-    usage: '/import claude|codex|skip',
-    category: 'settings'
-  },
-  {
-    name: '/approve',
-    description: '确认等待中的跨仓库计划',
-    category: 'contextual',
-    requiresPendingCrossRepoPlan: true
-  },
-  {
-    name: '/reject',
-    description: '取消等待中的跨仓库计划',
-    category: 'contextual',
-    requiresPendingCrossRepoPlan: true
-  },
-  {
-    name: '/expand',
-    description: '切换最近一条思考过程折叠（等同 ctrl+o）',
-    category: 'settings',
-    suggestion: false
-  }
-];
+/** Live slash command list (descriptions follow current locale). */
+export function listSlashCommands(): SlashCommand[] {
+  return [
+    {
+      name: '/help',
+      description: t('slash.help.desc'),
+      category: 'common'
+    },
+    {
+      name: '/settings',
+      description: t('slash.settings.desc'),
+      usage: '/settings',
+      category: 'common'
+    },
+    {
+      name: '/model',
+      description: t('slash.model.desc'),
+      usage: '/model [model|effort]',
+      category: 'common'
+    },
+    {
+      name: '/mode',
+      description: t('slash.mode.desc'),
+      usage: '/mode auto|normal|cross-repo',
+      category: 'common'
+    },
+    {
+      name: '/resume',
+      description: t('slash.resume.desc'),
+      usage: '/resume [sessionId]',
+      category: 'common'
+    },
+    {
+      name: '/lang',
+      description: t('slash.lang.desc'),
+      usage: '/lang zh|en',
+      category: 'settings'
+    },
+    {
+      name: '/status',
+      description: t('slash.status.desc'),
+      category: 'inspection'
+    },
+    {
+      name: '/context',
+      description: t('slash.context.desc'),
+      category: 'inspection'
+    },
+    {
+      name: '/trace',
+      description: t('slash.trace.desc'),
+      usage: '/trace [runId]',
+      category: 'inspection'
+    },
+    {
+      name: '/diff',
+      description: t('slash.diff.desc'),
+      usage: '/diff [runId]',
+      category: 'inspection'
+    },
+    {
+      name: '/perm',
+      description: t('slash.perm.desc'),
+      usage: '/perm default|classifier|auto',
+      category: 'settings'
+    },
+    {
+      name: '/import',
+      description: t('slash.import.desc'),
+      usage: '/import claude|codex|skip',
+      category: 'settings'
+    },
+    {
+      name: '/approve',
+      description: t('slash.approve.desc'),
+      category: 'contextual',
+      requiresPendingCrossRepoPlan: true
+    },
+    {
+      name: '/reject',
+      description: t('slash.reject.desc'),
+      category: 'contextual',
+      requiresPendingCrossRepoPlan: true
+    },
+    {
+      name: '/expand',
+      description: t('slash.expand.desc'),
+      category: 'settings',
+      suggestion: false
+    }
+  ];
+}
+
+/** @deprecated Prefer listSlashCommands() so descriptions track locale. */
+export const slashCommands: SlashCommand[] = listSlashCommands();
 
 export interface SlashSuggestionOptions {
   hasPendingCrossRepoPlan?: boolean;
@@ -119,7 +133,7 @@ export function getSlashCommandSuggestions(
   const contextual: SlashCommand[] = [];
   const regular: SlashCommand[] = [];
 
-  for (const command of slashCommands) {
+  for (const command of listSlashCommands()) {
     if (command.suggestion === false) {
       continue;
     }
@@ -160,8 +174,8 @@ export function filterSlashCommands(
 
 export function formatSlashHelp(): string {
   return [
-    '可用命令：',
-    ...slashCommands.map((command) => {
+    t('slash.help.header'),
+    ...listSlashCommands().map((command) => {
       const usage = command.usage ?? command.name;
       return `- ${usage}  ${command.description}`;
     })

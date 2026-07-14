@@ -1262,7 +1262,7 @@ describe('App', () => {
     await waitUntil(() => lastFrame()?.includes('查看全部命令') === true);
     expect(lastFrame()).toContain('命令');
     expect(lastFrame()).toContain('/help');
-    expect(lastFrame()).toContain('还有 3 项，继续输入筛选');
+    expect(lastFrame()).toContain('还有 4 项，继续输入筛选');
 
     setInput?.('/mo');
     await waitUntil(() => lastFrame()?.includes('切换 Agent 模式') === true);

@@ -1,22 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
+import { t } from '@kross/core';
 
 import { symbols, theme } from './theme';
 import { usePulse } from './usePulse';
-
-const thinkingPhases = [
-  '读取工作区',
-  '规划下一步',
-  '等待模型',
-  '整理回复'
-] as const;
-
-const toolPhases = [
-  '运行已允许的工具',
-  '收集工具输出',
-  '将结果交给模型',
-  '等待模型'
-] as const;
 
 export function ThinkingIndicator({
   active,
@@ -26,7 +13,23 @@ export function ThinkingIndicator({
   variant?: 'thinking' | 'tool';
 }) {
   const frame = usePulse(symbols.busyFrames, 80, active);
-  const phases = variant === 'tool' ? toolPhases : thinkingPhases;
+  const phases = useMemo(
+    () =>
+      variant === 'tool'
+        ? [
+            t('thinking.phase.runTool'),
+            t('thinking.phase.collect'),
+            t('thinking.phase.handOff'),
+            t('thinking.phase.waitModel')
+          ]
+        : [
+            t('thinking.phase.read'),
+            t('thinking.phase.plan'),
+            t('thinking.phase.waitModel'),
+            t('thinking.phase.compose')
+          ],
+    [variant]
+  );
   const [phaseIndex, setPhaseIndex] = useState(0);
 
   useEffect(() => {
@@ -46,7 +49,8 @@ export function ThinkingIndicator({
     return null;
   }
 
-  const label = variant === 'tool' ? '正在执行' : '思考中';
+  const label =
+    variant === 'tool' ? t('thinking.toolLabel') : t('thinking.label');
 
   return (
     <Box marginBottom={1}>

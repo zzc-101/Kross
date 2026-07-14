@@ -1,3 +1,5 @@
+import { t } from '@kross/core';
+
 export type ApprovalSelection = 'approve' | 'reject';
 
 export interface ApprovalPresentation {
@@ -16,40 +18,40 @@ export function formatApprovalPresentation(
   switch (risk) {
     case 'read':
       return {
-        title: '允许读取工作区？',
-        riskLabel: '只读访问',
-        inputLabel: '输入'
+        title: t('approval.read.title'),
+        riskLabel: t('approval.read.risk'),
+        inputLabel: t('approval.input')
       };
     case 'write':
       return {
-        title: '允许修改工作区？',
-        riskLabel: '文件写入',
-        inputLabel: '输入'
+        title: t('approval.write.title'),
+        riskLabel: t('approval.write.risk'),
+        inputLabel: t('approval.input')
       };
     case 'execute':
       return {
-        title: '允许执行命令？',
-        riskLabel: '命令执行',
-        inputLabel: '命令'
+        title: t('approval.execute.title'),
+        riskLabel: t('approval.execute.risk'),
+        inputLabel: t('approval.execute.input')
       };
     case 'network':
       return {
-        title: '允许访问网络？',
-        riskLabel: '网络访问',
-        inputLabel: '请求'
+        title: t('approval.network.title'),
+        riskLabel: t('approval.network.risk'),
+        inputLabel: t('approval.network.input')
       };
     default:
       return {
-        title: '允许这次工具调用？',
+        title: t('approval.default.title'),
         riskLabel: risk,
-        inputLabel: '输入'
+        inputLabel: t('approval.input')
       };
   }
 }
 
 export function formatApprovalReason(reason: string): string {
   if (/^(read|write|execute|network) tool requires approval$/i.test(reason)) {
-    return '该操作需要你的确认';
+    return t('approval.reason');
   }
   return reason;
 }

@@ -11,6 +11,7 @@
 - 跨仓库模式已经具备入口和确认门：检测到前后端/管理端/跨系统联动后，在执行前暂停等待确认，可通过 `/approve` 继续或 `/reject` 取消。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - 工作区级会话持久化：完整可见消息以 append-only JSONL 保存，SQLite 仅维护可重建的最近会话索引；启动页可选择历史会话，`/resume` 打开选择器，`/resume <sessionId>` 直接恢复。
+- TUI 界面 i18n：默认中文，支持 `/lang en|zh` 与 `AGENT_LANG` / `KROSS_LANG` / `config.locale` 切换英文。
 - Context Manager：把 system prompt、对话历史、工作区/trace/memory 等上下文源、工具清单、技能 metadata、工具结果摘要组装为 LLM messages，并按字符预算裁剪低优先级上下文。
 - Tool Gateway：统一注册工具、暴露工具 metadata、校验工具入参、阻断高风险工具的未授权调用，并把工具调用事件写入 trace。
 - 内置工具集：文件读写、目录与元信息查询、Git 状态/差异/历史、文本检索和 Bash 均已接入 Tool Gateway，支持原生 tool-call loop、审批恢复和 trace 记录。
@@ -118,6 +119,7 @@ TUI 命令：
 
 - **`ctrl+p` / `/settings` / 单独 `/model`**：打开模型与思考强度面板  
 - `/resume` — 打开最近会话选择（↑↓ 选中后 Enter 恢复）；`/resume <sessionId>` 直接恢复指定会话
+- `/lang zh|en` — 切换界面语言（写入 `~/.kross/config.json` 的 `locale`）
 - `/model list` — 列出 provider  
 - `/model <modelId>` / `/model <provider> <model>` — 切模型  
 - `/model off|minimal|low|medium|high|xhigh|cycle` — 切思考强度  
@@ -125,6 +127,8 @@ TUI 命令：
 
 模型配置优先序：完整 `AGENT_LLM_*` 环境变量 → `~/.kross/config.json`（`/import`）。  
 不完整的 env **不会**覆盖或挡住已导入的配置；写盘时若会导致丢失密钥会拒绝写入。
+
+界面语言优先序：`AGENT_LANG` / `KROSS_LANG` → `~/.kross/config.json` 的 `locale` → 系统 `LANG` → 默认 `zh`。
 
 上下文窗口默认统一为 `256000` token，不再按模型名推断。可在
 `~/.kross/config.json` 的 `llm.contextWindow` 中覆盖：

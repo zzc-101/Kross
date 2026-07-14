@@ -102,6 +102,7 @@ export {
 } from './WelcomeHome';
 export {
   slashCommands,
+  listSlashCommands,
   filterSlashCommands,
   getSlashCommandSuggestions,
   formatSlashHelp,

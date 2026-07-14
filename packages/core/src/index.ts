@@ -1,5 +1,6 @@
 export * from './context/contextManager';
 export * from './config/configImport';
+export * from './i18n';
 export * from './domain';
 export * from './llm/anthropicProtocolClient';
 export * from './llm/createLlmClient';

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text, useStdout } from 'ink';
 
-import type { PendingToolApproval } from '@kross/core';
+import { t, type PendingToolApproval } from '@kross/core';
 
 import {
   formatApprovalReason,
@@ -117,7 +117,7 @@ export function ApprovalPanel({
         {hRule}
         {symbols.boxBottomRight}
       </Text>
-      <Text dimColor>{' ←/→ 切换 · Enter 确认 · a/r 快捷键'}</Text>
+      <Text dimColor>{t('approval.hotkeys')}</Text>
     </Box>
   );
 }

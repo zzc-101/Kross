@@ -9,6 +9,7 @@ import {
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 
+import { isAppLocale, type AppLocale } from '../i18n';
 import { createLlmClient } from '../llm/createLlmClient';
 import { isLlmProvider } from '../llm/llmProviders';
 import { isUsableLlmConfig } from '../llm/resolveCredentials';
@@ -30,6 +31,8 @@ export interface ImportedLlmConfig {
 }
 
 export interface KrossConfig {
+  /** UI language preference (`zh` | `en`). */
+  locale?: AppLocale;
   llm?: ImportedLlmConfig;
   setup?: {
     importedFrom?: ExternalAgentSource;
@@ -256,6 +259,24 @@ export function updateKrossLlmConfig(
   const config: KrossConfig = {
     ...existingFile,
     llm: merged
+  };
+  writeKrossConfig(configPath, config);
+  return { configPath, config };
+}
+
+/** Persist UI locale into ~/.kross/config.json (best-effort preference). */
+export function updateKrossLocale(
+  locale: AppLocale,
+  options: ConfigPersistenceOptions = {}
+): { configPath: string; config: KrossConfig } {
+  if (!isAppLocale(locale)) {
+    throw new Error(`unsupported locale: ${String(locale)}`);
+  }
+  const configPath = resolveKrossConfigPath(options);
+  const existing = loadKrossConfig(options);
+  const config: KrossConfig = {
+    ...existing,
+    locale
   };
   writeKrossConfig(configPath, config);
   return { configPath, config };

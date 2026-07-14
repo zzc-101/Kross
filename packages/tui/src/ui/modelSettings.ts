@@ -5,6 +5,7 @@ import {
   isUsableLlmConfig,
   listProvidersFromEnv,
   loadKrossConfig,
+  t,
   THINKING_EFFORT_LEVELS,
   type AgentRuntime,
   type ImportedLlmConfig,
@@ -129,7 +130,10 @@ export function buildModelOptions(
       id: key,
       provider: row.provider,
       model,
-      label: `${def.exampleModel} · ${row.provider} (未配置)`,
+      label: t('settings.unconfigured', {
+        example: def.exampleModel,
+        provider: row.provider
+      }),
       configured: false,
       current: false
     });
@@ -226,7 +230,7 @@ export function applyModelSettings(
 ): ApplySettingsResult {
   const effort = state.efforts[state.effortIndex]?.id;
   if (!effort) {
-    return { ok: false, message: '未选择思考强度' };
+    return { ok: false, message: t('settings.noEffort') };
   }
 
   const savedLlm = saved ?? loadKrossConfig()?.llm;
@@ -237,7 +241,7 @@ export function applyModelSettings(
       return {
         ok: true,
         label: runtime.getModelLabel(),
-        summary: `思考强度 → ${effort}`
+        summary: t('settings.effortOnly', { effort })
       };
     } catch (error) {
       return {
@@ -251,7 +255,10 @@ export function applyModelSettings(
     const def = getLlmProviderDefinition(modelOpt.provider);
     return {
       ok: false,
-      message: `${def.name} 未配置密钥（${[...def.apiKeyEnv, ...(def.authTokenEnv ?? [])].join('/')}）`
+      message: t('settings.missingKey', {
+        name: def.name,
+        envs: [...def.apiKeyEnv, ...(def.authTokenEnv ?? [])].join('/')
+      })
     };
   }
 
@@ -278,10 +285,11 @@ export function applyModelSettings(
       runtime.setLlmClient(client);
     }
 
+    const applied = formatModelEffortLabel(modelOpt.model, effort);
     return {
       ok: true,
-      label: formatModelEffortLabel(modelOpt.model, effort),
-      summary: `已应用 ${formatModelEffortLabel(modelOpt.model, effort)}`
+      label: applied,
+      summary: t('settings.applied', { label: applied })
     };
   } catch (error) {
     return {

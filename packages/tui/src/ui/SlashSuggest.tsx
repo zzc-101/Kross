@@ -1,15 +1,24 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import { t } from '@kross/core';
 
 import { symbols, theme } from './theme';
 import type { SlashCommand } from './slashCommands';
 
-const categoryLabels: Record<SlashCommand['category'], string> = {
-  common: '常用',
-  inspection: '运行检查',
-  settings: '设置',
-  contextual: '当前操作'
-};
+function categoryLabel(category: SlashCommand['category']): string {
+  switch (category) {
+    case 'common':
+      return t('slash.category.common');
+    case 'inspection':
+      return t('slash.category.inspection');
+    case 'settings':
+      return t('slash.category.settings');
+    case 'contextual':
+      return t('slash.category.contextual');
+    default:
+      return category;
+  }
+}
 
 export function SlashSuggest({
   commands,
@@ -31,7 +40,7 @@ export function SlashSuggest({
 
   return (
     <Box flexDirection="column" marginBottom={1} width={width}>
-      <Text dimColor>命令</Text>
+      <Text dimColor>{t('slash.suggest.title')}</Text>
       {commands.map((command, index) => {
         const selected = index === selectedIndex;
         const showCategory = command.category !== previousCategory;
@@ -45,7 +54,7 @@ export function SlashSuggest({
         return (
           <React.Fragment key={command.name}>
             {showCategory ? (
-              <Text dimColor>{categoryLabels[command.category]}</Text>
+              <Text dimColor>{categoryLabel(command.category)}</Text>
             ) : null}
             <Box>
               <Text color={selected ? theme.selection : undefined} bold={selected}>

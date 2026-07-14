@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text, useStdout } from 'ink';
+import { t } from '@kross/core';
 
 import {
   formatModeLabel,
@@ -90,7 +91,10 @@ export function HeaderBar({
               <StatusChip label={formatModeLabel(mode)} dim />
               <StatusChip label={formatPermissionModeLabel(permissionMode)} dim />
               {queueLength > 0 ? (
-                <StatusChip label={`队列：${queueLength}`} color={theme.statusBusy} />
+                <StatusChip
+                  label={t('header.queue', { count: queueLength })}
+                  color={theme.statusBusy}
+                />
               ) : null}
             </>
           ) : null}

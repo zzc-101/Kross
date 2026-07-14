@@ -1,8 +1,13 @@
 import {
+  getLocale,
   getLlmProviderDefinition,
   handleModelCommand,
+  isAppLocale,
   isPermissionMode,
   loadKrossConfig,
+  setLocale,
+  t,
+  updateKrossLocale,
   updateKrossLlmConfig,
   type AgentMode,
   type AgentRuntime,
@@ -35,7 +40,8 @@ export function handleCommand(
   refreshRuntime: () => void,
   toggleLastCollapsible: () => void,
   hasPendingCrossRepoPlan: boolean,
-  choosePlanApproval: (approved: boolean) => Promise<void>
+  choosePlanApproval: (approved: boolean) => Promise<void>,
+  onLocaleChange?: () => void
 ): boolean {
   if (!value.startsWith('/')) {
     return false;
@@ -49,8 +55,38 @@ export function handleCommand(
   if (value === '/status') {
     append(
       'agent',
-      `当前运行在本地 TUI。mode=${mode} · perm=${runtime.getPermissionMode()} · model=${runtime.getModelLabel()}`
+      t('cmd.status', {
+        mode,
+        perm: runtime.getPermissionMode(),
+        model: runtime.getModelLabel()
+      })
     );
+    return true;
+  }
+
+  if (value === '/lang' || value.startsWith('/lang ')) {
+    const argument =
+      value === '/lang' ? '' : value.slice('/lang'.length).trim().toLowerCase();
+    if (!argument) {
+      append(
+        'agent',
+        `${t('cmd.lang.current', { locale: getLocale() })}\n${t('cmd.lang.usage')}`,
+        { expanded: true }
+      );
+      return true;
+    }
+    if (!isAppLocale(argument)) {
+      append('agent', t('cmd.lang.unknown'));
+      return true;
+    }
+    setLocale(argument);
+    try {
+      updateKrossLocale(argument);
+    } catch {
+      // best-effort persistence
+    }
+    onLocaleChange?.();
+    append('system', t('cmd.lang.switched', { locale: argument }));
     return true;
   }
 
@@ -106,13 +142,13 @@ export function handleCommand(
 
   if (value === '/expand') {
     toggleLastCollapsible();
-    append('system', '已切换最近一条 thinking 的折叠状态（也可用 ctrl+o）。');
+    append('system', t('cmd.expandDone'));
     return true;
   }
 
   if (value === '/approve' || value === '/reject') {
     if (!hasPendingCrossRepoPlan) {
-      append('system', '当前没有等待确认的 cross-repo 计划。');
+      append('system', t('app.noCrossRepoPlan'));
       return true;
     }
     void choosePlanApproval(value === '/approve');
@@ -132,7 +168,7 @@ export function handleCommand(
   }
 
   if (value === '/mode') {
-    append('agent', '用法：/mode auto|normal|cross-repo');
+    append('agent', t('cmd.modeUsage'));
     return true;
   }
 
@@ -140,18 +176,15 @@ export function handleCommand(
     const nextMode = value.replace('/mode ', '').trim();
     if (isAgentMode(nextMode)) {
       setMode(nextMode);
-      append('system', `已切换到 ${nextMode} 模式`);
+      append('system', t('cmd.modeSwitched', { mode: nextMode }));
     } else {
-      append('agent', '未知模式，可选：auto、normal、cross-repo');
+      append('agent', t('cmd.modeUnknown'));
     }
     return true;
   }
 
   if (value === '/perm') {
-    append(
-      'agent',
-      '用法：/perm default|classifier|auto · 也可按 shift+tab 循环切换'
-    );
+    append('agent', t('cmd.permUsage'));
     return true;
   }
 
@@ -161,7 +194,7 @@ export function handleCommand(
       runtime.setPermissionMode(nextPerm);
       setPermissionMode(nextPerm);
     } else {
-      append('agent', '未知权限模式，可选：default、classifier、auto');
+      append('agent', t('cmd.permUnknown'));
     }
     return true;
   }
@@ -188,7 +221,7 @@ export function handleCommand(
     return true;
   }
 
-  append('agent', `未知命令：${value}。输入 /help 查看可用命令。`);
+  append('agent', t('cmd.unknown', { value }));
   return true;
 }
 
@@ -197,14 +230,16 @@ export function formatImportPrompt(prompt: ConfigImportPrompt): string {
   if (prompt.candidates.length === 1) {
     const candidate = prompt.candidates[0];
     return [
-      `检测到 ${candidate?.displayName} 配置。`,
-      `输入 /import ${candidate?.source} 一键导入，或输入 /import skip 跳过。`
+      t('cmd.import.detectOne', { name: candidate?.displayName ?? '' }),
+      t('cmd.import.importOne', { source: candidate?.source ?? '' })
     ].join('\n');
   }
 
   return [
-    `检测到 ${sources.join(' 和 ')} 配置。`,
-    '请选择一个导入：/import claude 或 /import codex；也可以输入 /import skip 跳过。'
+    t('cmd.import.detectMany', {
+      names: sources.join(t('cmd.lang.and'))
+    }),
+    t('cmd.import.choose')
   ].join('\n');
 }
 
@@ -222,7 +257,7 @@ async function runSlashAsync(
     append('agent', text, { expanded: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    append('system', `${command} 失败：${message}`);
+    append('system', t('cmd.asyncFailed', { command, message }));
   }
 }
 
@@ -235,7 +270,7 @@ function handleImportCommand(input: {
   refreshRuntime: () => void;
 }): void {
   if (!input.configImportController) {
-    input.append('agent', '当前没有可导入的 Claude Code 或 Codex 配置。');
+    input.append('agent', t('cmd.import.none'));
     return;
   }
 
@@ -247,7 +282,10 @@ function handleImportCommand(input: {
   if (target === 'skip') {
     const result = input.configImportController.skip();
     input.setImportPrompt(undefined);
-    input.append('agent', `已跳过配置导入。记录已保存到 ${result.configPath}`);
+    input.append(
+      'agent',
+      t('cmd.import.skipped', { path: result.configPath })
+    );
     return;
   }
   if (!isExternalAgentSource(target)) {
@@ -262,15 +300,15 @@ function handleImportCommand(input: {
     input.append(
       'agent',
       [
-        `已导入 ${result.candidate.displayName} 配置。`,
-        `配置文件: ${result.configPath}`,
+        t('cmd.import.done', { name: result.candidate.displayName }),
+        t('cmd.import.configPath', { path: result.configPath }),
         `provider: ${result.config.llm?.provider}`,
         `model: ${result.config.llm?.model}`,
-        `baseUrl: ${result.config.llm?.baseUrl ?? '默认'}`,
+        `baseUrl: ${result.config.llm?.baseUrl ?? t('cmd.import.defaultBase')}`,
         `credential: ${
           result.config.llm?.apiKey || result.config.llm?.authToken
-            ? '已配置'
-            : '未配置'
+            ? t('cmd.import.credentialYes')
+            : t('cmd.import.credentialNo')
         }`
       ].join('\n'),
       { expanded: true }
@@ -278,7 +316,9 @@ function handleImportCommand(input: {
   } catch (error) {
     input.append(
       'agent',
-      error instanceof Error ? error.message : `导入失败：${String(error)}`
+      error instanceof Error
+        ? error.message
+        : t('cmd.import.failed', { error: String(error) })
     );
   }
 }
@@ -293,7 +333,7 @@ function formatImportUsage(prompt: ConfigImportPrompt | undefined): string {
         .map((candidate) => `/import ${candidate.source}`)
         .join(' | ')
     : '/import claude | /import codex';
-  return `用法：${commands} | /import skip`;
+  return t('cmd.import.usage', { commands });
 }
 
 function persistModelPreference(
@@ -346,7 +386,7 @@ function formatContextInspection(snapshot: ContextInspection): string {
   return [
     'Context',
     `mode: ${snapshot.mode}`,
-    `总字符: ${snapshot.estimatedChars}`,
+    t('cmd.context.totalChars', { chars: snapshot.estimatedChars }),
     `included sources: ${snapshot.includedSources.length}`,
     `dropped sources: ${snapshot.droppedSources.length}`,
     'sections:',

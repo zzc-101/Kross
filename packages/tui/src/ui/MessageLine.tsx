@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Box, Text, useStdout } from 'ink';
+import { t } from '@kross/core';
 
 import { Markdown } from './Markdown';
 import { displayWidth } from './markdownParse';
@@ -184,13 +185,15 @@ export function formatThinkingLabel(
   spinner?: string
 ): string {
   if (streaming) {
-    return spinner ? `思考中… ${spinner}` : '思考中…';
+    return spinner
+      ? t('thinking.activeSpinner', { spinner })
+      : t('thinking.active');
   }
   const seconds = formatThoughtSeconds(message);
   if (seconds !== undefined) {
-    return `思考了 ${seconds} 秒`;
+    return t('thinking.duration', { seconds });
   }
-  return '思考过程';
+  return t('thinking.process');
 }
 
 function formatThoughtSeconds(

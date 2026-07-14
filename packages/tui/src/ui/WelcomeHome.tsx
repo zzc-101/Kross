@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import { t } from '@kross/core';
 
 import { theme } from './theme';
 
@@ -38,11 +39,16 @@ export interface WelcomeHomeProps {
   width?: number;
 }
 
-const defaultActions: WelcomeAction[] = [
-  { label: '输入内容开始新会话', shortcut: '输入后 ↵' },
-  { label: '查看命令', shortcut: '/' },
-  { label: '模型与思考强度', shortcut: 'ctrl+p' }
-];
+function defaultWelcomeActions(): WelcomeAction[] {
+  return [
+    {
+      label: t('welcome.action.start'),
+      shortcut: t('welcome.action.startShortcut')
+    },
+    { label: t('welcome.action.commands'), shortcut: '/' },
+    { label: t('welcome.action.settings'), shortcut: 'ctrl+p' }
+  ];
+}
 
 /**
  * 新会话首页卡片（路径由外层顶栏统一渲染，这里不再重复）。
@@ -50,15 +56,19 @@ const defaultActions: WelcomeAction[] = [
 export function WelcomeHome({
   version = '0.1.0',
   modelLabel,
-  headline = '随时可以开始',
-  subtitle = '在当前工作区规划、调用工具并保留运行记录。',
+  headline,
+  subtitle,
   notice,
-  actions = defaultActions,
+  actions,
   recentSessions = [],
   selectedSessionIndex,
-  tip = '输入 / 查看全部命令',
+  tip,
   width = 72
 }: WelcomeHomeProps) {
+  const resolvedHeadline = headline ?? t('welcome.headline');
+  const resolvedSubtitle = subtitle ?? t('welcome.subtitle');
+  const resolvedTip = tip ?? t('welcome.tip');
+  const resolvedActions = actions ?? defaultWelcomeActions();
   const layout = resolveWelcomeLayout(width);
   const cardWidth = layout.cardWidth;
   // 最近会话区比品牌展示更重要；有历史时压缩为单行 Logo，避免 24 行终端裁剪。
@@ -93,14 +103,14 @@ export function WelcomeHome({
 
         <Box marginTop={1}>
           <Text color={theme.accent} bold>
-            {headline}
+            {resolvedHeadline}
           </Text>
         </Box>
-        <Text dimColor>{subtitle}</Text>
+        <Text dimColor>{resolvedSubtitle}</Text>
 
         {modelLabel ? (
           <Box marginTop={0}>
-            <Text dimColor>模型 </Text>
+            <Text dimColor>{t('welcome.modelPrefix')}</Text>
             <Text color={theme.brandSoft}>{modelLabel}</Text>
           </Box>
         ) : null}
@@ -114,7 +124,7 @@ export function WelcomeHome({
         {recentSessions.length > 0 ? (
           <Box marginTop={1} flexDirection="column">
             <Box justifyContent="space-between">
-              <Text dimColor>最近会话</Text>
+              <Text dimColor>{t('welcome.recentTitle')}</Text>
               <Text
                 color={
                   selectedSessionIndex === undefined ? undefined : theme.accent
@@ -122,8 +132,8 @@ export function WelcomeHome({
                 dimColor={selectedSessionIndex === undefined}
               >
                 {selectedSessionIndex === undefined
-                  ? '↑↓ 选择'
-                  : '已选中 · Esc 取消'}
+                  ? t('welcome.selectHint')
+                  : t('welcome.selectedHint')}
               </Text>
             </Box>
             {recentSessions.map((session, index) => (
@@ -148,21 +158,21 @@ export function WelcomeHome({
             ))}
             {selectedSessionIndex === undefined ? (
               <Box marginLeft={2}>
-                <Text dimColor>使用 ↑↓ 选择会话 · 输入内容开始新会话</Text>
+                <Text dimColor>{t('welcome.hintIdle')}</Text>
               </Box>
             ) : (
               <Box marginLeft={2}>
                 <Text color={theme.accent} bold>
-                  Enter 恢复已选中会话
+                  {t('welcome.hintResume')}
                 </Text>
-                <Text dimColor> · Esc 取消选择</Text>
+                <Text dimColor>{t('welcome.hintCancel')}</Text>
               </Box>
             )}
           </Box>
         ) : null}
 
         <Box marginTop={1} flexDirection="column">
-          {actions.map((action) => (
+          {resolvedActions.map((action) => (
             <Box key={action.label} justifyContent="space-between">
               <Text>{action.label}</Text>
               <Text dimColor>{action.shortcut}</Text>
@@ -171,9 +181,12 @@ export function WelcomeHome({
         </Box>
       </Box>
 
-      {tip ? (
+      {resolvedTip ? (
         <Box marginTop={1} width={cardWidth}>
-          <Text dimColor>提示：{tip}</Text>
+          <Text dimColor>
+            {t('welcome.tipPrefix')}
+            {resolvedTip}
+          </Text>
         </Box>
       ) : null}
     </Box>

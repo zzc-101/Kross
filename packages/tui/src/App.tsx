@@ -7,12 +7,14 @@ import {
   loadKrossConfig,
   nextPermissionMode,
   ObservableTraceStore,
+  t,
   updateKrossLlmConfig,
   type AgentMode,
   type AgentResult,
   type ConfigImportController,
   type ConfigImportPrompt,
   type HybridSessionStore,
+  type MessageKey,
   type PendingToolApproval,
   type PermissionMode,
   type SessionSummary,
@@ -145,6 +147,8 @@ export function App({
     [configImportController]
   );
   const [runtimeGeneration, setRuntimeGeneration] = useState(0);
+  /** Bumped by /lang so chrome re-reads t() for the new locale. */
+  const [localeGeneration, setLocaleGeneration] = useState(0);
   // 运行时创建可能因环境变量/配置不完整而抛错（例如只配了 AGENT_LLM_PROVIDER
   // 却缺少 key/model），这里兜底回退到未配置模型的本地 runtime，避免 TUI 启动即崩溃。
   const { runtime: agentRuntime, error: runtimeError } = useMemo(() => {
@@ -256,7 +260,7 @@ export function App({
     try {
       setRecentSessions(sessionStore.listRecent(cwd, 4));
     } catch (error) {
-      setSessionNotice(formatSessionError('读取历史会话失败', error));
+      setSessionNotice(formatSessionError('session.readFailed', error));
     }
   }, [cwd, sessionStore]);
 
@@ -294,7 +298,7 @@ export function App({
       setSessionNotice(undefined);
       return created.id;
     } catch (error) {
-      setSessionNotice(formatSessionError('创建会话失败，已切换为临时会话', error));
+      setSessionNotice(formatSessionError('session.createFailed', error));
       return undefined;
     }
   }, [cwd, sessionStore]);
@@ -307,7 +311,7 @@ export function App({
     try {
       sessionStore.upsertMessage(sessionId, toStoredSessionMessage(message));
     } catch (error) {
-      setSessionNotice(formatSessionError('保存会话失败', error));
+      setSessionNotice(formatSessionError('session.saveFailed', error));
     }
   }, [sessionStore]);
 
@@ -327,7 +331,7 @@ export function App({
       );
     } catch (error) {
       if (reportError) {
-        setSessionNotice(formatSessionError('同步会话失败', error));
+        setSessionNotice(formatSessionError('session.syncFailed', error));
       }
     }
   }, [sessionStore]);
@@ -405,7 +409,9 @@ export function App({
       getSlashCommandSuggestions(input, {
         hasPendingCrossRepoPlan: pendingCrossRepoPlan !== undefined
       }),
-    [input, pendingCrossRepoPlan]
+    // localeGeneration: re-resolve descriptions after /lang
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+    [input, pendingCrossRepoPlan, localeGeneration]
   );
   const slashSuggestions = slashSuggestionResult.commands;
 
@@ -459,11 +465,11 @@ export function App({
    */
   const openSessionPicker = useCallback((): boolean => {
     if (!sessionStore) {
-      setSessionNotice('当前运行环境未启用会话持久化。');
+      setSessionNotice(t('session.disabled'));
       return false;
     }
     if (processingRef.current || pendingToolApproval) {
-      const message = '当前任务尚未结束，完成或处理工具确认后再恢复其他会话。';
+      const message = t('session.busy');
       setSessionNotice(message);
       if (latestMessagesRef.current.some((item) => item.from === 'user')) {
         append('system', message);
@@ -491,14 +497,14 @@ export function App({
       sessions = sessionStore.listRecent(cwd, 4);
       setRecentSessions(sessions);
     } catch (error) {
-      setSessionNotice(formatSessionError('读取历史会话失败', error));
+      setSessionNotice(formatSessionError('session.readFailed', error));
       setSelectedRecentSession(undefined);
       return false;
     }
 
     if (sessions.length === 0) {
       setSelectedRecentSession(undefined);
-      setSessionNotice('当前工作区还没有可恢复的历史会话。');
+      setSessionNotice(t('session.empty'));
       return false;
     }
 
@@ -526,7 +532,7 @@ export function App({
         : recentSessions[selectedRecentSession]?.id;
     const target = selector?.trim() || selectedSessionId;
     if (!sessionStore) {
-      setSessionNotice('当前运行环境未启用会话持久化。');
+      setSessionNotice(t('session.disabled'));
       return false;
     }
     if (!target) {
@@ -534,7 +540,7 @@ export function App({
       return openSessionPicker();
     }
     if (processingRef.current || pendingToolApproval) {
-      const message = '当前任务尚未结束，完成或处理工具确认后再恢复其他会话。';
+      const message = t('session.busy');
       setSessionNotice(message);
       if (latestMessagesRef.current.some((item) => item.from === 'user')) {
         append('system', message);
@@ -546,7 +552,7 @@ export function App({
       flushCurrentSessionBeforeSwitch();
       const restored = sessionStore.loadSession(cwd, target);
       if (!restored) {
-        const message = `未找到唯一匹配的会话：${target}`;
+        const message = t('session.notFound', { target });
         setSessionNotice(message);
         if (latestMessagesRef.current.some((item) => item.from === 'user')) {
           append('system', message);
@@ -592,7 +598,7 @@ export function App({
       resetToBottom();
       return true;
     } catch (error) {
-      const message = formatSessionError('恢复会话失败', error);
+      const message = formatSessionError('session.resumeFailed', error);
       setSessionNotice(message);
       if (latestMessagesRef.current.some((item) => item.from === 'user')) {
         append('system', message);
@@ -934,7 +940,12 @@ export function App({
     } catch (error) {
       flushMessageUpdates();
       finalizeThinkingDurations();
-      append('system', `运行出错：${error instanceof Error ? error.message : String(error)}`);
+      append(
+        'system',
+        t('app.runError', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      );
       setStatus('ready');
       setAwaitingReply(false);
       setStreamingMessageId(undefined);
@@ -952,7 +963,7 @@ export function App({
     if (result.mode === 'cross-repo' && result.status === 'cancelled') {
       setStatus('waiting-approval');
       setPendingCrossRepoPlan({ prompt, mode: options.requestedMode ?? mode });
-      append('system', '检测到 cross-repo 任务，已在执行前暂停，等待确认计划。输入 /approve 继续，或 /reject 取消。');
+      append('system', t('app.crossRepoPaused'));
       return;
     }
 
@@ -993,8 +1004,8 @@ export function App({
     append(
       'system',
       approved
-        ? `已允许一次 ${pendingToolApproval.toolName}，继续执行。`
-        : `已拒绝 ${pendingToolApproval.toolName}，继续让模型调整方案。`
+        ? t('app.toolApproved', { tool: pendingToolApproval.toolName })
+        : t('app.toolRejected', { tool: pendingToolApproval.toolName })
     );
 
     // 与首轮 runTurn 相同：审批后续也走 stream，避免 complete() 整包倾倒。
@@ -1070,7 +1081,9 @@ export function App({
       flushMessageUpdates();
       append(
         'system',
-        `处理审批时出错：${error instanceof Error ? error.message : String(error)}`
+        t('app.approvalError', {
+          error: error instanceof Error ? error.message : String(error)
+        })
       );
       setStatus('ready');
       setAwaitingReply(false);
@@ -1111,7 +1124,7 @@ export function App({
 
   const choosePlanApproval = useCallback(async (approved: boolean) => {
     if (!pendingCrossRepoPlan) {
-      append('system', '当前没有等待确认的 cross-repo 计划。');
+      append('system', t('app.noCrossRepoPlan'));
       return;
     }
 
@@ -1120,11 +1133,11 @@ export function App({
 
     if (!approved) {
       setStatus('ready');
-      append('system', '已取消 cross-repo 计划。');
+      append('system', t('app.crossRepoCancelled'));
       return;
     }
 
-    append('system', '已确认 cross-repo 计划，继续执行。');
+    append('system', t('app.crossRepoConfirmed'));
     processingRef.current = true;
     try {
       await runTurn(pending.prompt, {
@@ -1210,7 +1223,7 @@ export function App({
 
   const hasUserActivity = messages.some((message) => message.from === 'user');
   const appError = runtimeError
-    ? `模型配置加载失败：${runtimeError} · 已回退本地运行时`
+    ? t('app.runtimeFallback', { error: runtimeError })
     : sessionNotice;
   const isHome =
     !hasUserActivity &&
@@ -1440,7 +1453,8 @@ export function App({
         () => setRuntimeGeneration((current) => current + 1),
         toggleLastCollapsible,
         Boolean(pendingCrossRepoPlan),
-        choosePlanApproval
+        choosePlanApproval,
+        () => setLocaleGeneration((current) => current + 1)
       )
     ) {
       return;
@@ -1449,7 +1463,7 @@ export function App({
     if (processingRef.current) {
       queueRef.current.push(trimmed);
       setQueueLength(queueRef.current.length);
-      append('system', `已加入队列：${queueRef.current.length}`);
+      append('system', t('app.queued', { count: queueRef.current.length }));
       return;
     }
 
@@ -1666,6 +1680,8 @@ export function App({
     </Box>
   );
 
+  // localeGeneration forces welcome chrome to re-resolve t() after /lang.
+  void localeGeneration;
   const homeBody = (
     <WelcomeHome
       version={version}
@@ -1674,9 +1690,6 @@ export function App({
       notice={appError ?? (importPrompt ? formatImportPrompt(importPrompt) : undefined)}
       recentSessions={recentSessions}
       selectedSessionIndex={selectedRecentSession}
-      headline="随时可以开始"
-      subtitle="在当前工作区规划、调用工具并保留运行记录。"
-      tip="输入 / 查看全部命令"
     />
   );
 
@@ -1750,9 +1763,9 @@ function fromStoredSessionMessage(message: StoredSessionMessage): ChatMessage {
   };
 }
 
-function formatSessionError(prefix: string, error: unknown): string {
+function formatSessionError(prefixKey: MessageKey, error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
-  return `${prefix}：${detail}`;
+  return t('session.errorDetail', { prefix: t(prefixKey), detail });
 }
 
 function createMemoryRuntime(): AgentRuntime {

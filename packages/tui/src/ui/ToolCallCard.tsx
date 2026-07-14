@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import { t } from '@kross/core';
 
 import type { ToolCallItem, ToolCallState, ToolDetailLine } from './MessageLine';
 import { symbols, theme } from './theme';
@@ -213,11 +214,20 @@ function formatToolStatus(
     case 'completed':
       return { label: symbols.toolOk, color: theme.statusReady };
     case 'failed':
-      return { label: `${symbols.toolFail} 失败`, color: theme.statusError };
+      return {
+        label: `${symbols.toolFail} ${t('tool.status.failed')}`,
+        color: theme.statusError
+      };
     case 'denied':
-      return { label: `${symbols.toolFail} 已拒绝`, color: theme.statusError };
+      return {
+        label: `${symbols.toolFail} ${t('tool.status.rejected')}`,
+        color: theme.statusError
+      };
     case 'awaiting':
-      return { label: `${symbols.toolWait} 等待确认`, color: theme.statusWarn };
+      return {
+        label: `${symbols.toolWait} ${t('tool.status.waiting')}`,
+        color: theme.statusWarn
+      };
     default:
       return { label: status, color: theme.chip };
   }

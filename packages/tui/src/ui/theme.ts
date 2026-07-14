@@ -1,3 +1,5 @@
+import { t } from '@kross/core';
+
 /**
  * Soft Terminal 视觉 token。
  * Ink 只支持命名色 / hex，这里集中管理，避免组件里散落魔法字符串。
@@ -104,13 +106,13 @@ export function statusTone(
 export function formatStatusLabel(status: UiStatus): string {
   switch (status) {
     case 'ready':
-      return '就绪';
+      return t('status.ready');
     case 'responding':
-      return '思考中';
+      return t('status.responding');
     case 'waiting-approval':
-      return '等待计划确认';
+      return t('status.waitingPlan');
     case 'approval-required':
-      return '等待工具确认';
+      return t('status.waitingTool');
     default:
       return status;
   }
@@ -119,11 +121,11 @@ export function formatStatusLabel(status: UiStatus): string {
 export function formatModeLabel(mode: string): string {
   switch (mode) {
     case 'auto':
-      return '自动';
+      return t('mode.auto');
     case 'normal':
-      return '普通';
+      return t('mode.normal');
     case 'cross-repo':
-      return '跨仓库';
+      return t('mode.crossRepo');
     default:
       return mode;
   }
@@ -132,13 +134,13 @@ export function formatModeLabel(mode: string): string {
 export function formatPermissionModeLabel(mode: string): string {
   switch (mode) {
     case 'default':
-      return '权限：默认';
+      return t('perm.default');
     case 'classifier':
-      return '权限：智能判断';
+      return t('perm.classifier');
     case 'auto':
-      return '权限：自动允许';
+      return t('perm.auto');
     default:
-      return `权限：${mode}`;
+      return t('perm.unknown', { mode });
   }
 }
 

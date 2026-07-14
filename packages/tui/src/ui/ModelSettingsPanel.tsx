@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import { t } from '@kross/core';
 
 import { symbols, theme } from './theme';
 import type { ModelSettingsState } from './modelSettings';
@@ -35,17 +36,17 @@ export function ModelSettingsPanel({
 
       <Row>
         <Text color={theme.brandSoft} bold>
-          模型与思考强度
+          {t('settings.title')}
         </Text>
       </Row>
 
       <Row>
         <SectionTab
-          title="思考强度"
+          title={t('settings.effort')}
           active={state.section === 'effort'}
         />
         <Text dimColor>  </Text>
-        <SectionTab title="模型" active={state.section === 'model'} />
+        <SectionTab title={t('settings.model')} active={state.section === 'model'} />
       </Row>
 
       <Row>
@@ -74,7 +75,7 @@ export function ModelSettingsPanel({
 
       {state.section === 'model' && state.models.length === 0 ? (
         <Row>
-          <Text dimColor>暂无可用模型，请先配置环境变量</Text>
+          <Text dimColor>{t('settings.noModels')}</Text>
         </Row>
       ) : null}
 
@@ -83,9 +84,7 @@ export function ModelSettingsPanel({
         {hRule}
         {symbols.boxBottomRight}
       </Text>
-      <Text dimColor>
-        ←/→ 分区 · ↑/↓ 选择 · Enter 应用 · Esc 关闭 · ctrl+p 开关
-      </Text>
+      <Text dimColor>{t('settings.hotkeys')}</Text>
     </Box>
   );
 }

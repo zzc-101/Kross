@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 
-import type { PermissionMode } from '@kross/core';
+import { t, type PermissionMode } from '@kross/core';
 
 import { displayWidth } from './markdownParse';
 import { formatPermissionModeLabel, symbols, theme } from './theme';
@@ -31,7 +31,8 @@ export function Composer({
   /** 全宽时传入终端列数 */
   width?: number;
 }) {
-  const displayModelLabel = modelLabel === 'no model' ? '未配置模型' : modelLabel;
+  const displayModelLabel =
+    modelLabel === 'no model' ? t('composer.noModel') : modelLabel;
   const footerLabel = useMemo(
     () => `${displayModelLabel} · ${formatPermissionModeLabel(permissionMode)}`,
     [displayModelLabel, permissionMode]
@@ -66,7 +67,7 @@ export function Composer({
               value={value}
               onChange={onChange}
               onSubmit={onSubmit}
-              placeholder="描述任务，输入 / 查看命令"
+              placeholder={t('composer.placeholder')}
             />
           </Box>
         </Box>

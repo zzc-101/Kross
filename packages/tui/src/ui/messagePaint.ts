@@ -9,6 +9,8 @@
  * - MessagePaintCache 按 fingerprint+columns 缓存 paint 结果
  */
 
+import { t } from '@kross/core';
+
 import {
   countWrappedRows,
   layoutFingerprint
@@ -249,13 +251,13 @@ export function formatScrollHint(
   hasMoreBelow: boolean
 ): string | null {
   if (hasMoreAbove && hasMoreBelow) {
-    return '↑ 历史  ·  ↓ 底部';
+    return t('scroll.both');
   }
   if (hasMoreAbove) {
-    return '↑ 历史';
+    return t('scroll.up');
   }
   if (hasMoreBelow) {
-    return '↓ 回底部';
+    return t('scroll.down');
   }
   return null;
 }
@@ -682,17 +684,17 @@ function toolStatusSegments(tool: ToolCallState): PaintSegment | null {
       return { text: symbols.toolOk, color: theme.statusReady };
     case 'failed':
       return {
-        text: `${symbols.toolFail} 失败`,
+        text: `${symbols.toolFail} ${t('tool.status.failed')}`,
         color: theme.statusError
       };
     case 'denied':
       return {
-        text: `${symbols.toolFail} 已拒绝`,
+        text: `${symbols.toolFail} ${t('tool.status.rejected')}`,
         color: theme.statusError
       };
     case 'awaiting':
       return {
-        text: `${symbols.toolWait} 等待确认`,
+        text: `${symbols.toolWait} ${t('tool.status.waiting')}`,
         color: theme.statusWarn
       };
     default:
@@ -834,22 +836,24 @@ function formatThinkingSummary(
   streaming: boolean
 ): string {
   if (streaming) {
-    return '思考中…';
+    return t('thinking.active');
   }
   if (typeof message.durationMs === 'number' && message.durationMs >= 0) {
     const sec = Math.max(1, Math.round(message.durationMs / 1000));
-    return `思考了 ${sec} 秒`;
+    return t('thinking.duration', { seconds: sec });
   }
   if (message.createdAt) {
     const start = new Date(message.createdAt).getTime();
     if (!Number.isNaN(start)) {
       const elapsed = Date.now() - start;
       if (elapsed > 0 && elapsed < 24 * 3600 * 1000) {
-        return `思考了 ${Math.max(1, Math.round(elapsed / 1000))} 秒`;
+        return t('thinking.duration', {
+          seconds: Math.max(1, Math.round(elapsed / 1000))
+        });
       }
     }
   }
-  return '思考过程';
+  return t('thinking.process');
 }
 
 function mdLineToSegments(line: MdLine): PaintSegment[] {
