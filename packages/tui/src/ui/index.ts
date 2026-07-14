@@ -94,9 +94,11 @@ export {
 export {
   WelcomeHome,
   formatCwdLabel,
+  formatSessionTime,
   resolveWelcomeLayout,
   type WelcomeHomeProps,
-  type WelcomeAction
+  type WelcomeAction,
+  type WelcomeRecentSession
 } from './WelcomeHome';
 export {
   slashCommands,

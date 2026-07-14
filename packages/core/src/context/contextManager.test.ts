@@ -209,6 +209,44 @@ describe('InMemoryContextManager', () => {
     expect(snapshot.messages[1]?.content).toContain('用户在早前讨论了 Kross 的上下文系统');
   });
 
+  it('replaces conversation history when restoring a persisted session', () => {
+    const manager = new InMemoryContextManager({ maxHistoryMessages: 4 });
+    manager.appendConversation({ role: 'user', content: '旧会话' });
+    manager.recordToolResult({
+      id: 'old-tool',
+      toolName: 'Read',
+      inputPreview: 'old.txt',
+      output: '旧工具结果',
+      summary: '旧工具摘要'
+    });
+    manager.replaceConversation([
+      { role: 'user', content: '恢复问题一' },
+      { role: 'assistant', content: '恢复回答一' },
+      { role: 'user', content: '恢复问题二' },
+      { role: 'assistant', content: '恢复回答二' }
+    ]);
+    manager.clearToolResults();
+
+    const snapshot = manager.build({
+      systemPrompt: '你是 Kross。',
+      currentUserInput: '继续',
+      mode: 'normal'
+    });
+
+    expect(snapshot.messages.map((message) => message.content)).toEqual([
+      expect.stringContaining('你是 Kross。'),
+      '恢复问题一',
+      '恢复回答一',
+      '恢复问题二',
+      '恢复回答二',
+      '继续'
+    ]);
+    expect(snapshot.messages.map((message) => message.content)).not.toContain(
+      '旧会话'
+    );
+    expect(snapshot.messages[0]?.content).not.toContain('旧工具摘要');
+  });
+
   it('reports context contributors and section sizes for inspect commands', () => {
     const manager = new InMemoryContextManager();
     manager.addSource({

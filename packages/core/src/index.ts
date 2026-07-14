@@ -18,6 +18,7 @@ export * from './runtime/agentRuntime';
 export * from './runtime/agentRuntimeTypes';
 export * from './runtime/runtimeInspection';
 export * from './runtime/toolLoop';
+export * from './session/sessionStore';
 export * from './tools/toolGateway';
 export * from './tools/toolRetry';
 export * from './tools/permissionModes';

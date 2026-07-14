@@ -42,6 +42,13 @@ describe('parseMarkdown', () => {
     expect(lines.some((line) => line.kind === 'code')).toBe(true);
   });
 
+  it('omits the generic code label for an unlabeled fence', () => {
+    const lines = parseMarkdown('```\nhello\n```');
+    const codeLines = lines.filter((line) => line.kind === 'code');
+
+    expect(codeLines[0]?.spans[0]?.text).toBe('┌────');
+  });
+
   it('renders GFM tables as box-drawing rows', () => {
     const lines = parseMarkdown(
       [

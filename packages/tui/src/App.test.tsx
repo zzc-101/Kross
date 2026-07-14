@@ -5,10 +5,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { App } from './App';
+import { App, type AppTestApi } from './App';
 import {
   AgentRuntime,
   createConfigImportController,
+  HybridSessionStore,
   ObservableTraceStore,
   type LlmClient,
   type LlmRequest,
@@ -27,6 +28,7 @@ describe('App', () => {
     expect(lastFrame()).toContain('__ __  ____');
     // 新会话首页只保留三个主动作和一个上下文提示
     expect(lastFrame()).toContain('随时可以开始');
+    expect(lastFrame()).toContain('输入内容开始新会话');
     expect(lastFrame()).toContain('查看命令');
     expect(lastFrame()).toContain('模型与思考强度');
     expect(lastFrame()).toContain('输入 / 查看全部命令');
@@ -47,6 +49,52 @@ describe('App', () => {
     expect(lastFrame()).toContain('__ __  ____');
     expect(lastFrame()).toContain('❯');
     expect(lastFrame()).toContain('随时可以开始');
+  });
+
+  it('surfaces session store initialization failures instead of silently degrading', () => {
+    const { lastFrame } = render(
+      <App sessionStoreError="会话存储初始化失败，当前内容不会保存：native binding missing" />
+    );
+
+    expect(lastFrame()).toContain('会话存储初始化失败');
+    expect(lastFrame()).toContain('当前内容不会保存');
+  });
+
+  it('flushes the session and delegates shutdown when Ctrl+C is pressed', async () => {
+    const homeDir = createTempHome();
+    const workspace = join(homeDir, 'workspace');
+    mkdirSync(workspace);
+    const sessionStore = new HybridSessionStore({
+      krossHome: join(homeDir, '.kross'),
+      createSessionId: () => 'session-ctrl-c-test'
+    });
+    const onExitRequest = vi.fn();
+    let api: AppTestApi | undefined;
+    const view = render(
+      <App
+        cwd={workspace}
+        sessionStore={sessionStore}
+        onExitRequest={onExitRequest}
+        onReady={(next) => (api = next)}
+      />
+    );
+
+    try {
+      await waitUntil(() => api !== undefined);
+      await api?.submit('退出前保存');
+      api?.requestExit();
+      expect(onExitRequest).toHaveBeenCalledTimes(1);
+
+      expect(sessionStore.loadSession(workspace)?.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ from: 'user', text: '> 退出前保存' })
+        ])
+      );
+    } finally {
+      view.unmount();
+      sessionStore.close();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 
   it('leaves home screen after the first user message', async () => {
@@ -75,6 +123,148 @@ describe('App', () => {
     expect(lastFrame()).toContain('main');
     expect(lastFrame()).toContain('~/MyProject/agent');
     expect(lastFrame()).not.toContain('Kross · local');
+  });
+
+  it('shows recent sessions on home and restores visible records plus model context', async () => {
+    const homeDir = createTempHome();
+    const workspace = join(homeDir, 'workspace');
+    mkdirSync(workspace);
+    const sessionStore = new HybridSessionStore({
+      krossHome: join(homeDir, '.kross'),
+      createSessionId: () => 'session-resume-test'
+    });
+    const session = sessionStore.createSession(workspace);
+    sessionStore.syncMessages(session.id, [
+      { id: 1, from: 'user', text: '> 恢复这个产品会话' },
+      { id: 2, from: 'thinking', text: '内部思考内容', durationMs: 800 },
+      {
+        id: 3,
+        from: 'tool',
+        text: 'Read README.md',
+        tool: { name: 'Read', status: 'completed', summary: 'README.md' }
+      },
+      { id: 4, from: 'agent', text: '这是恢复后的回答' }
+    ]);
+
+    let api: AppTestApi | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('ok')
+    });
+    const view = render(
+      <App
+        runtime={runtime}
+        cwd={workspace}
+        sessionStore={sessionStore}
+        onReady={(next) => (api = next)}
+      />
+    );
+
+    try {
+      await waitUntil(() => api !== undefined);
+      expect(view.lastFrame()).toContain('KROSS');
+      expect(view.lastFrame()).toContain('最近会话');
+      expect(view.lastFrame()).toContain('恢复这个产品会话');
+      expect(view.lastFrame()).toContain('↑↓ 选择');
+      expect(view.lastFrame()).toContain('使用 ↑↓ 选择会话');
+      expect(view.lastFrame()).not.toContain('Enter 恢复已选中会话');
+      expect(view.lastFrame()).not.toContain('已选中');
+
+      // 未明确选择时，空 Enter 不应隐式恢复会话。
+      await api?.submit('');
+      expect(view.lastFrame()).toContain('随时可以开始');
+
+      // 用户明确选择后，界面给出恢复和取消提示。
+      const initialApi = api;
+      api?.setRecentSessionSelection(0);
+      await waitUntil(
+        () =>
+          view.lastFrame()?.includes('Enter 恢复已选中会话') === true &&
+          api !== initialApi
+      );
+      expect(view.lastFrame()).toContain('已选中 · Esc 取消');
+      expect(view.lastFrame()).toContain('Esc 取消选择');
+      expect(view.lastFrame()?.match(/已选中/g)).toHaveLength(2);
+
+      // 取消后重新回到中立状态，不再允许空 Enter 恢复。
+      const selectedApi = api;
+      api?.setRecentSessionSelection(undefined);
+      await waitUntil(
+        () =>
+          view.lastFrame()?.includes('Enter 恢复已选中会话') === false &&
+          api !== selectedApi
+      );
+      expect(view.lastFrame()).toContain('↑↓ 选择');
+
+      const deselectedApi = api;
+      api?.setRecentSessionSelection(0);
+      await waitUntil(
+        () =>
+          view.lastFrame()?.includes('Enter 恢复已选中会话') === true &&
+          api !== deselectedApi
+      );
+      await api?.submit('');
+      await waitUntil(() => view.lastFrame()?.includes('这是恢复后的回答') === true);
+      expect(view.lastFrame()).toContain('Read');
+      expect(view.lastFrame()).not.toContain('随时可以开始');
+
+      const context = runtime.inspectContext({
+        requestedMode: 'normal',
+        currentUserInput: '继续'
+      });
+      const contextText = context.messages.map((message) => message.content).join('\n');
+      expect(contextText).toContain('恢复这个产品会话');
+      expect(contextText).toContain('这是恢复后的回答');
+      expect(contextText).not.toContain('内部思考内容');
+      expect(contextText).not.toContain('README.md');
+    } finally {
+      view.unmount();
+      sessionStore.close();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('creates and persists a session lazily after the first real prompt', async () => {
+    const homeDir = createTempHome();
+    const workspace = join(homeDir, 'workspace');
+    mkdirSync(workspace);
+    const sessionStore = new HybridSessionStore({
+      krossHome: join(homeDir, '.kross'),
+      createSessionId: () => 'session-lazy-test'
+    });
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const view = render(
+      <App
+        runtime={new AgentRuntime({
+          traceStore: new InMemoryTraceStore(),
+          llmClient: new FakeLlmClient('持久化回复')
+        })}
+        cwd={workspace}
+        sessionStore={sessionStore}
+        onReady={(api) => (submit = api.submit)}
+      />
+    );
+
+    try {
+      await waitUntil(() => submit !== undefined);
+      expect(sessionStore.listRecent(workspace)).toEqual([]);
+
+      await submit?.('把这轮保存下来');
+      await waitUntil(() => view.lastFrame()?.includes('持久化回复') === true);
+
+      const restored = sessionStore.loadSession(workspace);
+      expect(restored?.summary.title).toBe('把这轮保存下来');
+      expect(restored?.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ from: 'user', text: '> 把这轮保存下来' }),
+          expect.objectContaining({ from: 'agent', text: '持久化回复' })
+        ])
+      );
+    } finally {
+      view.unmount();
+      sessionStore.close();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 
   it('shows configured model and permission label in the composer footer', async () => {
@@ -884,7 +1074,7 @@ describe('App', () => {
     await waitUntil(() => lastFrame()?.includes('查看全部命令') === true);
     expect(lastFrame()).toContain('命令');
     expect(lastFrame()).toContain('/help');
-    expect(lastFrame()).toContain('还有 2 项，继续输入筛选');
+    expect(lastFrame()).toContain('还有 3 项，继续输入筛选');
 
     setInput?.('/mo');
     await waitUntil(() => lastFrame()?.includes('切换 Agent 模式') === true);

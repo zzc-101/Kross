@@ -12,8 +12,11 @@ import {
   type AgentResult,
   type ConfigImportController,
   type ConfigImportPrompt,
+  type HybridSessionStore,
   type PendingToolApproval,
   type PermissionMode,
+  type SessionSummary,
+  type StoredSessionMessage,
   type TraceEvent,
   type TraceStore
 } from '@kross/core';
@@ -91,6 +94,19 @@ export interface AppProps {
   cwd?: string;
   branch?: string;
   version?: string;
+  /** 会话存储初始化失败时由启动入口传入，避免静默降级。 */
+  sessionStoreError?: string;
+  /** 由启动入口统一执行 flush → unmount → close。 */
+  onExitRequest?: () => void;
+  /** 可选的持久化会话服务；测试/嵌入场景不传时保持纯内存行为。 */
+  sessionStore?: Pick<
+    HybridSessionStore,
+    | 'createSession'
+    | 'listRecent'
+    | 'loadSession'
+    | 'upsertMessage'
+    | 'syncMessages'
+  >;
 }
 
 export interface AppTestApi {
@@ -100,6 +116,10 @@ export interface AppTestApi {
   setInput: (value: string) => void;
   toggleCollapse: () => void;
   toggleToolGroup: () => void;
+  resumeSession: (selector?: string) => Promise<boolean>;
+  flushSession: () => void;
+  requestExit: () => void;
+  setRecentSessionSelection: (index: number | undefined) => void;
 }
 
 export function App({
@@ -112,7 +132,10 @@ export function App({
   fullscreen = false,
   cwd = process.cwd(),
   branch,
-  version = '0.1.0'
+  version = '0.1.0',
+  sessionStore,
+  sessionStoreError,
+  onExitRequest
 }: AppProps) {
   const { columns, rows, isTty } = useTerminalSize();
   const shellMode = fullscreen && isTty;
@@ -161,6 +184,17 @@ export function App({
   const [approvalSelection, setApprovalSelection] = useState<'approve' | 'reject'>('approve');
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const [modelSettings, setModelSettings] = useState<ModelSettingsState | undefined>();
+  const [sessionNotice, setSessionNotice] = useState<string | undefined>(
+    sessionStoreError
+  );
+  const [recentSessions, setRecentSessions] = useState<SessionSummary[]>(() =>
+    safeListRecentSessions(sessionStore, cwd)
+  );
+  const [selectedRecentSession, setSelectedRecentSession] = useState<
+    number | undefined
+  >();
+  const activeSessionIdRef = useRef<string | undefined>();
+  const sessionSyncTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
   const modelSettingsOpen = modelSettings !== undefined;
   const {
     scrollOffset,
@@ -180,22 +214,26 @@ export function App({
         ]
       : []
   );
+  const latestMessagesRef = useRef(messages);
+  latestMessagesRef.current = messages;
   const messageUpdateBufferRef = useRef<MessageUpdateBuffer | null>(null);
   if (messageUpdateBufferRef.current === null) {
     messageUpdateBufferRef.current = createMessageUpdateBuffer({
       onFlush: (updates) => {
-        setMessages((current) => {
-          let changed = false;
-          const next = current.map((message) => {
-            const text = updates.get(message.id);
-            if (text === undefined || text === message.text) {
-              return message;
-            }
-            changed = true;
-            return { ...message, text };
-          });
-          return changed ? next : current;
+        const current = latestMessagesRef.current;
+        let changed = false;
+        const next = current.map((message) => {
+          const text = updates.get(message.id);
+          if (text === undefined || text === message.text) {
+            return message;
+          }
+          changed = true;
+          return { ...message, text };
         });
+        if (changed) {
+          latestMessagesRef.current = next;
+          setMessages(next);
+        }
       }
     });
   }
@@ -209,6 +247,127 @@ export function App({
   useEffect(() => {
     return () => messageUpdateBufferRef.current?.cancel();
   }, []);
+
+  const refreshRecentSessions = useCallback(() => {
+    if (!sessionStore) {
+      setRecentSessions([]);
+      return;
+    }
+    try {
+      setRecentSessions(sessionStore.listRecent(cwd, 4));
+    } catch (error) {
+      setSessionNotice(formatSessionError('读取历史会话失败', error));
+    }
+  }, [cwd, sessionStore]);
+
+  useEffect(() => {
+    refreshRecentSessions();
+  }, [refreshRecentSessions]);
+
+  useEffect(() => {
+    if (sessionStoreError) {
+      setSessionNotice(sessionStoreError);
+    }
+  }, [sessionStoreError]);
+
+  useEffect(() => {
+    setSelectedRecentSession((current) => {
+      if (current === undefined || recentSessions.length === 0) {
+        return undefined;
+      }
+      return Math.min(current, recentSessions.length - 1);
+    });
+  }, [recentSessions.length]);
+
+  const ensureActiveSession = useCallback((): string | undefined => {
+    if (activeSessionIdRef.current || !sessionStore) {
+      return activeSessionIdRef.current;
+    }
+    try {
+      const created = sessionStore.createSession(cwd);
+      activeSessionIdRef.current = created.id;
+      setRecentSessions((current) => [
+        created,
+        ...current.filter((session) => session.id !== created.id)
+      ].slice(0, 4));
+      setSelectedRecentSession(undefined);
+      setSessionNotice(undefined);
+      return created.id;
+    } catch (error) {
+      setSessionNotice(formatSessionError('创建会话失败，已切换为临时会话', error));
+      return undefined;
+    }
+  }, [cwd, sessionStore]);
+
+  const persistMessage = useCallback((message: ChatMessage) => {
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionStore || !sessionId) {
+      return;
+    }
+    try {
+      sessionStore.upsertMessage(sessionId, toStoredSessionMessage(message));
+    } catch (error) {
+      setSessionNotice(formatSessionError('保存会话失败', error));
+    }
+  }, [sessionStore]);
+
+  const syncVisibleMessages = useCallback((reportError = true) => {
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionStore || !sessionId) {
+      return;
+    }
+    try {
+      sessionStore.syncMessages(
+        sessionId,
+        latestMessagesRef.current.map(toStoredSessionMessage)
+      );
+    } catch (error) {
+      if (reportError) {
+        setSessionNotice(formatSessionError('同步会话失败', error));
+      }
+    }
+  }, [sessionStore]);
+
+  const flushSession = useCallback(() => {
+    // 先把尚未进入 React state 的流式增量合并到 latestMessagesRef，再同步落盘。
+    flushMessageUpdates();
+    syncVisibleMessages(false);
+  }, [flushMessageUpdates, syncVisibleMessages]);
+
+  const requestExit = useCallback(() => {
+    flushSession();
+    onExitRequest?.();
+  }, [flushSession, onExitRequest]);
+
+  // 流式文本只在安静窗口后写一次最终快照，避免逐 token 膨胀 JSONL。
+  useEffect(() => {
+    if (!sessionStore || !activeSessionIdRef.current) {
+      return;
+    }
+    if (sessionSyncTimerRef.current) {
+      clearTimeout(sessionSyncTimerRef.current);
+    }
+    sessionSyncTimerRef.current = setTimeout(() => {
+      sessionSyncTimerRef.current = undefined;
+      syncVisibleMessages();
+    }, 350);
+    return () => {
+      if (sessionSyncTimerRef.current) {
+        clearTimeout(sessionSyncTimerRef.current);
+        sessionSyncTimerRef.current = undefined;
+      }
+    };
+  }, [messages, sessionStore, syncVisibleMessages]);
+
+  useEffect(() => {
+    return () => {
+      if (sessionSyncTimerRef.current) {
+        clearTimeout(sessionSyncTimerRef.current);
+      }
+      syncVisibleMessages(false);
+    };
+  }, [syncVisibleMessages]);
+
   const contextUsage = useMemo(
     () =>
       agentRuntime.getContextUsage({
@@ -251,22 +410,115 @@ export function App({
     ) => {
       const id = nextMessageIdRef.current;
       nextMessageIdRef.current += 1;
-      setMessages((current) => [
-        ...current,
-        {
-          id,
-          from,
-          text,
-          createdAt: new Date().toISOString(),
-          expanded: options.expanded
-        }
-      ]);
+      const message: ChatMessage = {
+        id,
+        from,
+        text,
+        createdAt: new Date().toISOString(),
+        expanded: options.expanded
+      };
+      setMessages((current) => [...current, message]);
+      persistMessage(message);
       // 新消息时回到底部（跟读最新）
       resetToBottom();
       return id;
     },
-    [resetToBottom]
+    [persistMessage, resetToBottom]
   );
+
+  const resumeSession = useCallback(async (
+    selector?: string
+  ): Promise<boolean> => {
+    const selectedSessionId =
+      selectedRecentSession === undefined
+        ? undefined
+        : recentSessions[selectedRecentSession]?.id;
+    const target = selector?.trim() || selectedSessionId;
+    if (!sessionStore) {
+      setSessionNotice('当前运行环境未启用会话持久化。');
+      return false;
+    }
+    if (!target) {
+      setSessionNotice('当前工作区还没有可恢复的历史会话。');
+      return false;
+    }
+    if (processingRef.current || pendingToolApproval) {
+      const message = '当前任务尚未结束，完成或处理工具确认后再恢复其他会话。';
+      setSessionNotice(message);
+      if (latestMessagesRef.current.some((item) => item.from === 'user')) {
+        append('system', message);
+      }
+      return false;
+    }
+
+    try {
+      // 切换前先把当前流中已经稳定的可见状态补齐。
+      syncVisibleMessages(false);
+      const restored = sessionStore.loadSession(cwd, target);
+      if (!restored) {
+        const message = `未找到唯一匹配的会话：${target}`;
+        setSessionNotice(message);
+        if (latestMessagesRef.current.some((item) => item.from === 'user')) {
+          append('system', message);
+        }
+        return false;
+      }
+
+      const restoredMessages = restored.messages.map(fromStoredSessionMessage);
+      activeSessionIdRef.current = restored.summary.id;
+      nextMessageIdRef.current =
+        Math.max(0, ...restoredMessages.map((message) => message.id)) + 1;
+      toolMessageIdsRef.current.clear();
+      queueRef.current.length = 0;
+      setQueueLength(0);
+      setPendingToolApproval(undefined);
+      setPendingCrossRepoPlan(undefined);
+      setAwaitingReply(false);
+      setStreamingMessageId(undefined);
+      setStatus('ready');
+      setMessages(restoredMessages);
+      const conversation: Array<{
+        role: 'user' | 'assistant';
+        content: string;
+      }> = [];
+      for (const message of restoredMessages) {
+        if (message.from === 'user') {
+          conversation.push({
+            role: 'user',
+            content: message.text.replace(/^>\s*/, '')
+          });
+        } else if (message.from === 'agent') {
+          conversation.push({ role: 'assistant', content: message.text });
+        }
+      }
+      agentRuntime.restoreConversation(conversation);
+      setRecentSessions((current) => [
+        restored.summary,
+        ...current.filter((session) => session.id !== restored.summary.id)
+      ].slice(0, 4));
+      setSelectedRecentSession(undefined);
+      setSessionNotice(undefined);
+      resetToBottom();
+      return true;
+    } catch (error) {
+      const message = formatSessionError('恢复会话失败', error);
+      setSessionNotice(message);
+      if (latestMessagesRef.current.some((item) => item.from === 'user')) {
+        append('system', message);
+      }
+      return false;
+    }
+  }, [
+    agentRuntime,
+    append,
+    cwd,
+    pendingToolApproval,
+    recentSessions,
+    resetToBottom,
+    selectedRecentSession,
+    sessionStore,
+    syncVisibleMessages
+  ]);
 
   const cyclePermissionMode = useCallback(() => {
     const next = nextPermissionMode(permissionMode);
@@ -864,7 +1116,22 @@ export function App({
     setModelSettings(undefined);
   }, [agentRuntime, append, modelSettings]);
 
+  const hasUserActivity = messages.some((message) => message.from === 'user');
+  const appError = runtimeError
+    ? `模型配置加载失败：${runtimeError} · 已回退本地运行时`
+    : sessionNotice;
+  const isHome =
+    !hasUserActivity &&
+    status === 'ready' &&
+    !pendingToolApproval &&
+    !modelSettingsOpen;
+
   useInput((inputKey, key) => {
+    if (key.ctrl && inputKey.toLowerCase() === 'c') {
+      requestExit();
+      return;
+    }
+
     // ctrl+p：打开/关闭模型与思考强度面板
     if (key.ctrl && inputKey.toLowerCase() === 'p') {
       if (pendingToolApproval) {
@@ -926,6 +1193,32 @@ export function App({
     if (key.ctrl && inputKey.toLowerCase() === 'e') {
       toggleLastToolGroup();
       return;
+    }
+
+    // 最近会话一旦选中，Esc 始终优先取消；即使用户已经开始输入也不例外。
+    if (isHome && key.escape && selectedRecentSession !== undefined) {
+      setSelectedRecentSession(undefined);
+      return;
+    }
+
+    // 首页输入为空时，方向键只切换最近会话；Enter 仍交给 Composer 提交恢复。
+    if (isHome && input.trim().length === 0 && recentSessions.length > 0) {
+      if (key.upArrow) {
+        setSelectedRecentSession((current) =>
+          current === undefined || current <= 0
+            ? recentSessions.length - 1
+            : current - 1
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setSelectedRecentSession((current) =>
+          current === undefined || current >= recentSessions.length - 1
+            ? 0
+            : current + 1
+        );
+        return;
+      }
     }
 
     // 消息视口滚动：PgUp/PgDn，或 ctrl+↑/↓（钳制在可滚动范围内）
@@ -1000,6 +1293,9 @@ export function App({
   const submit = useCallback(async (value: string) => {
     const trimmed = value.trim();
     if (trimmed.length === 0) {
+      if (isHome && selectedRecentSession !== undefined) {
+        await resumeSession();
+      }
       return;
     }
 
@@ -1022,7 +1318,15 @@ export function App({
       }
     }
 
+    if (trimmed === '/resume' || trimmed.startsWith('/resume ')) {
+      setInput('');
+      const selector = trimmed.slice('/resume'.length).trim() || undefined;
+      await resumeSession(selector);
+      return;
+    }
+
     setInput('');
+    ensureActiveSession();
     append('user', `> ${trimmed}`);
 
     if (
@@ -1076,6 +1380,11 @@ export function App({
     slashSuggestions,
     pendingCrossRepoPlan,
     choosePlanApproval,
+    ensureActiveSession,
+    isHome,
+    recentSessions.length,
+    resumeSession,
+    selectedRecentSession,
     toggleLastCollapsible
   ]);
 
@@ -1086,23 +1395,24 @@ export function App({
       chooseToolApproval,
       setInput,
       toggleCollapse: toggleLastCollapsible,
-      toggleToolGroup: toggleLastToolGroup
+      toggleToolGroup: toggleLastToolGroup,
+      resumeSession,
+      flushSession,
+      requestExit,
+      setRecentSessionSelection: setSelectedRecentSession
     });
   }, [
     chooseToolApproval,
     choosePlanApproval,
     onReady,
     submit,
+    resumeSession,
+    flushSession,
+    requestExit,
     toggleLastCollapsible,
     toggleLastToolGroup
   ]);
 
-  const hasUserActivity = messages.some((message) => message.from === 'user');
-  const isHome =
-    !hasUserActivity &&
-    status === 'ready' &&
-    !pendingToolApproval &&
-    !modelSettingsOpen;
   const contentWidth = Math.max(40, columns - (shellMode ? 2 : 4));
 
   // 动态计算 footer 高度，防止 header + viewport + footer > rows 导致溢出
@@ -1145,7 +1455,7 @@ export function App({
   ]);
 
   // Header: location line(1) + divider(1) = 2; + error(1) if present
-  const headerHeight = runtimeError ? 3 : 2;
+  const headerHeight = appError ? 3 : 2;
   // paddingX 1 on each side doesn't affect height
   const messageViewportHeight = resolveMessageViewportHeight({
     rows,
@@ -1209,7 +1519,7 @@ export function App({
       status={status}
       queueLength={queueLength}
       permissionMode={permissionMode}
-      runtimeError={runtimeError}
+      runtimeError={appError}
       compact={isHome}
       contextUsageLabel={contextUsage.label}
       contextUsageRatio={contextUsage.ratio}
@@ -1263,13 +1573,9 @@ export function App({
       version={version}
       modelLabel={modelLabel === 'no model' ? undefined : modelLabel}
       width={contentWidth}
-      notice={
-        runtimeError
-          ? `模型配置加载失败：${runtimeError}`
-          : importPrompt
-            ? formatImportPrompt(importPrompt)
-            : undefined
-      }
+      notice={appError ?? (importPrompt ? formatImportPrompt(importPrompt) : undefined)}
+      recentSessions={recentSessions}
+      selectedSessionIndex={selectedRecentSession}
       headline="随时可以开始"
       subtitle="在当前工作区规划、调用工具并保留运行记录。"
       tip="输入 / 查看全部命令"
@@ -1300,6 +1606,55 @@ export function App({
       footer={footer}
     />
   );
+}
+
+function safeListRecentSessions(
+  sessionStore: AppProps['sessionStore'],
+  cwd: string
+): SessionSummary[] {
+  if (!sessionStore) {
+    return [];
+  }
+  try {
+    return sessionStore.listRecent(cwd, 4);
+  } catch {
+    return [];
+  }
+}
+
+function toStoredSessionMessage(message: ChatMessage): StoredSessionMessage {
+  return {
+    id: message.id,
+    from: message.from,
+    text: message.text,
+    ...(message.createdAt ? { createdAt: message.createdAt } : {}),
+    ...(message.durationMs !== undefined
+      ? { durationMs: message.durationMs }
+      : {}),
+    ...(message.expanded !== undefined ? { expanded: message.expanded } : {}),
+    ...(message.tool ? { tool: message.tool } : {})
+  };
+}
+
+function fromStoredSessionMessage(message: StoredSessionMessage): ChatMessage {
+  return {
+    id: message.id,
+    from: message.from,
+    text: message.text,
+    ...(message.createdAt ? { createdAt: message.createdAt } : {}),
+    ...(message.durationMs !== undefined
+      ? { durationMs: message.durationMs }
+      : {}),
+    ...(message.expanded !== undefined ? { expanded: message.expanded } : {}),
+    ...(message.tool && typeof message.tool === 'object'
+      ? { tool: message.tool as ToolCallState }
+      : {})
+  };
+}
+
+function formatSessionError(prefix: string, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `${prefix}：${detail}`;
 }
 
 function createMemoryRuntime(): AgentRuntime {

@@ -170,6 +170,17 @@ export class AgentRuntime extends EventEmitter {
   }
 
   /**
+   * 恢复持久化会话时整体替换对话历史。UI 记录中的 thinking/tool/system
+   * 不应进入模型上下文，调用方只传 user/assistant 即可。
+   */
+  restoreConversation(
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  ): void {
+    this.contextManager.replaceConversation(messages);
+    this.contextManager.clearToolResults();
+  }
+
+  /**
    * 当前会话上下文占用估算（用于顶栏 12K/128K 展示）。
    * used 来自 ContextManager 字符预算 /4；max 来自模型窗口表或 AGENT_CONTEXT_WINDOW。
    */

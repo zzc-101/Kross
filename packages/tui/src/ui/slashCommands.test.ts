@@ -9,6 +9,7 @@ describe('slashCommands', () => {
     expect(slashCommands.some((command) => command.name === '/help')).toBe(true);
     expect(slashCommands.some((command) => command.name === '/perm')).toBe(true);
     expect(formatSlashHelp()).toContain('/context');
+    expect(formatSlashHelp()).toContain('/resume [sessionId]');
   });
 
   it('filters by prefix', () => {
@@ -17,10 +18,10 @@ describe('slashCommands', () => {
       '/settings',
       '/model',
       '/mode',
+      '/resume',
       '/status',
       '/context',
-      '/trace',
-      '/diff'
+      '/trace'
     ]);
     expect(filterSlashCommands('/mo').map((command) => command.name)).toEqual([
       '/model',
@@ -46,13 +47,13 @@ describe('slashCommands', () => {
 
     const result = getSuggestions('/', { limit: 8 });
     expect(result.commands).toHaveLength(8);
-    expect(result.hiddenCount).toBe(2);
+    expect(result.hiddenCount).toBe(3);
     expect(result.commands.map((command: any) => command.category)).toEqual([
       'common',
       'common',
       'common',
       'common',
-      'inspection',
+      'common',
       'inspection',
       'inspection',
       'inspection'

@@ -121,7 +121,7 @@ function tokenToLines(token: Token): MdLine[] {
           kind: 'code',
           spans: [
             {
-              text: lang ? `┌ ${lang}` : '┌ code',
+              text: lang ? `┌ ${lang}` : '┌────',
               dim: true,
               color: 'gray'
             }

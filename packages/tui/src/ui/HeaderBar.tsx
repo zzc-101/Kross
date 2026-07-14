@@ -21,6 +21,7 @@ export interface HeaderBarProps {
   status: UiStatus;
   queueLength: number;
   permissionMode: string;
+  /** 顶栏错误提示；名称保留以兼容现有调用。 */
   runtimeError?: string;
   /** 首页仅显示路径 + 上下文用量，不显示状态芯片 */
   compact?: boolean;
@@ -100,10 +101,7 @@ export function HeaderBar({
       ) : null}
       {runtimeError ? (
         <Box>
-          <Text color={theme.statusError}>
-            ⚠ 模型配置加载失败：{runtimeError}
-          </Text>
-          <Text dimColor> · 已回退本地运行时</Text>
+          <Text color={theme.statusError}>⚠ {runtimeError}</Text>
         </Box>
       ) : null}
     </Box>

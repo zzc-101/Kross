@@ -6,8 +6,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { AgentRuntime, createConfigImportController } from '@kross/core';
-import { App } from './App';
+import {
+  AgentRuntime,
+  createConfigImportController,
+  HybridSessionStore
+} from '@kross/core';
+import { App, type AppTestApi } from './App';
+import { formatSessionStoreInitializationError } from './app/sessionStartup';
 import { createRuntimeOptionsFromEnv } from './createRuntime';
 import {
   canUseAlternateScreen,
@@ -26,7 +31,52 @@ const renderStdout = useAltScreen
   ? createTerminalFrameOutput(process.stdout)
   : process.stdout;
 
-const app = render(
+const sessionSetup = createSessionStore();
+let sessionStoreClosed = false;
+let appApi: AppTestApi | undefined;
+let shuttingDown = false;
+let app: ReturnType<typeof render>;
+
+const restoreTerminal = (): void => {
+  if (useAltScreen) {
+    leaveAlternateScreen();
+  }
+};
+
+const closeSessionStore = (): void => {
+  if (sessionStoreClosed) {
+    return;
+  }
+  sessionStoreClosed = true;
+  try {
+    sessionSetup.store?.close();
+  } catch {
+    // best-effort during process shutdown
+  }
+};
+
+const shutdown = (): void => {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  // 主动退出统一保证：合并流式缓冲 → 写 JSONL/SQLite → 卸载 UI → 关闭 DB。
+  appApi?.flushSession();
+  try {
+    app?.unmount();
+  } catch {
+    // ignore
+  }
+  closeSessionStore();
+  restoreTerminal();
+};
+
+const exitProcess = (): void => {
+  shutdown();
+  process.exit(0);
+};
+
+app = render(
   <App
     createRuntime={() =>
       new AgentRuntime(createRuntimeOptionsFromEnv(process.cwd(), process.env))
@@ -39,36 +89,46 @@ const app = render(
     cwd={process.cwd()}
     branch={detectGitBranch()}
     version={readPackageVersion()}
+    sessionStore={sessionSetup.store}
+    sessionStoreError={sessionSetup.error}
+    onReady={(api) => {
+      appApi = api;
+    }}
+    onExitRequest={exitProcess}
   />,
   {
     stdout: renderStdout,
-    exitOnCtrlC: true,
+    // Ctrl+C 交给 App，自行 flush 后再卸载，避免 Ink 抢先关闭进程。
+    exitOnCtrlC: false,
     patchConsole: true
   }
 );
 
-const restoreTerminal = (): void => {
-  if (useAltScreen) {
-    leaveAlternateScreen();
-  }
-};
-
 const onSignal = (): void => {
-  try {
-    app.unmount();
-  } catch {
-    // ignore
-  }
-  restoreTerminal();
-  process.exit(0);
+  exitProcess();
 };
 
 process.once('SIGINT', onSignal);
 process.once('SIGTERM', onSignal);
 
 void app.waitUntilExit().finally(() => {
+  appApi?.flushSession();
+  closeSessionStore();
   restoreTerminal();
 });
+
+function createSessionStore(): {
+  store?: HybridSessionStore;
+  error?: string;
+} {
+  try {
+    return { store: new HybridSessionStore() };
+  } catch (error) {
+    return {
+      error: formatSessionStoreInitializationError(error)
+    };
+  }
+}
 
 function detectGitBranch(): string | undefined {
   try {

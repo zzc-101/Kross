@@ -38,6 +38,12 @@ export const slashCommands: SlashCommand[] = [
     category: 'common'
   },
   {
+    name: '/resume',
+    description: '恢复当前工作区的历史会话',
+    usage: '/resume [sessionId]',
+    category: 'common'
+  },
+  {
     name: '/status',
     description: '查看当前运行状态',
     category: 'inspection'

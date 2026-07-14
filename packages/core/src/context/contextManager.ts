@@ -78,9 +78,11 @@ export interface ContextReport {
 
 export interface ContextManager {
   appendConversation(message: LlmMessage): void;
+  replaceConversation(messages: LlmMessage[]): void;
   addSource(source: ContextSource): void;
   registerSkill(skill: SkillMetadata): void;
   recordToolResult(result: ToolResultContext): void;
+  clearToolResults(): void;
   compactHistory(input: CompactHistoryInput): void;
   clearSources(): void;
   build(input: BuildContextInput): ContextSnapshot;
@@ -106,6 +108,11 @@ export class InMemoryContextManager implements ContextManager {
     }
   }
 
+  replaceConversation(messages: LlmMessage[]): void {
+    const tail = messages.slice(-this.maxHistoryMessages);
+    this.history.splice(0, this.history.length, ...tail);
+  }
+
   addSource(source: ContextSource): void {
     this.sources.set(source.id, source);
   }
@@ -116,6 +123,10 @@ export class InMemoryContextManager implements ContextManager {
 
   recordToolResult(result: ToolResultContext): void {
     this.toolResults.set(result.id, result);
+  }
+
+  clearToolResults(): void {
+    this.toolResults.clear();
   }
 
   compactHistory(input: CompactHistoryInput): void {

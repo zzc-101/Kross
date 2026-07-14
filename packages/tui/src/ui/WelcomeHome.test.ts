@@ -4,7 +4,7 @@ import { formatLocationLabel } from './HeaderBar';
 import { formatStatusLabel, theme } from './theme';
 import * as welcomeHomeModule from './WelcomeHome';
 
-const { formatCwdLabel } = welcomeHomeModule;
+const { formatCwdLabel, formatSessionTime } = welcomeHomeModule;
 
 describe('formatCwdLabel', () => {
   it('rewrites home directory to ~', () => {
@@ -15,6 +15,13 @@ describe('formatCwdLabel', () => {
 
   it('keeps absolute paths outside home', () => {
     expect(formatCwdLabel('/tmp/work', '/Users/zc')).toBe('/tmp/work');
+  });
+});
+
+describe('formatSessionTime', () => {
+  it('formats a compact local timestamp and tolerates invalid input', () => {
+    expect(formatSessionTime('2026-07-14T10:08:00+08:00')).toBe('07-14 10:08');
+    expect(formatSessionTime('invalid')).toBe('');
   });
 });
 
