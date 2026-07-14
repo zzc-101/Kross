@@ -311,15 +311,19 @@ export function App({
     }
   }, [sessionStore]);
 
-  const syncVisibleMessages = useCallback((reportError = true) => {
-    const sessionId = activeSessionIdRef.current;
+  const syncVisibleMessages = useCallback((
+    reportError = true,
+    options?: { sessionId?: string; messages?: ChatMessage[] }
+  ) => {
+    const sessionId = options?.sessionId ?? activeSessionIdRef.current;
     if (!sessionStore || !sessionId) {
       return;
     }
+    const messagesToSync = options?.messages ?? latestMessagesRef.current;
     try {
       sessionStore.syncMessages(
         sessionId,
-        latestMessagesRef.current.map(toStoredSessionMessage)
+        messagesToSync.map(toStoredSessionMessage)
       );
     } catch (error) {
       if (reportError) {
@@ -327,6 +331,13 @@ export function App({
       }
     }
   }, [sessionStore]);
+
+  const cancelSessionSyncTimer = useCallback(() => {
+    if (sessionSyncTimerRef.current) {
+      clearTimeout(sessionSyncTimerRef.current);
+      sessionSyncTimerRef.current = undefined;
+    }
+  }, []);
 
   const flushSession = useCallback(() => {
     // 先把尚未进入 React state 的流式增量合并到 latestMessagesRef，再同步落盘。
@@ -426,6 +437,86 @@ export function App({
     [persistMessage, resetToBottom]
   );
 
+  /**
+   * 切换会话前：取消 debounce，并把当前会话以「旧 sessionId + 当前消息快照」落盘。
+   * 避免 activeSessionIdRef 已切到新会话时，旧定时器把旧消息 upsert 进新会话。
+   */
+  const flushCurrentSessionBeforeSwitch = useCallback(() => {
+    cancelSessionSyncTimer();
+    flushMessageUpdates();
+    const previousSessionId = activeSessionIdRef.current;
+    if (!previousSessionId) {
+      return;
+    }
+    syncVisibleMessages(false, {
+      sessionId: previousSessionId,
+      messages: latestMessagesRef.current
+    });
+  }, [cancelSessionSyncTimer, flushMessageUpdates, syncVisibleMessages]);
+
+  /**
+   * 无 sessionId 的 `/resume`：进入首页会话选择，而不是直接恢复最近一条。
+   */
+  const openSessionPicker = useCallback((): boolean => {
+    if (!sessionStore) {
+      setSessionNotice('当前运行环境未启用会话持久化。');
+      return false;
+    }
+    if (processingRef.current || pendingToolApproval) {
+      const message = '当前任务尚未结束，完成或处理工具确认后再恢复其他会话。';
+      setSessionNotice(message);
+      if (latestMessagesRef.current.some((item) => item.from === 'user')) {
+        append('system', message);
+      }
+      return false;
+    }
+
+    flushCurrentSessionBeforeSwitch();
+    activeSessionIdRef.current = undefined;
+    nextMessageIdRef.current = 1;
+    toolMessageIdsRef.current.clear();
+    queueRef.current.length = 0;
+    setQueueLength(0);
+    setPendingToolApproval(undefined);
+    setPendingCrossRepoPlan(undefined);
+    setAwaitingReply(false);
+    setStreamingMessageId(undefined);
+    setStatus('ready');
+    setMessages([]);
+    // 清空模型上下文与陈旧 usage，避免首页顶栏仍显示上一会话占用。
+    agentRuntime.restoreConversation([]);
+
+    let sessions: SessionSummary[] = [];
+    try {
+      sessions = sessionStore.listRecent(cwd, 4);
+      setRecentSessions(sessions);
+    } catch (error) {
+      setSessionNotice(formatSessionError('读取历史会话失败', error));
+      setSelectedRecentSession(undefined);
+      return false;
+    }
+
+    if (sessions.length === 0) {
+      setSelectedRecentSession(undefined);
+      setSessionNotice('当前工作区还没有可恢复的历史会话。');
+      return false;
+    }
+
+    // 预选第一条，用户仍可用 ↑↓ 改选，Enter 恢复。
+    setSelectedRecentSession(0);
+    setSessionNotice(undefined);
+    resetToBottom();
+    return true;
+  }, [
+    agentRuntime,
+    append,
+    cwd,
+    flushCurrentSessionBeforeSwitch,
+    pendingToolApproval,
+    resetToBottom,
+    sessionStore
+  ]);
+
   const resumeSession = useCallback(async (
     selector?: string
   ): Promise<boolean> => {
@@ -439,8 +530,8 @@ export function App({
       return false;
     }
     if (!target) {
-      setSessionNotice('当前工作区还没有可恢复的历史会话。');
-      return false;
+      // 无目标时打开选择器，而不是误报「没有历史」或静默取最近一条。
+      return openSessionPicker();
     }
     if (processingRef.current || pendingToolApproval) {
       const message = '当前任务尚未结束，完成或处理工具确认后再恢复其他会话。';
@@ -452,8 +543,7 @@ export function App({
     }
 
     try {
-      // 切换前先把当前流中已经稳定的可见状态补齐。
-      syncVisibleMessages(false);
+      flushCurrentSessionBeforeSwitch();
       const restored = sessionStore.loadSession(cwd, target);
       if (!restored) {
         const message = `未找到唯一匹配的会话：${target}`;
@@ -465,6 +555,7 @@ export function App({
       }
 
       const restoredMessages = restored.messages.map(fromStoredSessionMessage);
+      // 先锁定目标 sessionId，再 setMessages，防止 debounce 用错目标。
       activeSessionIdRef.current = restored.summary.id;
       nextMessageIdRef.current =
         Math.max(0, ...restoredMessages.map((message) => message.id)) + 1;
@@ -512,12 +603,13 @@ export function App({
     agentRuntime,
     append,
     cwd,
+    flushCurrentSessionBeforeSwitch,
+    openSessionPicker,
     pendingToolApproval,
     recentSessions,
     resetToBottom,
     selectedRecentSession,
-    sessionStore,
-    syncVisibleMessages
+    sessionStore
   ]);
 
   const cyclePermissionMode = useCallback(() => {
@@ -1321,7 +1413,12 @@ export function App({
     if (trimmed === '/resume' || trimmed.startsWith('/resume ')) {
       setInput('');
       const selector = trimmed.slice('/resume'.length).trim() || undefined;
-      await resumeSession(selector);
+      if (selector) {
+        await resumeSession(selector);
+      } else {
+        // 无参：弹出会话选择，不直接恢复最近一条。
+        openSessionPicker();
+      }
       return;
     }
 
@@ -1382,6 +1479,7 @@ export function App({
     choosePlanApproval,
     ensureActiveSession,
     isHome,
+    openSessionPicker,
     recentSessions.length,
     resumeSession,
     selectedRecentSession,

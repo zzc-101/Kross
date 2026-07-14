@@ -99,6 +99,8 @@ export interface LlmClient {
   /** 会话内切换模型 id（同 provider）。 */
   setModel?(model: string): void;
   setThinkingEffort?(effort: ThinkingEffort): void;
+  /** 恢复/切换会话时清空陈旧 usage，避免顶栏继续显示上一会话占用。 */
+  clearLastUsage?(): void;
   complete(request: LlmRequest): Promise<LlmResponse>;
   stream(request: LlmRequest): AsyncIterable<LlmStreamChunk>;
 }

@@ -39,7 +39,7 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     name: '/resume',
-    description: '恢复当前工作区的历史会话',
+    description: '打开会话选择或恢复指定会话',
     usage: '/resume [sessionId]',
     category: 'common'
   },

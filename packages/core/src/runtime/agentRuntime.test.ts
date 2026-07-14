@@ -121,6 +121,38 @@ describe('AgentRuntime', () => {
     });
   });
 
+  it('clears lastUsage when restoring a conversation', async () => {
+    const llmClient = new FakeLlmClient('ok');
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient
+    });
+
+    await runtime.run({
+      input: '先产生 usage',
+      requestedMode: 'normal'
+    });
+    expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBe(
+      10
+    );
+
+    runtime.restoreConversation([
+      { role: 'user', content: '旧会话用户' },
+      { role: 'assistant', content: '旧会话助手' }
+    ]);
+
+    expect(llmClient.lastUsage).toBeUndefined();
+    expect(runtime.getContextUsage({ requestedMode: 'normal' })).toMatchObject({
+      usedTokens: 0,
+      maxTokens: 512_000,
+      label: '0/512K'
+    });
+    const context = runtime.inspectContext({ requestedMode: 'normal' });
+    expect(context.messages.map((message) => message.content).join('\n')).toContain(
+      '旧会话用户'
+    );
+  });
+
   it('uses LLM text as the normal chat response', async () => {
     const traceStore = new InMemoryTraceStore();
     const llmClient = new FakeLlmClient('你好，我在。');
@@ -1059,6 +1091,10 @@ class FakeLlmClient implements LlmClient {
   lastUsage = undefined as LlmResponse['usage'];
 
   constructor(public text = '1. 探索测试入口\n2. 补充断言') {}
+
+  clearLastUsage(): void {
+    this.lastUsage = undefined;
+  }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     this.requests.push(request);

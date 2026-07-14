@@ -224,6 +224,177 @@ describe('App', () => {
     }
   });
 
+  it('opens the session picker for bare /resume instead of loading the latest', async () => {
+    const homeDir = createTempHome();
+    const workspace = join(homeDir, 'workspace');
+    mkdirSync(workspace);
+    let sessionSeq = 0;
+    const sessionStore = new HybridSessionStore({
+      krossHome: join(homeDir, '.kross'),
+      createSessionId: () => `session-picker-${sessionSeq++}`
+    });
+    const older = sessionStore.createSession(workspace);
+    sessionStore.syncMessages(older.id, [
+      { id: 1, from: 'user', text: '> 较早会话' },
+      { id: 2, from: 'agent', text: '较早回复' }
+    ]);
+    const newer = sessionStore.createSession(workspace);
+    sessionStore.syncMessages(newer.id, [
+      { id: 1, from: 'user', text: '> 最近会话' },
+      { id: 2, from: 'agent', text: '最近回复' }
+    ]);
+
+    let api: AppTestApi | undefined;
+    const view = render(
+      <App
+        runtime={new AgentRuntime({
+          traceStore: new InMemoryTraceStore(),
+          llmClient: new FakeLlmClient('ok')
+        })}
+        cwd={workspace}
+        sessionStore={sessionStore}
+        onReady={(next) => (api = next)}
+      />
+    );
+
+    try {
+      await waitUntil(() => api !== undefined);
+      await api?.submit('/resume');
+      await waitUntil(
+        () =>
+          view.lastFrame()?.includes('Enter 恢复已选中会话') === true &&
+          view.lastFrame()?.includes('最近会话') === true
+      );
+      // 未 Enter 前不应直接恢复最近一条的对话内容。
+      expect(view.lastFrame()).toContain('随时可以开始');
+      expect(view.lastFrame()).not.toContain('最近回复');
+      expect(view.lastFrame()).toContain('已选中 · Esc 取消');
+
+      await api?.submit('');
+      await waitUntil(() => view.lastFrame()?.includes('最近回复') === true);
+      expect(view.lastFrame()).not.toContain('随时可以开始');
+    } finally {
+      view.unmount();
+      sessionStore.close();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('flushes the previous session before switching and does not pollute the target', async () => {
+    const homeDir = createTempHome();
+    const workspace = join(homeDir, 'workspace');
+    mkdirSync(workspace);
+    let sessionSeq = 0;
+    const sessionStore = new HybridSessionStore({
+      krossHome: join(homeDir, '.kross'),
+      createSessionId: () => `session-switch-${sessionSeq++}`
+    });
+    const target = sessionStore.createSession(workspace);
+    sessionStore.syncMessages(target.id, [
+      { id: 1, from: 'user', text: '> 目标会话' },
+      { id: 2, from: 'agent', text: '目标回复' }
+    ]);
+
+    let api: AppTestApi | undefined;
+    const view = render(
+      <App
+        runtime={new AgentRuntime({
+          traceStore: new InMemoryTraceStore(),
+          llmClient: new FakeLlmClient('当前回复')
+        })}
+        cwd={workspace}
+        sessionStore={sessionStore}
+        onReady={(next) => (api = next)}
+      />
+    );
+
+    try {
+      await waitUntil(() => api !== undefined);
+      await api?.submit('当前会话内容');
+      await waitUntil(() => view.lastFrame()?.includes('当前回复') === true);
+
+      const currentId = sessionStore.listRecent(workspace)[0]?.id;
+      expect(currentId).toBeTruthy();
+      expect(currentId).not.toBe(target.id);
+
+      await api?.resumeSession(target.id);
+      await waitUntil(() => view.lastFrame()?.includes('目标回复') === true);
+
+      const targetRestored = sessionStore.loadSession(workspace, target.id);
+      expect(targetRestored?.messages.map((message) => message.text)).toEqual([
+        '> 目标会话',
+        '目标回复'
+      ]);
+      expect(
+        targetRestored?.messages.some((message) =>
+          message.text.includes('当前会话内容')
+        )
+      ).toBe(false);
+
+      const currentRestored = sessionStore.loadSession(workspace, currentId!);
+      expect(
+        currentRestored?.messages.some((message) =>
+          message.text.includes('当前会话内容')
+        )
+      ).toBe(true);
+    } finally {
+      view.unmount();
+      sessionStore.close();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('clears header token usage after resumeSession', async () => {
+    const homeDir = createTempHome();
+    const workspace = join(homeDir, 'workspace');
+    mkdirSync(workspace);
+    let sessionSeq = 0;
+    const sessionStore = new HybridSessionStore({
+      krossHome: join(homeDir, '.kross'),
+      createSessionId: () => `session-usage-clear-${sessionSeq++}`
+    });
+    const target = sessionStore.createSession(workspace);
+    sessionStore.syncMessages(target.id, [
+      { id: 1, from: 'user', text: '> 恢复后会话' },
+      { id: 2, from: 'agent', text: '恢复后回复' }
+    ]);
+
+    const llmClient = new FakeLlmClient('带 usage 的回复');
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient
+    });
+    let api: AppTestApi | undefined;
+    const view = render(
+      <App
+        runtime={runtime}
+        cwd={workspace}
+        sessionStore={sessionStore}
+        onReady={(next) => (api = next)}
+      />
+    );
+
+    try {
+      await waitUntil(() => api !== undefined);
+      await api?.submit('先产生 token 占用');
+      await waitUntil(() => view.lastFrame()?.includes('带 usage 的回复') === true);
+      expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBe(
+        37
+      );
+
+      await api?.resumeSession(target.id);
+      await waitUntil(() => view.lastFrame()?.includes('恢复后回复') === true);
+      expect(llmClient.lastUsage).toBeUndefined();
+      expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBe(
+        0
+      );
+    } finally {
+      view.unmount();
+      sessionStore.close();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('creates and persists a session lazily after the first real prompt', async () => {
     const homeDir = createTempHome();
     const workspace = join(homeDir, 'workspace');
@@ -1140,6 +1311,10 @@ class FakeLlmClient implements LlmClient {
 
   setThinkingEffort(effort: import('@kross/core').ThinkingEffort): void {
     this.thinkingEffort = effort;
+  }
+
+  clearLastUsage(): void {
+    this.lastUsage = undefined;
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {

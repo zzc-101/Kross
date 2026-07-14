@@ -86,6 +86,10 @@ export class PiAiLlmClient implements LlmClient {
     return this._lastUsage;
   }
 
+  clearLastUsage(): void {
+    this._lastUsage = undefined;
+  }
+
   setModel(model: string): void {
     const next = model.trim();
     if (!next) {

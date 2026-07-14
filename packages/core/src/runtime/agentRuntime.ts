@@ -171,12 +171,14 @@ export class AgentRuntime extends EventEmitter {
   /**
    * 恢复持久化会话时整体替换对话历史。UI 记录中的 thinking/tool/system
    * 不应进入模型上下文，调用方只传 user/assistant 即可。
+   * 同时清空上一会话的 lastUsage，避免顶栏继续显示陈旧 token。
    */
   restoreConversation(
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
   ): void {
     this.contextManager.replaceConversation(messages);
     this.contextManager.clearToolResults();
+    this.options.llmClient?.clearLastUsage?.();
   }
 
   /**
