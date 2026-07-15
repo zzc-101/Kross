@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 
 import { z } from 'zod';
 
@@ -12,6 +14,37 @@ import { resolveExistingPathWithinWorkspace } from './paths';
 const DEFAULT_HEAD_LIMIT = 200;
 const MAX_OUTPUT_CHARS = 200_000;
 const DEFAULT_TIMEOUT_MS = 60_000;
+
+const requireFromHere = createRequire(import.meta.url);
+
+/**
+ * 解析可用的 rg 二进制：
+ * 1. 显式覆盖
+ * 2. 依赖内置的 @vscode/ripgrep（随 npm 安装，客户无需单独装）
+ * 3. PATH 上的 `rg`
+ */
+export function resolveRgBinary(override?: string): string {
+  if (override && override.trim().length > 0) {
+    return override.trim();
+  }
+  const bundled = tryBundledRgPath();
+  if (bundled) {
+    return bundled;
+  }
+  return 'rg';
+}
+
+function tryBundledRgPath(): string | undefined {
+  try {
+    const mod = requireFromHere('@vscode/ripgrep') as { rgPath?: string };
+    if (typeof mod.rgPath === 'string' && existsSync(mod.rgPath)) {
+      return mod.rgPath;
+    }
+  } catch {
+    // 依赖未装或平台包缺失时回退 PATH
+  }
+  return undefined;
+}
 
 export interface RgInput {
   /** 正则/字面量搜索模式；filesOnly 时可省略 */
@@ -39,7 +72,10 @@ export interface RgInput {
 }
 
 export interface CreateRgToolOptions {
-  /** 默认 `rg`；测试可注入假二进制名 */
+  /**
+   * 覆盖 rg 二进制路径。
+   * 默认优先用依赖内置的 @vscode/ripgrep，其次 PATH 上的 `rg`。
+   */
   rgBinary?: string;
   /** 注入执行器，便于无 rg 环境单测 */
   runCommand?: (
@@ -179,20 +215,21 @@ export function runRgCommand(
 }
 
 /**
- * 基于系统 ripgrep 的高速搜索工具：内容检索 + 文件枚举（--files）。
+ * 基于 ripgrep 的高速搜索工具：内容检索 + 文件枚举（--files）。
+ * 默认使用 npm 依赖内置的 rg 二进制（@vscode/ripgrep），客户无需单独安装。
  * 比内置 JS Grep/Glob 更快，并默认尊重 .gitignore。
  */
 export function createRgTool(
   workspaceRoot: string,
   options: CreateRgToolOptions = {}
 ): ToolDefinition<RgInput> {
-  const rgBinary = options.rgBinary ?? 'rg';
+  const rgBinary = resolveRgBinary(options.rgBinary);
   const runCommand = options.runCommand ?? runRgCommand;
 
   return {
     name: 'Rg',
     description:
-      '用 ripgrep（rg）在工作区内高速搜索。' +
+      '用 ripgrep（rg）在工作区内高速搜索（二进制已随应用内置，无需系统安装）。' +
       '默认做内容检索（比 Grep 更快，尊重 .gitignore）；' +
       'filesOnly=true 时仅列文件（可替代 Glob/find）。' +
       '优先于 Grep/Glob 使用。',
@@ -297,10 +334,10 @@ export function createRgTool(
       if (error?.code === 'ENOENT') {
         return {
           content:
-            'ERROR: 未找到 rg（ripgrep）。请安装后重试：\n' +
-            '  macOS: brew install ripgrep\n' +
-            '  Debian/Ubuntu: sudo apt install ripgrep\n' +
-            '也可改用内置 Grep / Glob 工具。',
+            'ERROR: 无法启动 rg（ripgrep）。' +
+            '应用应已通过 @vscode/ripgrep 内置二进制；' +
+            '若仍失败请重装依赖，或改用内置 Grep / Glob 工具。\n' +
+            `尝试路径: ${rgBinary}`,
           summary: 'rg not found'
         };
       }

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +9,7 @@ import { ToolBoundaryError } from './paths';
 import {
   buildRgArgs,
   createRgTool,
+  resolveRgBinary,
   type RgCommandOutput,
   type RgInput
 } from './rg';
@@ -57,6 +59,24 @@ async function run(
     signal: new AbortController().signal
   });
 }
+
+describe('resolveRgBinary', () => {
+  it('honors explicit override', () => {
+    expect(resolveRgBinary('/custom/rg')).toBe('/custom/rg');
+  });
+
+  it('prefers the npm-bundled @vscode/ripgrep binary when available', () => {
+    const path = resolveRgBinary();
+    // 有平台包时为绝对路径；缺失时退回 'rg'
+    expect(path === 'rg' || path.includes('ripgrep') || path.endsWith('/rg') || path.endsWith('\\rg.exe')).toBe(
+      true
+    );
+    // 本 monorepo 安装了 @vscode/ripgrep，应解析到真实文件
+    if (path !== 'rg') {
+      expect(existsSync(path)).toBe(true);
+    }
+  });
+});
 
 describe('buildRgArgs', () => {
   it('builds content-search argv with -e pattern', () => {
@@ -150,7 +170,7 @@ describe('Rg', () => {
       error: Object.assign(new Error('not found'), { code: 'ENOENT' })
     });
     const res = await run({ pattern: 'x' }, runCommand);
-    expect(res.content).toContain('未找到 rg');
+    expect(res.content).toContain('无法启动 rg');
     expect(res.summary).toBe('rg not found');
   });
 
@@ -181,5 +201,23 @@ describe('Rg', () => {
     await run({ pattern: 'n', path: 'pkg' }, runCommand);
     const searchPath = calls[0]?.args.at(-1);
     expect(searchPath).toBe(join(root, 'pkg'));
+  });
+
+  it('runs a real content search with the bundled rg binary', async () => {
+    const binary = resolveRgBinary();
+    if (binary === 'rg') {
+      // 无内置二进制时跳过（CI 极少见；本机 monorepo 应有）
+      return;
+    }
+    await writeFile(join(root, 'note.ts'), 'export const marker = 42;\n');
+    const tool = createRgTool(root);
+    const res = await tool.execute({
+      runId: 'r',
+      toolName: tool.name,
+      input: { pattern: 'marker', glob: '*.ts' },
+      signal: new AbortController().signal
+    });
+    expect(res.content).toMatch(/note\.ts:\d+:.*marker/);
+    expect(res.summary).toMatch(/matches=/);
   });
 });

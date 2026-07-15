@@ -25,7 +25,7 @@ import { createWriteTool } from './write';
 import type { TodoStore } from '../../todo/todoStore';
 
 export { createExploreTools, createSubagentTools } from './exploreTools';
-export { createRgTool, buildRgArgs } from './rg';
+export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
 export {
   createDefaultSubagentRunner,
   createTaskTool,
