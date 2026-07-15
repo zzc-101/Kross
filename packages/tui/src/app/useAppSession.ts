@@ -24,6 +24,7 @@ export interface UseAppSessionOptions {
     | 'loadSession'
     | 'upsertMessage'
     | 'syncMessages'
+    | 'upsertContextState'
   > | undefined;
   sessionStoreError?: string;
   cwd: string;
@@ -169,12 +170,24 @@ export function useAppSession({
         sessionId,
         messagesToSync.map(toStoredSessionMessage)
       );
+      sessionStore.upsertContextState(
+        sessionId,
+        agentRuntime.exportContextState(),
+        Math.max(
+          0,
+          ...messagesToSync
+            .filter(
+              (message) => message.from === 'user' || message.from === 'agent'
+            )
+            .map((message) => message.id)
+        )
+      );
     } catch (error) {
       if (reportError) {
         setSessionNotice(formatSessionError('session.syncFailed', error));
       }
     }
-  }, [latestMessagesRef, sessionStore]);
+  }, [agentRuntime, latestMessagesRef, sessionStore]);
 
   const cancelSessionSyncTimer = useCallback(() => {
     if (sessionSyncTimerRef.current) {
@@ -381,7 +394,14 @@ export function useAppSession({
           conversation.push({ role: 'assistant', content: message.text });
         }
       }
-      const maintenance = agentRuntime.restoreConversation(conversation);
+      const restoredContext = restored.contextState
+        ? agentRuntime.restoreContextState(restored.contextState)
+        : false;
+      const restoredInterruptedTurn =
+        restoredContext && restored.contextState?.thread.openTurnId !== undefined;
+      const maintenance = restoredContext
+        ? undefined
+        : agentRuntime.restoreConversation(conversation);
       setRecentSessions((current) => [
         restored.summary,
         ...current.filter((session) => session.id !== restored.summary.id)
@@ -389,8 +409,8 @@ export function useAppSession({
       setSelectedRecentSession(undefined);
       setSessionNotice(undefined);
       if (
-        maintenance.droppedMessageCount > 0 ||
-        maintenance.compacted
+        maintenance &&
+        (maintenance.droppedMessageCount > 0 || maintenance.compacted)
       ) {
         const notice = maintenance.compacted
           ? t('context.restoredTruncated', {
@@ -408,6 +428,17 @@ export function useAppSession({
             id: nextMessageIdRef.current++,
             from: 'system',
             text: notice,
+            createdAt: new Date().toISOString()
+          }
+        ]);
+      }
+      if (restoredInterruptedTurn) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: nextMessageIdRef.current++,
+            from: 'system',
+            text: t('context.restoredInterrupted'),
             createdAt: new Date().toISOString()
           }
         ]);

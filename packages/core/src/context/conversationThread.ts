@@ -31,6 +31,24 @@ export interface TurnInfo {
   status: TurnStatus;
 }
 
+export interface SerializedThreadEntry {
+  turnId: string;
+  kind: ThreadEntryKind;
+  message: LlmMessage;
+  elided?: boolean;
+  iteration?: number;
+  toolSummary?: string;
+  originalTokens?: number;
+}
+
+export interface ConversationThreadState {
+  version: 1;
+  entries: SerializedThreadEntry[];
+  turns: TurnInfo[];
+  openTurnId?: string;
+  currentIteration: number;
+}
+
 let entryCounter = 0;
 
 function nextEntryId(): string {
@@ -229,6 +247,39 @@ export class ConversationThread {
     }
   }
 
+  /**
+   * 将历史前缀原位替换为一条压缩摘要。
+   * 摘要必须位于保留的最近对话之前，避免破坏消息时间顺序。
+   */
+  replacePrefixWithCompaction(entryCount: number, summary: string): void {
+    const count = Math.max(0, Math.min(entryCount, this.entries.length));
+    if (count === 0) {
+      return;
+    }
+
+    const removed = this.entries.splice(0, count);
+    const remainingTurnIds = new Set(this.entries.map((entry) => entry.turnId));
+    for (const turnId of new Set(removed.map((entry) => entry.turnId))) {
+      if (!remainingTurnIds.has(turnId)) {
+        this.turns.delete(turnId);
+      }
+    }
+
+    const turnId = `compaction-${nextTurnId()}`;
+    this.turns.set(turnId, { id: turnId, status: 'committed' });
+    const message: LlmMessage = {
+      role: 'user',
+      content: formatCompactionContent(summary)
+    };
+    this.entries.unshift({
+      id: nextEntryId(),
+      turnId,
+      kind: 'compaction',
+      message,
+      tokensEst: this.estimator.estimateMessage(message)
+    });
+  }
+
   elideToolResult(entryId: string, elidedContent: string): void {
     const entry = this.entries.find((item) => item.id === entryId);
     if (!entry || entry.kind !== 'tool-result') {
@@ -278,6 +329,85 @@ export class ConversationThread {
     return this.entries.map((entry) => cloneMessage(entry.message));
   }
 
+  /** 校准系数变化后，让已缓存条目与后续治理使用同一套 token 口径。 */
+  reestimateTokens(): void {
+    for (const entry of this.entries) {
+      entry.tokensEst = this.estimator.estimateMessage(entry.message);
+      if (entry.kind === 'tool-result' && !entry.elided) {
+        entry.originalTokens = entry.tokensEst;
+      }
+    }
+  }
+
+  exportState(): ConversationThreadState {
+    return {
+      version: 1,
+      entries: this.entries.map((entry) => ({
+        turnId: entry.turnId,
+        kind: entry.kind,
+        message: cloneMessage(entry.message),
+        elided: entry.elided,
+        iteration: entry.iteration,
+        toolSummary: entry.toolSummary,
+        originalTokens: entry.originalTokens
+      })),
+      turns: [...this.turns.values()].map((turn) => ({ ...turn })),
+      openTurnId: this.openTurnId,
+      currentIteration: this.currentIteration
+    };
+  }
+
+  /**
+   * 恢复治理后的真实线程，而不是从 UI 文本重新推导。
+   * 崩溃时仍 open 的 turn 会转为 aborted，并移除没有 tool result 的悬空 tool call。
+   */
+  restoreState(state: ConversationThreadState): boolean {
+    if (!isConversationThreadState(state)) {
+      return false;
+    }
+    this.clear();
+
+    const turnIdMap = new Map<string, string>();
+    for (const turn of state.turns) {
+      const restoredId = nextTurnId();
+      turnIdMap.set(turn.id, restoredId);
+      this.turns.set(restoredId, {
+        id: restoredId,
+        status: turn.status === 'open' ? 'aborted' : turn.status
+      });
+    }
+
+    const restoredOpenTurnIds = state.turns
+      .filter((turn) => turn.status === 'open')
+      .map((turn) => turnIdMap.get(turn.id))
+      .filter((turnId): turnId is string => !!turnId);
+    for (const saved of state.entries) {
+      const turnId = turnIdMap.get(saved.turnId);
+      if (!turnId) {
+        continue;
+      }
+      const entry = this.appendEntry({
+        turnId,
+        kind: saved.kind,
+        message: saved.message,
+        iteration: saved.iteration,
+        toolSummary: saved.toolSummary
+      });
+      entry.elided = saved.elided;
+      entry.originalTokens = saved.originalTokens;
+    }
+    for (const turnId of restoredOpenTurnIds) {
+      removeUnmatchedToolCalls(this.entries, turnId);
+    }
+    if (restoredOpenTurnIds.length > 0) {
+      this.addNotice(
+        '上次会话在未完成轮次中断；悬空工具调用已取消，请重新确认后续操作。'
+      );
+    }
+    this.currentIteration = Math.max(0, Math.floor(state.currentIteration));
+    return true;
+  }
+
   clear(): void {
     this.entries.length = 0;
     this.turns.clear();
@@ -302,7 +432,7 @@ export class ConversationThread {
         message.role === 'assistant' &&
         message.content.includes(LEGACY_COMPACTION_MARKER)
       ) {
-        const body = extractLegacyCompactionBody(message.content);
+        const body = extractCompactionBody(message.content);
         this.addCompaction(body);
         convertedCompaction = true;
         index += 1;
@@ -377,7 +507,7 @@ export function formatCompactionContent(summary: string): string {
   ].join('\n');
 }
 
-function extractLegacyCompactionBody(content: string): string {
+export function extractCompactionBody(content: string): string {
   const start = content.indexOf('只作历史参考]');
   const end = content.indexOf('--- END OF CONTEXT SUMMARY');
   if (start < 0) {
@@ -411,6 +541,132 @@ function cloneMessage(message: LlmMessage): LlmMessage {
     content: message.content,
     ...(message.toolCalls ? { toolCalls: [...message.toolCalls] } : {})
   };
+}
+
+export function isConversationThreadState(
+  value: unknown
+): value is ConversationThreadState {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const state = value as Partial<ConversationThreadState>;
+  if (
+    state.version !== 1 ||
+    !Array.isArray(state.entries) ||
+    !Array.isArray(state.turns) ||
+    !Number.isFinite(state.currentIteration)
+  ) {
+    return false;
+  }
+  const validTurnIds = new Set<string>();
+  for (const turn of state.turns) {
+    if (
+      !turn ||
+      typeof turn.id !== 'string' ||
+      (turn.status !== 'open' &&
+        turn.status !== 'committed' &&
+        turn.status !== 'aborted')
+    ) {
+      return false;
+    }
+    validTurnIds.add(turn.id);
+  }
+  if (state.openTurnId !== undefined && !validTurnIds.has(state.openTurnId)) {
+    return false;
+  }
+  const openTurns = state.turns.filter((turn) => turn.status === 'open');
+  if (
+    openTurns.length > 1 ||
+    (openTurns.length === 1 && state.openTurnId !== openTurns[0]!.id) ||
+    (openTurns.length === 0 && state.openTurnId !== undefined)
+  ) {
+    return false;
+  }
+  return state.entries.every(
+    (entry) =>
+      !!entry &&
+      typeof entry.turnId === 'string' &&
+      validTurnIds.has(entry.turnId) &&
+      isThreadEntryKind(entry.kind) &&
+      isLlmMessage(entry.message) &&
+      isEntryRoleCompatible(entry.kind, entry.message)
+  );
+}
+
+function isThreadEntryKind(value: unknown): value is ThreadEntryKind {
+  return (
+    value === 'user' ||
+    value === 'assistant' ||
+    value === 'tool-result' ||
+    value === 'compaction' ||
+    value === 'notice'
+  );
+}
+
+function isLlmMessage(value: unknown): value is LlmMessage {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const message = value as Partial<LlmMessage>;
+  if (typeof message.content !== 'string') {
+    return false;
+  }
+  if (message.role === 'tool') {
+    return (
+      typeof message.toolCallId === 'string' && typeof message.name === 'string'
+    );
+  }
+  return (
+    message.role === 'user' ||
+    message.role === 'assistant' ||
+    message.role === 'system'
+  );
+}
+
+function isEntryRoleCompatible(
+  kind: ThreadEntryKind,
+  message: LlmMessage
+): boolean {
+  if (kind === 'assistant') {
+    return message.role === 'assistant';
+  }
+  if (kind === 'tool-result') {
+    return message.role === 'tool';
+  }
+  return message.role === 'user';
+}
+
+function removeUnmatchedToolCalls(
+  entries: ThreadEntry[],
+  turnId: string
+): void {
+  const resultIds = new Set(
+    entries
+      .filter(
+        (entry) => entry.turnId === turnId && entry.message.role === 'tool'
+      )
+      .map((entry) =>
+        entry.message.role === 'tool' ? entry.message.toolCallId : ''
+      )
+  );
+  for (const entry of entries) {
+    if (
+      entry.turnId !== turnId ||
+      entry.message.role !== 'assistant' ||
+      !entry.message.toolCalls
+    ) {
+      continue;
+    }
+    const matched = entry.message.toolCalls.filter((call) =>
+      resultIds.has(call.id)
+    );
+    entry.message = {
+      role: 'assistant',
+      content: entry.message.content,
+      ...(matched.length > 0 ? { toolCalls: matched } : {})
+    };
+    entry.tokensEst = estimateMessageTokens(entry.message);
+  }
 }
 
 /** 供测试：重置全局计数器 */

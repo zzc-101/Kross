@@ -19,21 +19,23 @@
 
 ## 上下文系统
 
-Kross 的上下文以 **ConversationThread** 为单一事实源：会话内所有消息（用户输入、assistant 回复、tool_calls、工具结果、压缩摘要）统一活在 Thread 里，工具循环每轮从 Thread 取、向 Thread 写。持久化会话恢复时，从完整 UI 记录中只重建 user/assistant 历史并灌入 Thread，避免 thinking、工具卡片污染模型上下文。
+Kross 的上下文以 **ConversationThread** 为单一事实源：会话内所有消息（用户输入、assistant 回复、tool_calls、工具结果、压缩摘要）统一活在 Thread 里，工具循环每轮从 Thread 取、向 Thread 写。会话存储会同时保存 UI 记录和治理后的 Thread 检查点；恢复时优先还原真实模型上下文，旧会话才从 user/assistant 记录兼容重建。
 
 已实现：
 
-- **统一消息流（Thread）**：轮次生命周期 `beginTurn` → append → `commitTurn` / `abortTurn`；审批挂起时 open-turn 留在 Thread 上，恢复续跑继续 append。
+- **统一消息流（Thread）**：轮次生命周期 `beginTurn` → append → `commitTurn` / `abortTurn`；进程内审批挂起时 open-turn 留在 Thread 上，批准后继续 append。
 - **Token 预算制**：输入预算 = `contextWindow - 输出预留`（默认 256K 窗口、32K 预留）；压缩阈值 = 输入预算的 80%。顶栏与 `/context` 显示校准后的「下次请求预估 token / 输入预算」（`snapshot()` 纯读，无副作用）。
 - **三级治理流水线**（请求前 `prepareRequest` + 手动 `/compact` Stage2）：
   - Stage1 工具结果老化：超配额或距今超过 N 轮时替换为省略占位，保留 tool 消息本体。
-  - Stage2 轮次压缩：从最老完整 turn 开始压缩（保留最近 4 轮全文），LLM 摘要优先、extractive 兜底。
+  - Stage2 滚动压缩：旧历史原位替换为唯一摘要，二次压缩吸收旧摘要；按 token 保留最近原文，超长单轮仅在安全 assistant 边界切分。
   - Stage3 硬截断：单条超大消息 head+tail 截断兜底。
 - **上下文源**：workspace、repo、trace、memory、user、skill、compaction；`pinned` 源（如 session-todos）固定注入，不因预算被静默 drop。
 - **工具清单 / 技能清单**：工具 metadata 与技能名称/描述/位置进入 system 段；技能正文仅在触发时加载。
 - **纯读快照**：`inspectContext` / `snapshot()` 产出 section 占用、contributors、included/dropped/pinned sources、estimatedTokens、inputBudget、compactThreshold。
 - **`/context`**：按 token 展示总预估/预算/阈值、各 section（system/thread/sources/skills/tools）、sources 状态、最近治理记录。
-- **`/compact`**：手动触发一次 Stage2 轮次压缩。
+- **`/compact [额外要求]`**：手动触发一次 Stage2 滚动压缩，可临时要求保留文件名、精确值等信息。
+- **压缩可配置**：支持默认压缩指令和独立摘要模型；未配置时复用当前模型，失败自动回退到高保真 extractive 摘要。
+- **可恢复检查点**：JSONL 持久化完整 Thread；重启时恢复摘要、tool 状态和消息顺序，未完成 open turn 安全转为 aborted。
 - **治理可感知**：自动治理时写入 `context.compacted` trace，TUI 消息流插入简短 system 提示。
 - **`/trace` / `/diff`**：不变。
 
@@ -187,6 +189,23 @@ TUI 命令：
 `AGENT_CONTEXT_WINDOW`（兼容 `KROSS_CONTEXT_WINDOW`）优先于配置文件。
 顶栏已用 token 采用模型接口最近一次响应返回的 `usage.inputTokens`，接口未返回
 usage 时显示为 `0`，不再使用字符数估算。
+
+上下文治理可在同一配置文件中调整；`summarizer` 与 `llm` 字段结构一致，省略时复用主模型：
+
+```json
+{
+  "context": {
+    "preserveRecentTokens": 20000,
+    "preserveFullTurns": 4,
+    "compactionInstructions": "保留精确文件路径、命令、错误文本和未完成事项",
+    "summarizer": {
+      "provider": "openai",
+      "apiKey": "sk-...",
+      "model": "gpt-5-mini"
+    }
+  }
+}
+```
 
 导入规则：
 

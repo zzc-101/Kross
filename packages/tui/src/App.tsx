@@ -77,6 +77,7 @@ export interface AppProps {
     | 'loadSession'
     | 'upsertMessage'
     | 'syncMessages'
+    | 'upsertContextState'
   >;
 }
 
@@ -183,6 +184,10 @@ export function App({
     : [];
 
   const persistMessageRef = useRef<(message: ChatMessage) => void>(() => {});
+  const persistMessageProxy = useCallback(
+    (message: ChatMessage) => persistMessageRef.current(message),
+    []
+  );
 
   const {
     messages,
@@ -203,7 +208,7 @@ export function App({
   } = useAppMessages({
     initialMessages,
     initialNextMessageId: initialImportPrompt ? 2 : 1,
-    persistMessage: (message) => persistMessageRef.current(message),
+    persistMessage: persistMessageProxy,
     resetToBottom
   });
 
@@ -458,7 +463,7 @@ export function App({
       }),
     // messages / 工具结果变化后需要刷新占用
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 用长度与 generation 触发重算
-    [agentRuntime, mode, input, messages.length, runtimeGeneration, streamingMessageId]
+    [agentRuntime, mode, input, messages.length, runtimeGeneration, status, streamingMessageId]
   );
 
   // 动态计算 footer 高度，防止 header + viewport + footer > rows 导致溢出
@@ -523,8 +528,8 @@ export function App({
       todoExpanded={todoExpanded}
       runtimeError={appError}
       compact={isHome}
-      contextUsageLabel={contextUsage.label}
-      contextUsageRatio={contextUsage.ratio}
+      contextUsageLabel={contextUsage.headerLabel}
+      contextUsageRatio={contextUsage.headerRatio}
     />
   );
 

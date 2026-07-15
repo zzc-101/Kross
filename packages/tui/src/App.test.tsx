@@ -11,6 +11,8 @@ import {
   createConfigImportController,
   HybridSessionStore,
   ObservableTraceStore,
+  SessionContext,
+  type ContextMaintenanceResult,
   type LlmClient,
   type LlmRequest,
   type LlmResponse,
@@ -392,6 +394,66 @@ describe('App', () => {
       expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBeGreaterThan(
         0
       );
+    } finally {
+      view.unmount();
+      sessionStore.close();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('warns when a resumed context contains an interrupted open turn', async () => {
+    const homeDir = createTempHome();
+    const workspace = join(homeDir, 'workspace');
+    mkdirSync(workspace);
+    const sessionStore = new HybridSessionStore({
+      krossHome: join(homeDir, '.kross'),
+      createSessionId: () => 'session-interrupted-test'
+    });
+    const session = sessionStore.createSession(workspace);
+    sessionStore.syncMessages(session.id, [
+      { id: 1, from: 'user', text: '> 执行未完成任务' },
+      { id: 2, from: 'agent', text: '等待工具结果' }
+    ]);
+    const context = new SessionContext();
+    context.beginTurn('执行未完成任务');
+    context.appendAssistant('等待工具结果', [
+      { id: 'read-interrupted', name: 'Read', input: { path: 'README.md' } }
+    ]);
+    sessionStore.upsertContextState(session.id, context.exportState(), 2);
+
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('ok')
+    });
+    let api: AppTestApi | undefined;
+    const view = render(
+      <App
+        runtime={runtime}
+        cwd={workspace}
+        sessionStore={sessionStore}
+        onReady={(next) => (api = next)}
+      />
+    );
+
+    try {
+      await waitUntil(() => api !== undefined);
+      await api?.resumeSession(session.id);
+      await waitUntil(
+        () => view.lastFrame()?.includes('上次会话在未完成轮次中断') === true
+      );
+
+      const restored = runtime.inspectContext({
+        requestedMode: 'normal',
+        currentUserInput: '继续'
+      });
+      expect(restored.messages.map((message) => message.content).join('\n')).toContain(
+        '上次会话在未完成轮次中断'
+      );
+      expect(
+        restored.messages.some(
+          (message) => message.role === 'assistant' && Boolean(message.toolCalls?.length)
+        )
+      ).toBe(false);
     } finally {
       view.unmount();
       sessionStore.close();
@@ -821,6 +883,54 @@ describe('App', () => {
     expect(lastFrame()).toContain('sections (tokens)');
     expect(lastFrame()).toContain('thread');
     expect(lastFrame()).toContain('最近治理');
+  });
+
+  it('serializes /compact with queued prompts and shows progress', async () => {
+    let api: AppTestApi | undefined;
+    let resolveCompact: ((result: ContextMaintenanceResult) => void) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('压缩后回复')
+    });
+    const compactSpy = vi.spyOn(runtime, 'compactNow').mockImplementation(
+      () =>
+        new Promise<ContextMaintenanceResult>((resolve) => {
+          resolveCompact = resolve;
+        })
+    );
+    const runSpy = vi.spyOn(runtime, 'runStreaming');
+    const view = render(
+      <App runtime={runtime} onReady={(next) => (api = next)} />
+    );
+
+    await waitUntil(() => api !== undefined);
+    const compactSubmission = api!.submit('/compact 保留架构决策');
+    await waitUntil(() => compactSpy.mock.calls.length === 1);
+    expect(view.lastFrame()).toContain('正在压缩上下文');
+    expect(compactSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedMode: 'auto' }),
+      '保留架构决策'
+    );
+
+    await api!.submit('压缩后继续');
+    expect(runSpy).not.toHaveBeenCalled();
+    expect(view.lastFrame()).toContain('已加入队列');
+
+    resolveCompact?.({
+      compacted: false,
+      reason: 'manual',
+      droppedMessageCount: 0,
+      preservedMessageCount: 0,
+      tokensBefore: 0,
+      tokensAfter: 0,
+      historyCharsBefore: 0,
+      historyCharsAfter: 0
+    });
+    await compactSubmission;
+    await waitUntil(() => view.lastFrame()?.includes('压缩后回复') === true);
+
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(view.lastFrame()).toContain('压缩后继续');
   });
 
   it('prompts to import Claude Code or Codex config on first launch and saves the chosen config', async () => {
@@ -1304,7 +1414,7 @@ describe('App', () => {
     await waitUntil(() => lastFrame()?.includes('查看全部命令') === true);
     expect(lastFrame()).toContain('命令');
     expect(lastFrame()).toContain('/help');
-    expect(lastFrame()).toContain('还有 4 项，继续输入筛选');
+    expect(lastFrame()).toContain('还有 5 项，继续输入筛选');
 
     setInput?.('/mo');
     await waitUntil(() => lastFrame()?.includes('切换 Agent 模式') === true);

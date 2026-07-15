@@ -10,7 +10,8 @@ import {
   type ContextMaintenanceResult,
   SessionContext,
   createSessionContext,
-  type ContextSnapshot
+  type ContextSnapshot,
+  type SessionContextState
 } from '../context/sessionContext';
 import {
   formatContextUsage
@@ -180,6 +181,16 @@ export class AgentRuntime extends EventEmitter {
     return maintenance;
   }
 
+  exportContextState(): SessionContextState {
+    return this.sessionContext.exportState();
+  }
+
+  restoreContextState(state: SessionContextState): boolean {
+    this.options.llmClient?.clearLastUsage?.();
+    this.sessionContext.resetCalibration();
+    return this.sessionContext.restoreState(state);
+  }
+
   getLastContextMaintenance(): ContextMaintenanceResult | undefined {
     return this.sessionContext.getLastMaintenance();
   }
@@ -192,11 +203,12 @@ export class AgentRuntime extends EventEmitter {
     return this.sessionContext.getPolicy().preserveFullTurns;
   }
 
-  async compactNow(input: ContextInspectionInput = {
-    requestedMode: 'normal'
-  }): Promise<ContextMaintenanceResult> {
+  async compactNow(
+    input: ContextInspectionInput = { requestedMode: 'normal' },
+    instructions?: string
+  ): Promise<ContextMaintenanceResult> {
     const { buildContextInput } = this.resolveContextBuildInput(input);
-    return this.sessionContext.compactNow(buildContextInput);
+    return this.sessionContext.compactNow(buildContextInput, instructions);
   }
 
   getTodoStore(): import('../todo/todoStore').TodoStore | undefined {
@@ -235,16 +247,20 @@ export class AgentRuntime extends EventEmitter {
     lastUsageTokens?: number;
     label: string;
     ratio: number;
+    headerLabel: string;
+    headerRatio: number;
   } {
     const snapshot = this.inspectContext({
       requestedMode: input.requestedMode,
       currentUserInput: input.currentUserInput
     });
     const client = this.options.llmClient;
+    const lastUsageTokens = client?.lastUsage?.inputTokens;
     const usedTokens = snapshot.estimatedTokens;
     const maxTokens = snapshot.inputBudget;
     const compactThreshold = snapshot.compactThreshold;
-    const lastUsageTokens = client?.lastUsage?.inputTokens;
+    const headerTokens = lastUsageTokens ?? 0;
+    const contextWindow = this.sessionContext.getPolicy().contextWindow;
     return {
       usedChars: snapshot.estimatedChars,
       usedTokens,
@@ -252,7 +268,9 @@ export class AgentRuntime extends EventEmitter {
       compactThreshold,
       lastUsageTokens,
       label: formatContextUsage(usedTokens, maxTokens),
-      ratio: usedTokens / Math.max(1, compactThreshold)
+      ratio: usedTokens / Math.max(1, compactThreshold),
+      headerLabel: formatContextUsage(headerTokens, contextWindow),
+      headerRatio: headerTokens / Math.max(1, contextWindow)
     };
   }
 

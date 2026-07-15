@@ -35,6 +35,16 @@ export interface KrossConfig {
   /** UI language preference (`zh` | `en`). */
   locale?: AppLocale;
   llm?: ImportedLlmConfig;
+  context?: {
+    /** 自动压缩后优先保留的最近原文 token。 */
+    preserveRecentTokens?: number;
+    /** 手动压缩默认保留的最近完整轮数。 */
+    preserveFullTurns?: number;
+    /** 每次压缩都附加的保真要求。 */
+    compactionInstructions?: string;
+    /** 可选的独立摘要模型；缺省时复用主模型。 */
+    summarizer?: ImportedLlmConfig;
+  };
   /** MCP server map (also loadable from ~/.kross/mcp.json). */
   mcpServers?: McpServersConfig;
   setup?: {

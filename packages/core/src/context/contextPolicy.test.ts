@@ -9,6 +9,7 @@ describe('createContextPolicy', () => {
     expect(policy.inputBudget).toBe(224_000);
     expect(policy.compactThreshold).toBe(Math.floor(224_000 * 0.8));
     expect(policy.toolResultQuota).toBe(Math.floor(224_000 * 0.4));
+    expect(policy.preserveRecentTokens).toBe(20_000);
   });
 
   it('halves budgets for subagent', () => {

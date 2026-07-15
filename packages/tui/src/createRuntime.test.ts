@@ -158,4 +158,34 @@ describe('createRuntimeOptionsFromEnv', () => {
       rmSync(homeDir, { recursive: true, force: true });
     }
   });
+
+  it('applies context governance settings from Kross config', () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-runtime-home-'));
+    try {
+      mkdirSync(join(homeDir, '.kross'), { recursive: true });
+      writeFileSync(
+        join(homeDir, '.kross/config.json'),
+        JSON.stringify({
+          context: {
+            preserveFullTurns: 2,
+            preserveRecentTokens: 12_000,
+            compactionInstructions: '保留精确文件路径'
+          }
+        })
+      );
+
+      const options = createRuntimeOptionsFromEnv(
+        '/tmp/local-agent',
+        {},
+        undefined,
+        { homeDir }
+      );
+      expect(options.sessionContext?.getPolicy().preserveFullTurns).toBe(2);
+      expect(options.sessionContext?.getPolicy().preserveRecentTokens).toBe(
+        12_000
+      );
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
 });

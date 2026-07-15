@@ -4,6 +4,8 @@ import {
   createDefaultSubagentRunner,
   createLlmClientFromKrossConfig,
   createLlmClientFromEnv,
+  createContextPolicy,
+  createSessionContext,
   loadKrossConfig,
   ObservableTraceStore,
   SessionTraceStore,
@@ -55,6 +57,26 @@ export function createRuntimeOptionsFromEnv(
   );
   const llmClient =
     envClient ?? createLlmClientFromKrossConfig(savedConfig, fetch);
+  const summarizerClient = savedConfig?.context?.summarizer
+    ? createLlmClientFromKrossConfig(
+        { llm: savedConfig.context.summarizer },
+        fetch
+      )
+    : undefined;
+  const sessionContext = createSessionContext({
+    client: llmClient,
+    summarizerClient,
+    compactionInstructions: savedConfig?.context?.compactionInstructions,
+    policy: createContextPolicy({
+      contextWindow: llmClient?.contextWindow,
+      preserveFullTurns: nonNegativeInteger(
+        savedConfig?.context?.preserveFullTurns
+      ),
+      preserveRecentTokens: positiveInteger(
+        savedConfig?.context?.preserveRecentTokens
+      )
+    })
+  });
 
   let toolGateway = tooling?.toolGateway;
   let traceStore = tooling?.traceStore;
@@ -75,8 +97,21 @@ export function createRuntimeOptionsFromEnv(
     workspaceRoot: cwd,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
+    sessionContext,
     subagentDepth: 0
   };
+}
+
+function positiveInteger(value: number | undefined): number | undefined {
+  return Number.isFinite(value) && value !== undefined && value > 0
+    ? Math.floor(value)
+    : undefined;
+}
+
+function nonNegativeInteger(value: number | undefined): number | undefined {
+  return Number.isFinite(value) && value !== undefined && value >= 0
+    ? Math.floor(value)
+    : undefined;
 }
 
 /**

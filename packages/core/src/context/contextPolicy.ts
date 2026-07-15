@@ -5,6 +5,8 @@ export interface ContextPolicyOptions {
   /** 子代理使用减半预算 */
   isSubagent?: boolean;
   preserveFullTurns?: number;
+  /** 压缩后优先保留的最近原文 token；轮数仅作为手动压缩的偏好。 */
+  preserveRecentTokens?: number;
   preserveToolIterations?: number;
   maxToolResultTokens?: number;
 }
@@ -16,6 +18,7 @@ export interface ContextPolicy {
   compactThreshold: number;
   toolResultQuota: number;
   preserveFullTurns: number;
+  preserveRecentTokens: number;
   preserveToolIterations: number;
   maxToolResultTokens: number;
 }
@@ -42,8 +45,30 @@ export function createContextPolicy(
     inputBudget,
     compactThreshold: Math.floor(inputBudget * 0.8),
     toolResultQuota: Math.floor(inputBudget * 0.4),
-    preserveFullTurns: options.preserveFullTurns ?? 4,
-    preserveToolIterations: options.preserveToolIterations ?? 2,
-    maxToolResultTokens: options.maxToolResultTokens ?? 2_000
+    preserveFullTurns: normalizeNonNegativeInt(options.preserveFullTurns, 4),
+    preserveRecentTokens:
+      normalizePositiveInt(options.preserveRecentTokens) ??
+      Math.max(256, Math.min(20_000, Math.floor(inputBudget * 0.1))),
+    preserveToolIterations: normalizeNonNegativeInt(
+      options.preserveToolIterations,
+      2
+    ),
+    maxToolResultTokens:
+      normalizePositiveInt(options.maxToolResultTokens) ?? 2_000
   };
+}
+
+function normalizeNonNegativeInt(
+  value: number | undefined,
+  fallback: number
+): number {
+  return Number.isFinite(value) && value !== undefined && value >= 0
+    ? Math.floor(value)
+    : fallback;
+}
+
+function normalizePositiveInt(value: number | undefined): number | undefined {
+  return Number.isFinite(value) && value !== undefined && value > 0
+    ? Math.floor(value)
+    : undefined;
 }

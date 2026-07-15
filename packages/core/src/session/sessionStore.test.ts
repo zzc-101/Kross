@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { HybridSessionStore } from './sessionStore';
+import { SessionContext } from '../context/sessionContext';
 
 const temporaryRoots: string[] = [];
 
@@ -159,6 +160,56 @@ describe('HybridSessionStore', () => {
     );
     expect(store.loadSession(workspace, second.id)).toBeNull();
     store.close();
+  });
+
+  it('persists and restores the governed context checkpoint from JSONL', () => {
+    const { root, workspace, store } = createStore();
+    const created = store.createSession(workspace);
+    const context = new SessionContext();
+    context.getThread().addCompaction('important prior decision');
+    context.beginTurn('continue from checkpoint');
+    context.appendAssistant('done');
+    context.commitTurn();
+
+    store.upsertMessage(created.id, {
+      id: 1,
+      from: 'user',
+      text: '> continue from checkpoint'
+    });
+    store.upsertContextState(created.id, context.exportState(), 1);
+    store.close();
+
+    const reopened = new HybridSessionStore({ krossHome: join(root, '.kross') });
+    const restored = reopened.loadSession(workspace, created.id);
+    expect(restored?.contextState?.thread.entries[0]?.kind).toBe('compaction');
+
+    const restoredContext = new SessionContext();
+    expect(restoredContext.restoreState(restored!.contextState!)).toBe(true);
+    expect(restoredContext.getThread().buildMessages()[0]?.content).toContain(
+      'important prior decision'
+    );
+    reopened.close();
+  });
+
+  it('falls back to visible history when the context checkpoint is stale', () => {
+    const { root, workspace, store } = createStore();
+    const created = store.createSession(workspace);
+    const context = new SessionContext();
+    context.beginTurn('first');
+    context.appendAssistant('first answer');
+    context.commitTurn();
+    store.upsertMessage(created.id, { id: 1, from: 'user', text: '> first' });
+    store.upsertContextState(created.id, context.exportState(), 1);
+    store.upsertMessage(created.id, {
+      id: 2,
+      from: 'agent',
+      text: 'newer than checkpoint'
+    });
+    store.close();
+
+    const reopened = new HybridSessionStore({ krossHome: join(root, '.kross') });
+    expect(reopened.loadSession(workspace, created.id)?.contextState).toBeUndefined();
+    reopened.close();
   });
 });
 

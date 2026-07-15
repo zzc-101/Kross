@@ -8,9 +8,13 @@ import {
   type ContextMaintenanceResult,
   type ContextMaintenanceReason
 } from './contextGovernor';
-import { ConversationThread } from './conversationThread';
-import { LlmSummarizer } from './summarizer';
-import { TokenEstimator } from './tokenEstimator';
+import {
+  ConversationThread,
+  isConversationThreadState,
+  type ConversationThreadState
+} from './conversationThread';
+import { LlmSummarizer, type Summarizer } from './summarizer';
+import { estimateMessagesTokens, TokenEstimator } from './tokenEstimator';
 
 export type {
   ContextMaintenanceReason,
@@ -43,6 +47,18 @@ export interface SessionContextOptions {
   policy?: ContextPolicy;
   thread?: ConversationThread;
   estimator?: TokenEstimator;
+  /** 完全自定义压缩器；提供后不跟随运行时模型切换。 */
+  summarizer?: Summarizer;
+  /** 独立压缩模型客户端；未提供时复用当前运行时客户端。 */
+  summarizerClient?: LlmClient;
+  compactionInstructions?: string;
+}
+
+export interface SessionContextState {
+  version: 1;
+  thread: ConversationThreadState;
+  /** 最近治理记录，供恢复后的 /context 继续展示。 */
+  maintenance?: ContextMaintenanceResult[];
 }
 
 export interface BuildContextInput {
@@ -105,16 +121,23 @@ export class SessionContext {
   private readonly estimator: TokenEstimator;
   private readonly policy: ContextPolicy;
   private readonly governor: ContextGovernor;
+  private readonly summarizer: Summarizer;
+  private readonly summarizerFollowsRuntimeClient: boolean;
+  private readonly compactionInstructions: string | undefined;
   private readonly sources = new Map<string, ContextSource>();
   private readonly skills = new Map<string, SkillMetadata>();
   private lastMaintenance: ContextMaintenanceResult[] = [];
-  private llmClient: LlmClient | undefined;
 
   constructor(options: SessionContextOptions = {}) {
     this.estimator = options.estimator ?? new TokenEstimator();
     this.thread =
       options.thread ?? new ConversationThread({ estimator: this.estimator });
-    this.llmClient = options.llmClient;
+    this.summarizer =
+      options.summarizer ??
+      new LlmSummarizer(options.summarizerClient ?? options.llmClient);
+    this.summarizerFollowsRuntimeClient =
+      !options.summarizer && !options.summarizerClient;
+    this.compactionInstructions = options.compactionInstructions;
     this.policy =
       options.policy ??
       createContextPolicy({
@@ -124,12 +147,17 @@ export class SessionContext {
     this.governor = new ContextGovernor({
       policy: this.policy,
       estimator: this.estimator,
-      summarizer: new LlmSummarizer(this.llmClient)
+      summarizer: this.summarizer
     });
   }
 
   setLlmClient(client: LlmClient | undefined): void {
-    this.llmClient = client;
+    if (
+      this.summarizerFollowsRuntimeClient &&
+      this.summarizer instanceof LlmSummarizer
+    ) {
+      this.summarizer.setLlmClient(client);
+    }
   }
 
   getCommittedDialog(): LlmMessage[] {
@@ -228,8 +256,17 @@ export class SessionContext {
   /**
    * 手动触发 Stage2 轮次压缩；无可压缩轮次时 compacted=false。
    */
-  async compactNow(input: BuildContextInput): Promise<ContextMaintenanceResult> {
-    const result = await this.governor.compactTurnsNow(this.thread);
+  async compactNow(
+    _input: BuildContextInput,
+    instructions?: string
+  ): Promise<ContextMaintenanceResult> {
+    const combinedInstructions = [this.compactionInstructions, instructions]
+      .map((value) => value?.trim())
+      .filter((value): value is string => !!value)
+      .join('\n');
+    const result = await this.governor.compactTurnsNow(this.thread, {
+      instructions: combinedInstructions || undefined
+    });
     if (result.compacted) {
       this.rememberMaintenance(result);
     }
@@ -243,7 +280,6 @@ export class SessionContext {
   restoreConversation(
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
   ): ContextMaintenanceResult {
-    const beforeEntries = this.thread.getEntries().length;
     const beforeTokens = this.thread
       .getEntries()
       .reduce((sum, entry) => sum + entry.tokensEst, 0);
@@ -256,8 +292,7 @@ export class SessionContext {
 
     const result: ContextMaintenanceResult = {
       compacted: false,
-      reason: 'restore_truncation',
-      droppedMessageCount: Math.max(0, beforeEntries),
+      droppedMessageCount: 0,
       preservedMessageCount: this.thread.getEntries().length,
       tokensBefore: beforeTokens,
       tokensAfter: afterTokens,
@@ -265,13 +300,26 @@ export class SessionContext {
       historyCharsAfter: afterTokens * 4
     };
 
-    if (afterTokens > this.policy.compactThreshold) {
-      // 恢复后若超预算，由下次 prepareRequest 治理；此处仅记录
-      result.reason = 'restore_truncation';
-    }
-
-    this.rememberMaintenance(result);
     return result;
+  }
+
+  exportState(): SessionContextState {
+    return {
+      version: 1,
+      thread: this.thread.exportState(),
+      maintenance: this.lastMaintenance.slice(-20).map((item) => ({ ...item }))
+    };
+  }
+
+  restoreState(state: SessionContextState): boolean {
+    if (!isSessionContextState(state)) {
+      return false;
+    }
+    const restored = this.thread.restoreState(state.thread);
+    if (restored) {
+      this.lastMaintenance = (state.maintenance ?? []).map((item) => ({ ...item }));
+    }
+    return restored;
   }
 
   /**
@@ -354,14 +402,22 @@ export class SessionContext {
     if (actualInputTokens === undefined || actualInputTokens <= 0) {
       return;
     }
-    const rawEstimate = this.estimator.estimate(messages);
+    const rawEstimate = estimateMessagesTokens(messages);
     if (rawEstimate > 0) {
+      const beforeFactor = this.estimator.getCalibrationFactor();
       this.estimator.calibrate(rawEstimate, actualInputTokens);
+      if (this.estimator.getCalibrationFactor() !== beforeFactor) {
+        this.thread.reestimateTokens();
+      }
     }
   }
 
   resetCalibration(): void {
+    const beforeFactor = this.estimator.getCalibrationFactor();
     this.estimator.resetCalibration();
+    if (this.estimator.getCalibrationFactor() !== beforeFactor) {
+      this.thread.reestimateTokens();
+    }
   }
 
   private rememberMaintenance(result: ContextMaintenanceResult): void {
@@ -552,6 +608,38 @@ export function createSessionContext(
     contextWindow,
     llmClient: options.llmClient ?? options.client
   });
+}
+
+export function isSessionContextState(value: unknown): value is SessionContextState {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const state = value as Partial<SessionContextState>;
+  return (
+    state.version === 1 &&
+    isConversationThreadState(state.thread) &&
+    (state.maintenance === undefined ||
+      (Array.isArray(state.maintenance) &&
+        state.maintenance.every(isContextMaintenanceResult)))
+  );
+}
+
+function isContextMaintenanceResult(
+  value: unknown
+): value is ContextMaintenanceResult {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const item = value as Partial<ContextMaintenanceResult>;
+  return (
+    typeof item.compacted === 'boolean' &&
+    typeof item.droppedMessageCount === 'number' &&
+    typeof item.preservedMessageCount === 'number' &&
+    typeof item.tokensBefore === 'number' &&
+    typeof item.tokensAfter === 'number' &&
+    typeof item.historyCharsBefore === 'number' &&
+    typeof item.historyCharsAfter === 'number'
+  );
 }
 
 function selectSources(

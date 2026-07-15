@@ -15,6 +15,11 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
+import {
+  isSessionContextState,
+  type SessionContextState
+} from '../context/sessionContext';
+
 export type StoredSessionMessageFrom =
   | 'user'
   | 'agent'
@@ -47,6 +52,8 @@ export interface SessionSummary {
 export interface StoredSession {
   summary: SessionSummary;
   messages: StoredSessionMessage[];
+  /** 治理后的模型上下文检查点；旧会话可能没有。 */
+  contextState?: SessionContextState;
 }
 
 export interface HybridSessionStoreOptions {
@@ -60,7 +67,11 @@ interface SessionEvent {
   eventId: string;
   sessionId: string;
   seq: number;
-  type: 'session.created' | 'session.renamed' | 'message.upserted';
+  type:
+    | 'session.created'
+    | 'session.renamed'
+    | 'message.upserted'
+    | 'context.updated';
   timestamp: string;
   payload: Record<string, unknown>;
 }
@@ -76,6 +87,10 @@ interface SessionState {
   explicitTitle?: string;
   messages: Map<number, { order: number; message: StoredSessionMessage }>;
   signatures: Map<number, string>;
+  contextState?: SessionContextState;
+  contextSignature?: string;
+  /** 该检查点已覆盖到的最后一条 user/agent UI 消息。 */
+  contextMessageId?: number;
 }
 
 interface SessionRow {
@@ -215,6 +230,32 @@ export class HybridSessionStore {
     return state ? toSummary(state) : null;
   }
 
+  upsertContextState(
+    sessionId: string,
+    contextState: SessionContextState,
+    contextMessageId?: number
+  ): SessionSummary | null {
+    const state = this.getState(sessionId);
+    if (!state || !isSessionContextState(contextState)) {
+      return null;
+    }
+    const normalized = cloneContextState(contextState);
+    const normalizedMessageId = normalizeMessageId(contextMessageId);
+    const signature = JSON.stringify([normalized, normalizedMessageId]);
+    if (state.contextSignature === signature) {
+      return toSummary(state);
+    }
+    this.appendEvent(state, 'context.updated', {
+      contextState: normalized,
+      contextMessageId: normalizedMessageId
+    });
+    state.contextState = normalized;
+    state.contextSignature = signature;
+    state.contextMessageId = normalizedMessageId;
+    this.writeProjection(state);
+    return toSummary(state);
+  }
+
   listRecent(workspacePath: string, limit = 5): SessionSummary[] {
     const canonicalPath = canonicalWorkspacePath(workspacePath);
     const workspaceId = createWorkspaceId(canonicalPath);
@@ -263,7 +304,10 @@ export class HybridSessionStore {
     this.writeProjection(state);
     return {
       summary: toSummary(state),
-      messages: orderedMessages(state)
+      messages: orderedMessages(state),
+      contextState: isContextCheckpointCurrent(state)
+        ? cloneContextState(state.contextState)
+        : undefined
     };
   }
 
@@ -519,6 +563,20 @@ function readStateFromFile(eventPath: string): SessionState | null {
       }
       continue;
     }
+    if (
+      event.type === 'context.updated' &&
+      isSessionContextState(event.payload.contextState)
+    ) {
+      state.contextState = cloneContextState(event.payload.contextState);
+      state.contextMessageId = normalizeMessageId(
+        event.payload.contextMessageId
+      );
+      state.contextSignature = JSON.stringify([
+        state.contextState,
+        state.contextMessageId
+      ]);
+      continue;
+    }
     const message = event.payload.message;
     if (event.type === 'message.upserted' && isStoredSessionMessage(message)) {
       const normalized = cloneMessage(message);
@@ -563,7 +621,8 @@ function parseEvent(line: string): SessionEvent | null {
       !Number.isInteger(value.seq) ||
       (value.type !== 'session.created' &&
         value.type !== 'session.renamed' &&
-        value.type !== 'message.upserted') ||
+        value.type !== 'message.upserted' &&
+        value.type !== 'context.updated') ||
       typeof value.timestamp !== 'string' ||
       !value.payload ||
       typeof value.payload !== 'object'
@@ -596,6 +655,35 @@ function isStoredSessionMessage(value: unknown): value is StoredSessionMessage {
 
 function cloneMessage(message: StoredSessionMessage): StoredSessionMessage {
   return JSON.parse(JSON.stringify(message)) as StoredSessionMessage;
+}
+
+function cloneContextState(state: SessionContextState): SessionContextState {
+  return JSON.parse(JSON.stringify(state)) as SessionContextState;
+}
+
+function normalizeMessageId(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function isContextCheckpointCurrent(state: SessionState): state is SessionState & {
+  contextState: SessionContextState;
+} {
+  if (!state.contextState) {
+    return false;
+  }
+  const latestDialogId = Math.max(
+    0,
+    ...orderedMessages(state)
+      .filter((message) => message.from === 'user' || message.from === 'agent')
+      .map((message) => message.id)
+  );
+  return (
+    latestDialogId === 0 ||
+    (state.contextMessageId !== undefined &&
+      state.contextMessageId >= latestDialogId)
+  );
 }
 
 function orderedMessages(state: SessionState): StoredSessionMessage[] {

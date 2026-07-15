@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { AgentRuntime } from '@kross/core';
 
@@ -29,6 +29,8 @@ export function useSubagentTrace({
 }: UseSubagentTraceOptions) {
   const [subagents, setSubagents] = useState<SubagentUiState[]>([]);
   const [subagentExpanded, setSubagentExpanded] = useState(false);
+  const appendRef = useRef(append);
+  appendRef.current = append;
 
   useEffect(() => {
     return agentRuntime.onTrace((event) => {
@@ -41,11 +43,11 @@ export function useSubagentTrace({
         setAwaitingReply,
         setStreamingMessageId,
         appendSystem: (text) => {
-          append('system', text);
+          appendRef.current('system', text);
         }
       });
     });
-  }, [agentRuntime, append, upsertToolMessage, setAwaitingReply, setLoadingVariant, setStreamingMessageId]);
+  }, [agentRuntime, upsertToolMessage, setAwaitingReply, setLoadingVariant, setStreamingMessageId]);
 
   // Prune finished subagent cards (keep ~60s; keep while expanded).
   useEffect(() => {

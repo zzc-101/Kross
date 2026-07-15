@@ -7,8 +7,18 @@ export interface SummarizeTurnInput {
   entries: ThreadEntry[];
 }
 
+export interface SummarizeOptions {
+  /** 之前已生成的滚动摘要；新摘要必须吸收它，而不是并排堆叠。 */
+  previousSummary?: string;
+  /** 本次手动压缩的额外关注点。 */
+  instructions?: string;
+}
+
 export interface Summarizer {
-  summarizeTurns(turns: SummarizeTurnInput[]): Promise<string>;
+  summarizeTurns(
+    turns: SummarizeTurnInput[],
+    options?: SummarizeOptions
+  ): Promise<string>;
 }
 
 /**
@@ -20,28 +30,34 @@ export function buildExtractiveTurnSummary(turns: SummarizeTurnInput[]): string 
     const parts: string[] = [];
     for (const entry of turn.entries) {
       if (entry.kind === 'user') {
-        const text = clip(entry.message.content, 200);
+        const text = clip(entry.message.content, 2_000);
         if (text) {
           parts.push(`用户: ${text}`);
         }
       } else if (entry.kind === 'assistant') {
-        const text = clip(entry.message.content, 200);
+        const text = clip(entry.message.content, 4_000);
         if (text) {
           parts.push(`助手: ${text}`);
         }
         if (entry.message.role === 'assistant' && entry.message.toolCalls) {
           const tools = entry.message.toolCalls
-            .map((call) => call.name)
+            .map(
+              (call) =>
+                `${call.name}(${clip(safeJson(call.input), 2_000)})`
+            )
             .join(', ');
           if (tools) {
             parts.push(`工具调用: ${tools}`);
           }
         }
       } else if (entry.kind === 'tool-result' && entry.message.role === 'tool') {
-        const preview = clip(entry.message.content, 120);
+        const preview = clip(entry.toolSummary ?? entry.message.content, 2_000);
         parts.push(`工具 ${entry.message.name}: ${preview}`);
-      } else if (entry.kind === 'compaction') {
-        parts.push(`(prior summary) ${clip(entry.message.content, 180)}`);
+      } else if (entry.kind === 'notice') {
+        const text = clip(entry.message.content, 1_000);
+        if (text) {
+          parts.push(`状态: ${text}`);
+        }
       }
     }
     if (parts.length > 0) {
@@ -56,31 +72,49 @@ export function buildExtractiveTurnSummary(turns: SummarizeTurnInput[]): string 
 }
 
 export class ExtractiveSummarizer implements Summarizer {
-  async summarizeTurns(turns: SummarizeTurnInput[]): Promise<string> {
-    return buildExtractiveTurnSummary(turns);
+  async summarizeTurns(
+    turns: SummarizeTurnInput[],
+    options: SummarizeOptions = {}
+  ): Promise<string> {
+    return mergeFallbackSummary(options.previousSummary, turns);
   }
 }
 
 export class LlmSummarizer implements Summarizer {
   private readonly fallback = new ExtractiveSummarizer();
 
-  constructor(private readonly llmClient: LlmClient | undefined) {}
+  constructor(private llmClient: LlmClient | undefined) {}
 
-  async summarizeTurns(turns: SummarizeTurnInput[]): Promise<string> {
-    if (!this.llmClient || turns.length === 0) {
-      return this.fallback.summarizeTurns(turns);
+  setLlmClient(client: LlmClient | undefined): void {
+    this.llmClient = client;
+  }
+
+  async summarizeTurns(
+    turns: SummarizeTurnInput[],
+    options: SummarizeOptions = {}
+  ): Promise<string> {
+    if (!this.llmClient || (turns.length === 0 && !options.previousSummary)) {
+      return this.fallback.summarizeTurns(turns, options);
     }
 
     const transcript = buildExtractiveTurnSummary(turns);
+    const prior = options.previousSummary?.trim();
+    const instructions = options.instructions?.trim();
     const messages: LlmMessage[] = [
       {
         role: 'system',
         content:
-          '你是上下文压缩助手。将以下对话轮次压缩为简洁中文摘要，保留：用户目标、已执行操作、涉及文件/工具、关键结论。不要编造。'
+          '你是上下文压缩助手。请生成一份可独立替代早期对话的滚动摘要。保留：用户目标与偏好、已执行操作、涉及文件/工具、关键结论、未完成事项、失败尝试和重要精确值。不得编造，也不要把旧摘要与新内容简单并排堆叠。'
       },
       {
         role: 'user',
-        content: `请压缩以下对话历史：\n\n${transcript}`
+        content: [
+          prior ? `已有滚动摘要（请吸收并更新）：\n${prior}` : '',
+          `本次新增的早期对话：\n${transcript}`,
+          instructions ? `额外压缩要求：\n${instructions}` : ''
+        ]
+          .filter(Boolean)
+          .join('\n\n')
       }
     ];
 
@@ -97,8 +131,25 @@ export class LlmSummarizer implements Summarizer {
     } catch {
       // 回退 extractive
     }
-    return this.fallback.summarizeTurns(turns);
+    return this.fallback.summarizeTurns(turns, options);
   }
+}
+
+function mergeFallbackSummary(
+  previousSummary: string | undefined,
+  turns: SummarizeTurnInput[]
+): string {
+  const fresh = buildExtractiveTurnSummary(turns);
+  const previous = previousSummary?.trim();
+  if (!previous) {
+    return fresh;
+  }
+  if (turns.length === 0) {
+    return previous;
+  }
+  return [`既有摘要：\n${clip(previous, 12_000)}`, `新增历史：\n${fresh}`].join(
+    '\n\n'
+  );
 }
 
 export function compactionMessageFromSummary(summary: string): LlmMessage {
@@ -114,4 +165,12 @@ function clip(value: string, max: number): string {
     return trimmed;
   }
   return `${trimmed.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }

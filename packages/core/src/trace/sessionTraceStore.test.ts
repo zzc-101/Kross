@@ -68,9 +68,105 @@ describe('SessionTraceStore', () => {
 
     await expect(storeA.listRunIds()).resolves.toEqual(['run-new', 'run-old']);
     await expect(storeB.listRunIds()).resolves.toEqual(['run-b']);
+    await expect(storeA.readRun('run-b')).resolves.toEqual([]);
+    await expect(storeB.readRun('run-new')).resolves.toEqual([]);
 
     storeA.close();
     storeB.close();
+  });
+
+  it('keeps identical runIds isolated by workspace', async () => {
+    const workspaceA = join(krossHome, 'same-run-a');
+    const workspaceB = join(krossHome, 'same-run-b');
+    await mkdir(workspaceA, { recursive: true });
+    await mkdir(workspaceB, { recursive: true });
+
+    const storeA = createStore(workspaceA, 'a001');
+    const storeB = createStore(workspaceB, 'b001');
+    const eventA = event('run-shared', 'run.started', { workspace: 'a' });
+    const eventB = {
+      ...event('run-shared', 'run.started', { workspace: 'b' }),
+      id: 'run-shared-b'
+    };
+
+    await storeA.append(eventA);
+    await storeB.append(eventB);
+
+    await expect(storeA.readRun('run-shared')).resolves.toEqual([eventA]);
+    await expect(storeB.readRun('run-shared')).resolves.toEqual([eventB]);
+    await expect(storeA.listRunIds()).resolves.toEqual(['run-shared']);
+    await expect(storeB.listRunIds()).resolves.toEqual(['run-shared']);
+
+    storeA.close();
+    storeB.close();
+  });
+
+  it('migrates the v1 index without losing existing run data', async () => {
+    const workspacePath = join(krossHome, 'legacy-workspace');
+    await mkdir(workspacePath, { recursive: true });
+    const workspaceKey = createWorkspaceKeyForTrace(workspacePath);
+    const workspaceDir = join(krossHome, 'traces', workspaceKey);
+    await mkdir(workspaceDir, { recursive: true });
+    const legacyFile = join(workspaceDir, '2026-07-15T08-00-00-old1.jsonl');
+    const legacyEvent = event('legacy-run', 'run.started', { source: 'v1' });
+    await writeFile(legacyFile, `${JSON.stringify(legacyEvent)}\n`, 'utf8');
+
+    const dbPath = join(krossHome, 'traces', 'index.db');
+    const seedDb = new Database(dbPath);
+    seedDb.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO schema_migrations(version, applied_at)
+        VALUES (1, '2026-07-15T08:00:00.000Z');
+      CREATE TABLE trace_runs (
+        run_id TEXT PRIMARY KEY,
+        workspace_key TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        event_count INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    seedDb
+      .prepare(
+        `INSERT INTO trace_runs (
+           run_id, workspace_key, file_path, first_seen, last_seen, event_count
+         ) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        'legacy-run',
+        workspaceKey,
+        legacyFile,
+        legacyEvent.timestamp,
+        legacyEvent.timestamp,
+        1
+      );
+    seedDb.close();
+
+    const store = new SessionTraceStore({
+      krossHome,
+      workspacePath,
+      now: () => new Date('2026-07-15T09:00:00.000Z'),
+      randomSuffix: () => 'new2'
+    });
+
+    await expect(store.readRun('legacy-run')).resolves.toEqual([legacyEvent]);
+    const db = new Database(store.databasePath);
+    const primaryKeyColumns = db
+      .prepare('PRAGMA table_info(trace_runs)')
+      .all()
+      .filter((column) => (column as { pk: number }).pk > 0)
+      .sort(
+        (left, right) =>
+          (left as { pk: number }).pk - (right as { pk: number }).pk
+      )
+      .map((column) => (column as { name: string }).name);
+    db.close();
+    expect(primaryKeyColumns).toEqual(['workspace_key', 'run_id']);
+
+    store.close();
   });
 
   it('falls back to the current session file when index row is missing', async () => {

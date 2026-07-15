@@ -202,6 +202,8 @@ export const zhCatalog = {
   'cmd.compact.done':
     '已压缩 {turns} 轮 · {before} -> {after} tokens（Stage2）',
   'cmd.compact.nothing': '无可压缩内容（需保留最近 {preserve} 轮全文）',
+  'cmd.compact.running': '正在压缩上下文，请稍候…',
+  'cmd.compact.busy': '当前仍有任务或压缩正在进行，不能并发修改上下文。',
   'cmd.lang.usage': '用法：/lang zh|en',
   'cmd.lang.current': '当前界面语言：{locale}',
   'cmd.lang.switched': '界面语言已切换为 {locale}',
@@ -214,7 +216,9 @@ export const zhCatalog = {
   'context.restoredHardTrim':
     '已恢复会话：模型上下文仅保留最近 {kept} 条对话，另有 {dropped} 条较早记录未载入模型。',
   'context.compactedNotice':
-    '上下文已压缩: {stage}, {before} -> {after} tokens'
+    '上下文已压缩: {stage}, {before} -> {after} tokens',
+  'context.restoredInterrupted':
+    '上次会话在未完成轮次中断；悬空工具调用已取消，请重新确认后续操作。'
 } as const satisfies MessageCatalog;
 
 export type MessageKey = keyof typeof zhCatalog;
@@ -402,6 +406,9 @@ export const enCatalog: Record<MessageKey, string> = {
     'Compacted {turns} turn(s) · {before} -> {after} tokens (Stage2)',
   'cmd.compact.nothing':
     'Nothing to compact (keeping latest {preserve} full turns)',
+  'cmd.compact.running': 'Compacting context…',
+  'cmd.compact.busy':
+    'A task or compaction is already running; context cannot be modified concurrently.',
   'cmd.lang.usage': 'Usage: /lang zh|en',
   'cmd.lang.current': 'UI language: {locale}',
   'cmd.lang.switched': 'UI language switched to {locale}',
@@ -413,7 +420,9 @@ export const enCatalog: Record<MessageKey, string> = {
   'context.restoredHardTrim':
     'Session restored: model context keeps only the latest {kept} turns; {dropped} earlier turns were not loaded into the model.',
   'context.compactedNotice':
-    'Context compacted: {stage}, {before} -> {after} tokens'
+    'Context compacted: {stage}, {before} -> {after} tokens',
+  'context.restoredInterrupted':
+    'The previous session stopped mid-turn. Pending tool calls were cancelled; confirm the next action before continuing.'
 };
 
 export const catalogs: Record<AppLocale, Record<MessageKey, string>> = {

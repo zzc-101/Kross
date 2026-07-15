@@ -91,11 +91,11 @@ export class TokenEstimator {
   /**
    * 用真实 inputTokens 更新 EMA 校准系数。
    */
-  calibrate(estimatedTokens: number, actualInputTokens: number): void {
-    if (estimatedTokens <= 0 || actualInputTokens <= 0) {
+  calibrate(rawEstimatedTokens: number, actualInputTokens: number): void {
+    if (rawEstimatedTokens <= 0 || actualInputTokens <= 0) {
       return;
     }
-    const ratio = actualInputTokens / estimatedTokens;
+    const ratio = actualInputTokens / rawEstimatedTokens;
     const next =
       this.calibrationFactor * (1 - this.emaAlpha) + ratio * this.emaAlpha;
     this.calibrationFactor = clamp(next, this.minFactor, this.maxFactor);

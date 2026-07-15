@@ -148,22 +148,6 @@ export function handleCommand(
     return true;
   }
 
-  if (value === '/compact') {
-    void runSlashAsync(
-      async () =>
-        formatCompactResult(
-          await runtime.compactNow({
-            requestedMode: mode,
-            currentUserInput: ''
-          }),
-          runtime.getPreserveFullTurns()
-        ),
-      append,
-      '/compact'
-    );
-    return true;
-  }
-
   if (value === '/expand') {
     toggleLastCollapsible();
     append('system', t('cmd.expandDone'));
@@ -247,6 +231,25 @@ export function handleCommand(
 
   append('agent', t('cmd.unknown', { value }));
   return true;
+}
+
+/** `/compact` 会改写 Thread，必须由提交层串行执行，不能走普通异步命令。 */
+export async function executeCompactCommand(
+  value: string,
+  runtime: AgentRuntime,
+  mode: AgentMode
+): Promise<string> {
+  const instructions = value.slice('/compact'.length).trim() || undefined;
+  return formatCompactResult(
+    await runtime.compactNow(
+      {
+        requestedMode: mode,
+        currentUserInput: ''
+      },
+      instructions
+    ),
+    runtime.getPreserveFullTurns()
+  );
 }
 
 export function formatImportPrompt(prompt: ConfigImportPrompt): string {

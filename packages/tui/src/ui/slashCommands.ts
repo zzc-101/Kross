@@ -66,6 +66,7 @@ export function listSlashCommands(): SlashCommand[] {
     {
       name: '/compact',
       description: t('slash.compact.desc'),
+      usage: '/compact [额外压缩要求]',
       category: 'inspection'
     },
     {

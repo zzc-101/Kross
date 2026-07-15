@@ -2,9 +2,14 @@ import { formatToolInputPreview } from '../tools/formatToolInputPreview';
 import type { ContextPolicy } from './contextPolicy';
 import {
   ConversationThread,
+  extractCompactionBody,
   type ThreadEntry
 } from './conversationThread';
-import type { Summarizer } from './summarizer';
+import type {
+  SummarizeOptions,
+  SummarizeTurnInput,
+  Summarizer
+} from './summarizer';
 import { ExtractiveSummarizer } from './summarizer';
 import type { TokenEstimator } from './tokenEstimator';
 import { estimateTextTokens } from './tokenEstimator';
@@ -89,7 +94,7 @@ export class ContextGovernor {
       }
     }
 
-    // Stage 2: 轮次压缩（原子性：整轮 user+assistant+tools 一起压）
+    // Stage 2: 滚动压缩（优先整轮，超长单轮仅在安全 assistant 边界切分）
     const stage2 = await this.applyTurnCompaction(thread, budget);
     if (stage2.changed) {
       maintenance.push(stage2.result);
@@ -112,17 +117,16 @@ export class ContextGovernor {
   /**
    * 手动触发一轮 Stage2 轮次压缩（/compact），不检查是否超阈值。
    */
-  async compactTurnsNow(thread: ConversationThread): Promise<ContextMaintenanceResult> {
+  async compactTurnsNow(
+    thread: ConversationThread,
+    options: Pick<SummarizeOptions, 'instructions'> = {}
+  ): Promise<ContextMaintenanceResult> {
     const tokensBefore = this.estimateThreadTokens(thread);
-    const turnIds = thread.getTurnIdsInOrder();
-    const openTurnId = thread.getOpenTurnId();
-    const compactable = turnIds.filter(
-      (turnId) =>
-        turnId !== openTurnId &&
-        !isCompactionOnlyTurn(thread, turnId)
+    const selection = selectManualPrefix(
+      thread,
+      this.policy.preserveFullTurns
     );
-
-    if (compactable.length <= this.policy.preserveFullTurns) {
+    if (!selection) {
       return {
         compacted: false,
         reason: 'manual',
@@ -134,37 +138,7 @@ export class ContextGovernor {
         historyCharsAfter: tokensBefore * 4
       };
     }
-
-    const toCompactCount = compactable.length - this.policy.preserveFullTurns;
-    const toCompact = compactable.slice(0, toCompactCount);
-    const summarizeInput = toCompact.map((turnId) => ({
-      turnId,
-      entries: thread.getEntriesForTurn(turnId)
-    }));
-
-    const summary = await this.summarizer.summarizeTurns(summarizeInput);
-    thread.removeTurnEntries(toCompact);
-    thread.addCompaction(summary);
-
-    const tokensAfter = this.estimateThreadTokens(thread);
-    const droppedMessages = summarizeInput.reduce(
-      (sum, turn) => sum + turn.entries.length,
-      0
-    );
-
-    return {
-      compacted: true,
-      stage: 'turn-compaction',
-      reason: 'manual',
-      droppedMessageCount: droppedMessages,
-      droppedTurnCount: toCompact.length,
-      preservedMessageCount: thread.getEntries().length,
-      tokensBefore,
-      tokensAfter,
-      historyCharsBefore: tokensBefore * 4,
-      historyCharsAfter: tokensAfter * 4,
-      summaryChars: summary.length
-    };
+    return this.compactPrefix(thread, selection, 'manual', options);
   }
 
   private applyToolAging(
@@ -257,53 +231,53 @@ export class ContextGovernor {
       };
     }
 
-    const turnIds = thread.getTurnIdsInOrder();
-    const openTurnId = thread.getOpenTurnId();
-    const compactable = turnIds.filter(
-      (turnId) =>
-        turnId !== openTurnId &&
-        !isCompactionOnlyTurn(thread, turnId)
+    const selection = selectAutomaticPrefix(
+      thread,
+      Math.min(this.policy.preserveRecentTokens, Math.max(0, budget))
     );
-
-    if (compactable.length <= this.policy.preserveFullTurns) {
+    if (!selection) {
       return {
         changed: false,
         result: emptyMaintenance(thread, tokensBefore, tokensBefore)
       };
     }
-
-    const toCompactCount = compactable.length - this.policy.preserveFullTurns;
-    const toCompact = compactable.slice(0, toCompactCount);
-    const summarizeInput = toCompact.map((turnId) => ({
-      turnId,
-      entries: thread.getEntriesForTurn(turnId)
-    }));
-
-    const summary = await this.summarizer.summarizeTurns(summarizeInput);
-    thread.removeTurnEntries(toCompact);
-    thread.addCompaction(summary);
-
-    const tokensAfter = this.estimateThreadTokens(thread);
-    const droppedMessages = summarizeInput.reduce(
-      (sum, turn) => sum + turn.entries.length,
-      0
+    const result = await this.compactPrefix(
+      thread,
+      selection,
+      'turn_compaction'
     );
+    return {
+      changed: result.compacted,
+      result
+    };
+  }
+
+  private async compactPrefix(
+    thread: ConversationThread,
+    selection: CompactionSelection,
+    reason: 'manual' | 'turn_compaction',
+    options: Pick<SummarizeOptions, 'instructions'> = {}
+  ): Promise<ContextMaintenanceResult> {
+    const tokensBefore = this.estimateThreadTokens(thread);
+    const summary = await this.summarizer.summarizeTurns(selection.turns, {
+      previousSummary: selection.previousSummary,
+      instructions: options.instructions
+    });
+    thread.replacePrefixWithCompaction(selection.entryCount, summary);
+    const tokensAfter = this.estimateThreadTokens(thread);
 
     return {
-      changed: true,
-      result: {
-        compacted: true,
-        stage: 'turn-compaction',
-        reason: 'turn_compaction',
-        droppedMessageCount: droppedMessages,
-        droppedTurnCount: toCompact.length,
-        preservedMessageCount: thread.getEntries().length,
-        tokensBefore,
-        tokensAfter,
-        historyCharsBefore: tokensBefore * 4,
-        historyCharsAfter: tokensAfter * 4,
-        summaryChars: summary.length
-      }
+      compacted: true,
+      stage: 'turn-compaction',
+      reason,
+      droppedMessageCount: selection.droppedMessageCount,
+      droppedTurnCount: selection.droppedTurnCount,
+      preservedMessageCount: thread.getEntries().length,
+      tokensBefore,
+      tokensAfter,
+      historyCharsBefore: tokensBefore * 4,
+      historyCharsAfter: tokensAfter * 4,
+      summaryChars: summary.length
     };
   }
 
@@ -406,11 +380,6 @@ function clip(value: string, max: number): string {
   return `${trimmed.slice(0, Math.max(0, max - 1))}…`;
 }
 
-function isCompactionOnlyTurn(thread: ConversationThread, turnId: string): boolean {
-  const entries = thread.getEntriesForTurn(turnId);
-  return entries.length > 0 && entries.every((entry) => entry.kind === 'compaction');
-}
-
 function recalcToolTokens(thread: ConversationThread): number {
   return thread
     .getEntries()
@@ -444,3 +413,166 @@ export function buildElidedPreview(
 }
 
 export { estimateTextTokens };
+
+interface EntryRange {
+  turnId: string;
+  start: number;
+  end: number;
+  tokens: number;
+}
+
+interface CompactionSelection {
+  entryCount: number;
+  turns: SummarizeTurnInput[];
+  previousSummary?: string;
+  droppedMessageCount: number;
+  droppedTurnCount: number;
+}
+
+function selectManualPrefix(
+  thread: ConversationThread,
+  preserveFullTurns: number
+): CompactionSelection | undefined {
+  const entries = [...thread.getEntries()];
+  const ranges = getCompactableRanges(thread, entries);
+  if (ranges.length <= preserveFullTurns) {
+    return undefined;
+  }
+  const firstPreserved = ranges[ranges.length - preserveFullTurns];
+  const entryCount = firstPreserved?.start ?? ranges.at(-1)!.end;
+  return buildCompactionSelection(entries, entryCount);
+}
+
+/**
+ * 从尾部按 token 选择最近原文。单个已提交 turn 超限时，只在 assistant
+ * 条目前切开，确保任何保留的 tool result 前仍有对应 tool-call 消息。
+ */
+function selectAutomaticPrefix(
+  thread: ConversationThread,
+  preserveRecentTokens: number
+): CompactionSelection | undefined {
+  const entries = [...thread.getEntries()];
+  const ranges = getCompactableRanges(thread, entries);
+  if (ranges.length === 0) {
+    return undefined;
+  }
+
+  const tokenBudget = Math.max(1, preserveRecentTokens);
+  let retainedTokens = 0;
+  let boundary = ranges.at(-1)!.end;
+
+  for (let index = ranges.length - 1; index >= 0; index -= 1) {
+    const range = ranges[index]!;
+    if (retainedTokens + range.tokens <= tokenBudget) {
+      retainedTokens += range.tokens;
+      boundary = range.start;
+      continue;
+    }
+
+    if (retainedTokens === 0) {
+      const split = findSafeSuffixStart(entries, range, tokenBudget);
+      if (split !== undefined) {
+        boundary = split;
+      } else {
+        boundary = range.start;
+      }
+    } else {
+      // 已经有可保留的新尾部时，当前这个放不下的旧 turn 应整体进入摘要。
+      // range.start 会反过来保留它，导致随后误走 hard truncation。
+      boundary = range.end;
+    }
+    break;
+  }
+
+  return buildCompactionSelection(entries, boundary);
+}
+
+function getCompactableRanges(
+  thread: ConversationThread,
+  entries: ThreadEntry[]
+): EntryRange[] {
+  const openTurnId = thread.getOpenTurnId();
+  const ranges: EntryRange[] = [];
+  for (let index = 0; index < entries.length; ) {
+    const turnId = entries[index]!.turnId;
+    const start = index;
+    let tokens = 0;
+    let compactionOnly = true;
+    while (index < entries.length && entries[index]!.turnId === turnId) {
+      const entry = entries[index]!;
+      tokens += entry.tokensEst;
+      compactionOnly &&= entry.kind === 'compaction';
+      index += 1;
+    }
+    const status = thread.getTurnStatus(turnId);
+    if (
+      turnId !== openTurnId &&
+      !compactionOnly &&
+      (status === 'committed' || status === 'aborted')
+    ) {
+      ranges.push({ turnId, start, end: index, tokens });
+    }
+  }
+  return ranges;
+}
+
+function findSafeSuffixStart(
+  entries: ThreadEntry[],
+  range: EntryRange,
+  tokenBudget: number
+): number | undefined {
+  for (let index = range.start + 1; index < range.end; index += 1) {
+    const entry = entries[index]!;
+    if (entry.kind !== 'assistant' || entry.message.role !== 'assistant') {
+      continue;
+    }
+    const suffixTokens = entries
+      .slice(index, range.end)
+      .reduce((sum, item) => sum + item.tokensEst, 0);
+    if (suffixTokens <= tokenBudget) {
+      return index;
+    }
+  }
+  return undefined;
+}
+
+function buildCompactionSelection(
+  entries: ThreadEntry[],
+  entryCount: number
+): CompactionSelection | undefined {
+  if (entryCount <= 0) {
+    return undefined;
+  }
+  const prefix = entries.slice(0, entryCount);
+  const previousSummaries = prefix
+    .filter((entry) => entry.kind === 'compaction')
+    .map((entry) => extractCompactionBody(entry.message.content))
+    .filter(Boolean);
+  const turnOrder: string[] = [];
+  const byTurn = new Map<string, ThreadEntry[]>();
+  for (const entry of prefix) {
+    if (entry.kind === 'compaction') {
+      continue;
+    }
+    if (!byTurn.has(entry.turnId)) {
+      byTurn.set(entry.turnId, []);
+      turnOrder.push(entry.turnId);
+    }
+    byTurn.get(entry.turnId)!.push(entry);
+  }
+  const turns = turnOrder.map((turnId) => ({
+    turnId,
+    entries: byTurn.get(turnId)!
+  }));
+  if (turns.length === 0 && previousSummaries.length === 0) {
+    return undefined;
+  }
+  return {
+    entryCount,
+    turns,
+    previousSummary: previousSummaries.join('\n\n'),
+    droppedMessageCount: prefix.filter((entry) => entry.kind !== 'compaction')
+      .length,
+    droppedTurnCount: turns.length
+  };
+}

@@ -23,7 +23,10 @@ export class ObservableTraceStore implements TraceStore {
 
   async append(event: TraceEvent): Promise<void> {
     await this.inner.append(event);
-    for (const listener of this.listeners) {
+    // Snapshot the listeners so a React effect that re-subscribes while handling
+    // this event cannot be visited again by Set's live iterator.
+    const listeners = [...this.listeners];
+    for (const listener of listeners) {
       try {
         listener(event);
       } catch (error) {

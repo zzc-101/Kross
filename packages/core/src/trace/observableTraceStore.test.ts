@@ -70,4 +70,35 @@ describe('ObservableTraceStore', () => {
     expect(bad).toHaveBeenCalledOnce();
     expect(good).toHaveBeenCalledWith(event);
   });
+
+  it('does not notify subscribers added during the current dispatch', async () => {
+    const inner: TraceStore = {
+      async append() {},
+      async readRun() {
+        return [];
+      },
+      async listRunIds() {
+        return [];
+      }
+    };
+    const store = new ObservableTraceStore(inner);
+    const late = vi.fn();
+    store.subscribe(() => {
+      store.subscribe(late);
+    });
+
+    const event: TraceEvent = {
+      id: 'e-reentrant',
+      runId: 'run-1',
+      type: 'run.started',
+      timestamp: new Date().toISOString(),
+      payload: {}
+    };
+
+    await store.append(event);
+    expect(late).not.toHaveBeenCalled();
+
+    await store.append({ ...event, id: 'e-next' });
+    expect(late).toHaveBeenCalledTimes(1);
+  });
 });

@@ -69,4 +69,55 @@ describe('ConversationThread', () => {
     ]);
     expect(thread.getTurnIdsInOrder()).toHaveLength(2);
   });
+
+  it('replaces a historical prefix with a summary in chronological position', () => {
+    const thread = new ConversationThread();
+    thread.beginTurn('old');
+    thread.appendAssistant('old answer');
+    thread.commitTurn();
+    thread.beginTurn('recent');
+    thread.appendAssistant('recent answer');
+    thread.commitTurn();
+
+    thread.replacePrefixWithCompaction(2, 'old summary');
+
+    const messages = thread.buildMessages();
+    expect(messages[0]?.content).toContain('old summary');
+    expect(messages[1]?.content).toBe('recent');
+    expect(messages[2]?.content).toBe('recent answer');
+  });
+
+  it('round-trips a governed thread state', () => {
+    const original = new ConversationThread();
+    original.addCompaction('earlier decisions');
+    original.beginTurn('continue');
+    original.appendAssistant('done');
+    original.commitTurn();
+
+    const restored = new ConversationThread();
+    expect(restored.restoreState(original.exportState())).toBe(true);
+    expect(restored.buildMessages()).toEqual(original.buildMessages());
+    expect(restored.getOpenTurnId()).toBeUndefined();
+  });
+
+  it('aborts an open restored turn and removes unmatched tool calls', () => {
+    const original = new ConversationThread();
+    original.beginTurn('dangerous write');
+    original.appendAssistant('waiting approval', [
+      { id: 'pending-1', name: 'Write', input: { path: 'a.ts' } }
+    ]);
+
+    const restored = new ConversationThread();
+    restored.restoreState(original.exportState());
+
+    const turnId = restored.getTurnIdsInOrder()[0]!;
+    expect(restored.getTurnStatus(turnId)).toBe('aborted');
+    expect(restored.getOpenTurnId()).toBeUndefined();
+    const assistant = restored.buildMessages()[1];
+    expect(assistant?.role).toBe('assistant');
+    if (assistant?.role === 'assistant') {
+      expect(assistant.toolCalls).toBeUndefined();
+    }
+    expect(restored.buildMessages().at(-1)?.content).toContain('未完成轮次中断');
+  });
 });

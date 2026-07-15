@@ -45,6 +45,21 @@ describe('TokenEstimator', () => {
     expect(estimator.getCalibrationFactor()).toBeLessThanOrEqual(2.0);
   });
 
+  it('converges to the actual-to-raw ratio across repeated calibration', () => {
+    const estimator = new TokenEstimator({
+      minFactor: 0.5,
+      maxFactor: 3,
+      emaAlpha: 0.3
+    });
+    const rawTokens = 100;
+
+    for (let index = 0; index < 30; index += 1) {
+      estimator.calibrate(rawTokens, 200);
+    }
+
+    expect(estimator.getCalibrationFactor()).toBeCloseTo(2, 3);
+  });
+
   it('resetCalibration restores factor to 1', () => {
     const estimator = new TokenEstimator();
     estimator.calibrate(100, 50);

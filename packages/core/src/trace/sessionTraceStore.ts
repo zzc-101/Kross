@@ -23,7 +23,7 @@ import {
 } from './traceSummary';
 import type { ListRunsOptions, TraceStore } from './traceStore';
 
-const TRACE_SCHEMA_VERSION = 1;
+const TRACE_SCHEMA_VERSION = 2;
 const RETENTION_DAYS = 30;
 const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
@@ -105,9 +105,11 @@ export class SessionTraceStore implements TraceStore {
     const row = this.db
       .prepare(
         `SELECT run_id, workspace_key, file_path, first_seen, last_seen, event_count
-         FROM trace_runs WHERE run_id = ? LIMIT 1`
+         FROM trace_runs
+         WHERE workspace_key = ? AND run_id = ?
+         LIMIT 1`
       )
-      .get(runId) as TraceRunRow | undefined;
+      .get(this.workspaceKey, runId) as TraceRunRow | undefined;
 
     if (row) {
       return readEventsFromFile(row.file_path, runId);
@@ -169,8 +171,7 @@ export class SessionTraceStore implements TraceStore {
         `INSERT INTO trace_runs (
            run_id, workspace_key, file_path, first_seen, last_seen, event_count
          ) VALUES (?, ?, ?, ?, ?, 1)
-         ON CONFLICT(run_id) DO UPDATE SET
-           workspace_key = excluded.workspace_key,
+         ON CONFLICT(workspace_key, run_id) DO UPDATE SET
            file_path = excluded.file_path,
            last_seen = excluded.last_seen,
            event_count = trace_runs.event_count + 1`
@@ -200,21 +201,45 @@ export class SessionTraceStore implements TraceStore {
     }
 
     this.db.transaction(() => {
+      // 先执行 DDL 取得 SQLite 写锁，再观察旧表。否则两个进程同时从 v1
+      // 启动时，后进入事务的进程可能沿用锁外的过期判断并清空已迁移索引。
       this.db.exec(`
-        CREATE TABLE IF NOT EXISTS trace_runs (
-          run_id TEXT PRIMARY KEY,
+        DROP TABLE IF EXISTS trace_runs_v2;
+        CREATE TABLE trace_runs_v2 (
+          run_id TEXT NOT NULL,
           workspace_key TEXT NOT NULL,
           file_path TEXT NOT NULL,
           first_seen TEXT NOT NULL,
           last_seen TEXT NOT NULL,
-          event_count INTEGER NOT NULL DEFAULT 0
+          event_count INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (workspace_key, run_id)
         );
+      `);
+      const hasTraceRuns = this.db
+        .prepare(
+          `SELECT 1 AS present
+           FROM sqlite_master
+           WHERE type = 'table' AND name = 'trace_runs'`
+        )
+        .get() as { present: number } | undefined;
+      if (hasTraceRuns) {
+        this.db.exec(`
+          INSERT OR REPLACE INTO trace_runs_v2 (
+            run_id, workspace_key, file_path, first_seen, last_seen, event_count
+          )
+          SELECT run_id, workspace_key, file_path, first_seen, last_seen, event_count
+          FROM trace_runs;
+        `);
+      }
+      this.db.exec(`
+        DROP TABLE IF EXISTS trace_runs;
+        ALTER TABLE trace_runs_v2 RENAME TO trace_runs;
         CREATE INDEX IF NOT EXISTS trace_runs_workspace_recent_idx
           ON trace_runs(workspace_key, last_seen DESC);
       `);
       this.db
         .prepare(
-          'INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)'
+          'INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)'
         )
         .run(TRACE_SCHEMA_VERSION, this.now().toISOString());
     })();

@@ -150,8 +150,9 @@ export function pruneSubagentUi(
   maxAgeMs = 60_000,
   now = Date.now()
 ): SubagentUiState[] {
-  return current.filter(
+  const next = current.filter(
     (item) =>
       item.status === 'running' || now - item.updatedAt < maxAgeMs
   );
+  return next.length === current.length ? current : next;
 }

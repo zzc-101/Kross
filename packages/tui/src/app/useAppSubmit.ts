@@ -10,7 +10,7 @@ import {
 } from '@kross/core';
 
 import type { SlashCommand } from '../ui';
-import { handleCommand } from './appCommands';
+import { executeCompactCommand, handleCommand } from './appCommands';
 
 export interface UseAppSubmitOptions {
   isHome: boolean;
@@ -71,6 +71,18 @@ export function useAppSubmit({
 }: UseAppSubmitOptions) {
   return useCallback(async (value: string) => {
     const trimmed = value.trim();
+    const runQueuedTurns = async (first: string): Promise<void> => {
+      let next: string | undefined = first;
+      try {
+        while (next) {
+          await runTurn(next);
+          next = queueRef.current.shift();
+          setQueueLength(queueRef.current.length);
+        }
+      } finally {
+        processingRef.current = false;
+      }
+    };
     if (trimmed.length === 0) {
       if (isHome && selectedRecentSession !== undefined) {
         await resumeSession();
@@ -113,6 +125,39 @@ export function useAppSubmit({
     ensureActiveSession();
     append('user', `> ${trimmed}`);
 
+    if (trimmed === '/compact' || trimmed.startsWith('/compact ')) {
+      if (processingRef.current) {
+        append('system', t('cmd.compact.busy'));
+        return;
+      }
+
+      processingRef.current = true;
+      append('system', t('cmd.compact.running'));
+      try {
+        append(
+          'agent',
+          await executeCompactCommand(trimmed, agentRuntime, mode)
+        );
+      } catch (error) {
+        append(
+          'system',
+          t('cmd.asyncFailed', {
+            command: '/compact',
+            message: error instanceof Error ? error.message : String(error)
+          })
+        );
+      }
+
+      const next = queueRef.current.shift();
+      setQueueLength(queueRef.current.length);
+      if (next) {
+        await runQueuedTurns(next);
+      } else {
+        processingRef.current = false;
+      }
+      return;
+    }
+
     if (
       handleCommand(
         trimmed,
@@ -142,17 +187,7 @@ export function useAppSubmit({
     }
 
     processingRef.current = true;
-    let next: string | undefined = trimmed;
-
-    try {
-      while (next) {
-        await runTurn(next);
-        next = queueRef.current.shift();
-        setQueueLength(queueRef.current.length);
-      }
-    } finally {
-      processingRef.current = false;
-    }
+    await runQueuedTurns(trimmed);
   }, [
     agentRuntime,
     append,

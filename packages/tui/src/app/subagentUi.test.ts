@@ -112,4 +112,19 @@ describe('subagentUi', () => {
     );
     expect(pruned.map((item) => item.subRunId).sort()).toEqual(['b', 'c']);
   });
+
+  it('preserves state identity when no subagent needs pruning', () => {
+    const current = [
+      {
+        subRunId: 'active',
+        parentRunId: 'parent',
+        mode: 'explore',
+        status: 'running' as const,
+        toolCount: 1,
+        updatedAt: 100
+      }
+    ];
+
+    expect(pruneSubagentUi(current, 60_000, 100_000)).toBe(current);
+  });
 });
