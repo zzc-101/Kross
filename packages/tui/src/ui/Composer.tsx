@@ -20,7 +20,8 @@ export function Composer({
   disabled = false,
   modelLabel = 'no model',
   permissionMode = 'default',
-  width
+  width,
+  bottomGap = COMPOSER_BOTTOM_GAP
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -30,6 +31,8 @@ export function Composer({
   permissionMode?: PermissionMode;
   /** 全宽时传入终端列数 */
   width?: number;
+  /** 输入框下方留白；有底部子代理条时可缩小为 0/1 */
+  bottomGap?: number;
 }) {
   const displayModelLabel =
     modelLabel === 'no model' ? t('composer.noModel') : modelLabel;
@@ -49,12 +52,14 @@ export function Composer({
   const { topBorder, bottomLeft, bottomLabel, bottomRight } =
     createComposerBorder(boxWidth, footerLabel);
 
+  const gap = Math.max(0, bottomGap);
+
   return (
     <Box
       flexDirection="column"
       width={boxWidth}
       height={COMPOSER_HEIGHT}
-      marginBottom={COMPOSER_BOTTOM_GAP}
+      marginBottom={gap}
       flexShrink={0}
     >
       <Text color={theme.border}>{topBorder}</Text>

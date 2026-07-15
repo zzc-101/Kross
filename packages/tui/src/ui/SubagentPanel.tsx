@@ -6,15 +6,15 @@ import { symbols, theme } from './theme';
 import { usePulse } from './usePulse';
 
 /**
- * Compact subagent strip under the conversation viewport.
- * Collapsed = one status line; expanded = details for each active subagent.
+ * 底部单行子代理条（位于 Composer 下方）。
+ * 只显示：Subagent · {短标题} · 状态；不展开长描述。
  */
 export function SubagentPanel({
   subagents,
-  expanded = false,
   width
 }: {
   subagents: SubagentUiState[];
+  /** @deprecated 始终单行，忽略 expand */
   expanded?: boolean;
   width?: number;
 }) {
@@ -26,67 +26,19 @@ export function SubagentPanel({
   const primary = subagents[0]!;
   const spinner = usePulse(
     symbols.busyFrames,
-    80,
+    200,
     primary.status === 'running'
   );
-
-  const caret = expanded ? '▾' : '▸';
-  const summaryLine = formatCollapsedLine(primary, subagents.length, spinner, boxWidth);
-
-  return (
-    <Box flexDirection="column" width={boxWidth} marginBottom={0} flexShrink={0}>
-      <Text>
-        <Text color={theme.brand} bold>
-          {caret}{' '}
-        </Text>
-        <Text color={lineTone(primary)}>{summaryLine}</Text>
-      </Text>
-      {expanded
-        ? subagents.map((item) => (
-            <ExpandedBlock key={item.subRunId} item={item} width={boxWidth} />
-          ))
-        : null}
-    </Box>
+  const line = formatCollapsedLine(
+    primary,
+    subagents.length,
+    spinner,
+    boxWidth
   );
-}
-
-function ExpandedBlock({
-  item,
-  width
-}: {
-  item: SubagentUiState;
-  width: number;
-}) {
-  const status =
-    item.status === 'running'
-      ? 'running'
-      : item.status === 'completed'
-        ? 'done'
-        : 'failed';
-  const lines = [
-    `  ${item.mode} · ${shortId(item.subRunId)} · ${status}`,
-    item.promptPreview
-      ? `  task ${clip(item.promptPreview, Math.max(16, width - 8))}`
-      : undefined,
-    item.status === 'running' && item.currentTool
-      ? `  tool ${item.currentTool} · ${item.toolCount} calls`
-      : item.toolCount > 0
-        ? `  tools ${item.toolCount}`
-        : undefined,
-    item.summaryPreview
-      ? `  ${clip(item.summaryPreview, Math.max(16, width - 4))}`
-      : item.error
-        ? `  ${clip(item.error, Math.max(16, width - 4))}`
-        : undefined
-  ].filter((line): line is string => Boolean(line));
 
   return (
-    <Box flexDirection="column">
-      {lines.map((line) => (
-        <Text key={line} dimColor={line.startsWith('  task') || line.startsWith('  tool')}>
-          <Text color={lineTone(item)}>{line}</Text>
-        </Text>
-      ))}
+    <Box width={boxWidth} height={1} flexShrink={0} marginTop={0}>
+      <Text color={lineTone(primary)}>{line}</Text>
     </Box>
   );
 }
@@ -102,43 +54,38 @@ export function formatCollapsedLine(
       ? `${spinner} running`
       : primary.status === 'completed'
         ? `${symbols.toolOk} done`
-        : `${symbols.toolFail} failed`;
-  const multi = count > 1 ? ` · +${count - 1}` : '';
-  const tail =
-    primary.status === 'running' && primary.currentTool
-      ? ` · ${primary.currentTool}`
-      : primary.summaryPreview
-        ? ` · ${primary.summaryPreview}`
-        : primary.promptPreview
-          ? ` · ${primary.promptPreview}`
-          : '';
-  return clip(
-    `Subagent ${primary.mode}${multi} ${status}${tail}`,
-    Math.max(24, width - 2)
-  );
+        : primary.status === 'cancelled'
+          ? `${symbols.toolFail} interrupted`
+          : `${symbols.toolFail} failed`;
+  const multi = count > 1 ? ` +${count - 1}` : '';
+  const title = resolveDisplayTitle(primary);
+  // 单行：Subagent · 短标题 · 状态（不再拼 prompt 全文）
+  return clip(`Subagent · ${title}${multi} · ${status}`, Math.max(24, width - 2));
+}
+
+function resolveDisplayTitle(item: SubagentUiState): string {
+  if (item.title && item.title.trim().length > 0) {
+    return item.title.trim();
+  }
+  if (item.promptPreview && item.promptPreview.trim().length > 0) {
+    return clip(item.promptPreview, 36);
+  }
+  return item.mode || 'Task';
 }
 
 /**
- * Footer height contribution of the subagent strip.
- * collapsed: 1 line; expanded: 1 summary + details per agent.
+ * Footer height：始终最多 1 行（有子代理时）。
  */
 export function resolveSubagentPanelHeight(
   subagents: SubagentUiState[],
-  expanded = false
+  _expanded = false
 ): number {
-  if (subagents.length === 0) {
-    return 0;
-  }
-  if (!expanded) {
-    return 1;
-  }
-  // summary line + ~3 detail lines per subagent
-  return 1 + subagents.length * 3;
+  return subagents.length === 0 ? 0 : 1;
 }
 
 /**
- * Click hit-test for the subagent strip (1-based terminal rows).
- * Panel sits directly under the message viewport.
+ * Click hit-test：条在 footer 最底部（Composer 下方）。
+ * footerAboveSubagent = footer 总高 − 本条高度。
  */
 export function hitTestSubagentPanel(input: {
   clickRow: number;
@@ -147,11 +94,16 @@ export function hitTestSubagentPanel(input: {
   panelHeight: number;
   hasSubagents: boolean;
   contentTopRow?: number;
+  /** 子代理条上方 footer 占用的行数（thinking + composer + …） */
+  footerRowsAbove?: number;
 }): boolean {
   if (!input.hasSubagents || input.panelHeight <= 0) {
     return false;
   }
-  const top = (input.contentTopRow ?? 1) + input.headerHeight + input.viewportHeight;
+  const contentTop = input.contentTopRow ?? 1;
+  const above = input.footerRowsAbove ?? 0;
+  const top =
+    contentTop + input.headerHeight + input.viewportHeight + above;
   const bottom = top + input.panelHeight - 1;
   return input.clickRow >= top && input.clickRow <= bottom;
 }
@@ -163,14 +115,10 @@ function lineTone(item: SubagentUiState): string {
   if (item.status === 'completed') {
     return theme.statusReady;
   }
-  return theme.statusError;
-}
-
-function shortId(id: string): string {
-  if (id.length <= 18) {
-    return id;
+  if (item.status === 'cancelled') {
+    return theme.statusWarn;
   }
-  return `${id.slice(0, 16)}…`;
+  return theme.statusError;
 }
 
 function clip(value: string, max: number): string {

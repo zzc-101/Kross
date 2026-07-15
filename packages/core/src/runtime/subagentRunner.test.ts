@@ -440,9 +440,67 @@ describe('Task tool', () => {
     const result = await gateway.call({
       runId: 'child',
       name: 'Task',
-      input: { prompt: 'nope' }
+      input: { description: 'denied', prompt: 'nope' }
     });
     expect(result.summary).toContain('nested Task denied');
+  });
+
+  it('requires description (short title) from the model', async () => {
+    const gateway = new ToolGateway();
+    gateway.register(
+      createTaskTool({
+        parentDepth: 0,
+        run: async () => {
+          throw new Error('should not run');
+        }
+      })
+    );
+
+    await expect(
+      gateway.call({
+        runId: 'main',
+        name: 'Task',
+        input: { prompt: 'full instructions without title' }
+      })
+    ).rejects.toThrow(/Invalid input|description|required/i);
+  });
+
+  it('forwards description as subagent title', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-task-title-'));
+    try {
+      const traceStore = new InMemoryTraceStore();
+      let seenTitle: string | undefined;
+      const gateway = new ToolGateway({ traceStore });
+      gateway.register(
+        createTaskTool({
+          parentDepth: 0,
+          run: async (request) => {
+            seenTitle = request.title;
+            return runSubagent(request, {
+              workspaceRoot: workspace,
+              traceStore,
+              llmClient: new ScriptedLlmClient('ok'),
+              maxToolIterations: 2
+            });
+          }
+        })
+      );
+
+      await gateway.call({
+        runId: 'main-title',
+        name: 'Task',
+        input: {
+          description: '追加 test.txt',
+          prompt: '请在 test.txt 末尾追加三行内容'
+        }
+      });
+
+      expect(seenTitle).toBe('追加 test.txt');
+      const started = traceStore.events.find((e) => e.type === 'subagent.started');
+      expect(started?.payload.title).toBe('追加 test.txt');
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   it('rethrows abort errors instead of wrapping them as Task failed content', async () => {
@@ -464,7 +522,7 @@ describe('Task tool', () => {
       gateway.call({
         runId: 'main-abort-task',
         name: 'Task',
-        input: { prompt: 'do work' },
+        input: { description: 'abort test', prompt: 'do work' },
         signal: controller.signal,
         returnErrors: true
       })

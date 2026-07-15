@@ -18,11 +18,18 @@ export interface CreateTaskToolOptions {
   ) => Promise<Awaited<ReturnType<typeof runSubagent>>>;
 }
 
+/** 短标题：必填，供 TUI 底栏单行展示；模型调用 Task 时必须传。 */
+const TITLE_MAX = 48;
+
 const taskInputSchema = z.object({
+  description: z
+    .string()
+    .trim()
+    .min(1, 'description (short title) is required')
+    .max(TITLE_MAX),
   prompt: z.string().min(1),
   /** Optional label; tool allowlist is always read+edit (no Bash/Delete/Move). */
-  mode: z.enum(['explore', 'general']).optional(),
-  description: z.string().optional()
+  mode: z.enum(['explore', 'general']).optional()
 });
 
 type TaskInput = z.infer<typeof taskInputSchema>;
@@ -40,6 +47,7 @@ export function createTaskTool(
     name: 'Task',
     description:
       '派生子代理在独立上下文中完成聚焦任务并返回摘要。' +
+      '调用时必须同时提供 description（极短标题，用于 UI 单行展示）与 prompt（完整任务说明）。' +
       '子代理可用 Read/Glob/Grep/Rg/List/Stat/Git* 与 Edit/Write；' +
       '不可用 Bash/Delete/Move/Task 等高危工具，子代理内无需用户审批。' +
       '子代理不能再派生子代理。',
@@ -51,21 +59,24 @@ export function createTaskTool(
     parameters: {
       type: 'object',
       properties: {
+        description: {
+          type: 'string',
+          description:
+            '必填。极短任务标题（建议 4–20 字，最多 48 字符），仅用于 UI 底栏单行展示，' +
+            '例如「追加 test.txt」「扫描 auth 路由」。不要写完整指令。'
+        },
         prompt: {
           type: 'string',
-          description: '交给子代理的具体任务说明（目标、范围、期望产出）'
+          description:
+            '必填。交给子代理的完整任务说明（目标、范围、期望产出、约束）'
         },
         mode: {
           type: 'string',
           enum: ['explore', 'general'],
           description: '可选标签；工具集相同（read+edit，无高危工具）'
-        },
-        description: {
-          type: 'string',
-          description: '短标题，便于 UI/trace 展示'
         }
       },
-      required: ['prompt'],
+      required: ['description', 'prompt'],
       additionalProperties: false
     },
     execute: async ({ input, runId, signal }) => {
@@ -78,26 +89,28 @@ export function createTaskTool(
       }
 
       const mode = (input.mode ?? 'explore') as SubagentMode;
+      const title = input.description.trim();
       try {
         const outcome = await options.run({
           prompt: input.prompt,
           mode,
+          title,
           parentRunId: runId,
           parentDepth,
           signal
         });
 
         const content = formatSubagentToolContent(outcome);
-        const label = input.description?.trim() || mode;
         return {
           content,
-          summary: `Task(${label}) → ${outcome.result.status}: ${clip(
+          summary: `Task(${title}) → ${outcome.result.status}: ${clip(
             outcome.result.summary,
             160
           )}`,
           data: {
             subRunId: outcome.subRunId,
             mode: outcome.mode,
+            title,
             status: outcome.result.status,
             evidence: outcome.result.evidence,
             risks: outcome.result.risks,
@@ -113,7 +126,7 @@ export function createTaskTool(
         const message = error instanceof Error ? error.message : String(error);
         return {
           content: `Task failed: ${message}`,
-          summary: `Task failed: ${clip(message, 120)}`
+          summary: `Task(${title}) failed: ${clip(message, 120)}`
         };
       }
     }

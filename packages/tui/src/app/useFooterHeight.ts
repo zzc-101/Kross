@@ -3,7 +3,8 @@ import { useMemo } from 'react';
 import type { PendingToolApproval } from '@kross/core';
 
 import {
-  COMPOSER_FOOTER_HEIGHT,
+  COMPOSER_BOTTOM_GAP,
+  COMPOSER_HEIGHT,
   resolveApprovalPanelHeight,
   resolveSlashSuggestHeight,
   resolveSubagentPanelHeight,
@@ -39,25 +40,29 @@ export function useFooterHeight(input: FooterLayoutInput): number {
 
   return useMemo(() => {
     let h = 0;
+    const subH = resolveSubagentPanelHeight(subagents, subagentExpanded);
+
     if (pendingToolApproval) {
       h += resolveApprovalPanelHeight(pendingToolApproval);
     } else if (modelSettings) {
-      // title + tabs + rule + options + border + hint
       const optionRows =
         modelSettings.section === 'effort'
           ? modelSettings.efforts.length
           : Math.max(1, modelSettings.models.length);
       h += 7 + optionRows;
     } else {
-      h += COMPOSER_FOOTER_HEIGHT;
+      // Composer 本体 3 行；无子代理时底 gap=3，有子代理时 gap=0 并由 sub 条占 1 行
+      h += COMPOSER_HEIGHT;
+      h += subH > 0 ? 0 : COMPOSER_BOTTOM_GAP;
     }
+
     if (
       (status === 'responding' || status === 'interrupting') &&
       awaitingReply
     ) {
       h += 2; // ThinkingIndicator
     }
-    h += resolveSubagentPanelHeight(subagents, subagentExpanded);
+
     if (
       !pendingToolApproval &&
       !modelSettingsOpen &&
@@ -65,6 +70,10 @@ export function useFooterHeight(input: FooterLayoutInput): number {
     ) {
       h += resolveSlashSuggestHeight(slashSuggestions, slashHiddenCount);
     }
+
+    // 子代理条始终在 footer 最底（Composer/审批 下方）
+    h += subH;
+
     return h;
   }, [
     pendingToolApproval,

@@ -19,19 +19,41 @@ const sample: SubagentUiState = {
 };
 
 describe('SubagentPanel layout', () => {
-  it('uses one row when collapsed and more when expanded', () => {
+  it('always uses one row when any subagent is present', () => {
     expect(resolveSubagentPanelHeight([sample], false)).toBe(1);
-    expect(resolveSubagentPanelHeight([sample, sample], true)).toBeGreaterThan(
-      1
-    );
+    expect(resolveSubagentPanelHeight([sample, sample], true)).toBe(1);
     expect(resolveSubagentPanelHeight([], false)).toBe(0);
   });
 
-  it('formats a single status line', () => {
-    const line = formatCollapsedLine(sample, 1, '⠋', 60);
-    expect(line).toContain('Subagent explore');
+  it('formats a single status line with short title only', () => {
+    const line = formatCollapsedLine(
+      { ...sample, title: 'Append to test.txt' },
+      1,
+      '⠋',
+      60
+    );
+    expect(line).toContain('Subagent · Append to test.txt');
     expect(line).toContain('running');
-    expect(line).toContain('Read');
+    expect(line).not.toContain('scan modules');
+    expect(line).not.toContain('Read');
+  });
+
+  it('formats cancelled state as interrupted', () => {
+    const line = formatCollapsedLine(
+      {
+        ...sample,
+        title: 'Edit file',
+        status: 'cancelled',
+        currentTool: undefined,
+        summaryPreview: 'interrupted'
+      },
+      1,
+      '⠋',
+      60
+    );
+    expect(line).toContain('interrupted');
+    expect(line).toContain('Edit file');
+    expect(line).not.toContain('running');
   });
 
   it('hits the strip under the viewport', () => {

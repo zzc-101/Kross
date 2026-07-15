@@ -86,10 +86,8 @@ export function useMouseClickDispatch({
         setTodoExpanded((current) => !current);
         return;
       }
-      const subagentPanelHeight = resolveSubagentPanelHeight(
-        subagents,
-        subagentExpanded
-      );
+      // 子代理条在 footer 最底，单行且无展开内容；点击不再 toggle
+      const subagentPanelHeight = resolveSubagentPanelHeight(subagents, false);
       if (
         hitTestSubagentPanel({
           clickRow: event.row,
@@ -97,10 +95,16 @@ export function useMouseClickDispatch({
           viewportHeight: messageViewportHeight,
           panelHeight: subagentPanelHeight,
           hasSubagents: subagents.length > 0,
-          contentTopRow: 1
+          contentTopRow: 1,
+          // 粗略：footer 其余部分 = 总 footer 高 − 子代理 1 行（由 App 布局保证）
+          footerRowsAbove: Math.max(
+            0,
+            // 视口下到子代理条上方：由调用方 footer 高度估算时会校准；
+            // 无展开需求时误点无副作用，这里用 0 仅避免旧逻辑点到视口
+            0
+          )
         })
       ) {
-        setSubagentExpanded((current) => !current);
         return;
       }
       const { contentRows } = resolveViewportContentRows({

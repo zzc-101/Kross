@@ -27,6 +27,8 @@ export type SubagentMode = 'explore' | 'general';
 export interface SubagentRunRequest {
   prompt: string;
   mode?: SubagentMode;
+  /** 短标题（Task description），供 TUI 单行展示 */
+  title?: string;
   parentRunId: string;
   parentDepth?: number;
   signal?: AbortSignal;
@@ -92,10 +94,15 @@ export async function runSubagent(
     parentRunId: request.parentRunId
   };
 
+  const title =
+    request.title?.trim() ||
+    deriveSubagentTitle(prompt);
+
   await appendTrace(deps.traceStore, request.parentRunId, 'subagent.started', {
     ...lifecycleExtras,
     mode,
     parentDepth,
+    title,
     promptPreview: prompt.slice(0, 240),
     autoApprove: true
   });
@@ -455,6 +462,18 @@ function toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined {
 
 function sanitizeRunIdPart(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80) || 'parent';
+}
+
+/** 从 prompt 压出短标题（无 description 时的回退）。 */
+export function deriveSubagentTitle(prompt: string, maxLen = 36): string {
+  const oneLine = prompt.replace(/\s+/g, ' ').trim();
+  if (oneLine.length === 0) {
+    return 'Task';
+  }
+  if (oneLine.length <= maxLen) {
+    return oneLine;
+  }
+  return `${oneLine.slice(0, Math.max(0, maxLen - 1))}…`;
 }
 
 async function appendTrace(

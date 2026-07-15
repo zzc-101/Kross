@@ -558,15 +558,9 @@ export function App({
     />
   );
 
-  // 对话区正下方：子代理单行条（可点展开）→ 思考指示 → 输入区
+  // 思考指示 → 输入区 → 最底部单行子代理条（用户圈定区域）
   const footer = (
     <Box flexDirection="column" flexShrink={0} width={contentWidth}>
-      <SubagentPanel
-        subagents={subagents}
-        expanded={subagentExpanded}
-        width={contentWidth}
-      />
-
       <ThinkingIndicator
         active={
           (status === 'responding' || status === 'interrupting') &&
@@ -610,7 +604,10 @@ export function App({
         modelLabel={modelLabel}
         permissionMode={permissionMode}
         width={contentWidth}
+        bottomGap={subagents.length > 0 ? 0 : undefined}
       />
+
+      <SubagentPanel subagents={subagents} width={contentWidth} />
     </Box>
   );
 

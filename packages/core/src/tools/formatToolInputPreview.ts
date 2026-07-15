@@ -48,6 +48,18 @@ export function formatToolInputPreview(
     return truncate(`$ ${record.command}`, maxChars);
   }
 
+  if (name === 'Task') {
+    const title =
+      typeof record.description === 'string' && record.description.trim()
+        ? record.description.trim()
+        : typeof record.title === 'string'
+          ? record.title.trim()
+          : '';
+    if (title) {
+      return truncate(title, maxChars);
+    }
+  }
+
   if (typeof record.path === 'string') {
     const path = record.path;
     const extra =
