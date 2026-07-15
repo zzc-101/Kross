@@ -54,3 +54,36 @@ export function abortMessage(
   }
   return fallback;
 }
+
+/**
+ * 把任意 Promise 与 AbortSignal 竞态：signal 中止时立即 reject，
+ * 避免 provider 忽略 signal 导致 await 永久挂起（Esc 失效）。
+ * 原 promise 仍可能在后台继续，调用方应尽量把 signal 传给底层。
+ */
+export function raceAbort<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!signal) {
+    return promise;
+  }
+  if (signal.aborted) {
+    return Promise.reject(abortReason(signal));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(abortReason(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+  });
+}

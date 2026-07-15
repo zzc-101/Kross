@@ -279,6 +279,9 @@ async function runSubagentToolLoop(input: {
 
   let iteration = 1;
   let lastText = '';
+  /** 连续「相同工具签名」次数；用于打断模型空转死循环 */
+  let repeatedSignatureCount = 0;
+  let lastToolSignature = '';
 
   while (iteration <= input.maxIterations) {
     throwIfAborted(input.signal);
@@ -293,6 +296,7 @@ async function runSubagentToolLoop(input: {
       buildContextInput,
       input.signal
     );
+    throwIfAborted(input.signal);
     const response = await input.llmClient.complete({
       messages: prepared.messages,
       tools: toLlmTools(input.tools),
@@ -304,6 +308,7 @@ async function runSubagentToolLoop(input: {
         isSubagent: true
       }
     });
+    throwIfAborted(input.signal);
     input.sessionContext.calibrateFromUsage(
       response.usage?.inputTokens,
       prepared.messages
@@ -330,6 +335,30 @@ async function runSubagentToolLoop(input: {
       );
     }
 
+    const signature = toolCalls
+      .map((call) => `${call.name}:${stableJson(call.input)}`)
+      .join('|');
+    if (signature === lastToolSignature) {
+      repeatedSignatureCount += 1;
+    } else {
+      repeatedSignatureCount = 0;
+      lastToolSignature = signature;
+    }
+    // 同一组工具调用连打 3 轮 → 视为空转，强制收束
+    if (repeatedSignatureCount >= 2) {
+      await appendTrace(input.traceStore, input.runId, 'llm.subagent.stalled', {
+        ...input.lifecycleExtras,
+        iteration,
+        signaturePreview: signature.slice(0, 240)
+      });
+      const stallSummary =
+        lastText ||
+        'Subagent stopped: repeated the same tool calls without progress.';
+      input.sessionContext.appendAssistant(stallSummary);
+      input.sessionContext.commitTurn();
+      return stallSummary;
+    }
+
     input.sessionContext.appendAssistant(response.text ?? '', toolCalls);
     const toolMessages = await executeToolCalls({
       runId: input.runId,
@@ -337,6 +366,7 @@ async function runSubagentToolLoop(input: {
       calls: toolCalls,
       signal: input.signal
     });
+    throwIfAborted(input.signal);
     for (const toolMessage of toolMessages) {
       if (toolMessage.role === 'tool') {
         input.sessionContext.appendToolResult({
@@ -375,6 +405,14 @@ async function runSubagentToolLoop(input: {
   input.sessionContext.appendAssistant(summary);
   input.sessionContext.commitTurn();
   return summary;
+}
+
+function stableJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 async function executeToolCalls(input: {

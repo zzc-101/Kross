@@ -192,6 +192,66 @@ describe('runSubagent', () => {
   });
 });
 
+describe('runSubagent stall guard', () => {
+  it('stops when the model repeats the same tool calls without progress', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-stall-'));
+    try {
+      writeFileSync(join(workspace, 'a.txt'), 'hello');
+      const traceStore = new InMemoryTraceStore();
+
+      class RepeatToolLlm implements LlmClient {
+        readonly provider = 'openai' as const;
+        calls = 0;
+
+        async complete(): Promise<LlmResponse> {
+          this.calls += 1;
+          return {
+            provider: this.provider,
+            model: 'fake',
+            text: '',
+            raw: {},
+            toolCalls: [
+              {
+                id: `call-${this.calls}`,
+                name: 'Read',
+                input: { path: 'a.txt' }
+              }
+            ]
+          };
+        }
+
+        async *stream(): AsyncIterable<LlmStreamChunk> {
+          yield { type: 'done' };
+        }
+      }
+
+      const llm = new RepeatToolLlm();
+      const outcome = await runSubagent(
+        {
+          prompt: 'read a.txt forever',
+          parentRunId: 'parent-stall',
+          parentDepth: 0
+        },
+        {
+          workspaceRoot: workspace,
+          llmClient: llm,
+          traceStore,
+          maxToolIterations: 20
+        }
+      );
+
+      // 第 1 轮执行工具，第 2 轮相同签名计数 1，第 3 轮计数 2 → 收束
+      expect(llm.calls).toBeLessThanOrEqual(4);
+      expect(outcome.result.summary).toMatch(/repeated|stopped|progress/i);
+      expect(traceStore.events.map((e) => e.type)).toContain(
+        'llm.subagent.stalled'
+      );
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('runSubagent abort', () => {
   it('forwards AbortSignal to the LLM complete call and cancels mid-request', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-abort-llm-'));

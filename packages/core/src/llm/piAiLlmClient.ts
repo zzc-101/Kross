@@ -20,6 +20,12 @@ import {
   toPiContext
 } from './piAiConvert';
 import {
+  abortReason,
+  isOperationAborted,
+  raceAbort,
+  throwIfAborted
+} from '../abort';
+import {
   DEFAULT_THINKING_EFFORT,
   type ThinkingEffort
 } from './thinkingEffort';
@@ -109,21 +115,29 @@ export class PiAiLlmClient implements LlmClient {
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
+    throwIfAborted(request.signal);
     const context = toPiContext(request.messages, request.tools, {
       provider: this.provider,
       model: request.model ?? this._model,
       api: this.api
     });
 
-    const message = await this.models.completeSimple(
-      this.modelForRequest(request),
-      context,
-      this.simpleStreamOptions(request)
+    // raceAbort：即使 pi-ai 未及时响应 signal，await 也能在 Esc 时立刻解开
+    const message = await raceAbort(
+      this.models.completeSimple(
+        this.modelForRequest(request),
+        context,
+        this.simpleStreamOptions(request)
+      ),
+      request.signal
     );
 
-    if (message.stopReason === 'error' || message.stopReason === 'aborted') {
+    if (message.stopReason === 'aborted' || request.signal?.aborted) {
+      throw abortReason(request.signal, message.errorMessage ?? 'request aborted');
+    }
+    if (message.stopReason === 'error') {
       throw new LlmProviderError(
-        message.errorMessage ?? `request ${message.stopReason}`,
+        message.errorMessage ?? 'request error',
         this.provider
       );
     }
@@ -134,6 +148,7 @@ export class PiAiLlmClient implements LlmClient {
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    throwIfAborted(request.signal);
     this._lastUsage = undefined;
     const context = toPiContext(request.messages, request.tools, {
       provider: this.provider,
@@ -147,18 +162,32 @@ export class PiAiLlmClient implements LlmClient {
       this.simpleStreamOptions(request)
     );
 
-    for await (const event of stream) {
-      const mapped = mapPiStreamEvent(event);
-      if (!mapped) {
-        continue;
+    try {
+      for await (const event of stream) {
+        throwIfAborted(request.signal);
+        const mapped = mapPiStreamEvent(event);
+        if (!mapped) {
+          continue;
+        }
+        if (mapped.type === 'error') {
+          if (
+            request.signal?.aborted ||
+            /abort/i.test(mapped.message)
+          ) {
+            throw abortReason(request.signal, mapped.message);
+          }
+          throw new LlmProviderError(mapped.message, this.provider);
+        }
+        if (mapped.type === 'done') {
+          this._lastUsage = mapped.usage;
+        }
+        yield mapped;
       }
-      if (mapped.type === 'error') {
-        throw new LlmProviderError(mapped.message, this.provider);
+    } catch (error) {
+      if (isOperationAborted(error, request.signal)) {
+        throw error instanceof Error ? error : abortReason(request.signal);
       }
-      if (mapped.type === 'done') {
-        this._lastUsage = mapped.usage;
-      }
-      yield mapped;
+      throw error;
     }
   }
 

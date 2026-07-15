@@ -204,9 +204,11 @@ export function useAppSession({
   }, [agentRuntime, flushMessageUpdates, syncVisibleMessages]);
 
   const requestExit = useCallback(() => {
+    // 退出前尽量取消挂起审批，避免后台 Task/工具继续跑
+    void agentRuntime.cancelPendingApprovals('process exit').catch(() => undefined);
     flushSession();
     onExitRequest?.();
-  }, [flushSession, onExitRequest]);
+  }, [agentRuntime, flushSession, onExitRequest]);
 
   // 流式文本只在安静窗口后写一次最终快照，避免逐 token 膨胀 JSONL。
   useEffect(() => {

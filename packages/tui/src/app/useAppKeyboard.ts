@@ -65,6 +65,8 @@ export function useAppKeyboard({
 }: UseAppKeyboardOptions): void {
   useInput((inputKey, key) => {
     if (key.ctrl && inputKey.toLowerCase() === 'c') {
+      // 先中断在跑的 agent/Task，再退出，避免子代理挂起导致 Ctrl+C 像失效
+      interruptCurrentRun();
       requestExit();
       return;
     }
