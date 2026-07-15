@@ -1,4 +1,8 @@
 import {
+  isOperationAborted,
+  throwIfAborted
+} from '../abort';
+import {
   subagentResultSchema,
   type SubagentResult
 } from '../domain';
@@ -75,7 +79,7 @@ export async function runSubagent(
   if (!prompt) {
     throw new Error('Subagent prompt must not be empty');
   }
-  assertNotAborted(request.signal);
+  throwIfAborted(request.signal);
 
   const subRunId =
     deps.createRunId?.() ??
@@ -204,6 +208,26 @@ export async function runSubagent(
       modeForcedToExplore: false
     };
   } catch (error) {
+    try {
+      sessionContext.interruptTurn(
+        isOperationAborted(error, request.signal)
+          ? '用户中断了子代理'
+          : error instanceof Error
+            ? error.message
+            : String(error)
+      );
+    } catch {
+      // open-turn 收口失败不掩盖原始错误
+    }
+    if (isOperationAborted(error, request.signal)) {
+      await appendTrace(deps.traceStore, request.parentRunId, 'subagent.cancelled', {
+        ...lifecycleExtras,
+        mode,
+        reason:
+          error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.failed', {
       ...lifecycleExtras,
@@ -256,7 +280,7 @@ async function runSubagentToolLoop(input: {
   let lastText = '';
 
   while (iteration <= input.maxIterations) {
-    assertNotAborted(input.signal);
+    throwIfAborted(input.signal);
     input.sessionContext.setIteration(iteration);
 
     await appendTrace(input.traceStore, input.runId, 'llm.subagent.turn', {
@@ -264,11 +288,15 @@ async function runSubagentToolLoop(input: {
       iteration
     });
 
-    const prepared = await input.sessionContext.prepareRequest(buildContextInput);
+    const prepared = await input.sessionContext.prepareRequest(
+      buildContextInput,
+      input.signal
+    );
     const response = await input.llmClient.complete({
       messages: prepared.messages,
       tools: toLlmTools(input.tools),
       temperature: 0.2,
+      signal: input.signal,
       metadata: {
         purpose: 'subagent',
         iteration,
@@ -321,8 +349,11 @@ async function runSubagentToolLoop(input: {
     iteration += 1;
   }
 
-  assertNotAborted(input.signal);
-  const prepared = await input.sessionContext.prepareRequest(buildContextInput);
+  throwIfAborted(input.signal);
+  const prepared = await input.sessionContext.prepareRequest(
+    buildContextInput,
+    input.signal
+  );
   const soft = await input.llmClient.complete({
     messages: [
       ...prepared.messages,
@@ -333,6 +364,7 @@ async function runSubagentToolLoop(input: {
       }
     ],
     temperature: 0.2,
+    signal: input.signal,
     metadata: { purpose: 'subagent-soft-land', isSubagent: true }
   });
   const summary =
@@ -352,13 +384,14 @@ async function executeToolCalls(input: {
 }): Promise<LlmMessage[]> {
   const out: LlmMessage[] = [];
   for (const call of input.calls) {
-    assertNotAborted(input.signal);
+    throwIfAborted(input.signal);
     const result = await input.gateway.call({
       runId: input.runId,
       name: call.name,
       input: call.input,
       callId: call.id,
-      returnErrors: true
+      returnErrors: true,
+      signal: input.signal
     });
     out.push({
       role: 'tool',
@@ -379,12 +412,6 @@ function toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined {
     description: tool.description,
     parameters: tool.parameters
   }));
-}
-
-function assertNotAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw new Error('Subagent run aborted');
-  }
 }
 
 function sanitizeRunIdPart(value: string): string {

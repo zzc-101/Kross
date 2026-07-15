@@ -487,6 +487,8 @@ async function executeWithTimeout<TInput>(
       signal: controller.signal
     })
   );
+  // abort/timeout 先 settle 时 execution 仍可能后续 reject → 防止 unhandledRejection
+  void execution.catch(() => {});
   let timer: NodeJS.Timeout | undefined;
   const races: Promise<ToolHandlerResult>[] = [execution];
   if (externalSignal) {

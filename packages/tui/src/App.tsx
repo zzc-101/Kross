@@ -602,7 +602,11 @@ export function App({
         value={input}
         onChange={(next) => setInput(stripMouseArtifactsFromInput(next))}
         onSubmit={submit}
-        disabled={Boolean(pendingToolApproval) || modelSettingsOpen}
+        disabled={
+          Boolean(pendingToolApproval) ||
+          modelSettingsOpen ||
+          status === 'interrupting'
+        }
         modelLabel={modelLabel}
         permissionMode={permissionMode}
         width={contentWidth}

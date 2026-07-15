@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { isOperationAborted } from '../../abort';
 import {
   formatSubagentToolContent,
   runSubagent,
@@ -104,6 +105,11 @@ export function createTaskTool(
           }
         };
       } catch (error) {
+        // 取消是正常终态：必须向上抛，让 tool batch / 父 run 走 cancelled，
+        // 不能包装成成功的 tool observation，否则 Esc 后父循环会继续跑。
+        if (isOperationAborted(error, signal)) {
+          throw error;
+        }
         const message = error instanceof Error ? error.message : String(error);
         return {
           content: `Task failed: ${message}`,

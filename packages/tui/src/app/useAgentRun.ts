@@ -225,6 +225,8 @@ export function useAgentRun({
       return;
     }
 
+    // 清掉审批面板前先锁提交，避免 open-turn 收口前并发 beginTurn。
+    processingRef.current = true;
     const operation = beginOperation();
     setStatus('responding');
     setAwaitingReply(true);
@@ -279,6 +281,7 @@ export function useAgentRun({
       return;
     } finally {
       finishOperation(operation);
+      processingRef.current = false;
     }
 
     if (!result) {
@@ -320,6 +323,7 @@ export function useAgentRun({
     finalizeThinkingDurations,
     flushMessageUpdates,
     pendingToolApproval,
+    processingRef,
     setApprovalSelection,
     setAwaitingReply,
     setLoadingVariant,
@@ -380,6 +384,8 @@ export function useAgentRun({
       }
       interruptingApprovalRunIdRef.current = pendingToolApproval.runId;
       const approval = pendingToolApproval;
+      // 异步收口前锁住 submit，避免 open-turn 仍开着时 beginTurn 撞车。
+      processingRef.current = true;
       setPendingToolApproval(undefined);
       setStatus('interrupting');
       setAwaitingReply(true);

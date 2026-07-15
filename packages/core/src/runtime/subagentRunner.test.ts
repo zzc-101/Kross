@@ -192,6 +192,144 @@ describe('runSubagent', () => {
   });
 });
 
+describe('runSubagent abort', () => {
+  it('forwards AbortSignal to the LLM complete call and cancels mid-request', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-abort-llm-'));
+    try {
+      const traceStore = new InMemoryTraceStore();
+      const controller = new AbortController();
+      let markStarted: (() => void) | undefined;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+
+      class HangingLlmClient implements LlmClient {
+        readonly provider = 'openai' as const;
+        signal?: AbortSignal;
+
+        async complete(request: LlmRequest): Promise<LlmResponse> {
+          this.signal = request.signal;
+          markStarted?.();
+          return new Promise((_, reject) => {
+            if (!request.signal) {
+              reject(new Error('missing signal'));
+              return;
+            }
+            if (request.signal.aborted) {
+              reject(request.signal.reason);
+              return;
+            }
+            request.signal.addEventListener(
+              'abort',
+              () => reject(request.signal?.reason),
+              { once: true }
+            );
+          });
+        }
+
+        async *stream(): AsyncIterable<LlmStreamChunk> {
+          yield { type: 'done' };
+        }
+      }
+
+      const llm = new HangingLlmClient();
+      const run = runSubagent(
+        {
+          prompt: 'hang please',
+          parentRunId: 'parent-abort',
+          parentDepth: 0,
+          signal: controller.signal
+        },
+        {
+          workspaceRoot: workspace,
+          llmClient: llm,
+          traceStore,
+          maxToolIterations: 3
+        }
+      );
+
+      await started;
+      controller.abort(new Error('用户按下 Esc'));
+      await expect(run).rejects.toThrow('用户按下 Esc');
+      expect(llm.signal?.aborted).toBe(true);
+      expect(traceStore.events.map((event) => event.type)).toContain(
+        'subagent.cancelled'
+      );
+      expect(traceStore.events.map((event) => event.type)).not.toContain(
+        'subagent.failed'
+      );
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('stops before child tools when signal aborts after the LLM tool_calls turn', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-abort-tool-'));
+    try {
+      const traceStore = new InMemoryTraceStore();
+      const controller = new AbortController();
+
+      class ToolCallingLlm implements LlmClient {
+        readonly provider = 'openai' as const;
+
+        async complete(): Promise<LlmResponse> {
+          return {
+            provider: this.provider,
+            model: 'fake',
+            text: '',
+            raw: {},
+            toolCalls: [
+              {
+                id: 'call-read-1',
+                name: 'Read',
+                input: { path: 'missing.txt' }
+              }
+            ]
+          };
+        }
+
+        async *stream(): AsyncIterable<LlmStreamChunk> {
+          yield { type: 'done' };
+        }
+      }
+
+      const llm = new ToolCallingLlm();
+      const original = llm.complete.bind(llm);
+      llm.complete = async (request) => {
+        const response = await original(request);
+        // Abort after tool_calls are produced so executeToolCalls sees aborted signal
+        // (throwIfAborted / gateway.call(signal)) before any child tool runs.
+        controller.abort(new Error('stop child tools'));
+        await Promise.resolve();
+        return response;
+      };
+
+      await expect(
+        runSubagent(
+          {
+            prompt: 'read something',
+            parentRunId: 'parent-tool-abort',
+            parentDepth: 0,
+            signal: controller.signal
+          },
+          {
+            workspaceRoot: workspace,
+            llmClient: llm,
+            traceStore,
+            maxToolIterations: 3
+          }
+        )
+      ).rejects.toThrow('stop child tools');
+
+      const types = traceStore.events.map((event) => event.type);
+      expect(types).toContain('subagent.cancelled');
+      expect(types).not.toContain('tool_call.started');
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('Task tool', () => {
   it('registers as a gateway tool and returns subagent summary', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-task-tool-'));
@@ -245,5 +383,31 @@ describe('Task tool', () => {
       input: { prompt: 'nope' }
     });
     expect(result.summary).toContain('nested Task denied');
+  });
+
+  it('rethrows abort errors instead of wrapping them as Task failed content', async () => {
+    const controller = new AbortController();
+    const gateway = new ToolGateway();
+    gateway.register(
+      createTaskTool({
+        parentDepth: 0,
+        run: async ({ signal }) => {
+          controller.abort(new Error('用户按下 Esc'));
+          // Simulate subagent surface that already threw an abort-shaped error
+          // while the external signal is aborted.
+          throw signal?.reason ?? new Error('aborted');
+        }
+      })
+    );
+
+    await expect(
+      gateway.call({
+        runId: 'main-abort-task',
+        name: 'Task',
+        input: { prompt: 'do work' },
+        signal: controller.signal,
+        returnErrors: true
+      })
+    ).rejects.toThrow('用户按下 Esc');
   });
 });
