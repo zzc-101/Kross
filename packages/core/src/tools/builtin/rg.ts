@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { relative, sep } from 'node:path';
 
 import { z } from 'zod';
 
@@ -153,6 +154,21 @@ function normalizeGlobs(glob: string | string[] | undefined): string[] {
   }
   const list = Array.isArray(glob) ? glob : [glob];
   return list.map((item) => item.trim()).filter((item) => item.length > 0);
+}
+
+/** 把 rg 输出的绝对路径压成相对 workspace，便于模型与 UI 阅读。 */
+function relativizeRgLine(line: string, workspaceRoot: string): string {
+  const root = workspaceRoot.endsWith(sep)
+    ? workspaceRoot
+    : workspaceRoot + sep;
+  if (line.startsWith(root)) {
+    return line.slice(root.length).split(sep).join('/');
+  }
+  if (line.startsWith(workspaceRoot + ':') || line === workspaceRoot) {
+    const rest = line.slice(workspaceRoot.length);
+    return rest.startsWith(':') ? `.${rest}` : rest.replace(/^\//, '') || '.';
+  }
+  return line;
 }
 
 export function runRgCommand(
@@ -366,7 +382,11 @@ export function createRgTool(
       const rawLines =
         stdout.length === 0
           ? []
-          : stdout.replace(/\n$/, '').split('\n').filter((line) => line.length > 0);
+          : stdout
+              .replace(/\n$/, '')
+              .split('\n')
+              .filter((line) => line.length > 0)
+              .map((line) => relativizeRgLine(line, workspaceRoot));
       const truncated = rawLines.length > headLimit;
       const lines = truncated ? rawLines.slice(0, headLimit) : rawLines;
       let body = lines.join('\n') || '(无匹配)';

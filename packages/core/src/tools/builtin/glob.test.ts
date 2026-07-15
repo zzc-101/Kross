@@ -5,7 +5,13 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ToolBoundaryError } from './paths';
-import { compileGlob, createGlobTool, normalizeGlobPattern } from './glob';
+import {
+  compileGlob,
+  compileGlobMatcher,
+  createGlobTool,
+  expandGlobBraces,
+  normalizeGlobPattern
+} from './glob';
 
 let root: string;
 
@@ -36,6 +42,26 @@ describe('compileGlob', () => {
   });
 });
 
+describe('expandGlobBraces', () => {
+  it('expands extension braces used by models', () => {
+    expect(expandGlobBraces('**/*.{ts,js,md}')).toEqual([
+      '**/*.ts',
+      '**/*.js',
+      '**/*.md'
+    ]);
+  });
+});
+
+describe('compileGlobMatcher', () => {
+  it('matches brace patterns that previously returned 0 hits', () => {
+    const match = compileGlobMatcher('**/*.{json,md,ts}');
+    expect(match('package.json')).toBe(true);
+    expect(match('README.md')).toBe(true);
+    expect(match('src/a.ts')).toBe(true);
+    expect(match('src/a.py')).toBe(false);
+  });
+});
+
 describe('normalizeGlobPattern', () => {
   it('prepends **/ for bare filenames and globs', () => {
     expect(normalizeGlobPattern('test.txt')).toBe('**/test.txt');
@@ -58,6 +84,22 @@ describe('Glob', () => {
     expect(res.content).toContain('a.ts');
     expect(res.content).toContain('src/b.ts');
     expect(res.content).not.toContain('src/c.md');
+  });
+
+  it('supports brace extension patterns like models often emit', async () => {
+    await writeFile(join(root, 'package.json'), '{}');
+    await writeFile(join(root, 'README.md'), '# hi');
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src', 'a.ts'), '');
+    await writeFile(join(root, 'src', 'b.py'), '');
+    const res = await run({
+      pattern: '**/*.{json,md,toml,yaml,yml,ts,js,py,go,rs,java}'
+    });
+    expect(res.summary).not.toContain('matched 0');
+    expect(res.content).toContain('package.json');
+    expect(res.content).toContain('README.md');
+    expect(res.content).toContain('src/a.ts');
+    expect(res.content).toContain('src/b.py');
   });
 
   it('finds bare filename at workspace root even with huge node_modules', async () => {

@@ -36,8 +36,34 @@ function escapeRegExp(value: string): string {
 }
 
 /**
+ * 展开一层/多层花括号，例如 star-star/star.{ts,js} 扩展为多条模式。
+ * 模型常写这种写法；不支持时会 0 匹配并误导模型改用 Bash。
+ */
+export function expandGlobBraces(pattern: string): string[] {
+  const match = /\{([^{}]+)\}/.exec(pattern);
+  if (!match || match.index === undefined) {
+    return [pattern];
+  }
+  const alts = match[1]!
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  if (alts.length === 0) {
+    return [pattern];
+  }
+  const before = pattern.slice(0, match.index);
+  const after = pattern.slice(match.index + match[0].length);
+  const expanded: string[] = [];
+  for (const alt of alts) {
+    expanded.push(...expandGlobBraces(`${before}${alt}${after}`));
+  }
+  return expanded.length > 0 ? expanded : [pattern];
+}
+
+/**
  * 将 glob 模式编译为正则（基于相对 workspace 的 posix 路径）。
  * 支持 `**`（跨目录）、`*`（非 / 单段）、`?`（单个非 / 字符）。
+ * 花括号请先走 expandGlobBraces，再逐条 compile。
  */
 export function compileGlob(pattern: string): RegExp {
   let re = '';
@@ -71,7 +97,8 @@ export function compileGlob(pattern: string): RegExp {
 
 /**
  * 无路径分隔符的模式（如 test.txt / *.ts）默认按递归搜索：
- * test.txt → ** / test.txt（自动加递归前缀），避免只匹配 workspace 根。
+ * 自动加双星前缀，避免只匹配 workspace 根。
+ * 含花括号的 bare 模式同样加递归前缀。
  */
 export function normalizeGlobPattern(pattern: string): string {
   const trimmed = pattern.trim();
@@ -84,6 +111,14 @@ export function normalizeGlobPattern(pattern: string): string {
   return '**/' + trimmed;
 }
 
+/** 编译可能含 `{}` 的 glob 为「任一子模式命中」的测试函数。 */
+export function compileGlobMatcher(pattern: string): (path: string) => boolean {
+  const variants = expandGlobBraces(normalizeGlobPattern(pattern)).map((item) =>
+    compileGlob(item)
+  );
+  return (path: string) => variants.some((re) => re.test(path));
+}
+
 interface GlobInput {
   pattern: string;
   path?: string;
@@ -93,7 +128,7 @@ export function createGlobTool(workspaceRoot: string): ToolDefinition<GlobInput>
   return {
     name: 'Glob',
     description:
-      '按 glob 模式（支持 *、**、?）递归列出工作区内的文件路径，返回相对路径，每行一个。' +
+      '按 glob 模式（支持 *、**、?、{a,b} 花括号）递归列出工作区内的文件路径，返回相对路径，每行一个。' +
       '无斜杠的模式（如 *.ts、test.txt）会自动按 **/pattern 递归匹配；默认跳过 node_modules、.git 等目录。' +
       '优先使用 Rg（filesOnly=true + glob）以获得更快速度与 gitignore 支持；本工具为纯 JS 回退。',
     risk: 'read',
@@ -108,7 +143,7 @@ export function createGlobTool(workspaceRoot: string): ToolDefinition<GlobInput>
         pattern: {
           type: 'string',
           description:
-            'glob 模式，支持 *、**、?；如 test.txt、**/*.ts、src/**/*.tsx'
+            'glob 模式：*、**、?、以及 {ts,js,md} 花括号扩展；如 test.txt、**/*.ts、**/*.{ts,tsx,md}'
         },
         path: { type: 'string', description: '起始目录（相对 workspace）' }
       },
@@ -119,8 +154,8 @@ export function createGlobTool(workspaceRoot: string): ToolDefinition<GlobInput>
       const base = input.path
         ? await resolveExistingPathWithinWorkspace(workspaceRoot, input.path)
         : await resolveExistingPathWithinWorkspace(workspaceRoot, '.');
-      const pattern = normalizeGlobPattern(input.pattern);
-      const regex = compileGlob(pattern);
+      const pattern = input.pattern.trim();
+      const matchesPath = compileGlobMatcher(pattern);
       const matches: string[] = [];
       let visited = 0;
 
@@ -142,7 +177,7 @@ export function createGlobTool(workspaceRoot: string): ToolDefinition<GlobInput>
           visited += 1;
           const full = join(dir, entry.name);
           const rel = relative(workspaceRoot, full).split(sep).join('/');
-          if (regex.test(rel)) {
+          if (matchesPath(rel)) {
             matches.push(rel);
           }
         }
@@ -155,7 +190,7 @@ export function createGlobTool(workspaceRoot: string): ToolDefinition<GlobInput>
           const full = join(dir, entry.name);
           const rel = relative(workspaceRoot, full).split(sep).join('/');
           // 目录本身也可被模式命中（少见，但保持行为完整）
-          if (regex.test(rel)) {
+          if (matchesPath(rel)) {
             matches.push(rel);
           }
           await walk(full);

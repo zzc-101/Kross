@@ -11,25 +11,52 @@ const DEFAULT_LIMIT = 200;
 const MAX_DEPTH = 5;
 const MAX_LIMIT = 1000;
 
+/** 默认跳过深层噪音目录，避免 depth≥2 时 node_modules 占满 limit */
+const IGNORED_DIR_NAMES = new Set([
+  'node_modules',
+  '.git',
+  '.hg',
+  '.svn',
+  '.jj',
+  '.turbo',
+  '.next',
+  '.nuxt',
+  '.cache',
+  '.venv',
+  'venv',
+  'dist',
+  'build',
+  'coverage',
+  'out',
+  'tmp',
+  '.idea',
+  '.vscode'
+]);
+
 interface ListInput {
   path?: string;
   depth?: number;
   limit?: number;
   includeHidden?: boolean;
+  /** 是否进入 node_modules 等噪音目录，默认 false */
+  includeIgnored?: boolean;
 }
 
 export function createListTool(workspaceRoot: string): ToolDefinition<ListInput> {
   return {
     name: 'List',
     description:
-      '按层级列出工作区内目录内容，包含文件类型和大小；默认隐藏点文件且不会跟随符号链接遍历。',
+      '按层级列出工作区内目录内容，包含文件类型和大小；默认隐藏点文件、不跟随符号链接，' +
+      '且默认跳过 node_modules/.git/dist 等噪音目录（避免 depth≥2 时只看见依赖树）。' +
+      '需要时设 includeIgnored=true。',
     risk: 'read',
     category: 'filesystem',
     inputSchema: z.object({
       path: z.string().optional(),
       depth: z.number().int().min(1).max(MAX_DEPTH).optional(),
       limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
-      includeHidden: z.boolean().optional()
+      includeHidden: z.boolean().optional(),
+      includeIgnored: z.boolean().optional()
     }),
     parameters: {
       type: 'object',
@@ -50,6 +77,11 @@ export function createListTool(workspaceRoot: string): ToolDefinition<ListInput>
         includeHidden: {
           type: 'boolean',
           description: '是否包含名称以 . 开头的条目，默认 false'
+        },
+        includeIgnored: {
+          type: 'boolean',
+          description:
+            '是否进入 node_modules/.git/dist 等目录，默认 false（仅列出该目录名，不深入）'
         }
       },
       additionalProperties: false
@@ -66,12 +98,19 @@ export function createListTool(workspaceRoot: string): ToolDefinition<ListInput>
 
       const maxDepth = input.depth ?? DEFAULT_DEPTH;
       const limit = input.limit ?? DEFAULT_LIMIT;
+      const includeIgnored = input.includeIgnored === true;
       const lines: string[] = [];
       let truncated = false;
 
       async function walk(directory: string, depth: number): Promise<void> {
         const entries = (await readdir(directory, { withFileTypes: true })).sort(
-          (left, right) => left.name.localeCompare(right.name)
+          (left, right) => {
+            // 文件优先于目录，避免噪音目录占满 limit
+            if (left.isFile() !== right.isFile()) {
+              return left.isFile() ? -1 : 1;
+            }
+            return left.name.localeCompare(right.name);
+          }
         );
 
         for (const entry of entries) {
@@ -94,7 +133,15 @@ export function createListTool(workspaceRoot: string): ToolDefinition<ListInput>
             continue;
           }
           if (entryStat.isDirectory()) {
-            lines.push(`[dir] ${displayPath}/`);
+            const ignored = IGNORED_DIR_NAMES.has(entry.name);
+            lines.push(
+              ignored && !includeIgnored
+                ? `[dir] ${displayPath}/ (skipped)`
+                : `[dir] ${displayPath}/`
+            );
+            if (ignored && !includeIgnored) {
+              continue;
+            }
             if (depth < maxDepth) {
               await walk(fullPath, depth + 1);
               if (truncated) {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -41,6 +41,29 @@ describe('Grep', () => {
     const res = await run({ pattern: 'secret', include: '*.ts' });
     expect(res.content).toContain('a.ts:1:secret');
     expect(res.content).not.toContain('a.md');
+  });
+
+  it('finds root file even when node_modules is huge', async () => {
+    await writeFile(join(root, 'test.txt'), '子代理编辑成功');
+    const nm = join(root, 'node_modules', 'pkg');
+    await mkdir(nm, { recursive: true });
+    for (let i = 0; i < 300; i += 1) {
+      await writeFile(join(nm, `f-${i}.js`), 'noise 子代理 noise');
+    }
+    const res = await run({
+      pattern: '子代理',
+      path: '.',
+      include: 'test.txt'
+    });
+    expect(res.content).toContain('test.txt:');
+    expect(res.summary).toMatch(/matched [1-9]/);
+    expect(res.content).not.toContain('node_modules');
+  });
+
+  it('searches a single file path directly', async () => {
+    await writeFile(join(root, 'only.txt'), 'alpha\nbeta');
+    const res = await run({ pattern: 'beta', path: 'only.txt' });
+    expect(res.content).toContain('only.txt:2:beta');
   });
 
   it('rejects path outside workspace', async () => {
