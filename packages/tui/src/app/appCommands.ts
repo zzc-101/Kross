@@ -237,7 +237,8 @@ export function handleCommand(
 export async function executeCompactCommand(
   value: string,
   runtime: AgentRuntime,
-  mode: AgentMode
+  mode: AgentMode,
+  signal?: AbortSignal
 ): Promise<string> {
   const instructions = value.slice('/compact'.length).trim() || undefined;
   return formatCompactResult(
@@ -246,7 +247,8 @@ export async function executeCompactCommand(
         requestedMode: mode,
         currentUserInput: ''
       },
-      instructions
+      instructions,
+      signal
     ),
     runtime.getPreserveFullTurns()
   );

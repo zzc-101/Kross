@@ -5,6 +5,7 @@ import { AnthropicProtocolClient } from './anthropicProtocolClient';
 describe('AnthropicProtocolClient', () => {
   it('sends messages using the Anthropic protocol', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
+    const controller = new AbortController();
     const client = new AnthropicProtocolClient({
       apiKey: 'test-key',
       baseUrl: 'https://anthropic.example/v1',
@@ -25,6 +26,7 @@ describe('AnthropicProtocolClient', () => {
         { role: 'system', content: '你是规划器' },
         { role: 'user', content: '拆任务' }
       ],
+      signal: controller.signal,
       maxTokens: 256
     });
 
@@ -37,6 +39,7 @@ describe('AnthropicProtocolClient', () => {
       'content-type': 'application/json',
       'x-api-key': 'test-key'
     });
+    expect(calls[0]?.init.signal).toBe(controller.signal);
     expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
       model: 'claude-test',
       system: '你是规划器',

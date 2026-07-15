@@ -3,6 +3,7 @@ import {
   type AgentMode,
   type AgentResult
 } from '../domain';
+import { abortMessage, isOperationAborted, throwIfAborted } from '../abort';
 import type { BuildContextInput, SessionContext } from '../context/sessionContext';
 import type { LlmClient, LlmMessage, LlmToolCall } from '../llm/types';
 import type { ToolGateway, ToolMetadata } from '../tools/toolGateway';
@@ -37,7 +38,20 @@ export interface StreamingToolLoopHandlers {
     fullThinking: string;
   }): Promise<AgentResult>;
   onFailure(message: string): Promise<AgentResult>;
+  onCancelled(input: {
+    reason: string;
+    stage: CancellationStage;
+    fullText: string;
+    fullThinking: string;
+  }): Promise<AgentResult>;
 }
+
+export type CancellationStage =
+  | 'context'
+  | 'llm'
+  | 'tool'
+  | 'soft-land'
+  | 'finalize';
 
 export interface StreamingToolLoopParams {
   runId: string;
@@ -55,6 +69,7 @@ export interface StreamingToolLoopParams {
   /** 合并到每一轮 stream metadata */
   streamMetadata?: Record<string, unknown>;
   handlers: StreamingToolLoopHandlers;
+  signal?: AbortSignal;
   /** llm.planner.failed 的替代事件名（审批续跑路径不写 planner.failed） */
   failureEventType?: string;
 }
@@ -75,12 +90,14 @@ export interface StreamingToolLoopDeps {
     calls: LlmToolCall[];
     tools: ToolMetadata[];
     iteration: number;
+    signal?: AbortSignal;
   }): Promise<ToolBatchOutcome>;
   streamSoftLand(input: {
     runId: string;
     messages: LlmMessage[];
     maxIterations: number;
     iteration: number;
+    signal?: AbortSignal;
   }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>>;
   attachChangedFiles(result: AgentResult): Promise<AgentResult>;
   toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined;
@@ -88,6 +105,19 @@ export interface StreamingToolLoopDeps {
     runId: string,
     maintenance: import('../context/contextGovernor').ContextMaintenanceResult[]
   ): Promise<void>;
+  onInterrupted?(runId: string): void;
+}
+
+/** 保留批量工具中已完成的 observation，供取消收口时写回 Thread。 */
+export class ToolBatchAbortedError extends Error {
+  override readonly name = 'AbortError';
+
+  constructor(
+    override readonly cause: unknown,
+    readonly completedToolMessages: LlmMessage[]
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+  }
 }
 
 /**
@@ -103,11 +133,18 @@ export async function* runStreamingToolLoop(
   let iteration = params.startIteration;
   let fullText = '';
   let fullThinking = '';
+  let stage: CancellationStage = 'context';
 
   try {
     while (true) {
+      stage = 'context';
+      throwIfAborted(params.signal);
       sessionContext.setIteration(iteration);
-      const prepared = await sessionContext.prepareRequest(buildContextInput);
+      const prepared = await sessionContext.prepareRequest(
+        buildContextInput,
+        params.signal
+      );
+      throwIfAborted(params.signal);
       const messages = prepared.messages;
       if (deps.onContextMaintained && prepared.maintenance.length > 0) {
         await deps.onContextMaintained(params.runId, prepared.maintenance);
@@ -124,8 +161,10 @@ export async function* runStreamingToolLoop(
         ? params.firstStreamPurpose
         : 'planner-tool-followup';
 
+      stage = 'llm';
       for await (const chunk of deps.llmClient.stream({
         messages,
+        signal: params.signal,
         tools: deps.toLlmTools(params.tools),
         temperature: 0.2,
         metadata: {
@@ -135,6 +174,7 @@ export async function* runStreamingToolLoop(
           ...(isFirstIteration ? (params.firstIterationMetadata ?? {}) : {})
         }
       })) {
+        throwIfAborted(params.signal);
         if (chunk.type === 'thinking-delta') {
           if (turnThinking.length === 0 && fullThinking.length > 0) {
             fullThinking += '\n\n';
@@ -153,6 +193,7 @@ export async function* runStreamingToolLoop(
           toolCalls.push(chunk.call);
         }
       }
+      throwIfAborted(params.signal);
 
       sessionContext.calibrateFromUsage(
         deps.llmClient.lastUsage?.inputTokens,
@@ -184,12 +225,15 @@ export async function* runStreamingToolLoop(
 
         yield { type: 'turn-start', iteration };
         let softText = '';
+        stage = 'soft-land';
         for await (const chunk of deps.streamSoftLand({
           runId: params.runId,
           messages,
           maxIterations,
-          iteration
+          iteration,
+          signal: params.signal
         })) {
+          throwIfAborted(params.signal);
           if (chunk.type === 'text-delta') {
             softText += chunk.text;
             fullText =
@@ -232,13 +276,15 @@ export async function* runStreamingToolLoop(
 
       sessionContext.appendAssistant(turnText, toolCalls);
 
+      stage = 'tool';
       const batch = await deps.executeToolBatch({
         runId: params.runId,
         mode: params.mode,
         originalUserInput: params.originalUserInput,
         calls: toolCalls,
         tools: params.tools,
-        iteration
+        iteration,
+        signal: params.signal
       });
 
       const completedTools =
@@ -255,6 +301,7 @@ export async function* runStreamingToolLoop(
           });
         }
       }
+      throwIfAborted(params.signal);
 
       if (batch.kind === 'approval') {
         const approval = await deps.attachChangedFiles(batch.result);
@@ -268,6 +315,29 @@ export async function* runStreamingToolLoop(
       iteration += 1;
     }
   } catch (error) {
+    if (isOperationAborted(error, params.signal)) {
+      if (error instanceof ToolBatchAbortedError) {
+        for (const toolMessage of error.completedToolMessages) {
+          if (toolMessage.role === 'tool') {
+            sessionContext.appendToolResult({
+              toolCallId: toolMessage.toolCallId,
+              name: toolMessage.name,
+              content: toolMessage.content,
+              iteration
+            });
+          }
+        }
+      }
+      deps.onInterrupted?.(params.runId);
+      const cancelled = await params.handlers.onCancelled({
+        reason: abortMessage(params.signal),
+        stage,
+        fullText,
+        fullThinking
+      });
+      yield { type: 'result', result: cancelled };
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     const failureEventType = params.failureEventType ?? 'llm.planner.failed';
     await deps.record(params.runId, failureEventType, { message });
@@ -276,6 +346,18 @@ export async function* runStreamingToolLoop(
     return;
   }
 
+  stage = 'finalize';
+  if (params.signal?.aborted) {
+    deps.onInterrupted?.(params.runId);
+    const cancelled = await params.handlers.onCancelled({
+      reason: abortMessage(params.signal),
+      stage,
+      fullText,
+      fullThinking
+    });
+    yield { type: 'result', result: cancelled };
+    return;
+  }
   const result = await params.handlers.onSuccess({ fullText, fullThinking });
   yield { type: 'result', result };
 }

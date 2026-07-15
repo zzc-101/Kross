@@ -1,6 +1,11 @@
 import { EventEmitter } from 'node:events';
 
 import {
+  abortMessage,
+  isOperationAborted,
+  throwIfAborted
+} from '../abort';
+import {
   type AgentMode,
   type AgentResult,
   type TraceEvent,
@@ -55,6 +60,7 @@ import {
   PLANNER_SYSTEM_PROMPT,
   RuntimeToolLoop
 } from './toolLoop';
+import type { CancellationStage } from './streamingToolLoop';
 
 export { DEFAULT_MAX_TOOL_ITERATIONS } from './toolLoop';
 
@@ -106,6 +112,7 @@ export class AgentRuntime extends EventEmitter {
       attachChangedFiles: (result) => this.attachChangedFiles(result),
       commitTurn: () => this.sessionContext.commitTurn(),
       abortTurn: (reason) => this.sessionContext.abortTurn(reason),
+      interruptTurn: (reason) => this.sessionContext.interruptTurn(reason),
       appendAssistantForCancel: (summary) =>
         this.sessionContext.appendAssistant(summary),
       syncTodoContext: () => this.syncTodoContextSource(),
@@ -205,10 +212,15 @@ export class AgentRuntime extends EventEmitter {
 
   async compactNow(
     input: ContextInspectionInput = { requestedMode: 'normal' },
-    instructions?: string
+    instructions?: string,
+    signal?: AbortSignal
   ): Promise<ContextMaintenanceResult> {
     const { buildContextInput } = this.resolveContextBuildInput(input);
-    return this.sessionContext.compactNow(buildContextInput, instructions);
+    return this.sessionContext.compactNow(
+      buildContextInput,
+      instructions,
+      signal
+    );
   }
 
   getTodoStore(): import('../todo/todoStore').TodoStore | undefined {
@@ -336,35 +348,50 @@ export class AgentRuntime extends EventEmitter {
     });
     const runId = this.createRunId();
 
-    await this.record(runId, 'run.started', { input: input.input });
-    await this.record(runId, 'planner.started', {
-      requestedMode: input.requestedMode
-    });
-    await this.record(runId, 'mode.detected', { ...detection });
+    try {
+      await this.record(runId, 'run.started', { input: input.input });
+      throwIfAborted(input.signal);
+      await this.record(runId, 'planner.started', {
+        requestedMode: input.requestedMode
+      });
+      await this.record(runId, 'mode.detected', { ...detection });
+      throwIfAborted(input.signal);
 
-    if (detection.mode === 'normal' && this.options.llmClient) {
-      yield* this.runNormalModeWithToolLoop(input, detection.mode, runId);
-      return;
-    }
+      if (detection.mode === 'normal' && this.options.llmClient) {
+        yield* this.runNormalModeWithToolLoop(input, detection.mode, runId);
+        return;
+      }
 
-    if (detection.mode === 'cross-repo' && this.options.llmClient) {
-      const result = await this.runCrossRepoWithToolLoop(
+      if (detection.mode === 'cross-repo' && this.options.llmClient) {
+        const result = await this.runCrossRepoWithToolLoop(
+          input,
+          detection.mode,
+          runId,
+          detection.reason
+        );
+        yield { type: 'result', result };
+        return;
+      }
+
+      const result = await this.finishRunWithoutLlm(
         input,
         detection.mode,
         runId,
         detection.reason
       );
       yield { type: 'result', result };
-      return;
+    } catch (error) {
+      if (!isOperationAborted(error, input.signal)) {
+        throw error;
+      }
+      const cancelled = await this.completeInterruptedRun({
+        runId,
+        mode: detection.mode,
+        reason: abortMessage(input.signal),
+        stage: 'startup'
+      });
+      yield { type: 'result', result: cancelled };
     }
-
-    const result = await this.finishRunWithoutLlm(
-      input,
-      detection.mode,
-      runId,
-      detection.reason
-    );
-    yield { type: 'result', result };
   }
 
   private async *runNormalModeWithToolLoop(
@@ -372,9 +399,14 @@ export class AgentRuntime extends EventEmitter {
     mode: Exclude<AgentMode, 'auto'>,
     runId: string
   ): AsyncIterable<AgentRunStreamEvent> {
+    throwIfAborted(input.signal);
     this.sessionContext.beginTurn(input.input);
     const { buildContextInput, tools } = this.buildPlannerContext(mode);
-    const prepared = await this.sessionContext.prepareRequest(buildContextInput);
+    const prepared = await this.sessionContext.prepareRequest(
+      buildContextInput,
+      input.signal
+    );
+    throwIfAborted(input.signal);
     await this.recordPlannerContext(runId, prepared);
 
     yield* this.toolLoop.runStreamingToolLoop({
@@ -391,6 +423,7 @@ export class AgentRuntime extends EventEmitter {
         droppedSources: prepared.droppedSources,
         contextReport: prepared.report
       },
+      signal: input.signal,
       handlers: {
         onSuccess: async ({ fullText }) => {
           const result = await this.attachChangedFiles(
@@ -448,7 +481,9 @@ export class AgentRuntime extends EventEmitter {
           await this.record(runId, 'run.completed', { ...failed });
           this.sessionContext.abortTurn(message);
           return failed;
-        }
+        },
+        onCancelled: async ({ reason, stage }) =>
+          this.completeInterruptedRun({ runId, mode, reason, stage })
       }
     });
   }
@@ -459,9 +494,14 @@ export class AgentRuntime extends EventEmitter {
     runId: string,
     crossRepoReason: string | undefined
   ): Promise<AgentResult> {
+    throwIfAborted(input.signal);
     this.sessionContext.beginTurn(input.input);
     const { buildContextInput, tools } = this.buildPlannerContext(mode);
-    const prepared = await this.sessionContext.prepareRequest(buildContextInput);
+    const prepared = await this.sessionContext.prepareRequest(
+      buildContextInput,
+      input.signal
+    );
+    throwIfAborted(input.signal);
     await this.recordPlannerContext(runId, prepared);
 
     let loopResult: AgentResult | undefined;
@@ -480,6 +520,7 @@ export class AgentRuntime extends EventEmitter {
         droppedSources: prepared.droppedSources,
         contextReport: prepared.report
       },
+      signal: input.signal,
       handlers: {
         onSuccess: async ({ fullText }) =>
           this.attachChangedFiles(
@@ -532,7 +573,9 @@ export class AgentRuntime extends EventEmitter {
           await this.record(runId, 'run.completed', { ...failed });
           this.sessionContext.abortTurn(message);
           return failed;
-        }
+        },
+        onCancelled: async ({ reason, stage }) =>
+          this.completeInterruptedRun({ runId, mode, reason, stage })
       }
     })) {
       if (event.type === 'result') {
@@ -547,6 +590,7 @@ export class AgentRuntime extends EventEmitter {
     if (
       loopResult.status === 'approval-required' ||
       loopResult.status === 'failed' ||
+      loopResult.status === 'cancelled' ||
       softLanded
     ) {
       return loopResult;
@@ -618,6 +662,7 @@ export class AgentRuntime extends EventEmitter {
           runId,
           mode,
           status: 'cancelled',
+          cancellationReason: 'approval-gate',
           summary: '跨仓库计划等待确认，当前运行已取消',
           report: {
             changedFiles: [],
@@ -755,6 +800,13 @@ export class AgentRuntime extends EventEmitter {
     return this.toolLoop.cancelPendingApprovals(reason);
   }
 
+  async interruptPendingToolApproval(
+    runId: string,
+    reason?: string
+  ): Promise<AgentResult | undefined> {
+    return this.toolLoop.interruptPendingApproval(runId, reason);
+  }
+
   resolveToolApprovalStreaming(
     input: ResolveToolApprovalInput
   ): AsyncIterable<AgentRunStreamEvent> {
@@ -783,6 +835,37 @@ export class AgentRuntime extends EventEmitter {
         changedFiles
       }
     });
+  }
+
+  private async completeInterruptedRun(input: {
+    runId: string;
+    mode: Exclude<AgentMode, 'auto'>;
+    reason: string;
+    stage: CancellationStage | 'startup';
+  }): Promise<AgentResult> {
+    if (this.sessionContext.getThread().getOpenTurnId()) {
+      this.sessionContext.interruptTurn('用户中断了当前任务');
+    }
+    const cancelled = await this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId: input.runId,
+        mode: input.mode,
+        status: 'cancelled',
+        cancellationReason: 'user-interrupt',
+        summary: '已中断当前任务',
+        report: {
+          changedFiles: [],
+          evidence: [`用户在 ${input.stage} 阶段中断运行`],
+          risks: []
+        }
+      })
+    );
+    await this.record(input.runId, 'run.interrupted', {
+      reason: input.reason,
+      stage: input.stage
+    });
+    await this.record(input.runId, 'run.completed', { ...cancelled });
+    return cancelled;
   }
 
   private async recordContextMaintenance(runId: string): Promise<void> {

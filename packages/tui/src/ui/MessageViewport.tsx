@@ -50,6 +50,12 @@ export function MessageViewport({
     420,
     streamingMessageId !== undefined
   );
+  const thinkingClock = messages.some(
+    (message) =>
+      message.id === streamingMessageId && message.from === 'thinking'
+  )
+    ? cursor
+    : undefined;
 
   const layout = useMemo(() => {
     if (viewportRows === undefined) {
@@ -59,9 +65,10 @@ export function MessageViewport({
       messages,
       columns,
       streamingMessageId,
-      paintCache: paintCacheRef.current
+      paintCache: paintCacheRef.current,
+      nowMs: Date.now()
     });
-  }, [messages, columns, viewportRows, streamingMessageId]);
+  }, [messages, columns, viewportRows, streamingMessageId, thinkingClock]);
 
   const { contentRows, scrollHint } = useMemo(() => {
     if (viewportRows === undefined) {
@@ -217,4 +224,3 @@ function segmentProps(seg: PaintSegment): {
     inverse: seg.inverse
   };
 }
-

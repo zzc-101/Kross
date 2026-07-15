@@ -13,6 +13,7 @@ export type ToolCallStatus =
   | 'completed'
   | 'failed'
   | 'denied'
+  | 'cancelled'
   | 'awaiting';
 
 /** 聚合组内单次工具调用 */
@@ -114,7 +115,7 @@ export function MessageLine({
           <Text color={theme.user} bold>
             {symbols.userPrefix}{' '}
           </Text>
-          <Text wrap="wrap">
+          <Text color={theme.user} bold wrap="wrap">
             {body}
           </Text>
         </Box>
@@ -182,14 +183,16 @@ function ThinkingBlock({
 export function formatThinkingLabel(
   message: Pick<ChatMessage, 'text' | 'durationMs' | 'createdAt'>,
   streaming: boolean,
-  spinner?: string
+  spinner?: string,
+  nowMs = Date.now()
 ): string {
   if (streaming) {
+    const seconds = formatActiveThoughtSeconds(message.createdAt, nowMs);
     return spinner
-      ? t('thinking.activeSpinner', { spinner })
-      : t('thinking.active');
+      ? t('thinking.activeElapsedSpinner', { seconds, spinner })
+      : t('thinking.activeElapsed', { seconds });
   }
-  const seconds = formatThoughtSeconds(message);
+  const seconds = formatThoughtSeconds(message, nowMs);
   if (seconds !== undefined) {
     return t('thinking.duration', { seconds });
   }
@@ -197,7 +200,8 @@ export function formatThinkingLabel(
 }
 
 function formatThoughtSeconds(
-  message: Pick<ChatMessage, 'durationMs' | 'createdAt'>
+  message: Pick<ChatMessage, 'durationMs' | 'createdAt'>,
+  nowMs = Date.now()
 ): number | undefined {
   if (typeof message.durationMs === 'number' && message.durationMs >= 0) {
     return Math.max(1, Math.round(message.durationMs / 1000));
@@ -205,13 +209,31 @@ function formatThoughtSeconds(
   if (message.createdAt) {
     const start = new Date(message.createdAt).getTime();
     if (!Number.isNaN(start)) {
-      const elapsed = Date.now() - start;
+      const elapsed = nowMs - start;
       if (elapsed > 0 && elapsed < 24 * 3600 * 1000) {
         return Math.max(1, Math.round(elapsed / 1000));
       }
     }
   }
   return undefined;
+}
+
+function formatActiveThoughtSeconds(
+  createdAt: string | undefined,
+  nowMs: number
+): number {
+  if (!createdAt) {
+    return 0;
+  }
+  const start = new Date(createdAt).getTime();
+  if (Number.isNaN(start)) {
+    return 0;
+  }
+  const elapsed = nowMs - start;
+  if (elapsed <= 0 || elapsed >= 24 * 3600 * 1000) {
+    return 0;
+  }
+  return Math.floor(elapsed / 1000);
 }
 
 function wrapPlainText(text: string, maxWidth: number): string[] {

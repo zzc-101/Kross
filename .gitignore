@@ -5,3 +5,8 @@ coverage/
 .DS_Store
 npm-debug.log*
 .superpowers/
+
+# Accidental TS emit next to sources (project runs via tsx / typecheck --noEmit)
+packages/**/*.js
+vitest.config.js
+test.txt

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import {
   t,
@@ -11,6 +11,8 @@ import {
 import { defaultApprovalSelection, type ChatMessage } from '../ui';
 import { consumeAgentStream } from './agentStreamConsumer';
 import { appendApprovalResult } from './traceMessages';
+
+export type RunTurnOutcome = 'completed' | 'failed' | 'cancelled' | 'paused';
 
 export interface UseAgentRunOptions {
   agentRuntime: AgentRuntime;
@@ -36,6 +38,11 @@ export interface UseAgentRunOptions {
   processingRef: React.MutableRefObject<boolean>;
 }
 
+interface ActiveOperation {
+  id: number;
+  controller: AbortController;
+}
+
 export function useAgentRun({
   agentRuntime,
   mode,
@@ -55,15 +62,61 @@ export function useAgentRun({
   pendingCrossRepoPlan,
   processingRef
 }: UseAgentRunOptions) {
+  const nextOperationIdRef = useRef(0);
+  const activeOperationRef = useRef<ActiveOperation>();
+  const interruptingApprovalRunIdRef = useRef<string>();
+
+  const beginOperation = (): ActiveOperation => {
+    nextOperationIdRef.current += 1;
+    const operation = {
+      id: nextOperationIdRef.current,
+      controller: new AbortController()
+    };
+    activeOperationRef.current = operation;
+    return operation;
+  };
+
+  const finishOperation = (operation: ActiveOperation): void => {
+    if (activeOperationRef.current?.id === operation.id) {
+      activeOperationRef.current = undefined;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      const active = activeOperationRef.current;
+      if (active && !active.controller.signal.aborted) {
+        active.controller.abort(new Error('TUI unmounted'));
+      }
+    };
+  }, []);
+
+  const settleInterruptedUi = useCallback((): RunTurnOutcome => {
+    flushMessageUpdates();
+    finalizeThinkingDurations();
+    append('system', t('app.interrupted'));
+    setStatus('ready');
+    setAwaitingReply(false);
+    setStreamingMessageId(undefined);
+    return 'cancelled';
+  }, [
+    append,
+    finalizeThinkingDurations,
+    flushMessageUpdates,
+    setAwaitingReply,
+    setStatus,
+    setStreamingMessageId
+  ]);
+
   const runTurn = useCallback(async (
     prompt: string,
     options: { planApproved?: boolean; requestedMode?: AgentMode } = {}
-  ) => {
+  ): Promise<RunTurnOutcome> => {
+    const operation = beginOperation();
     setStatus('responding');
     setAwaitingReply(true);
     setLoadingVariant('thinking');
     setStreamingMessageId(undefined);
-    // 新 run 清空工具卡片索引，避免跨 run 串卡
     toolMessageIdsRef.current.clear();
 
     let sawAgentText = false;
@@ -74,7 +127,8 @@ export function useAgentRun({
         agentRuntime.runStreaming({
           input: prompt,
           requestedMode: options.requestedMode ?? mode,
-          approvals: { plan: options.planApproved === true }
+          approvals: { plan: options.planApproved === true },
+          signal: operation.controller.signal
         }),
         {
           append,
@@ -89,6 +143,9 @@ export function useAgentRun({
       sawAgentText = streamResult.sawAgentText;
       result = streamResult.result;
     } catch (error) {
+      if (operation.controller.signal.aborted) {
+        return settleInterruptedUi();
+      }
       flushMessageUpdates();
       finalizeThinkingDurations();
       append(
@@ -100,39 +157,51 @@ export function useAgentRun({
       setStatus('ready');
       setAwaitingReply(false);
       setStreamingMessageId(undefined);
-      return;
+      return 'failed';
+    } finally {
+      finishOperation(operation);
     }
 
     if (!result) {
       flushMessageUpdates();
       finalizeThinkingDurations();
       setStatus('ready');
+      setAwaitingReply(false);
       setStreamingMessageId(undefined);
-      return;
+      return 'failed';
+    }
+
+    if (
+      result.status === 'cancelled' &&
+      result.cancellationReason === 'user-interrupt'
+    ) {
+      return settleInterruptedUi();
     }
 
     if (result.mode === 'cross-repo' && result.status === 'cancelled') {
       setStatus('waiting-approval');
       setPendingCrossRepoPlan({ prompt, mode: options.requestedMode ?? mode });
       append('system', t('app.crossRepoPaused'));
-      return;
+      return 'paused';
     }
 
     if (result.status === 'approval-required' && result.pendingApproval) {
       setStatus('approval-required');
+      setAwaitingReply(false);
       setPendingToolApproval(result.pendingApproval);
       setApprovalSelection(defaultApprovalSelection(result.pendingApproval.risk));
       append('system', result.summary);
       finalizeThinkingDurations();
-      return;
+      return 'paused';
     }
 
-    // 已按 turn 流式写入气泡时，不要用跨轮拼接的 fullText 覆盖最后一条
     if (!sawAgentText && result.summary.trim().length > 0) {
       append('agent', result.summary);
     }
     finalizeThinkingDurations();
+    setAwaitingReply(false);
     setStatus('ready');
+    return result.status === 'failed' ? 'failed' : 'completed';
   }, [
     agentRuntime,
     append,
@@ -147,6 +216,7 @@ export function useAgentRun({
     setPendingToolApproval,
     setStatus,
     setStreamingMessageId,
+    settleInterruptedUi,
     toolMessageIdsRef
   ]);
 
@@ -155,6 +225,7 @@ export function useAgentRun({
       return;
     }
 
+    const operation = beginOperation();
     setStatus('responding');
     setAwaitingReply(true);
     setLoadingVariant('tool');
@@ -167,8 +238,6 @@ export function useAgentRun({
         : t('app.toolRejected', { tool: pendingToolApproval.toolName })
     );
 
-    // 与首轮 runTurn 相同：审批后续也走 stream，避免 complete() 整包倾倒。
-    // （shift+tab 改权限与是否流式无关；旧路径 resolveToolApproval 固定非流式。）
     let sawAgentText = false;
     let result: AgentResult | undefined;
 
@@ -176,12 +245,14 @@ export function useAgentRun({
       const streamResult = await consumeAgentStream(
         agentRuntime.resolveToolApprovalStreaming({
           runId: pendingToolApproval.runId,
-          approved
+          approved,
+          signal: operation.controller.signal
         }),
         {
           append,
           enqueueMessageUpdate,
           flushMessageUpdates,
+          finalizeThinkingDurations,
           setAwaitingReply,
           setLoadingVariant,
           setStreamingMessageId
@@ -190,7 +261,12 @@ export function useAgentRun({
       sawAgentText = streamResult.sawAgentText;
       result = streamResult.result;
     } catch (error) {
+      if (operation.controller.signal.aborted) {
+        settleInterruptedUi();
+        return;
+      }
       flushMessageUpdates();
+      finalizeThinkingDurations();
       append(
         'system',
         t('app.approvalError', {
@@ -201,16 +277,27 @@ export function useAgentRun({
       setAwaitingReply(false);
       setStreamingMessageId(undefined);
       return;
+    } finally {
+      finishOperation(operation);
     }
 
     if (!result) {
       flushMessageUpdates();
+      finalizeThinkingDurations();
       setStatus('ready');
+      setAwaitingReply(false);
       setStreamingMessageId(undefined);
       return;
     }
 
-    // 模型可能在同一轮里继续请求其他高风险工具，需要再次进入审批。
+    if (
+      result.status === 'cancelled' &&
+      result.cancellationReason === 'user-interrupt'
+    ) {
+      settleInterruptedUi();
+      return;
+    }
+
     if (result.status === 'approval-required' && result.pendingApproval) {
       setStatus('approval-required');
       setAwaitingReply(false);
@@ -220,16 +307,17 @@ export function useAgentRun({
       return;
     }
 
-    // 已流式写入则勿再整包 append
     if (!sawAgentText) {
       appendApprovalResult(append, result);
     }
+    finalizeThinkingDurations();
     setAwaitingReply(false);
     setStatus('ready');
   }, [
     agentRuntime,
     append,
     enqueueMessageUpdate,
+    finalizeThinkingDurations,
     flushMessageUpdates,
     pendingToolApproval,
     setApprovalSelection,
@@ -237,7 +325,8 @@ export function useAgentRun({
     setLoadingVariant,
     setPendingToolApproval,
     setStatus,
-    setStreamingMessageId
+    setStreamingMessageId,
+    settleInterruptedUi
   ]);
 
   const choosePlanApproval = useCallback(async (approved: boolean) => {
@@ -265,11 +354,88 @@ export function useAgentRun({
     } finally {
       processingRef.current = false;
     }
-  }, [append, pendingCrossRepoPlan, processingRef, runTurn, setPendingCrossRepoPlan, setStatus]);
+  }, [
+    append,
+    pendingCrossRepoPlan,
+    processingRef,
+    runTurn,
+    setPendingCrossRepoPlan,
+    setStatus
+  ]);
+
+  const interruptCurrentRun = useCallback((): boolean => {
+    const active = activeOperationRef.current;
+    if (active) {
+      if (!active.controller.signal.aborted) {
+        setStatus('interrupting');
+        setAwaitingReply(true);
+        active.controller.abort(new Error('用户按下 Esc'));
+      }
+      return true;
+    }
+
+    if (pendingToolApproval) {
+      if (interruptingApprovalRunIdRef.current === pendingToolApproval.runId) {
+        return true;
+      }
+      interruptingApprovalRunIdRef.current = pendingToolApproval.runId;
+      const approval = pendingToolApproval;
+      setPendingToolApproval(undefined);
+      setStatus('interrupting');
+      setAwaitingReply(true);
+      void agentRuntime
+        .interruptPendingToolApproval(approval.runId, '用户按下 Esc')
+        .then((result) => {
+          if (result) {
+            settleInterruptedUi();
+          } else {
+            setStatus('ready');
+            setAwaitingReply(false);
+          }
+        })
+        .catch((error) => {
+          append(
+            'system',
+            t('app.approvalError', {
+              error: error instanceof Error ? error.message : String(error)
+            })
+          );
+          setStatus('ready');
+          setAwaitingReply(false);
+        })
+        .finally(() => {
+          interruptingApprovalRunIdRef.current = undefined;
+          processingRef.current = false;
+        });
+      return true;
+    }
+
+    if (pendingCrossRepoPlan) {
+      setPendingCrossRepoPlan(undefined);
+      setStatus('ready');
+      append('system', t('app.crossRepoCancelled'));
+      processingRef.current = false;
+      return true;
+    }
+
+    return false;
+  }, [
+    agentRuntime,
+    append,
+    pendingCrossRepoPlan,
+    pendingToolApproval,
+    processingRef,
+    setAwaitingReply,
+    setPendingCrossRepoPlan,
+    setPendingToolApproval,
+    setStatus,
+    settleInterruptedUi
+  ]);
 
   return {
     runTurn,
     chooseToolApproval,
-    choosePlanApproval
+    choosePlanApproval,
+    interruptCurrentRun
   };
 }

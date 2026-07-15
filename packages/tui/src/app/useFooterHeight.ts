@@ -51,7 +51,10 @@ export function useFooterHeight(input: FooterLayoutInput): number {
     } else {
       h += COMPOSER_FOOTER_HEIGHT;
     }
-    if (status === 'responding' && awaitingReply) {
+    if (
+      (status === 'responding' || status === 'interrupting') &&
+      awaitingReply
+    ) {
       h += 2; // ThinkingIndicator
     }
     h += resolveSubagentPanelHeight(subagents, subagentExpanded);

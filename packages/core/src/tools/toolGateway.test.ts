@@ -367,6 +367,48 @@ describe('ToolGateway', () => {
     expect(result.summary).toBe('failed: once');
   });
 
+  it('forwards an external abort signal and never retries cancelled tools', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const controller = new AbortController();
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const gateway = new ToolGateway({ traceStore });
+    gateway.register({
+      name: 'long-running',
+      description: '长时间运行',
+      risk: 'read',
+      inputSchema: z.object({}),
+      execute: async ({ signal }) => {
+        markStarted?.();
+        return new Promise((_, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(signal.reason),
+            { once: true }
+          );
+        });
+      }
+    });
+
+    const call = gateway.call({
+      runId: 'run-cancel',
+      name: 'long-running',
+      input: {},
+      signal: controller.signal,
+      returnErrors: true
+    });
+    await started;
+    controller.abort(new Error('stop now'));
+
+    await expect(call).rejects.toThrow('stop now');
+    expect(traceStore.events.map((event) => event.type)).toEqual([
+      'tool_call.started',
+      'tool_call.cancelled'
+    ]);
+  });
+
   it('stores result summaries separately from raw output', async () => {
     const traceStore = new InMemoryTraceStore();
     const gateway = new ToolGateway({ traceStore, maxSummaryChars: 12 });

@@ -103,4 +103,43 @@ describe('Summarizer', () => {
     expect(text).toContain('old decision');
     expect(text).toContain('new requirement');
   });
+
+  it('forwards cancellation to compaction LLM and does not fall back after abort', async () => {
+    const controller = new AbortController();
+    let capturedSignal: AbortSignal | undefined;
+    const client: LlmClient = {
+      provider: 'openai',
+      async complete(request) {
+        capturedSignal = request.signal;
+        return new Promise((_, reject) => {
+          request.signal?.addEventListener(
+            'abort',
+            () => reject(request.signal?.reason),
+            { once: true }
+          );
+        });
+      },
+      async *stream() {
+        yield { type: 'done' } as const;
+      }
+    };
+    const entries: ThreadEntry[] = [
+      {
+        id: 'e1',
+        turnId: 't1',
+        kind: 'user',
+        message: { role: 'user', content: 'old task' },
+        tokensEst: 10
+      }
+    ];
+
+    const compacting = new LlmSummarizer(client).summarizeTurns(
+      [{ turnId: 't1', entries }],
+      { signal: controller.signal }
+    );
+    controller.abort(new Error('cancel compaction'));
+
+    await expect(compacting).rejects.toThrow('cancel compaction');
+    expect(capturedSignal).toBe(controller.signal);
+  });
 });

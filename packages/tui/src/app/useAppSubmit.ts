@@ -11,6 +11,7 @@ import {
 
 import type { SlashCommand } from '../ui';
 import { executeCompactCommand, handleCommand } from './appCommands';
+import type { RunTurnOutcome } from './useAgentRun';
 
 export interface UseAppSubmitOptions {
   isHome: boolean;
@@ -38,7 +39,10 @@ export interface UseAppSubmitOptions {
   processingRef: React.MutableRefObject<boolean>;
   queueRef: React.MutableRefObject<string[]>;
   setQueueLength: React.Dispatch<React.SetStateAction<number>>;
-  runTurn: (prompt: string) => Promise<void>;
+  runTurn: (prompt: string) => Promise<RunTurnOutcome>;
+  commandAbortControllerRef: React.MutableRefObject<AbortController | undefined>;
+  setStatus: React.Dispatch<React.SetStateAction<string>>;
+  setAwaitingReply: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export function useAppSubmit({
@@ -67,7 +71,10 @@ export function useAppSubmit({
   processingRef,
   queueRef,
   setQueueLength,
-  runTurn
+  runTurn,
+  commandAbortControllerRef,
+  setStatus,
+  setAwaitingReply
 }: UseAppSubmitOptions) {
   return useCallback(async (value: string) => {
     const trimmed = value.trim();
@@ -75,7 +82,16 @@ export function useAppSubmit({
       let next: string | undefined = first;
       try {
         while (next) {
-          await runTurn(next);
+          const outcome = await runTurn(next);
+          if (outcome === 'cancelled' || outcome === 'paused') {
+            if (outcome === 'cancelled' && queueRef.current.length > 0) {
+              append(
+                'system',
+                t('app.queuePaused', { count: queueRef.current.length })
+              );
+            }
+            break;
+          }
           next = queueRef.current.shift();
           setQueueLength(queueRef.current.length);
         }
@@ -84,6 +100,15 @@ export function useAppSubmit({
       }
     };
     if (trimmed.length === 0) {
+      if (!processingRef.current && queueRef.current.length > 0) {
+        const next = queueRef.current.shift();
+        setQueueLength(queueRef.current.length);
+        if (next) {
+          processingRef.current = true;
+          await runQueuedTurns(next);
+        }
+        return;
+      }
       if (isHome && selectedRecentSession !== undefined) {
         await resumeSession();
       }
@@ -132,20 +157,51 @@ export function useAppSubmit({
       }
 
       processingRef.current = true;
+      const controller = new AbortController();
+      commandAbortControllerRef.current = controller;
       append('system', t('cmd.compact.running'));
+      let cancelled = false;
       try {
         append(
           'agent',
-          await executeCompactCommand(trimmed, agentRuntime, mode)
+          await executeCompactCommand(
+            trimmed,
+            agentRuntime,
+            mode,
+            controller.signal
+          )
         );
       } catch (error) {
-        append(
-          'system',
-          t('cmd.asyncFailed', {
-            command: '/compact',
-            message: error instanceof Error ? error.message : String(error)
-          })
-        );
+        if (controller.signal.aborted) {
+          cancelled = true;
+          append('system', t('app.interrupted'));
+        } else {
+          append(
+            'system',
+            t('cmd.asyncFailed', {
+              command: '/compact',
+              message: error instanceof Error ? error.message : String(error)
+            })
+          );
+        }
+      } finally {
+        if (commandAbortControllerRef.current === controller) {
+          commandAbortControllerRef.current = undefined;
+        }
+        setStatus('ready');
+        setAwaitingReply(false);
+      }
+
+      if (cancelled) {
+        processingRef.current = false;
+        setQueueLength(queueRef.current.length);
+        if (queueRef.current.length > 0) {
+          append(
+            'system',
+            t('app.queuePaused', { count: queueRef.current.length })
+          );
+        }
+        return;
       }
 
       const next = queueRef.current.shift();
@@ -186,6 +242,18 @@ export function useAppSubmit({
       return;
     }
 
+    if (queueRef.current.length > 0) {
+      queueRef.current.push(trimmed);
+      setQueueLength(queueRef.current.length);
+      const next = queueRef.current.shift();
+      setQueueLength(queueRef.current.length);
+      if (next) {
+        processingRef.current = true;
+        await runQueuedTurns(next);
+      }
+      return;
+    }
+
     processingRef.current = true;
     await runQueuedTurns(trimmed);
   }, [
@@ -214,6 +282,9 @@ export function useAppSubmit({
     setPermissionMode,
     setImportPrompt,
     setQueueLength,
-    setRuntimeGeneration
+    setRuntimeGeneration,
+    commandAbortControllerRef,
+    setStatus,
+    setAwaitingReply
   ]);
 }

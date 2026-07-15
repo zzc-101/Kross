@@ -1,3 +1,4 @@
+export * from './abort';
 export * from './context/sessionContext';
 export * from './context/tokenEstimator';
 export * from './context/contextPolicy';

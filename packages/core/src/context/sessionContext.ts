@@ -211,6 +211,10 @@ export class SessionContext {
     this.thread.abortTurn(reason);
   }
 
+  interruptTurn(reason: string): void {
+    this.thread.interruptTurn(reason);
+  }
+
   appendAssistant(content: string, toolCalls?: import('../llm/types').LlmToolCall[]): void {
     this.thread.appendAssistant(content, toolCalls);
   }
@@ -258,14 +262,16 @@ export class SessionContext {
    */
   async compactNow(
     _input: BuildContextInput,
-    instructions?: string
+    instructions?: string,
+    signal?: AbortSignal
   ): Promise<ContextMaintenanceResult> {
     const combinedInstructions = [this.compactionInstructions, instructions]
       .map((value) => value?.trim())
       .filter((value): value is string => !!value)
       .join('\n');
     const result = await this.governor.compactTurnsNow(this.thread, {
-      instructions: combinedInstructions || undefined
+      instructions: combinedInstructions || undefined,
+      signal
     });
     if (result.compacted) {
       this.rememberMaintenance(result);
@@ -325,7 +331,10 @@ export class SessionContext {
   /**
    * 请求前治理 + 组装完整 messages（含 system）。
    */
-  async prepareRequest(input: BuildContextInput): Promise<PrepareRequestResult> {
+  async prepareRequest(
+    input: BuildContextInput,
+    signal?: AbortSignal
+  ): Promise<PrepareRequestResult> {
     const systemBlock = this.buildSystemBlock(input);
     const systemTokens = this.estimator.estimate([
       { role: 'system', content: systemBlock.content }
@@ -334,7 +343,8 @@ export class SessionContext {
 
     const governResult = await this.governor.govern({
       thread: this.thread,
-      threadTokenBudget: threadBudget
+      threadTokenBudget: threadBudget,
+      signal
     });
 
     for (const item of governResult.maintenance) {

@@ -1,4 +1,5 @@
 import { formatToolInputPreview } from '../tools/formatToolInputPreview';
+import { throwIfAborted } from '../abort';
 import type { ContextPolicy } from './contextPolicy';
 import {
   ConversationThread,
@@ -48,6 +49,7 @@ export interface GovernInput {
   thread: ConversationThread;
   /** 不含 system 段的线程消息 token 预算 */
   threadTokenBudget: number;
+  signal?: AbortSignal;
 }
 
 export interface GovernResult {
@@ -75,6 +77,7 @@ export class ContextGovernor {
   }
 
   async govern(input: GovernInput): Promise<GovernResult> {
+    throwIfAborted(input.signal);
     const maintenance: ContextMaintenanceResult[] = [];
     const thread = input.thread;
     let budget = input.threadTokenBudget;
@@ -95,7 +98,12 @@ export class ContextGovernor {
     }
 
     // Stage 2: 滚动压缩（优先整轮，超长单轮仅在安全 assistant 边界切分）
-    const stage2 = await this.applyTurnCompaction(thread, budget);
+    const stage2 = await this.applyTurnCompaction(
+      thread,
+      budget,
+      input.signal
+    );
+    throwIfAborted(input.signal);
     if (stage2.changed) {
       maintenance.push(stage2.result);
       tokens = this.estimateThreadTokens(thread);
@@ -119,8 +127,9 @@ export class ContextGovernor {
    */
   async compactTurnsNow(
     thread: ConversationThread,
-    options: Pick<SummarizeOptions, 'instructions'> = {}
+    options: Pick<SummarizeOptions, 'instructions' | 'signal'> = {}
   ): Promise<ContextMaintenanceResult> {
+    throwIfAborted(options.signal);
     const tokensBefore = this.estimateThreadTokens(thread);
     const selection = selectManualPrefix(
       thread,
@@ -221,7 +230,8 @@ export class ContextGovernor {
 
   private async applyTurnCompaction(
     thread: ConversationThread,
-    budget: number
+    budget: number,
+    signal?: AbortSignal
   ): Promise<{ changed: boolean; result: ContextMaintenanceResult }> {
     const tokensBefore = this.estimateThreadTokens(thread);
     if (tokensBefore <= budget) {
@@ -244,7 +254,8 @@ export class ContextGovernor {
     const result = await this.compactPrefix(
       thread,
       selection,
-      'turn_compaction'
+      'turn_compaction',
+      { signal }
     );
     return {
       changed: result.compacted,
@@ -256,13 +267,15 @@ export class ContextGovernor {
     thread: ConversationThread,
     selection: CompactionSelection,
     reason: 'manual' | 'turn_compaction',
-    options: Pick<SummarizeOptions, 'instructions'> = {}
+    options: Pick<SummarizeOptions, 'instructions' | 'signal'> = {}
   ): Promise<ContextMaintenanceResult> {
     const tokensBefore = this.estimateThreadTokens(thread);
     const summary = await this.summarizer.summarizeTurns(selection.turns, {
       previousSummary: selection.previousSummary,
-      instructions: options.instructions
+      instructions: options.instructions,
+      signal: options.signal
     });
+    throwIfAborted(options.signal);
     thread.replacePrefixWithCompaction(selection.entryCount, summary);
     const tokensAfter = this.estimateThreadTokens(thread);
 

@@ -42,6 +42,30 @@ describe('ConversationThread', () => {
     expect(thread.buildMessages().at(-1)?.content).toContain('cancelled');
   });
 
+  it('interruptTurn closes the turn and removes only unmatched tool calls', () => {
+    const thread = new ConversationThread();
+    thread.beginTurn('run tools');
+    thread.appendAssistant('calling tools', [
+      { id: 'done-1', name: 'Read', input: { path: 'a.ts' } },
+      { id: 'pending-1', name: 'Bash', input: { command: 'sleep 10' } }
+    ]);
+    thread.appendToolResult({
+      toolCallId: 'done-1',
+      name: 'Read',
+      content: 'file content'
+    });
+
+    thread.interruptTurn('用户中断');
+
+    expect(thread.getOpenTurnId()).toBeUndefined();
+    const assistant = thread.buildMessages()[1];
+    expect(assistant?.role).toBe('assistant');
+    if (assistant?.role === 'assistant') {
+      expect(assistant.toolCalls?.map((call) => call.id)).toEqual(['done-1']);
+    }
+    expect(thread.buildMessages().at(-1)?.content).toContain('用户中断');
+  });
+
   it('restores legacy compaction marker as compaction entry', () => {
     const thread = new ConversationThread();
     const result = thread.restoreFromConversation([

@@ -31,6 +31,7 @@ export interface UseAppKeyboardOptions {
   approvalSelection: 'approve' | 'reject';
   setApprovalSelection: React.Dispatch<React.SetStateAction<'approve' | 'reject'>>;
   chooseToolApproval: (approved: boolean) => Promise<void>;
+  interruptCurrentRun: () => boolean;
   slashSuggestions: SlashCommand[];
   slashSelectedIndex: number;
   setSlashSelectedIndex: React.Dispatch<React.SetStateAction<number>>;
@@ -56,6 +57,7 @@ export function useAppKeyboard({
   approvalSelection,
   setApprovalSelection,
   chooseToolApproval,
+  interruptCurrentRun,
   slashSuggestions,
   slashSelectedIndex,
   setSlashSelectedIndex,
@@ -95,6 +97,10 @@ export function useAppKeyboard({
     // 最近会话一旦选中，Esc 始终优先取消；即使用户已经开始输入也不例外。
     if (isHome && key.escape && selectedRecentSession !== undefined) {
       setSelectedRecentSession(undefined);
+      return;
+    }
+
+    if (key.escape && interruptCurrentRun()) {
       return;
     }
 

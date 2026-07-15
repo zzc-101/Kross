@@ -767,6 +767,71 @@ describe('App', () => {
     expect(lastFrame()).toContain('second done');
   });
 
+  it('interrupts the active run with Esc and pauses queued messages', async () => {
+    let api: AppTestApi | undefined;
+    const llmClient = new DelayedLlmClient();
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient
+    });
+    const view = render(
+      <App runtime={runtime} onReady={(next) => (api = next)} />
+    );
+
+    await waitUntil(() => api !== undefined);
+    const first = api?.submit('first');
+    await waitUntil(() => llmClient.requests.length === 1);
+    await api?.submit('second');
+    expect(view.lastFrame()).toContain('Esc 中断');
+
+    expect(api?.interruptCurrentRun()).toBe(true);
+    await first;
+    await waitUntil(() => view.lastFrame()?.includes('已中断当前任务') === true);
+
+    expect(llmClient.requests[0]?.signal?.aborted).toBe(true);
+    expect(llmClient.requests).toHaveLength(1);
+    expect(view.lastFrame()).toContain('队列：1');
+    expect(view.lastFrame()).toContain('按 Enter 继续');
+    expect(view.lastFrame()).not.toContain('运行出错');
+
+    const resumed = api?.submit('');
+    await waitUntil(() => llmClient.requests.length === 2);
+    llmClient.resolveNext('second done');
+    await resumed;
+    await waitUntil(() => view.lastFrame()?.includes('second done') === true);
+  });
+
+  it('uses Esc to cancel a pending tool approval instead of rejecting it', async () => {
+    let api: AppTestApi | undefined;
+    const traceStore = new ObservableTraceStore(new InMemoryTraceStore());
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'fs.write',
+      description: '写文件',
+      risk: 'write',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async () => ({ content: 'written' })
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient: new WriteToolCallingLlmClient(),
+      toolGateway
+    });
+    const view = render(
+      <App runtime={runtime} onReady={(next) => (api = next)} />
+    );
+
+    await waitUntil(() => api !== undefined);
+    await api?.submit('write a file');
+    await waitUntil(() => view.lastFrame()?.includes('允许修改工作区') === true);
+
+    expect(api?.interruptCurrentRun()).toBe(true);
+    await waitUntil(() => view.lastFrame()?.includes('已中断当前任务') === true);
+
+    expect(view.lastFrame()).not.toContain('允许修改工作区');
+    expect(view.lastFrame()).not.toContain('已拒绝 fs.write');
+  });
+
   it('shows cross-repo approval status for linkage requests', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);
@@ -909,7 +974,8 @@ describe('App', () => {
     expect(view.lastFrame()).toContain('正在压缩上下文');
     expect(compactSpy).toHaveBeenCalledWith(
       expect.objectContaining({ requestedMode: 'auto' }),
-      '保留架构决策'
+      '保留架构决策',
+      expect.any(AbortSignal)
     );
 
     await api!.submit('压缩后继续');
@@ -931,6 +997,41 @@ describe('App', () => {
 
     expect(runSpy).toHaveBeenCalledTimes(1);
     expect(view.lastFrame()).toContain('压缩后继续');
+  });
+
+  it('interrupts an in-flight /compact command through the same Esc action', async () => {
+    let api: AppTestApi | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('unused')
+    });
+    const compactSpy = vi.spyOn(runtime, 'compactNow').mockImplementation(
+      async (_input, _instructions, signal) =>
+        new Promise<ContextMaintenanceResult>((_, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), {
+            once: true
+          });
+        })
+    );
+    const runSpy = vi.spyOn(runtime, 'runStreaming');
+    const view = render(
+      <App runtime={runtime} onReady={(next) => (api = next)} />
+    );
+
+    await waitUntil(() => api !== undefined);
+    const compacting = api?.submit('/compact');
+    await waitUntil(() => compactSpy.mock.calls.length === 1);
+    await api?.submit('压缩后继续');
+    expect(api?.interruptCurrentRun()).toBe(true);
+    await compacting;
+
+    expect(view.lastFrame()).toContain('已中断当前任务');
+    expect(view.lastFrame()).toContain('按 Enter 继续');
+    expect(view.lastFrame()).not.toContain('/compact 失败');
+    expect(runSpy).not.toHaveBeenCalled();
+
+    await api?.submit('');
+    expect(runSpy).toHaveBeenCalledTimes(1);
   });
 
   it('prompts to import Claude Code or Codex config on first launch and saves the chosen config', async () => {
@@ -1318,7 +1419,9 @@ describe('App', () => {
       expect(lastFrame()).not.toContain('/approve');
 
       const approval = chooseToolApproval?.(true);
-      await waitUntil(() => lastFrame()?.includes('正在执行') === true);
+      await waitUntil(
+        () => lastFrame()?.includes('运行已允许的工具') === true
+      );
       expect(lastFrame()).toContain('已允许一次 fs.write');
 
       llmClient.releaseFollowup();
@@ -1539,21 +1642,42 @@ class ControlledStreamingLlmClient implements LlmClient {
 class DelayedLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   readonly requests: LlmRequest[] = [];
-  private readonly resolvers: Array<(value: string) => void> = [];
+  private readonly pending: Array<{
+    settled: boolean;
+    resolve: (value: string) => void;
+    reject: (reason?: unknown) => void;
+  }> = [];
 
   async complete(): Promise<LlmResponse> {
     throw new Error('complete should not be used for streaming chat');
   }
 
   resolveNext(text: string): void {
-    const resolve = this.resolvers.shift();
-    resolve?.(text);
+    let entry = this.pending.shift();
+    while (entry?.settled) {
+      entry = this.pending.shift();
+    }
+    if (entry) {
+      entry.settled = true;
+      entry.resolve(text);
+    }
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
     this.requests.push(request);
-    const text = await new Promise<string>((resolve) => {
-      this.resolvers.push(resolve);
+    const text = await new Promise<string>((resolve, reject) => {
+      const entry = { settled: false, resolve, reject };
+      this.pending.push(entry);
+      request.signal?.addEventListener(
+        'abort',
+        () => {
+          if (!entry.settled) {
+            entry.settled = true;
+            reject(request.signal?.reason);
+          }
+        },
+        { once: true }
+      );
     });
     yield { type: 'text-delta', text };
     yield { type: 'done' };

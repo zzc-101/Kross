@@ -146,6 +146,9 @@ export function aggregateToolStatus(items: ToolCallItem[]): ToolCallStatus {
   if (items.some((item) => item.status === 'denied')) {
     return 'denied';
   }
+  if (items.some((item) => item.status === 'cancelled')) {
+    return 'cancelled';
+  }
   return 'completed';
 }
 

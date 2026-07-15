@@ -89,8 +89,18 @@ function ExpandedToolBody({
             <Text dimColor>
               {item.path ?? item.preview ?? item.summary ?? tool.name}
             </Text>
-            {item.status === 'failed' || item.status === 'denied' ? (
-              <Text color={theme.statusError}>  {item.status}</Text>
+            {item.status === 'failed' ||
+            item.status === 'denied' ||
+            item.status === 'cancelled' ? (
+              <Text
+                color={
+                  item.status === 'cancelled'
+                    ? theme.statusWarn
+                    : theme.statusError
+                }
+              >
+                {'  '}{item.status}
+              </Text>
             ) : null}
           </Box>
         ))}
@@ -223,6 +233,11 @@ function formatToolStatus(
         label: `${symbols.toolFail} ${t('tool.status.rejected')}`,
         color: theme.statusError
       };
+    case 'cancelled':
+      return {
+        label: `${symbols.toolFail} ${t('tool.status.cancelled')}`,
+        color: theme.statusWarn
+      };
     case 'awaiting':
       return {
         label: `${symbols.toolWait} ${t('tool.status.waiting')}`,
@@ -239,7 +254,11 @@ function statusExtraHint(tool: ToolCallState): string | undefined {
     return undefined;
   }
 
-  if (tool.status === 'failed' || tool.status === 'denied') {
+  if (
+    tool.status === 'failed' ||
+    tool.status === 'denied' ||
+    tool.status === 'cancelled'
+  ) {
     return clip(summary, 48);
   }
 

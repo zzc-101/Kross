@@ -92,6 +92,30 @@ describe('windowPaintRows', () => {
     expect(hasTable).toBe(true);
   });
 
+  it('highlights the full user message instead of only its prefix', () => {
+    const cache = new MessagePaintCache();
+    const items = cache.paintMessage(
+      msg({ id: 7, from: 'user', text: '> 这段用户输入需要醒目显示' }),
+      80,
+      false
+    );
+    const segments = items
+      .filter((item) => item.key.startsWith('user-7-'))
+      .flatMap((item) => item.segments)
+      .filter((segment) => segment.text.trim().length > 0);
+
+    expect(segments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ text: '> ', color: 'cyan', bold: true }),
+        expect.objectContaining({
+          text: '这段用户输入需要醒目显示',
+          color: 'cyan',
+          bold: true
+        })
+      ])
+    );
+  });
+
   it('soft-wraps long agent lines so each paint row is height 1 with bullet', () => {
     const cache = new MessagePaintCache();
     const long =
@@ -125,6 +149,24 @@ describe('windowPaintRows', () => {
     const plains = items.map(paintItemPlainText).join('\n');
     expect(plains).toContain('思考了 8 秒');
     expect(plains).not.toContain('long thought');
+  });
+
+  it('repaints streaming thinking with accumulated seconds', () => {
+    const cache = new MessagePaintCache();
+    const message = msg({
+      id: 3,
+      from: 'thinking',
+      text: 'still thinking',
+      createdAt: '2026-07-15T00:00:00.000Z'
+    });
+    const items = cache.paintMessage(
+      message,
+      80,
+      true,
+      new Date('2026-07-15T00:00:05.200Z').getTime()
+    );
+
+    expect(items.map(paintItemPlainText).join('\n')).toContain('思考中… 5 秒');
   });
 
   it('wrapPaintSegments keeps styles across soft wraps', () => {

@@ -95,6 +95,7 @@ export interface AppTestApi {
   resumeSession: (selector?: string) => Promise<boolean>;
   flushSession: () => void;
   requestExit: () => void;
+  interruptCurrentRun: () => boolean;
   setRecentSessionSelection: (index: number | undefined) => void;
 }
 
@@ -214,6 +215,7 @@ export function App({
 
   const processingRef = useRef(false);
   const queueRef = useRef<string[]>([]);
+  const commandAbortControllerRef = useRef<AbortController>();
 
   const {
     sessionNotice,
@@ -308,7 +310,8 @@ export function App({
   const {
     runTurn,
     chooseToolApproval,
-    choosePlanApproval
+    choosePlanApproval,
+    interruptCurrentRun
   } = useAgentRun({
     agentRuntime,
     mode,
@@ -328,6 +331,22 @@ export function App({
     pendingCrossRepoPlan,
     processingRef
   });
+
+  const interruptForeground = useCallback(() => {
+    if (interruptCurrentRun()) {
+      return true;
+    }
+    const controller = commandAbortControllerRef.current;
+    if (!controller) {
+      return false;
+    }
+    if (!controller.signal.aborted) {
+      setStatus('interrupting');
+      setAwaitingReply(true);
+      controller.abort(new Error('用户按下 Esc'));
+    }
+    return true;
+  }, [interruptCurrentRun]);
 
   const {
     modelSettings,
@@ -384,6 +403,7 @@ export function App({
     approvalSelection,
     setApprovalSelection,
     chooseToolApproval,
+    interruptCurrentRun: interruptForeground,
     slashSuggestions,
     slashSelectedIndex,
     setSlashSelectedIndex,
@@ -416,7 +436,10 @@ export function App({
     processingRef,
     queueRef,
     setQueueLength,
-    runTurn
+    runTurn,
+    commandAbortControllerRef,
+    setStatus,
+    setAwaitingReply
   });
 
   const toggleTodoExpand = useCallback(() => {
@@ -436,6 +459,7 @@ export function App({
       resumeSession,
       flushSession,
       requestExit,
+      interruptCurrentRun: interruptForeground,
       setRecentSessionSelection: setSelectedRecentSession
     });
   }, [
@@ -446,6 +470,7 @@ export function App({
     resumeSession,
     flushSession,
     requestExit,
+    interruptForeground,
     toggleLastCollapsible,
     toggleLastToolGroup,
     toggleTodoExpand,
@@ -543,8 +568,11 @@ export function App({
       />
 
       <ThinkingIndicator
-        active={status === 'responding' && awaitingReply}
-        variant={loadingVariant}
+        active={
+          (status === 'responding' || status === 'interrupting') &&
+          awaitingReply
+        }
+        variant={status === 'interrupting' ? 'cancelling' : loadingVariant}
       />
 
       {pendingToolApproval ? (

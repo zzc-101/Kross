@@ -128,6 +128,25 @@ export function handleTraceEvent(
     return;
   }
 
+  if (event.type === 'tool_call.cancelled') {
+    const cancelSummary =
+      summary ??
+      (typeof payload.message === 'string'
+        ? payload.message
+        : 'cancelled by user');
+    handlers.upsertToolMessage(key, {
+      callId,
+      name: toolName,
+      risk,
+      status: 'cancelled',
+      summary: cancelSummary,
+      inputPreview,
+      durationMs,
+      detailLines: [{ text: cancelSummary, op: 'meta' }]
+    });
+    return;
+  }
+
   if (event.type === 'tool_call.denied') {
     const reason =
       typeof payload.reason === 'string' ? payload.reason : 'denied';
@@ -457,5 +476,4 @@ function extractDiffPreview(
     truncated: record.truncated === true
   };
 }
-
 

@@ -184,7 +184,8 @@ export class PiAiLlmClient implements LlmClient {
     const options: SimpleStreamOptions = {
       temperature: request.temperature,
       maxTokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
-      metadata: request.metadata
+      metadata: request.metadata,
+      signal: request.signal
     };
 
     // pi streamSimple: omit reasoning => thinking off; otherwise map effort.

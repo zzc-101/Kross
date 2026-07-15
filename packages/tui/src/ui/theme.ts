@@ -10,7 +10,7 @@ export const theme = {
   brandSoft: '#22d3ee',
   /** 欢迎页 headline 强调色（对齐 Grok Build 的金色提示） */
   accent: 'yellow',
-  /** 用户消息前缀高亮；正文使用终端默认前景色 */
+  /** 用户消息整行高亮。 */
   user: 'cyan',
   agent: 'cyan',
   system: 'gray',
@@ -94,6 +94,9 @@ export function statusTone(
   if (status === 'responding') {
     return theme.statusBusy;
   }
+  if (status === 'interrupting') {
+    return theme.statusWarn;
+  }
   if (status === 'waiting-approval' || status === 'approval-required') {
     return theme.statusWarn;
   }
@@ -109,6 +112,8 @@ export function formatStatusLabel(status: UiStatus): string {
       return t('status.ready');
     case 'responding':
       return t('status.responding');
+    case 'interrupting':
+      return t('status.interrupting');
     case 'waiting-approval':
       return t('status.waitingPlan');
     case 'approval-required':

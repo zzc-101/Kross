@@ -1,5 +1,11 @@
 import type { SessionContext } from '../context/sessionContext';
 import {
+  abortMessage,
+  abortReason,
+  isOperationAborted,
+  throwIfAborted
+} from '../abort';
+import {
   agentResultSchema,
   type AgentMode,
   type AgentResult,
@@ -27,6 +33,8 @@ import {
   DEFAULT_MAX_TOOL_ITERATIONS,
   formatMaxIterationsNotice,
   runStreamingToolLoop,
+  ToolBatchAbortedError,
+  type CancellationStage,
   type StreamingToolLoopDeps,
   type StreamingToolLoopParams,
   type ToolBatchOutcome
@@ -66,6 +74,7 @@ export interface RuntimeToolLoopOptions {
   attachChangedFiles(result: AgentResult): Promise<AgentResult>;
   commitTurn(): void;
   abortTurn(reason: string): void;
+  interruptTurn(reason: string): void;
   appendAssistantForCancel(summary: string): void;
   /** Refresh session todo list into context sources before model calls. */
   syncTodoContext?: () => void;
@@ -95,30 +104,31 @@ export class RuntimeToolLoop {
 
     for (const [runId, session] of this.pendingToolSessions) {
       this.pendingToolSessions.delete(runId);
-      const summary = `工具调用等待审批时运行已取消：${reasonText}`;
-      const cancelled = await this.options.attachChangedFiles(
-        agentResultSchema.parse({
-          runId,
-          mode: session.mode,
-          status: 'cancelled',
-          summary,
-          report: {
-            changedFiles: [],
-            evidence: ['运行因审批未决被取消'],
-            risks: []
-          }
-        })
+      await this.finishPendingApprovalCancellation(
+        session,
+        reasonText,
+        'system'
       );
-      await this.options.record(runId, 'run.completed', {
-        ...cancelled,
-        reason: reasonText
-      });
-      this.options.appendAssistantForCancel(cancelled.summary);
-      this.options.commitTurn();
       cancelledRunIds.push(runId);
     }
 
     return cancelledRunIds;
+  }
+
+  async interruptPendingApproval(
+    runId: string,
+    reason = '用户按下 Esc'
+  ): Promise<AgentResult | undefined> {
+    const session = this.pendingToolSessions.get(runId);
+    if (!session) {
+      return undefined;
+    }
+    this.pendingToolSessions.delete(runId);
+    return this.finishPendingApprovalCancellation(
+      session,
+      reason,
+      'user-interrupt'
+    );
   }
 
   async resolveToolApproval(
@@ -145,9 +155,12 @@ export class RuntimeToolLoop {
     }
     this.pendingToolSessions.delete(input.runId);
 
+    try {
+      throwIfAborted(input.signal);
     const toolMessage = input.approved
-      ? await this.executeApprovedToolCall(session)
+      ? await this.executeApprovedToolCall(session, input.signal)
       : await this.createRejectedToolMessage(session);
+    throwIfAborted(input.signal);
 
     if (toolMessage.role === 'tool') {
       this.options.sessionContext.appendToolResult({
@@ -164,8 +177,16 @@ export class RuntimeToolLoop {
       originalUserInput: session.originalUserInput,
       calls: session.remainingCalls,
       tools: session.tools,
-      iteration: session.iteration
+      iteration: session.iteration,
+      signal: input.signal
     });
+    this.appendToolMessages(
+      batch.kind === 'completed'
+        ? batch.toolMessages
+        : batch.completedToolMessages,
+      session.iteration
+    );
+    throwIfAborted(input.signal);
     if (batch.kind === 'approval') {
       const approval = await this.options.attachChangedFiles(batch.result);
       await this.options.record(session.runId, 'run.awaiting_approval', {
@@ -173,17 +194,6 @@ export class RuntimeToolLoop {
       });
       yield { type: 'result', result: approval };
       return;
-    }
-
-    for (const msg of batch.kind === 'completed' ? batch.toolMessages : []) {
-      if (msg.role === 'tool') {
-        this.options.sessionContext.appendToolResult({
-          toolCallId: msg.toolCallId,
-          name: msg.name,
-          content: msg.content,
-          iteration: session.iteration
-        });
-      }
     }
 
     if (!this.options.llmClient) {
@@ -213,6 +223,7 @@ export class RuntimeToolLoop {
       startIteration: session.iteration,
       firstStreamPurpose: 'planner-tool-followup',
       streamMetadata: { approvalResolved: input.approved },
+      signal: input.signal,
       handlers: {
         onSuccess: async ({ fullText, fullThinking }) => {
           const result = await this.options.attachChangedFiles(
@@ -261,9 +272,27 @@ export class RuntimeToolLoop {
           await this.options.record(session.runId, 'run.completed', { ...failed });
           this.options.abortTurn(message);
           return failed;
+        },
+        onCancelled: async ({ reason, stage }) =>
+          this.finishInterruptedRun(session, reason, stage)
         }
       }
-    });
+    );
+    } catch (error) {
+      if (!isOperationAborted(error, input.signal)) {
+        throw error;
+      }
+      this.pendingToolSessions.delete(session.runId);
+      if (error instanceof ToolBatchAbortedError) {
+        this.appendToolMessages(error.completedToolMessages, session.iteration);
+      }
+      const cancelled = await this.finishInterruptedRun(
+        session,
+        abortMessage(input.signal),
+        'tool'
+      );
+      yield { type: 'result', result: cancelled };
+    }
   }
 
   runStreamingToolLoop(
@@ -282,11 +311,18 @@ export class RuntimeToolLoop {
     calls: LlmToolCall[];
     tools: ToolMetadata[];
     iteration: number;
+    signal?: AbortSignal;
   }): Promise<ToolBatchOutcome> {
     const toolMessages: LlmMessage[] = [];
     const queue = [...input.calls];
 
     while (queue.length > 0) {
+      if (input.signal?.aborted) {
+        throw new ToolBatchAbortedError(
+          abortReason(input.signal),
+          toolMessages
+        );
+      }
       const call = queue.shift();
       if (!call) {
         break;
@@ -299,7 +335,8 @@ export class RuntimeToolLoop {
           name: call.name,
           input: call.input,
           callId: call.id,
-          returnErrors: true
+          returnErrors: true,
+          signal: input.signal
         });
       } catch (error) {
         if (error instanceof ToolPermissionError) {
@@ -329,6 +366,9 @@ export class RuntimeToolLoop {
             result: await this.createPendingToolApprovalResult(session, error)
           };
         }
+        if (isOperationAborted(error, input.signal)) {
+          throw new ToolBatchAbortedError(error, toolMessages);
+        }
         throw error;
       }
 
@@ -348,6 +388,7 @@ export class RuntimeToolLoop {
     messages: LlmMessage[];
     maxIterations: number;
     iteration: number;
+    signal?: AbortSignal;
   }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>> {
     if (!this.options.llmClient) {
       yield {
@@ -364,6 +405,7 @@ export class RuntimeToolLoop {
         softLandUserMessage(input.maxIterations, input.iteration)
       ],
       temperature: 0.2,
+      signal: input.signal,
       metadata: {
         purpose: 'max-iterations-soft-land',
         maxIterations: input.maxIterations,
@@ -425,12 +467,16 @@ export class RuntimeToolLoop {
       streamSoftLand: (input) => this.streamSoftLand(input),
       attachChangedFiles: (result) => this.options.attachChangedFiles(result),
       toLlmTools,
-      onContextMaintained: this.options.onContextMaintained
+      onContextMaintained: this.options.onContextMaintained,
+      onInterrupted: (runId) => {
+        this.pendingToolSessions.delete(runId);
+      }
     };
   }
 
   private async executeApprovedToolCall(
-    session: PendingToolSession
+    session: PendingToolSession,
+    signal?: AbortSignal
   ): Promise<LlmMessage> {
     const result = await this.options.toolGateway!.call({
       runId: session.runId,
@@ -438,7 +484,8 @@ export class RuntimeToolLoop {
       input: session.call.input,
       callId: session.call.id,
       approved: true,
-      returnErrors: true
+      returnErrors: true,
+      signal
     });
 
     return {
@@ -502,6 +549,103 @@ export class RuntimeToolLoop {
         }
       })
     );
+  }
+
+  private appendToolMessages(messages: LlmMessage[], iteration: number): void {
+    for (const message of messages) {
+      if (message.role === 'tool') {
+        this.options.sessionContext.appendToolResult({
+          toolCallId: message.toolCallId,
+          name: message.name,
+          content: message.content,
+          iteration
+        });
+      }
+    }
+  }
+
+  private async finishInterruptedRun(
+    session: PendingToolSession,
+    reason: string,
+    stage: CancellationStage
+  ): Promise<AgentResult> {
+    if (this.options.sessionContext.getThread().getOpenTurnId()) {
+      this.options.interruptTurn('用户中断了当前任务');
+    }
+    const cancelled = await this.options.attachChangedFiles(
+      agentResultSchema.parse({
+        runId: session.runId,
+        mode: session.mode,
+        status: 'cancelled',
+        cancellationReason: 'user-interrupt',
+        summary: '已中断当前任务',
+        report: {
+          changedFiles: [],
+          evidence: [`用户在 ${stage} 阶段中断运行`],
+          risks: []
+        }
+      })
+    );
+    await this.options.record(session.runId, 'run.interrupted', {
+      reason,
+      stage
+    });
+    await this.options.record(session.runId, 'run.completed', { ...cancelled });
+    return cancelled;
+  }
+
+  private async finishPendingApprovalCancellation(
+    session: PendingToolSession,
+    reason: string,
+    cancellationReason: 'user-interrupt' | 'system'
+  ): Promise<AgentResult> {
+    const summary =
+      cancellationReason === 'user-interrupt'
+        ? '已中断当前任务'
+        : `工具调用等待审批时运行已取消：${reason}`;
+    const pendingCalls = [session.call, ...session.remainingCalls];
+    for (const call of pendingCalls) {
+      const content = `Tool ${call.name} cancelled before execution: ${reason}`;
+      this.options.sessionContext.appendToolResult({
+        toolCallId: call.id,
+        name: call.name,
+        content,
+        iteration: session.iteration
+      });
+      await this.options.record(session.runId, 'tool_call.cancelled', {
+        toolName: call.name,
+        callId: call.id,
+        status: 'cancelled',
+        message: reason,
+        summary: 'cancelled before execution'
+      });
+    }
+
+    const cancelled = await this.options.attachChangedFiles(
+      agentResultSchema.parse({
+        runId: session.runId,
+        mode: session.mode,
+        status: 'cancelled',
+        cancellationReason,
+        summary,
+        report: {
+          changedFiles: [],
+          evidence: ['运行因审批未决被取消'],
+          risks: []
+        }
+      })
+    );
+    await this.options.record(session.runId, 'run.interrupted', {
+      reason,
+      stage: 'approval'
+    });
+    await this.options.record(session.runId, 'run.completed', {
+      ...cancelled,
+      reason
+    });
+    this.options.appendAssistantForCancel(cancelled.summary);
+    this.options.commitTurn();
+    return cancelled;
   }
 }
 

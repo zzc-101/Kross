@@ -81,6 +81,107 @@ describe('AgentRuntime', () => {
     );
   });
 
+  it('treats aborting an LLM stream as cancelled and does not persist partial text', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const sessionContext = new InMemoryContextManager();
+    const llmClient = new AbortableStreamingLlmClient();
+    const runtime = new AgentRuntime({ traceStore, sessionContext, llmClient });
+    const controller = new AbortController();
+
+    const running = runtime.run({
+      input: '分析这个仓库',
+      requestedMode: 'normal',
+      signal: controller.signal
+    });
+    await llmClient.started;
+    controller.abort(new Error('用户按下 Esc'));
+    const result = await running;
+
+    expect(result).toMatchObject({
+      status: 'cancelled',
+      cancellationReason: 'user-interrupt',
+      summary: '已中断当前任务'
+    });
+    expect(sessionContext.getThread().getOpenTurnId()).toBeUndefined();
+    expect(
+      sessionContext
+        .getThread()
+        .buildMessages()
+        .some(
+          (message) =>
+            message.role === 'assistant' && message.content.includes('半截回复')
+        )
+    ).toBe(false);
+    expect(traceStore.events.map((event) => event.type)).toContain(
+      'run.interrupted'
+    );
+    expect(traceStore.events.map((event) => event.type)).not.toContain(
+      'llm.planner.failed'
+    );
+    expect(
+      traceStore.events.filter((event) => event.type === 'run.completed')
+    ).toHaveLength(1);
+  });
+
+  it('cancels a running tool and removes its unmatched call from Thread', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const sessionContext = new InMemoryContextManager();
+    const llmClient = new SingleToolStreamingLlmClient();
+    const controller = new AbortController();
+    let markToolStarted: (() => void) | undefined;
+    const toolStarted = new Promise<void>((resolve) => {
+      markToolStarted = resolve;
+    });
+    const toolGateway = new ToolGateway({ traceStore });
+    toolGateway.register({
+      name: 'long.read',
+      description: '长时间读取',
+      risk: 'read',
+      inputSchema: z.object({}),
+      execute: async ({ signal }) => {
+        markToolStarted?.();
+        return new Promise((_, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(signal.reason),
+            { once: true }
+          );
+        });
+      }
+    });
+    const runtime = new AgentRuntime({
+      traceStore,
+      sessionContext,
+      llmClient,
+      toolGateway
+    });
+
+    const running = runtime.run({
+      input: '读取慢资源',
+      requestedMode: 'normal',
+      signal: controller.signal
+    });
+    await toolStarted;
+    controller.abort(new Error('用户按下 Esc'));
+    const result = await running;
+
+    expect(result.status).toBe('cancelled');
+    expect(traceStore.events.map((event) => event.type)).toContain(
+      'tool_call.cancelled'
+    );
+    expect(traceStore.events.map((event) => event.type)).not.toContain(
+      'tool_call.failed'
+    );
+    const assistant = sessionContext
+      .getThread()
+      .buildMessages()
+      .find((message) => message.role === 'assistant');
+    expect(assistant?.role).toBe('assistant');
+    if (assistant?.role === 'assistant') {
+      expect(assistant.toolCalls).toBeUndefined();
+    }
+  });
+
   it('emits an approval gate before cross-repo execution', async () => {
     const traceStore = new InMemoryTraceStore();
     const runtime = new AgentRuntime({ traceStore });
@@ -1719,4 +1820,58 @@ class DoubleWriteApprovalLlmClient implements LlmClient {
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
     yield* streamFromComplete(await this.complete(request));
   }
+}
+
+class AbortableStreamingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly started: Promise<void>;
+  private markStarted: (() => void) | undefined;
+
+  constructor() {
+    this.started = new Promise<void>((resolve) => {
+      this.markStarted = resolve;
+    });
+  }
+
+  async complete(): Promise<LlmResponse> {
+    throw new Error('complete should not be used');
+  }
+
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield { type: 'text-delta', text: '半截回复' };
+    this.markStarted?.();
+    await waitForAbort(request.signal);
+  }
+}
+
+class SingleToolStreamingLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
+
+  async complete(): Promise<LlmResponse> {
+    throw new Error('complete should not be used');
+  }
+
+  async *stream(): AsyncIterable<LlmStreamChunk> {
+    yield {
+      type: 'tool-call',
+      call: { id: 'long-1', name: 'long.read', input: {} }
+    };
+    yield { type: 'done' };
+  }
+}
+
+function waitForAbort(signal: AbortSignal | undefined): Promise<never> {
+  return new Promise((_, reject) => {
+    if (!signal) {
+      reject(new Error('missing signal'));
+      return;
+    }
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    signal.addEventListener('abort', () => reject(signal.reason), {
+      once: true
+    });
+  });
 }

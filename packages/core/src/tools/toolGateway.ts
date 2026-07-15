@@ -1,5 +1,11 @@
 import { ZodError, type z } from 'zod';
 
+import {
+  abortMessage,
+  abortReason,
+  isOperationAborted,
+  throwIfAborted
+} from '../abort';
 import type { TraceEvent } from '../domain';
 import type { TraceStore } from '../trace/traceStore';
 import {
@@ -72,6 +78,8 @@ export interface ToolCallInput {
   callId?: string;
   approved?: boolean;
   returnErrors?: boolean;
+  /** 当前 agent run 的取消信号，会与工具超时信号合并。 */
+  signal?: AbortSignal;
   /**
    * 调用级重试覆盖。
    * - false：本次强制不重试
@@ -161,6 +169,7 @@ export class ToolGateway {
   }
 
   async call(input: ToolCallInput): Promise<ToolResult> {
+    throwIfAborted(input.signal);
     const definition = this.tools.get(input.name);
     if (!definition) {
       throw new ToolNotFoundError(input.name);
@@ -221,6 +230,7 @@ export class ToolGateway {
 
     for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
       try {
+        throwIfAborted(input.signal);
         const rawResult = await executeWithTimeout(
           definition,
           {
@@ -228,8 +238,10 @@ export class ToolGateway {
             toolName: input.name,
             input: parsedInput
           },
-          this.options.defaultTimeoutMs
+          this.options.defaultTimeoutMs,
+          input.signal
         );
+        throwIfAborted(input.signal);
         const attemptMeta = {
           attempts: attempt,
           maxAttempts: retryPolicy.maxAttempts,
@@ -256,6 +268,20 @@ export class ToolGateway {
         });
         return result;
       } catch (error) {
+        if (isOperationAborted(error, input.signal)) {
+          const message = abortMessage(input.signal);
+          await this.record(input.runId, 'tool_call.cancelled', {
+            ...callMeta,
+            status: 'cancelled',
+            message,
+            summary: 'cancelled by user',
+            durationMs: this.now().getTime() - startedAt,
+            attempts: attempt,
+            maxAttempts: retryPolicy.maxAttempts
+          });
+          throw abortReason(input.signal, message);
+        }
+
         lastError = error;
         const message = errorMessage(error);
         failures.push({ attempt, message });
@@ -274,7 +300,7 @@ export class ToolGateway {
             nextDelayMs: delayMs
           });
           if (delayMs > 0) {
-            await this.sleep(delayMs);
+            await sleepWithSignal(this.sleep, delayMs, input.signal);
           }
           continue;
         }
@@ -435,31 +461,53 @@ function toMetadata(definition: ToolDefinition): ToolMetadata {
 async function executeWithTimeout<TInput>(
   definition: ToolDefinition<TInput>,
   context: Omit<ToolExecutionContext<TInput>, 'signal'>,
-  defaultTimeoutMs?: number
+  defaultTimeoutMs?: number,
+  externalSignal?: AbortSignal
 ): Promise<ToolHandlerResult> {
+  throwIfAborted(externalSignal);
   const timeoutMs = definition.timeoutMs ?? defaultTimeoutMs;
   const controller = new AbortController();
-  const execution = definition.execute({
-    ...context,
-    signal: controller.signal
+  let rejectExternalAbort: ((reason?: unknown) => void) | undefined;
+  const externalAbort = new Promise<ToolHandlerResult>((_, reject) => {
+    rejectExternalAbort = reject;
   });
-
-  if (timeoutMs === undefined) {
-    return execution;
+  const onExternalAbort = () => {
+    const reason = abortReason(externalSignal);
+    controller.abort(reason);
+    rejectExternalAbort?.(reason);
+  };
+  externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+  if (externalSignal?.aborted) {
+    onExternalAbort();
   }
 
+  const execution = Promise.resolve().then(() =>
+    definition.execute({
+      ...context,
+      signal: controller.signal
+    })
+  );
   let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      execution,
+  const races: Promise<ToolHandlerResult>[] = [execution];
+  if (externalSignal) {
+    races.push(externalAbort);
+  }
+  if (timeoutMs !== undefined) {
+    races.push(
       new Promise<ToolHandlerResult>((_, reject) => {
         timer = setTimeout(() => {
-          controller.abort();
-          reject(new ToolTimeoutError(definition.name, timeoutMs));
+          const error = new ToolTimeoutError(definition.name, timeoutMs);
+          controller.abort(error);
+          reject(error);
         }, timeoutMs);
       })
-    ]);
+    );
+  }
+
+  try {
+    return await Promise.race(races);
   } finally {
+    externalSignal?.removeEventListener('abort', onExternalAbort);
     if (timer) {
       clearTimeout(timer);
     }
@@ -486,4 +534,29 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+async function sleepWithSignal(
+  sleep: (ms: number) => Promise<void>,
+  ms: number,
+  signal?: AbortSignal
+): Promise<void> {
+  throwIfAborted(signal);
+  if (!signal) {
+    await sleep(ms);
+    return;
+  }
+
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<void>((_, reject) => {
+    onAbort = () => reject(abortReason(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    await Promise.race([sleep(ms), aborted]);
+  } finally {
+    if (onAbort) {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
 }

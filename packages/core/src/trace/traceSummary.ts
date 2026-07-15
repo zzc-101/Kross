@@ -11,7 +11,14 @@ export interface RunToolStats {
 
 export interface RunTraceToolLine {
   toolName: string;
-  status: 'started' | 'completed' | 'failed' | 'approval_required' | 'denied' | 'rejected';
+  status:
+    | 'started'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'approval_required'
+    | 'denied'
+    | 'rejected';
   summary?: string;
   durationMs?: number;
   callId?: string;
@@ -113,6 +120,10 @@ export function summarizeTraceEvents(
         flags.add('awaiting-tool-approval');
         break;
       }
+      case 'run.interrupted': {
+        flags.add('interrupted');
+        break;
+      }
       case 'approval.required': {
         flags.add('plan-approval');
         break;
@@ -169,6 +180,11 @@ export function summarizeTraceEvents(
         toolStats.rejected += 1;
         addToolName(toolNames, event.payload.toolName);
         flags.add('tool-rejected');
+        break;
+      }
+      case 'tool_call.cancelled': {
+        addToolName(toolNames, event.payload.toolName);
+        flags.add('tool-cancelled');
         break;
       }
       default:
@@ -336,6 +352,7 @@ function addToolName(set: Set<string>, value: unknown): void {
 function isHighlightType(type: string): boolean {
   return (
     type === 'tool_call.failed' ||
+    type === 'tool_call.cancelled' ||
     type === 'tool_call.approval_required' ||
     type === 'tool_call.denied' ||
     type === 'tool_call.rejected' ||
@@ -343,6 +360,7 @@ function isHighlightType(type: string): boolean {
     type === 'llm.planner.failed' ||
     type === 'approval.required' ||
     type === 'run.awaiting_approval' ||
+    type === 'run.interrupted' ||
     type === 'context.built'
   );
 }
@@ -352,6 +370,10 @@ function highlightDetail(event: TraceEvent): string {
     case 'tool_call.failed':
       return `${asString(event.payload.toolName) ?? '?'} — ${
         asString(event.payload.message) ?? asString(event.payload.summary) ?? 'failed'
+      }`;
+    case 'tool_call.cancelled':
+      return `${asString(event.payload.toolName) ?? '?'} — ${
+        asString(event.payload.message) ?? 'cancelled'
       }`;
     case 'tool_call.approval_required':
       return `${asString(event.payload.toolName) ?? '?'} (${asString(event.payload.risk) ?? '?'})`;
@@ -368,6 +390,10 @@ function highlightDetail(event: TraceEvent): string {
       return asString(event.payload.reason) ?? asString(event.payload.scope) ?? 'plan approval';
     case 'run.awaiting_approval':
       return 'waiting for tool approval';
+    case 'run.interrupted':
+      return `${asString(event.payload.stage) ?? '?'} — ${
+        asString(event.payload.reason) ?? 'interrupted'
+      }`;
     case 'context.built': {
       const chars = asNumber(event.payload.estimatedChars);
       const included = Array.isArray(event.payload.includedSources)

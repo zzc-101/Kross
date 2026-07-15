@@ -139,6 +139,16 @@ export class ConversationThread {
     this.openTurnId = undefined;
   }
 
+  /**
+   * 用户中断 open turn：先移除没有 tool result 的悬空 tool call，
+   * 再把本轮标记为 aborted，确保下一次请求仍满足模型协议。
+   */
+  interruptTurn(reason: string): void {
+    const turnId = this.requireOpenTurn();
+    removeUnmatchedToolCalls(this.entries, turnId, this.estimator);
+    this.abortTurn(reason);
+  }
+
   appendAssistant(content: string, toolCalls?: LlmToolCall[]): void {
     const turnId = this.requireOpenTurn();
     const message: LlmMessage = {
@@ -397,7 +407,7 @@ export class ConversationThread {
       entry.originalTokens = saved.originalTokens;
     }
     for (const turnId of restoredOpenTurnIds) {
-      removeUnmatchedToolCalls(this.entries, turnId);
+      removeUnmatchedToolCalls(this.entries, turnId, this.estimator);
     }
     if (restoredOpenTurnIds.length > 0) {
       this.addNotice(
@@ -638,7 +648,8 @@ function isEntryRoleCompatible(
 
 function removeUnmatchedToolCalls(
   entries: ThreadEntry[],
-  turnId: string
+  turnId: string,
+  estimator?: TokenEstimator
 ): void {
   const resultIds = new Set(
     entries
@@ -665,7 +676,9 @@ function removeUnmatchedToolCalls(
       content: entry.message.content,
       ...(matched.length > 0 ? { toolCalls: matched } : {})
     };
-    entry.tokensEst = estimateMessageTokens(entry.message);
+    entry.tokensEst = estimator
+      ? estimator.estimateMessage(entry.message)
+      : estimateMessageTokens(entry.message);
   }
 }
 

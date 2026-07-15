@@ -22,7 +22,11 @@ import {
   type MdLine,
   type MdSpan
 } from './markdownParse';
-import type { ChatMessage, ToolCallState } from './MessageLine';
+import {
+  formatThinkingLabel,
+  type ChatMessage,
+  type ToolCallState
+} from './MessageLine';
 import {
   ensureToolItems,
   formatLineStatsLabel,
@@ -92,7 +96,8 @@ export class MessagePaintCache {
   paintMessage(
     message: ChatMessage,
     columns: number,
-    streaming = false
+    streaming = false,
+    nowMs = Date.now()
   ): PaintItem[] {
     const width = Math.max(20, columns);
     if (width !== this.columns) {
@@ -108,7 +113,7 @@ export class MessagePaintCache {
       return hit.items;
     }
 
-    const items = paintMessageUncached(message, width, streaming);
+    const items = paintMessageUncached(message, width, streaming, nowMs);
     const totalHeight = items.reduce((sum, item) => sum + item.height, 0);
 
     if (!streaming) {
@@ -150,12 +155,14 @@ export function buildPaintLayout(input: {
   columns: number;
   streamingMessageId?: number;
   paintCache?: MessagePaintCache;
+  nowMs?: number;
 }): PaintLayout {
   const {
     messages,
     columns,
     streamingMessageId,
-    paintCache = new MessagePaintCache()
+    paintCache = new MessagePaintCache(),
+    nowMs = Date.now()
   } = input;
   const width = Math.max(20, columns);
   const entries: PaintLayoutEntry[] = [];
@@ -163,7 +170,7 @@ export function buildPaintLayout(input: {
 
   for (const message of messages) {
     const streaming = streamingMessageId === message.id;
-    const items = paintCache.paintMessage(message, width, streaming);
+    const items = paintCache.paintMessage(message, width, streaming, nowMs);
     for (const item of items) {
       const start = cursor;
       const end = cursor + item.height;
@@ -424,7 +431,8 @@ function findFirstVisibleEntry(
 function paintMessageUncached(
   message: ChatMessage,
   columns: number,
-  streaming: boolean
+  streaming: boolean,
+  nowMs: number
 ): PaintItem[] {
   if (message.from === 'tool' && message.tool) {
     return paintTool(message, columns);
@@ -442,13 +450,13 @@ function paintMessageUncached(
   }
 
   if (message.from === 'user') {
-    // 用户历史输入：高亮前缀 + 正文（非 dim，便于回看）
+    // 用户历史输入：整行高亮，便于快速区分人与模型的内容。
     const body = message.text.replace(/^\>\s*/, '');
     const prefix = `${symbols.userPrefix} `;
     const prefixWidth = displayWidth(prefix);
     const bodyWidth = Math.max(1, columns - prefixWidth);
     const wrappedBody = wrapPaintSegments(
-      [{ text: body, color: theme.user }],
+      [{ text: body, color: theme.user, bold: true }],
       bodyWidth
     );
     const items: PaintItem[] = [];
@@ -469,7 +477,7 @@ function paintMessageUncached(
   }
 
   if (message.from === 'thinking') {
-    return paintThinking(message, columns, streaming);
+    return paintThinking(message, columns, streaming, nowMs);
   }
 
   // agent
@@ -509,10 +517,17 @@ function paintTool(message: ChatMessage, columns: number): PaintItem[] {
             dim: true
           }
         ];
-        if (item.status === 'failed' || item.status === 'denied') {
+        if (
+          item.status === 'failed' ||
+          item.status === 'denied' ||
+          item.status === 'cancelled'
+        ) {
           segs.push({
             text: `  ${item.status}`,
-            color: theme.statusError
+            color:
+              item.status === 'cancelled'
+                ? theme.statusWarn
+                : theme.statusError
           });
         }
         out.push({
@@ -692,6 +707,11 @@ function toolStatusSegments(tool: ToolCallState): PaintSegment | null {
         text: `${symbols.toolFail} ${t('tool.status.rejected')}`,
         color: theme.statusError
       };
+    case 'cancelled':
+      return {
+        text: `${symbols.toolFail} ${t('tool.status.cancelled')}`,
+        color: theme.statusWarn
+      };
     case 'awaiting':
       return {
         text: `${symbols.toolWait} ${t('tool.status.waiting')}`,
@@ -707,7 +727,11 @@ function toolStatusHint(tool: ToolCallState): string | undefined {
   if (!summary) {
     return undefined;
   }
-  if (tool.status === 'failed' || tool.status === 'denied') {
+  if (
+    tool.status === 'failed' ||
+    tool.status === 'denied' ||
+    tool.status === 'cancelled'
+  ) {
     return summary.length > 48 ? `${summary.slice(0, 47)}…` : summary;
   }
   if (tool.status !== 'completed') {
@@ -786,11 +810,12 @@ function paintAgent(
 function paintThinking(
   message: ChatMessage,
   columns: number,
-  streaming: boolean
+  streaming: boolean,
+  nowMs: number
 ): PaintItem[] {
   const items: PaintItem[] = [];
   const expanded = message.expanded === true && !streaming;
-  const label = formatThinkingSummary(message, streaming);
+  const label = formatThinkingLabel(message, streaming, undefined, nowMs);
 
   items.push(
     lineItem(
@@ -829,31 +854,6 @@ function paintThinking(
 
   items.push(blankItem(`th-gap-${message.id}`));
   return items;
-}
-
-function formatThinkingSummary(
-  message: ChatMessage,
-  streaming: boolean
-): string {
-  if (streaming) {
-    return t('thinking.active');
-  }
-  if (typeof message.durationMs === 'number' && message.durationMs >= 0) {
-    const sec = Math.max(1, Math.round(message.durationMs / 1000));
-    return t('thinking.duration', { seconds: sec });
-  }
-  if (message.createdAt) {
-    const start = new Date(message.createdAt).getTime();
-    if (!Number.isNaN(start)) {
-      const elapsed = Date.now() - start;
-      if (elapsed > 0 && elapsed < 24 * 3600 * 1000) {
-        return t('thinking.duration', {
-          seconds: Math.max(1, Math.round(elapsed / 1000))
-        });
-      }
-    }
-  }
-  return t('thinking.process');
 }
 
 function mdLineToSegments(line: MdLine): PaintSegment[] {

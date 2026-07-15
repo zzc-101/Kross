@@ -1,4 +1,5 @@
 import type { LlmClient, LlmMessage } from '../llm/types';
+import { isOperationAborted, throwIfAborted } from '../abort';
 import type { ThreadEntry } from './conversationThread';
 import { formatCompactionContent } from './conversationThread';
 
@@ -12,6 +13,8 @@ export interface SummarizeOptions {
   previousSummary?: string;
   /** 本次手动压缩的额外关注点。 */
   instructions?: string;
+  /** 自动治理属于当前 run，必须能随 run 一起取消。 */
+  signal?: AbortSignal;
 }
 
 export interface Summarizer {
@@ -76,6 +79,7 @@ export class ExtractiveSummarizer implements Summarizer {
     turns: SummarizeTurnInput[],
     options: SummarizeOptions = {}
   ): Promise<string> {
+    throwIfAborted(options.signal);
     return mergeFallbackSummary(options.previousSummary, turns);
   }
 }
@@ -93,6 +97,7 @@ export class LlmSummarizer implements Summarizer {
     turns: SummarizeTurnInput[],
     options: SummarizeOptions = {}
   ): Promise<string> {
+    throwIfAborted(options.signal);
     if (!this.llmClient || (turns.length === 0 && !options.previousSummary)) {
       return this.fallback.summarizeTurns(turns, options);
     }
@@ -121,6 +126,7 @@ export class LlmSummarizer implements Summarizer {
     try {
       const response = await this.llmClient.complete({
         messages,
+        signal: options.signal,
         temperature: 0.1,
         metadata: { purpose: 'context-compaction' }
       });
@@ -128,9 +134,13 @@ export class LlmSummarizer implements Summarizer {
       if (text) {
         return text;
       }
-    } catch {
+    } catch (error) {
+      if (isOperationAborted(error, options.signal)) {
+        throw error;
+      }
       // 回退 extractive
     }
+    throwIfAborted(options.signal);
     return this.fallback.summarizeTurns(turns, options);
   }
 }

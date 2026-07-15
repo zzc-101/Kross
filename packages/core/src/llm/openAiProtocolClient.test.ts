@@ -5,6 +5,7 @@ import { OpenAiProtocolClient } from './openAiProtocolClient';
 describe('OpenAiProtocolClient', () => {
   it('sends chat completions using the OpenAI-compatible protocol', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
+    const controller = new AbortController();
     const client = new OpenAiProtocolClient({
       apiKey: 'test-key',
       baseUrl: 'https://llm.example/v1',
@@ -21,6 +22,7 @@ describe('OpenAiProtocolClient', () => {
 
     const result = await client.complete({
       messages: [{ role: 'user', content: '规划一下' }],
+      signal: controller.signal,
       maxTokens: 128,
       temperature: 0.2
     });
@@ -33,6 +35,7 @@ describe('OpenAiProtocolClient', () => {
       authorization: 'Bearer test-key',
       'content-type': 'application/json'
     });
+    expect(calls[0]?.init.signal).toBe(controller.signal);
     expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
       model: 'gpt-test',
       messages: [{ role: 'user', content: '规划一下' }],

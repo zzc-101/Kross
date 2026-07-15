@@ -45,6 +45,7 @@ export const zhCatalog = {
   // status / mode / permission
   'status.ready': '就绪',
   'status.responding': '思考中',
+  'status.interrupting': '正在中断',
   'status.waitingPlan': '等待计划确认',
   'status.waitingTool': '等待工具确认',
   'mode.auto': '自动',
@@ -99,10 +100,14 @@ export const zhCatalog = {
   'tool.status.failed': '失败',
   'tool.status.rejected': '已拒绝',
   'tool.status.waiting': '等待确认',
+  'tool.status.cancelled': '已中断',
 
   // thinking
   'thinking.active': '思考中…',
   'thinking.activeSpinner': '思考中… {spinner}',
+  'thinking.activeElapsed': '思考中… {seconds} 秒',
+  'thinking.activeElapsedSpinner': '思考中… {seconds} 秒 {spinner}',
+  'thinking.elapsed': '{seconds} 秒',
   'thinking.duration': '思考了 {seconds} 秒',
   'thinking.process': '思考过程',
   'thinking.label': '思考中',
@@ -114,6 +119,8 @@ export const zhCatalog = {
   'thinking.phase.runTool': '运行已允许的工具',
   'thinking.phase.collect': '收集工具输出',
   'thinking.phase.handOff': '将结果交给模型',
+  'thinking.phase.cancelling': '正在中断',
+  'thinking.interruptHint': 'Esc 中断',
 
   // scroll
   'scroll.both': '↑ 历史  ·  ↓ 底部',
@@ -162,6 +169,8 @@ export const zhCatalog = {
   'app.crossRepoConfirmed': '已确认 cross-repo 计划，继续执行。',
   'app.runtimeFallback': '模型配置加载失败：{error} · 已回退本地运行时',
   'app.queued': '已加入队列：{count}',
+  'app.interrupted': '已中断当前任务。',
+  'app.queuePaused': '队列中还有 {count} 条消息，已暂停；按 Enter 继续。',
 
   // commands
   'cmd.status':
@@ -251,6 +260,7 @@ export const enCatalog: Record<MessageKey, string> = {
 
   'status.ready': 'Ready',
   'status.responding': 'Thinking',
+  'status.interrupting': 'Interrupting',
   'status.waitingPlan': 'Awaiting plan approval',
   'status.waitingTool': 'Awaiting tool approval',
   'mode.auto': 'Auto',
@@ -302,9 +312,13 @@ export const enCatalog: Record<MessageKey, string> = {
   'tool.status.failed': 'failed',
   'tool.status.rejected': 'rejected',
   'tool.status.waiting': 'awaiting approval',
+  'tool.status.cancelled': 'interrupted',
 
   'thinking.active': 'Thinking…',
   'thinking.activeSpinner': 'Thinking… {spinner}',
+  'thinking.activeElapsed': 'Thinking… {seconds}s',
+  'thinking.activeElapsedSpinner': 'Thinking… {seconds}s {spinner}',
+  'thinking.elapsed': '{seconds}s',
   'thinking.duration': 'Thought for {seconds}s',
   'thinking.process': 'Thinking',
   'thinking.label': 'Thinking',
@@ -316,6 +330,8 @@ export const enCatalog: Record<MessageKey, string> = {
   'thinking.phase.runTool': 'Running approved tools',
   'thinking.phase.collect': 'Collecting tool output',
   'thinking.phase.handOff': 'Sending results to model',
+  'thinking.phase.cancelling': 'Interrupting',
+  'thinking.interruptHint': 'Esc to interrupt',
 
   'scroll.both': '↑ history  ·  ↓ bottom',
   'scroll.up': '↑ history',
@@ -364,6 +380,8 @@ export const enCatalog: Record<MessageKey, string> = {
   'app.runtimeFallback':
     'Failed to load model config: {error} · fell back to local runtime',
   'app.queued': 'Queued: {count}',
+  'app.interrupted': 'Interrupted the current task.',
+  'app.queuePaused': '{count} queued message(s) paused; press Enter to continue.',
 
   'cmd.status':
     'Running local TUI. mode={mode} · perm={perm} · model={model}',

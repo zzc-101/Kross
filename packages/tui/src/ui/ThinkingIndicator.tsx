@@ -10,12 +10,15 @@ export function ThinkingIndicator({
   variant = 'thinking'
 }: {
   active: boolean;
-  variant?: 'thinking' | 'tool';
+  variant?: 'thinking' | 'tool' | 'cancelling';
 }) {
   const frame = usePulse(symbols.busyFrames, 80, active);
+  const [startedAt, setStartedAt] = useState<number>();
   const phases = useMemo(
     () =>
-      variant === 'tool'
+      variant === 'cancelling'
+        ? [t('thinking.phase.cancelling')]
+        : variant === 'tool'
         ? [
             t('thinking.phase.runTool'),
             t('thinking.phase.collect'),
@@ -38,27 +41,39 @@ export function ThinkingIndicator({
       return;
     }
 
+    setPhaseIndex(0);
     const timer = setInterval(() => {
       setPhaseIndex((current) => (current + 1) % phases.length);
-    }, 1600);
+    }, 2400);
 
     return () => clearInterval(timer);
-  }, [active, phases.length]);
+  }, [active, phases]);
+
+  useEffect(() => {
+    setStartedAt(active ? Date.now() : undefined);
+  }, [active]);
 
   if (!active) {
     return null;
   }
 
-  const label =
-    variant === 'tool' ? t('thinking.toolLabel') : t('thinking.label');
+  const elapsedSeconds = startedAt
+    ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+    : 0;
+  const phase = phases[phaseIndex] ?? phases[0] ?? '';
 
   return (
     <Box marginBottom={1}>
-      <Text color={theme.brandMuted}>{symbols.messageRail} </Text>
-      <Text color={theme.statusBusy}>
-        {frame} {label}
+      <Text color={theme.statusBusy}>{frame} </Text>
+      <Text color={theme.brandSoft} bold>
+        {phase}…
       </Text>
-      <Text dimColor> · {phases[phaseIndex]}</Text>
+      <Text dimColor>
+        {' '}({t('thinking.elapsed', { seconds: elapsedSeconds })})
+      </Text>
+      {variant !== 'cancelling' ? (
+        <Text dimColor> · {t('thinking.interruptHint')}</Text>
+      ) : null}
     </Box>
   );
 }

@@ -41,6 +41,8 @@ export interface LlmToolCall {
 
 export interface LlmRequest {
   messages: LlmMessage[];
+  /** 取消当前模型请求及其流式读取。 */
+  signal?: AbortSignal;
   tools?: LlmToolDefinition[];
   model?: string;
   maxTokens?: number;

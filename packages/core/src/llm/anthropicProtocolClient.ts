@@ -130,7 +130,8 @@ export class AnthropicProtocolClient implements LlmClient {
     const response = await this.fetchImpl(this.url(), {
       method: 'POST',
       headers: this.headers(),
-      body: JSON.stringify(this.body(request, false))
+      body: JSON.stringify(this.body(request, false)),
+      signal: request.signal
     });
 
     await ensureOk(this.provider, response);
@@ -168,7 +169,8 @@ export class AnthropicProtocolClient implements LlmClient {
     const response = await this.fetchImpl(this.url(), {
       method: 'POST',
       headers: this.headers(),
-      body: JSON.stringify(this.body(request, true))
+      body: JSON.stringify(this.body(request, true)),
+      signal: request.signal
     });
 
     await ensureOk(this.provider, response);

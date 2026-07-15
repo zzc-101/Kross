@@ -88,4 +88,12 @@ describe('toolDisplay', () => {
     expect(items[0]?.linesAdded).toBe(2);
     expect(items[0]?.linesRemoved).toBe(1);
   });
+
+  it('keeps a cancelled item as the aggregate terminal status', () => {
+    const state = buildToolState('Read', 'read', [
+      { path: 'a.ts', status: 'completed' },
+      { path: 'b.ts', status: 'cancelled' }
+    ]);
+    expect(state.status).toBe('cancelled');
+  });
 });

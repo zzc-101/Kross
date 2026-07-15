@@ -30,6 +30,8 @@ export interface AgentRuntimeOptions {
 export interface AgentRunInput {
   input: string;
   requestedMode: AgentMode;
+  /** 取消本次前台运行；取消是正常终态，不按失败处理。 */
+  signal?: AbortSignal;
   approvals?: {
     plan?: boolean;
   };
@@ -38,6 +40,8 @@ export interface AgentRunInput {
 export interface ResolveToolApprovalInput {
   runId: string;
   approved: boolean;
+  /** 取消审批后的工具执行与后续模型请求。 */
+  signal?: AbortSignal;
 }
 
 export interface ContextInspectionInput {

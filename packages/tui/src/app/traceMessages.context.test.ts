@@ -58,3 +58,37 @@ describe('handleTraceEvent context.compacted', () => {
     expect(appendSystem).not.toHaveBeenCalled();
   });
 });
+
+describe('handleTraceEvent tool cancellation', () => {
+  it('turns a running tool card into a cancelled terminal state', () => {
+    const upsertToolMessage = vi.fn(() => 1);
+    const event: TraceEvent = {
+      id: 'e-cancel',
+      runId: 'run-1',
+      type: 'tool_call.cancelled',
+      timestamp: '2026-07-15T10:00:00.000Z',
+      payload: {
+        toolName: 'Bash',
+        callId: 'call-1',
+        message: '用户按下 Esc',
+        durationMs: 120
+      }
+    };
+
+    handleTraceEvent(event, {
+      upsertToolMessage,
+      setLoadingVariant: () => {},
+      setAwaitingReply: () => {},
+      setStreamingMessageId: () => {}
+    });
+
+    expect(upsertToolMessage).toHaveBeenCalledWith(
+      'run-1:call-1',
+      expect.objectContaining({
+        name: 'Bash',
+        status: 'cancelled',
+        summary: '用户按下 Esc'
+      })
+    );
+  });
+});
