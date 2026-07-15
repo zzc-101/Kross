@@ -75,7 +75,7 @@ export function useAppMessages({
     (
       from: ChatMessage['from'],
       text: string,
-      options: { expanded?: boolean } = {}
+      options: { expanded?: boolean; durationMs?: number } = {}
     ) => {
       const id = nextMessageIdRef.current;
       nextMessageIdRef.current += 1;
@@ -84,7 +84,10 @@ export function useAppMessages({
         from,
         text,
         createdAt: new Date().toISOString(),
-        expanded: options.expanded
+        expanded: options.expanded,
+        ...(typeof options.durationMs === 'number'
+          ? { durationMs: Math.max(0, options.durationMs) }
+          : {})
       };
       setMessages((current) => [...current, message]);
       persistMessage(message);

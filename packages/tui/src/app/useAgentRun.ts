@@ -17,7 +17,11 @@ export type RunTurnOutcome = 'completed' | 'failed' | 'cancelled' | 'paused';
 export interface UseAgentRunOptions {
   agentRuntime: AgentRuntime;
   mode: AgentMode;
-  append: (from: ChatMessage['from'], text: string) => number;
+  append: (
+    from: ChatMessage['from'],
+    text: string,
+    options?: { expanded?: boolean; durationMs?: number }
+  ) => number;
   enqueueMessageUpdate: (id: number, text: string) => void;
   flushMessageUpdates: () => void;
   finalizeThinkingDurations: () => void;

@@ -1220,8 +1220,9 @@ describe('App', () => {
     await waitUntil(() => lastFrame()?.includes('最终总结') === true);
 
     const frame = lastFrame() ?? '';
-    // thinking 默认收拢，正文不直接露出
-    expect(frame).toMatch(/思考了 \d+ 秒|思考中/);
+    // thinking 默认收拢为耗时摘要（Claude Code 式：结束后才落 Thought）
+    expect(frame).toMatch(/思考了 \d+ 秒/);
+    expect(frame).not.toMatch(/思考中/);
     expect(frame).toMatch(/Read/);
     expect(frame).toContain('最终总结');
     expect(frame).toContain('●');
@@ -1266,7 +1267,7 @@ describe('App', () => {
 
     await chooseToolApproval?.(true);
     await waitUntil(() => lastFrame()?.includes('写入完成') === true);
-    expect(lastFrame()).toMatch(/思考了 \d+ 秒|思考中|审批后继续思考/);
+    expect(lastFrame()).toMatch(/思考了 \d+ 秒/);
     expect(lastFrame()).toContain('写入完成');
   });
 
