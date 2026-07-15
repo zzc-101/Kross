@@ -12,41 +12,36 @@
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - 工作区级会话持久化：完整可见消息以 append-only JSONL 保存，SQLite 仅维护可重建的最近会话索引；启动页可选择历史会话，`/resume` 打开选择器，`/resume <sessionId>` 直接恢复。
 - TUI 界面 i18n：默认中文，支持 `/lang en|zh` 与 `AGENT_LANG` / `KROSS_LANG` / `config.locale` 切换英文。
-- Context Manager：把 system prompt、对话历史、工作区/trace/memory 等上下文源、工具清单、技能 metadata、工具结果摘要组装为 LLM messages，并按字符预算裁剪低优先级上下文。
+- SessionContext：以 ConversationThread 为单一事实源，把 system prompt、对话线程、上下文源、工具清单、技能 metadata 组装为 LLM messages；token 预算制（启发式估算 + usage EMA 校准），按优先级与预算选择 sources（支持 pinned 固定注入）。
 - Tool Gateway：统一注册工具、暴露工具 metadata、校验工具入参、阻断高风险工具的未授权调用，并把工具调用事件写入 trace。
 - 内置工具集：文件读写、目录与元信息查询、Git 状态/差异/历史、文本检索、Bash，**Task（子代理）**，以及 **TodoWrite/TodoRead（会话任务清单）** 均已接入 Tool Gateway，支持原生 tool-call loop、审批恢复和 trace 记录。
 - 首次配置导入：首次进入 TUI 时，如果本机检测到 Claude Code 或 Codex 配置，会提示通过 `/import claude`、`/import codex` 或 `/import skip` 导入/跳过；导入后保存到 `~/.kross/config.json`。
 
 ## 上下文系统
 
-Kross 的上下文组装仍在运行时内存中完成；持久化会话恢复时，会从完整 UI 记录中只重建 user/assistant 历史，避免 thinking、工具卡片和旧工具结果污染模型上下文。
+Kross 的上下文以 **ConversationThread** 为单一事实源：会话内所有消息（用户输入、assistant 回复、tool_calls、工具结果、压缩摘要）统一活在 Thread 里，工具循环每轮从 Thread 取、向 Thread 写。持久化会话恢复时，从完整 UI 记录中只重建 user/assistant 历史并灌入 Thread，避免 thinking、工具卡片污染模型上下文。
 
 已实现：
 
-- 会话历史：保留最近多轮 user/assistant 消息，规划阶段自动带入模型请求。
-- 上下文源：支持 workspace、repo、trace、memory、user、skill、tool-result、compaction 等来源类型，并按优先级和字符预算选择进入 prompt。
-- 工具清单：Tool Gateway 注册的工具会以 metadata 形式进入上下文，让模型知道可用能力，但真实调用仍由 gateway 校验和执行。
-- 技能清单：默认只注入技能名称、描述和位置，不把完整 `SKILL.md` 正文塞进 prompt；真正触发技能时再加载正文。
-- 工具结果摘要：保留工具原始输出在 trace 中，prompt 里只放 summary，避免大段命令输出持续污染上下文。
-- 历史压缩：支持把旧对话压成“仅供参考”的摘要，并保留最近 N 条消息，避免旧摘要覆盖最新用户指令。
-- 上下文报告：每次 build 都会产出 section 大小、contributors、included/dropped sources，并写入 `context.built` trace event。
-- `/context` 命令：在 TUI 中查看当前会话上下文状态，包括模式、总字符数、各 section 占用、included/dropped sources 和主要 contributors。
-- `/trace` 命令：列出最近运行摘要（状态、模式、工具次数、输入预览、关键 flags）；`/trace <runId>` 查看单次 run 的工具调用、审批/失败与 highlight 事件。
-- `/diff` 命令：汇总最近（或指定）run 里 Write/Edit 触达的文件，并附带工作区 `git status` / `git diff --stat` 与建议验证命令；run 结束时也会把触达路径写入 `report.changedFiles`。
-
-已实现（上下文治理）：
-
-- **自动 compaction**：历史超过 `maxHistoryMessages`（默认 12）或字符预算（默认 8K）时，把较早轮次抽成 extractive 摘要，保留最近 N 条（默认 6），写入 `[CONTEXT COMPACTION]` 参考块，而不是静默丢弃。
-- **恢复会话可感知**：`/resume` 超长历史时同样压缩，并在 UI 提示压缩了多少条。
-- **tool-result 上限**：默认最多保留 24 条摘要，超出淘汰最旧。
-- Trace：`context.compacted` 记录压缩原因与前后字符数。
+- **统一消息流（Thread）**：轮次生命周期 `beginTurn` → append → `commitTurn` / `abortTurn`；审批挂起时 open-turn 留在 Thread 上，恢复续跑继续 append。
+- **Token 预算制**：输入预算 = `contextWindow - 输出预留`（默认 256K 窗口、32K 预留）；压缩阈值 = 输入预算的 80%。顶栏与 `/context` 显示校准后的「下次请求预估 token / 输入预算」（`snapshot()` 纯读，无副作用）。
+- **三级治理流水线**（请求前 `prepareRequest` + 手动 `/compact` Stage2）：
+  - Stage1 工具结果老化：超配额或距今超过 N 轮时替换为省略占位，保留 tool 消息本体。
+  - Stage2 轮次压缩：从最老完整 turn 开始压缩（保留最近 4 轮全文），LLM 摘要优先、extractive 兜底。
+  - Stage3 硬截断：单条超大消息 head+tail 截断兜底。
+- **上下文源**：workspace、repo、trace、memory、user、skill、compaction；`pinned` 源（如 session-todos）固定注入，不因预算被静默 drop。
+- **工具清单 / 技能清单**：工具 metadata 与技能名称/描述/位置进入 system 段；技能正文仅在触发时加载。
+- **纯读快照**：`inspectContext` / `snapshot()` 产出 section 占用、contributors、included/dropped/pinned sources、estimatedTokens、inputBudget、compactThreshold。
+- **`/context`**：按 token 展示总预估/预算/阈值、各 section（system/thread/sources/skills/tools）、sources 状态、最近治理记录。
+- **`/compact`**：手动触发一次 Stage2 轮次压缩。
+- **治理可感知**：自动治理时写入 `context.compacted` trace，TUI 消息流插入简短 system 提示。
+- **`/trace` / `/diff`**：不变。
 
 尚未实现：
 
 - embedding/FTS 语义检索和跨 session memory 检索。
 - 子代理之间的共享 context store。
-- 基于 tokenizer 的请求前精确预算；顶栏当前采用接口响应后的真实 input token。
-- 由模型生成的语义级 compaction 摘要（当前为本地 extractive）。
+- tokenizer 库精确计数（当前启发式 + EMA 校准）。
 
 ## 工具调用系统
 
@@ -240,18 +235,18 @@ npm run typecheck
 
 ```text
 packages/core
-  context          对话历史、上下文源、工具清单和 LLM messages 组装
+  context          ConversationThread、TokenEstimator、ContextGovernor、SessionContext
   domain           共享协议和 zod schema
   llm              OpenAI-compatible / Anthropic-compatible 模型协议适配
   modes            normal / cross-repo 模式检测
   runtime          agent run 生命周期和事件流
   session          append-only JSONL 会话事实源和 SQLite 最近会话索引
   tools            Tool Gateway、工具注册、权限、入参校验和内置工具
-  trace            JSONL trace 存储
+  trace            JSONL trace 存储（~/.kross/traces/）
 
 packages/tui
   App              交互式终端界面
-  main             本地启动入口，trace 写入 runs/，会话写入 ~/.kross/sessions/
+  main             本地启动入口，trace 写入 ~/.kross/traces/，会话写入 ~/.kross/sessions/
 ```
 
 ## 后续扩展

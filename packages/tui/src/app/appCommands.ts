@@ -1,4 +1,5 @@
 import {
+  formatCompactCount,
   getLocale,
   getLlmProviderDefinition,
   handleModelCommand,
@@ -14,6 +15,8 @@ import {
   type ConfigImportController,
   type ConfigImportPrompt,
   type ContextInspection,
+  type ContextMaintenanceResult,
+  type ContextSection,
   type ExternalAgentSource,
   type PermissionMode,
   type ThinkingEffort
@@ -127,15 +130,36 @@ export function handleCommand(
   }
 
   if (value === '/context') {
+    const snapshot = runtime.inspectContext({
+      requestedMode: mode,
+      currentUserInput: ''
+    });
+    const usage = runtime.getContextUsage({
+      requestedMode: mode,
+      currentUserInput: ''
+    });
     append(
       'agent',
-      formatContextInspection(
-        runtime.inspectContext({
-          requestedMode: mode,
-          currentUserInput: ''
-        })
-      ),
+      formatContextInspection(snapshot, runtime.getAllContextMaintenance(), {
+        lastUsageTokens: usage.lastUsageTokens
+      }),
       { expanded: true }
+    );
+    return true;
+  }
+
+  if (value === '/compact') {
+    void runSlashAsync(
+      async () =>
+        formatCompactResult(
+          await runtime.compactNow({
+            requestedMode: mode,
+            currentUserInput: ''
+          }),
+          runtime.getPreserveFullTurns()
+        ),
+      append,
+      '/compact'
     );
     return true;
   }
@@ -369,29 +393,107 @@ function persistModelPreference(
   }
 }
 
-function formatContextInspection(snapshot: ContextInspection): string {
-  const sectionLines = Object.entries(snapshot.report.sections)
-    .map(([section, chars]) => `- ${section}: ${chars}`)
-    .join('\n');
-  const contributorLines = snapshot.report.contributors
-    .slice()
-    .sort((left, right) => right.injectedChars - left.injectedChars)
-    .slice(0, 6)
-    .map(
-      (contributor) =>
-        `- ${contributor.title} [${contributor.section}/${contributor.status}]: ${contributor.injectedChars}/${contributor.rawChars}`
-    )
-    .join('\n');
+function formatContextInspection(
+  snapshot: ContextInspection,
+  maintenance: ContextMaintenanceResult[],
+  options: { lastUsageTokens?: number } = {}
+): string {
+  const sectionOrder: ContextSection[] = [
+    'system',
+    'thread',
+    'sources',
+    'skills',
+    'tools'
+  ];
+  const sectionLines = sectionOrder.map((section) => {
+    const tokens = snapshot.report.sections[section] ?? 0;
+    return `  ${section.padEnd(8)} ${formatCompactCount(tokens)}`;
+  });
 
-  return [
-    'Context',
+  const included =
+    snapshot.includedSources.length > 0
+      ? snapshot.includedSources.join(', ')
+      : '(none)';
+  const dropped =
+    snapshot.droppedSources.length > 0
+      ? snapshot.droppedSources.join(', ')
+      : '(none)';
+  const pinned =
+    snapshot.pinnedSources.length > 0
+      ? snapshot.pinnedSources.join(', ')
+      : '(none)';
+
+  const maintenanceLines = maintenance
+    .slice(-5)
+    .reverse()
+    .map((item) => {
+      const stage = formatMaintenanceStage(item);
+      const time = item.at ? formatMaintenanceTime(item.at) : '-';
+      return `  ${stage.padEnd(16)} ${formatCompactCount(item.tokensBefore)} -> ${formatCompactCount(item.tokensAfter)}  ${time}`;
+    });
+
+  const lines = [
+    t('cmd.context.title'),
     `mode: ${snapshot.mode}`,
-    t('cmd.context.totalChars', { chars: snapshot.estimatedChars }),
-    `included sources: ${snapshot.includedSources.length}`,
-    `dropped sources: ${snapshot.droppedSources.length}`,
-    'sections:',
-    sectionLines,
-    'contributors:',
-    contributorLines.length > 0 ? contributorLines : '- none'
-  ].join('\n');
+    `${t('cmd.context.estimated')}: ${formatCompactCount(snapshot.estimatedTokens)} / ${formatCompactCount(snapshot.inputBudget)} (${t('cmd.context.budget')})`,
+    `${t('cmd.context.threshold')}: ${formatCompactCount(snapshot.compactThreshold)}`,
+    options.lastUsageTokens !== undefined
+      ? `${t('cmd.context.lastUsage')}: ${formatCompactCount(options.lastUsageTokens)}`
+      : undefined,
+    '',
+    t('cmd.context.sections'),
+    ...sectionLines,
+    '',
+    t('cmd.context.sources'),
+    `  included: ${included}`,
+    `  dropped:  ${dropped}`,
+    `  pinned:   ${pinned}`,
+    '',
+    t('cmd.context.maintenance'),
+    maintenanceLines.length > 0
+      ? maintenanceLines.join('\n')
+      : `  ${t('cmd.context.noMaintenance')}`
+  ];
+
+  return lines.filter((line): line is string => line !== undefined).join('\n');
 }
+
+export function formatCompactResult(
+  result: ContextMaintenanceResult,
+  preserveFullTurns = 4
+): string {
+  if (!result.compacted) {
+    return t('cmd.compact.nothing', { preserve: preserveFullTurns });
+  }
+  return t('cmd.compact.done', {
+    turns: result.droppedTurnCount ?? 0,
+    before: formatCompactCount(result.tokensBefore),
+    after: formatCompactCount(result.tokensAfter)
+  });
+}
+
+function formatMaintenanceStage(item: ContextMaintenanceResult): string {
+  if (item.stage === 'tool-aging') {
+    return 'Stage1';
+  }
+  if (item.stage === 'turn-compaction') {
+    return 'Stage2';
+  }
+  if (item.stage === 'hard-truncation') {
+    return 'Stage3';
+  }
+  return item.reason ?? '-';
+}
+
+function formatMaintenanceTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
+
+export { formatContextInspection };

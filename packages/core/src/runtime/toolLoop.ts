@@ -1,4 +1,4 @@
-import type { ContextManager } from '../context/contextManager';
+import type { SessionContext } from '../context/sessionContext';
 import {
   agentResultSchema,
   type AgentMode,
@@ -46,12 +46,9 @@ export const PLANNER_SYSTEM_PROMPT =
 interface PendingToolSession {
   runId: string;
   mode: Exclude<AgentMode, 'auto'>;
-  /** 挂起时所属 run 的用户原始输入，连环审批沿用同一值 */
   originalUserInput: string;
   call: LlmToolCall;
   remainingCalls: LlmToolCall[];
-  completedToolMessages: LlmMessage[];
-  messages: LlmMessage[];
   tools: ToolMetadata[];
   iteration: number;
 }
@@ -59,7 +56,7 @@ interface PendingToolSession {
 export interface RuntimeToolLoopOptions {
   llmClient?: LlmClient;
   toolGateway?: ToolGateway;
-  contextManager: ContextManager;
+  sessionContext: SessionContext;
   maxToolIterations?: number;
   record(
     runId: string,
@@ -67,9 +64,15 @@ export interface RuntimeToolLoopOptions {
     payload: Record<string, unknown>
   ): Promise<void>;
   attachChangedFiles(result: AgentResult): Promise<AgentResult>;
-  appendConversation(userInput: string, assistantOutput: string): void;
+  commitTurn(): void;
+  abortTurn(reason: string): void;
+  appendAssistantForCancel(summary: string): void;
   /** Refresh session todo list into context sources before model calls. */
   syncTodoContext?: () => void;
+  onContextMaintained?(
+    runId: string,
+    maintenance: import('../context/contextGovernor').ContextMaintenanceResult[]
+  ): Promise<void>;
 }
 
 export class RuntimeToolLoop {
@@ -79,11 +82,12 @@ export class RuntimeToolLoop {
 
   setLlmClient(client: LlmClient | undefined): void {
     this.options.llmClient = client;
+    this.options.sessionContext.setLlmClient(client);
   }
 
   /**
    * 取消所有内存中悬挂的工具审批会话（进程退出等场景）。
-   * 为每个 run 写入 run.completed(cancelled) 并将 (原始用户输入, 取消说明) 追加进对话历史。
+   * open turn 上 abort + 取消说明写入 committed 对话。
    */
   async cancelPendingApprovals(reason?: string): Promise<string[]> {
     const reasonText = reason ?? 'pending tool approval cancelled';
@@ -109,7 +113,8 @@ export class RuntimeToolLoop {
         ...cancelled,
         reason: reasonText
       });
-      this.options.appendConversation(session.originalUserInput, cancelled.summary);
+      this.options.appendAssistantForCancel(cancelled.summary);
+      this.options.commitTurn();
       cancelledRunIds.push(runId);
     }
 
@@ -131,10 +136,6 @@ export class RuntimeToolLoop {
     return result;
   }
 
-  /**
-   * Stream LLM deltas after a tool approval is resolved.
-   * Mirrors runStreaming's tool-followup path so the TUI does not dump full text at once.
-   */
   async *resolveToolApprovalStreaming(
     input: ResolveToolApprovalInput
   ): AsyncIterable<AgentRunStreamEvent> {
@@ -148,13 +149,20 @@ export class RuntimeToolLoop {
       ? await this.executeApprovedToolCall(session)
       : await this.createRejectedToolMessage(session);
 
+    if (toolMessage.role === 'tool') {
+      this.options.sessionContext.appendToolResult({
+        toolCallId: toolMessage.toolCallId,
+        name: toolMessage.name,
+        content: toolMessage.content,
+        iteration: session.iteration
+      });
+    }
+
     const batch = await this.executeToolBatch({
       runId: session.runId,
       mode: session.mode,
       originalUserInput: session.originalUserInput,
       calls: session.remainingCalls,
-      completedToolMessages: [...session.completedToolMessages, toolMessage],
-      messages: session.messages,
       tools: session.tools,
       iteration: session.iteration
     });
@@ -167,23 +175,40 @@ export class RuntimeToolLoop {
       return;
     }
 
-    const messages: LlmMessage[] = [...session.messages, ...batch.toolMessages];
+    for (const msg of batch.kind === 'completed' ? batch.toolMessages : []) {
+      if (msg.role === 'tool') {
+        this.options.sessionContext.appendToolResult({
+          toolCallId: msg.toolCallId,
+          name: msg.name,
+          content: msg.content,
+          iteration: session.iteration
+        });
+      }
+    }
 
     if (!this.options.llmClient) {
       const failed = await this.options.attachChangedFiles(
         createMissingLlmAfterApprovalResult(session.runId, session.mode)
       );
       await this.options.record(session.runId, 'run.completed', { ...failed });
-      this.options.appendConversation(session.originalUserInput, failed.summary);
+      this.options.appendAssistantForCancel(failed.summary);
+      this.options.commitTurn();
       yield { type: 'result', result: failed };
       return;
     }
+
+    const buildContextInput = {
+      systemPrompt: PLANNER_SYSTEM_PROMPT,
+      mode: session.mode,
+      tools: session.tools
+    };
 
     yield* runStreamingToolLoop(this.createStreamingDeps(), {
       runId: session.runId,
       mode: session.mode,
       originalUserInput: session.originalUserInput,
-      messages,
+      sessionContext: this.options.sessionContext,
+      buildContextInput,
       tools: session.tools,
       startIteration: session.iteration,
       firstStreamPurpose: 'planner-tool-followup',
@@ -205,10 +230,7 @@ export class RuntimeToolLoop {
             })
           );
           await this.options.record(session.runId, 'run.completed', { ...result });
-          this.options.appendConversation(
-            session.originalUserInput,
-            result.summary
-          );
+          this.options.commitTurn();
           return result;
         },
         onSoftLand: async ({ summary }) => {
@@ -218,10 +240,8 @@ export class RuntimeToolLoop {
             summary
           );
           await this.options.record(session.runId, 'run.completed', { ...landed });
-          this.options.appendConversation(
-            session.originalUserInput,
-            landed.summary
-          );
+          this.options.appendAssistantForCancel(landed.summary);
+          this.options.commitTurn();
           return landed;
         },
         onFailure: async (message) => {
@@ -239,17 +259,13 @@ export class RuntimeToolLoop {
             })
           );
           await this.options.record(session.runId, 'run.completed', { ...failed });
-          this.options.appendConversation(
-            session.originalUserInput,
-            failed.summary
-          );
+          this.options.abortTurn(message);
           return failed;
         }
       }
     });
   }
 
-  /** 供 AgentRuntime 委托的共享流式工具循环 */
   runStreamingToolLoop(
     params: StreamingToolLoopParams
   ): AsyncIterable<AgentRunStreamEvent> {
@@ -264,12 +280,10 @@ export class RuntimeToolLoop {
     mode: Exclude<AgentMode, 'auto'>;
     originalUserInput: string;
     calls: LlmToolCall[];
-    completedToolMessages: LlmMessage[];
-    messages: LlmMessage[];
     tools: ToolMetadata[];
     iteration: number;
   }): Promise<ToolBatchOutcome> {
-    const toolMessages: LlmMessage[] = [...input.completedToolMessages];
+    const toolMessages: LlmMessage[] = [];
     const queue = [...input.calls];
 
     while (queue.length > 0) {
@@ -291,13 +305,6 @@ export class RuntimeToolLoop {
         if (error instanceof ToolPermissionError) {
           if (error.action === 'deny') {
             const deniedContent = `Tool ${call.name} denied by policy: ${error.reason ?? error.message}`;
-            this.options.contextManager.recordToolResult({
-              id: call.id,
-              toolName: call.name,
-              inputPreview: JSON.stringify(call.input).slice(0, 200),
-              output: deniedContent,
-              summary: `denied: ${error.reason ?? error.risk}`
-            });
             toolMessages.push({
               role: 'tool',
               toolCallId: call.id,
@@ -313,26 +320,18 @@ export class RuntimeToolLoop {
             originalUserInput: input.originalUserInput,
             call,
             remainingCalls: queue,
-            completedToolMessages: toolMessages,
-            messages: input.messages,
             tools: input.tools,
             iteration: input.iteration
           };
           return {
             kind: 'approval',
+            completedToolMessages: toolMessages,
             result: await this.createPendingToolApprovalResult(session, error)
           };
         }
         throw error;
       }
 
-      this.options.contextManager.recordToolResult({
-        id: call.id,
-        toolName: call.name,
-        inputPreview: JSON.stringify(call.input).slice(0, 200),
-        output: result.content,
-        summary: result.summary
-      });
       toolMessages.push({
         role: 'tool',
         toolCallId: call.id,
@@ -425,7 +424,8 @@ export class RuntimeToolLoop {
       executeToolBatch: (input) => this.executeToolBatch(input),
       streamSoftLand: (input) => this.streamSoftLand(input),
       attachChangedFiles: (result) => this.options.attachChangedFiles(result),
-      toLlmTools
+      toLlmTools,
+      onContextMaintained: this.options.onContextMaintained
     };
   }
 
@@ -439,13 +439,6 @@ export class RuntimeToolLoop {
       callId: session.call.id,
       approved: true,
       returnErrors: true
-    });
-    this.options.contextManager.recordToolResult({
-      id: session.call.id,
-      toolName: session.call.name,
-      inputPreview: JSON.stringify(session.call.input).slice(0, 200),
-      output: result.content,
-      summary: result.summary
     });
 
     return {
@@ -465,13 +458,6 @@ export class RuntimeToolLoop {
       toolCallId: session.call.id,
       input: session.call.input
     });
-    this.options.contextManager.recordToolResult({
-      id: session.call.id,
-      toolName: session.call.name,
-      inputPreview: JSON.stringify(session.call.input).slice(0, 200),
-      output: content,
-      summary: 'rejected by user'
-    });
 
     return {
       role: 'tool',
@@ -485,7 +471,7 @@ export class RuntimeToolLoop {
     session: PendingToolSession,
     error: ToolPermissionError
   ): Promise<AgentResult> {
-    const metadata = session.tools.find(
+    const metadata = session.tools?.find(
       (tool) => tool.name === session.call.name
     );
     const pendingApproval: PendingToolApproval = {

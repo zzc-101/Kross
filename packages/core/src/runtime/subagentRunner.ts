@@ -2,6 +2,7 @@ import {
   subagentResultSchema,
   type SubagentResult
 } from '../domain';
+import { createSessionContext, type SessionContext } from '../context/sessionContext';
 import type {
   LlmClient,
   LlmMessage,
@@ -21,10 +22,8 @@ export type SubagentMode = 'explore' | 'general';
 
 export interface SubagentRunRequest {
   prompt: string;
-  /** Optional label; tool set is the same (read + edit, no high-risk tools). */
   mode?: SubagentMode;
   parentRunId: string;
-  /** Depth of the caller (0 = main agent). */
   parentDepth?: number;
   signal?: AbortSignal;
 }
@@ -33,7 +32,6 @@ export interface SubagentRunDeps {
   workspaceRoot: string;
   llmClient?: LlmClient;
   traceStore: TraceStore;
-  /** Hard cap for nested spawn; default 1 (children cannot spawn). */
   maxDepth?: number;
   maxToolIterations?: number;
   now?: () => Date;
@@ -44,11 +42,9 @@ export interface SubagentRunOutcome {
   result: SubagentResult;
   subRunId: string;
   mode: SubagentMode;
-  /** @deprecated Always false; kept for tool payload compatibility. */
   modeForcedToExplore: boolean;
 }
 
-/** Dedicated system prompt — NOT the main planner prompt. */
 export const SUBAGENT_SYSTEM_PROMPT = [
   'You are a focused subagent of Kross.',
   'Complete the assigned task using only the available tools.',
@@ -60,10 +56,7 @@ export const SUBAGENT_SYSTEM_PROMPT = [
 ].join(' ');
 
 /**
- * Run an isolated subagent turn (no AgentRuntime planner shell).
- * - Own system prompt + empty history
- * - Filtered tools with auto-allow
- * - Trace payload always tagged `isSubagent: true`
+ * 子代理独立 SessionContext（减半预算）+ 同一套治理流水线。
  */
 export async function runSubagent(
   request: SubagentRunRequest,
@@ -151,6 +144,12 @@ export async function runSubagent(
     })
   );
 
+  const sessionContext = createSessionContext({
+    client: deps.llmClient,
+    isSubagent: true,
+    contextWindow: deps.llmClient.contextWindow
+  });
+
   try {
     const summary = await runSubagentToolLoop({
       runId: subRunId,
@@ -158,6 +157,7 @@ export async function runSubagent(
       llmClient: deps.llmClient,
       gateway: childGateway,
       tools: toolMeta,
+      sessionContext,
       maxIterations: deps.maxToolIterations ?? 40,
       signal: request.signal,
       traceStore: deps.traceStore,
@@ -239,29 +239,34 @@ async function runSubagentToolLoop(input: {
   llmClient: LlmClient;
   gateway: ToolGateway;
   tools: ToolMetadata[];
+  sessionContext: SessionContext;
   maxIterations: number;
   signal?: AbortSignal;
   traceStore: TraceStore;
   lifecycleExtras: Record<string, unknown>;
 }): Promise<string> {
-  let messages: LlmMessage[] = [
-    { role: 'system', content: SUBAGENT_SYSTEM_PROMPT },
-    { role: 'user', content: input.prompt }
-  ];
+  input.sessionContext.beginTurn(input.prompt);
+  const buildContextInput = {
+    systemPrompt: SUBAGENT_SYSTEM_PROMPT,
+    mode: 'normal' as const,
+    tools: input.tools
+  };
 
   let iteration = 1;
   let lastText = '';
 
   while (iteration <= input.maxIterations) {
     assertNotAborted(input.signal);
+    input.sessionContext.setIteration(iteration);
 
     await appendTrace(input.traceStore, input.runId, 'llm.subagent.turn', {
       ...input.lifecycleExtras,
       iteration
     });
 
+    const prepared = await input.sessionContext.prepareRequest(buildContextInput);
     const response = await input.llmClient.complete({
-      messages,
+      messages: prepared.messages,
       tools: toLlmTools(input.tools),
       temperature: 0.2,
       metadata: {
@@ -270,6 +275,11 @@ async function runSubagentToolLoop(input: {
         isSubagent: true
       }
     });
+    input.sessionContext.calibrateFromUsage(
+      response.usage?.inputTokens,
+      prepared.messages
+    );
+
     lastText = response.text?.trim() ?? '';
 
     await appendTrace(input.traceStore, input.runId, 'llm.subagent.completed', {
@@ -281,32 +291,41 @@ async function runSubagentToolLoop(input: {
 
     const toolCalls = response.toolCalls ?? [];
     if (toolCalls.length === 0) {
+      if (lastText) {
+        input.sessionContext.appendAssistant(lastText);
+      }
+      input.sessionContext.commitTurn();
       return (
         lastText ||
         'Subagent finished without a text summary.'
       );
     }
 
-    const assistantMessage: LlmMessage = {
-      role: 'assistant',
-      content: response.text ?? '',
-      toolCalls
-    };
+    input.sessionContext.appendAssistant(response.text ?? '', toolCalls);
     const toolMessages = await executeToolCalls({
       runId: input.runId,
       gateway: input.gateway,
       calls: toolCalls,
       signal: input.signal
     });
-    messages = [...messages, assistantMessage, ...toolMessages];
+    for (const toolMessage of toolMessages) {
+      if (toolMessage.role === 'tool') {
+        input.sessionContext.appendToolResult({
+          toolCallId: toolMessage.toolCallId,
+          name: toolMessage.name,
+          content: toolMessage.content,
+          iteration
+        });
+      }
+    }
     iteration += 1;
   }
 
-  // Soft land: one final text-only turn.
   assertNotAborted(input.signal);
+  const prepared = await input.sessionContext.prepareRequest(buildContextInput);
   const soft = await input.llmClient.complete({
     messages: [
-      ...messages,
+      ...prepared.messages,
       {
         role: 'user',
         content:
@@ -316,11 +335,13 @@ async function runSubagentToolLoop(input: {
     temperature: 0.2,
     metadata: { purpose: 'subagent-soft-land', isSubagent: true }
   });
-  return (
+  const summary =
     soft.text?.trim() ||
     lastText ||
-    `Subagent reached tool iteration limit (${input.maxIterations}).`
-  );
+    `Subagent reached tool iteration limit (${input.maxIterations}).`;
+  input.sessionContext.appendAssistant(summary);
+  input.sessionContext.commitTurn();
+  return summary;
 }
 
 async function executeToolCalls(input: {

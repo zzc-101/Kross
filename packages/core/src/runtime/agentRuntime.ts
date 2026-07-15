@@ -7,13 +7,13 @@ import {
   agentResultSchema
 } from '../domain';
 import {
-  InMemoryContextManager,
   type ContextMaintenanceResult,
-  type ContextManager
-} from '../context/contextManager';
+  SessionContext,
+  createSessionContext,
+  type ContextSnapshot
+} from '../context/sessionContext';
 import {
-  formatContextUsage,
-  resolveModelContextWindow
+  formatContextUsage
 } from '../llm/modelContextWindows';
 import {
   cycleThinkingEffort,
@@ -67,21 +67,16 @@ export type {
   ResolveToolApprovalInput
 } from './agentRuntimeTypes';
 
+export type { ContextMaintenanceResult } from '../context/sessionContext';
+
 /**
  * 工具调用轮次安全上限（默认）。
  * 一轮 = 模型发 tool_calls → 执行 → 回填再问模型。
- *
- * 行业做法（见 README）：
- * - OpenCode：默认不限制，用户可设 steps；实现里约 1000 作硬保险
- * - Codex：基本不按步数掐断，靠用量/上下文/用户中断
- * - Claude Code：会话可跑很多轮工具，另有「单 turn 工具次数」产品限制
- *
- * 我们默认用较高安全网，触顶时 **软着陆**（强制文本总结），而不是直接 failed。
  */
 export class AgentRuntime extends EventEmitter {
   private readonly createRunId: () => string;
   private readonly now: () => Date;
-  private readonly contextManager: ContextManager;
+  private readonly sessionContext: SessionContext;
   private readonly toolGateway: ToolGateway | undefined;
   private readonly inspection: RuntimeInspection;
   private readonly toolLoop: RuntimeToolLoop;
@@ -92,19 +87,29 @@ export class AgentRuntime extends EventEmitter {
     this.createRunId =
       options.createRunId ?? (() => `run-${Date.now().toString(36)}`);
     this.now = options.now ?? (() => new Date());
-    this.contextManager = options.contextManager ?? new InMemoryContextManager();
+    this.sessionContext =
+      options.sessionContext ??
+      options.contextManager ??
+      createSessionContext({
+        client: options.llmClient,
+        contextWindow: options.llmClient?.contextWindow
+      });
     this.toolGateway = options.toolGateway;
     this.inspection = new RuntimeInspection(options);
     this.toolLoop = new RuntimeToolLoop({
       llmClient: options.llmClient,
       toolGateway: this.toolGateway,
-      contextManager: this.contextManager,
+      sessionContext: this.sessionContext,
       maxToolIterations: options.maxToolIterations,
       record: (runId, type, payload) => this.record(runId, type, payload),
       attachChangedFiles: (result) => this.attachChangedFiles(result),
-      appendConversation: (userInput, assistantOutput) =>
-        this.appendConversation(userInput, assistantOutput),
-      syncTodoContext: () => this.syncTodoContextSource()
+      commitTurn: () => this.sessionContext.commitTurn(),
+      abortTurn: (reason) => this.sessionContext.abortTurn(reason),
+      appendAssistantForCancel: (summary) =>
+        this.sessionContext.appendAssistant(summary),
+      syncTodoContext: () => this.syncTodoContextSource(),
+      onContextMaintained: (runId, maintenance) =>
+        this.recordContextMaintenanceEvents(runId, maintenance)
     });
     if (this.toolGateway) {
       this.toolGateway.setApprovalPolicy(createApprovalPolicy(this.permissionMode));
@@ -120,7 +125,6 @@ export class AgentRuntime extends EventEmitter {
     this.toolGateway?.setApprovalPolicy(createApprovalPolicy(mode));
   }
 
-  /** TUI 输入框右下角：`model (thinkingEffort)`，不含 provider。 */
   getModelLabel(): string {
     const client = this.options.llmClient;
     return formatModelEffortLabel(
@@ -156,6 +160,7 @@ export class AgentRuntime extends EventEmitter {
   setLlmClient(client: LlmClient | undefined): void {
     this.options.llmClient = client;
     this.toolLoop.setLlmClient(client);
+    this.sessionContext.setLlmClient(client);
   }
 
   setModel(model: string): void {
@@ -166,34 +171,38 @@ export class AgentRuntime extends EventEmitter {
     client.setModel(model);
   }
 
-  /**
-   * 恢复持久化会话时整体替换对话历史。UI 记录中的 thinking/tool/system
-   * 不应进入模型上下文，调用方只传 user/assistant 即可。
-   * 同时清空上一会话的 lastUsage，避免顶栏继续显示陈旧 token。
-   * 超长历史会自动压缩为摘要（见返回值），而不是静默丢弃。
-   */
   restoreConversation(
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
   ): ContextMaintenanceResult {
-    const maintenance = this.contextManager.replaceConversation(messages);
-    this.contextManager.clearToolResults();
+    const maintenance = this.sessionContext.restoreConversation(messages);
     this.options.llmClient?.clearLastUsage?.();
+    this.sessionContext.resetCalibration();
     return maintenance;
   }
 
-  /** 最近一次上下文维护（压缩/截断）结果，供 TUI 提示。 */
   getLastContextMaintenance(): ContextMaintenanceResult | undefined {
-    return this.contextManager.getLastMaintenance();
+    return this.sessionContext.getLastMaintenance();
   }
 
-  /** Session todo list (if wired). */
+  getAllContextMaintenance(): ContextMaintenanceResult[] {
+    return this.sessionContext.getAllMaintenance();
+  }
+
+  getPreserveFullTurns(): number {
+    return this.sessionContext.getPolicy().preserveFullTurns;
+  }
+
+  async compactNow(input: ContextInspectionInput = {
+    requestedMode: 'normal'
+  }): Promise<ContextMaintenanceResult> {
+    const { buildContextInput } = this.resolveContextBuildInput(input);
+    return this.sessionContext.compactNow(buildContextInput);
+  }
+
   getTodoStore(): import('../todo/todoStore').TodoStore | undefined {
     return this.options.todoStore;
   }
 
-  /**
-   * Sync session todos into context sources so the model sees them every turn.
-   */
   syncTodoContextSource(): void {
     const store = this.options.todoStore;
     if (!store) {
@@ -201,22 +210,19 @@ export class AgentRuntime extends EventEmitter {
     }
     const text = store.formatForPrompt();
     if (!text) {
-      this.contextManager.removeSource('session-todos');
+      this.sessionContext.removeSource('session-todos');
       return;
     }
-    this.contextManager.addSource({
+    this.sessionContext.addSource({
       id: 'session-todos',
       kind: 'user',
       title: 'Session todos',
       content: text,
-      priority: 95
+      priority: 95,
+      pinned: true
     });
   }
 
-  /**
-   * 当前会话上下文占用（用于顶栏 12K/256K 展示）。
-   * used 仅采用最近一次模型响应返回的 usage.inputTokens，不再做字符估算。
-   */
   getContextUsage(input: {
     requestedMode: AgentMode;
     currentUserInput?: string;
@@ -225,6 +231,8 @@ export class AgentRuntime extends EventEmitter {
     usedChars: number;
     usedTokens: number;
     maxTokens: number;
+    compactThreshold: number;
+    lastUsageTokens?: number;
     label: string;
     ratio: number;
   } {
@@ -233,30 +241,26 @@ export class AgentRuntime extends EventEmitter {
       currentUserInput: input.currentUserInput
     });
     const client = this.options.llmClient;
-    const usedTokens = client?.lastUsage?.inputTokens ?? 0;
-    const maxTokens =
-      client?.contextWindow ??
-      resolveModelContextWindow(client?.model, input.env ?? process.env);
+    const usedTokens = snapshot.estimatedTokens;
+    const maxTokens = snapshot.inputBudget;
+    const compactThreshold = snapshot.compactThreshold;
+    const lastUsageTokens = client?.lastUsage?.inputTokens;
     return {
       usedChars: snapshot.estimatedChars,
       usedTokens,
       maxTokens,
+      compactThreshold,
+      lastUsageTokens,
       label: formatContextUsage(usedTokens, maxTokens),
-      ratio: usedTokens / Math.max(1, maxTokens)
+      ratio: usedTokens / Math.max(1, compactThreshold)
     };
   }
 
-  /**
-   * 订阅 trace 事件。若 traceStore 为 ObservableTraceStore，可收到
-   * runtime + ToolGateway 全部写入；否则回退为 runtime 自身 emit 的 event
-   *（此时 ToolGateway 的 tool_call.* 不会到达订阅方，TUI 工具卡片会静默失效）。
-   */
   onTrace(listener: TraceEventListener): () => void {
     if (isObservableTraceStore(this.options.traceStore)) {
       return this.options.traceStore.subscribe(listener);
     }
 
-    // 无 ToolGateway 时退回 runtime emit 即可；有工具时才需要 Observable 才能收到 tool_call.*
     if (this.toolGateway) {
       console.warn(
         '[AgentRuntime.onTrace] traceStore is not ObservableTraceStore; ' +
@@ -272,26 +276,18 @@ export class AgentRuntime extends EventEmitter {
     };
   }
 
-  /** 最近 N 次 run 的摘要（供 /trace）。 */
   async listTraces(options: ListRunsOptions = {}): Promise<RunTraceSummary[]> {
     return this.inspection.listTraces(options);
   }
 
-  /** 单次 run 详情；不存在时返回 null。 */
   async inspectTrace(runId: string): Promise<RunTraceDetail | null> {
     return this.inspection.inspectTrace(runId);
   }
 
-  /** /trace 命令文本输出。 */
   async formatTraceCommand(argument?: string): Promise<string> {
     return this.inspection.formatTraceCommand(argument);
   }
 
-  /**
-   * /diff 命令文本输出。
-   * - 无参数：最近一次 run 的 agent 触达文件 + 工作区 git 状态
-   * - 有 runId：只汇总该 run 的触达文件，并附带当前 git 状态
-   */
   async formatDiffCommand(argument?: string): Promise<string> {
     return this.inspection.formatDiffCommand(argument);
   }
@@ -313,10 +309,6 @@ export class AgentRuntime extends EventEmitter {
     yield* this.executeRun(input);
   }
 
-  /**
-   * run / runStreaming 共用编排：模式检测、context 构建、工具循环或缺模型/跨仓分支。
-   * normal + llm 时 yield 完整流式事件；其余模式只 yield 最终 result。
-   */
   private async *executeRun(
     input: AgentRunInput
   ): AsyncIterable<AgentRunStreamEvent> {
@@ -362,21 +354,24 @@ export class AgentRuntime extends EventEmitter {
     mode: Exclude<AgentMode, 'auto'>,
     runId: string
   ): AsyncIterable<AgentRunStreamEvent> {
-    const { context, tools } = this.buildPlannerContext(input.input, mode);
-    await this.recordPlannerContext(runId, context);
+    this.sessionContext.beginTurn(input.input);
+    const { buildContextInput, tools } = this.buildPlannerContext(mode);
+    const prepared = await this.sessionContext.prepareRequest(buildContextInput);
+    await this.recordPlannerContext(runId, prepared);
 
     yield* this.toolLoop.runStreamingToolLoop({
       runId,
       mode,
       originalUserInput: input.input,
-      messages: context.messages,
+      sessionContext: this.sessionContext,
+      buildContextInput,
       tools,
       startIteration: 1,
       firstStreamPurpose: 'planner',
       firstIterationMetadata: {
-        includedSources: context.includedSources,
-        droppedSources: context.droppedSources,
-        contextReport: context.report
+        includedSources: prepared.includedSources,
+        droppedSources: prepared.droppedSources,
+        contextReport: prepared.report
       },
       handlers: {
         onSuccess: async ({ fullText }) => {
@@ -394,10 +389,11 @@ export class AgentRuntime extends EventEmitter {
             })
           );
           await this.record(runId, 'run.completed', { ...result });
-          this.appendConversation(input.input, result.summary);
+          this.sessionContext.commitTurn();
           return result;
         },
         onSoftLand: async ({ summary }) => {
+          this.sessionContext.appendAssistant(summary);
           const landed = await this.attachChangedFiles(
             agentResultSchema.parse({
               runId,
@@ -414,7 +410,7 @@ export class AgentRuntime extends EventEmitter {
             })
           );
           await this.record(runId, 'run.completed', { ...landed });
-          this.appendConversation(input.input, landed.summary);
+          this.sessionContext.commitTurn();
           return landed;
         },
         onFailure: async (message) => {
@@ -432,6 +428,7 @@ export class AgentRuntime extends EventEmitter {
             })
           );
           await this.record(runId, 'run.completed', { ...failed });
+          this.sessionContext.abortTurn(message);
           return failed;
         }
       }
@@ -444,24 +441,26 @@ export class AgentRuntime extends EventEmitter {
     runId: string,
     crossRepoReason: string | undefined
   ): Promise<AgentResult> {
-    const { context, tools } = this.buildPlannerContext(input.input, mode);
-    await this.recordPlannerContext(runId, context);
+    this.sessionContext.beginTurn(input.input);
+    const { buildContextInput, tools } = this.buildPlannerContext(mode);
+    const prepared = await this.sessionContext.prepareRequest(buildContextInput);
+    await this.recordPlannerContext(runId, prepared);
 
     let loopResult: AgentResult | undefined;
-    // 软着陆用本地标志位判定，避免依赖 evidence 文案字符串匹配
     let softLanded = false;
     for await (const event of this.toolLoop.runStreamingToolLoop({
       runId,
       mode,
       originalUserInput: input.input,
-      messages: context.messages,
+      sessionContext: this.sessionContext,
+      buildContextInput,
       tools,
       startIteration: 1,
       firstStreamPurpose: 'planner',
       firstIterationMetadata: {
-        includedSources: context.includedSources,
-        droppedSources: context.droppedSources,
-        contextReport: context.report
+        includedSources: prepared.includedSources,
+        droppedSources: prepared.droppedSources,
+        contextReport: prepared.report
       },
       handlers: {
         onSuccess: async ({ fullText }) =>
@@ -480,6 +479,7 @@ export class AgentRuntime extends EventEmitter {
           ),
         onSoftLand: async ({ summary }) => {
           softLanded = true;
+          this.sessionContext.appendAssistant(summary);
           const landed = await this.toolLoop.createMaxToolIterationsResult(
             runId,
             mode,
@@ -490,7 +490,7 @@ export class AgentRuntime extends EventEmitter {
             summary: landed.summary
           });
           await this.record(runId, 'run.completed', { ...landed });
-          this.appendConversation(input.input, landed.summary);
+          this.sessionContext.commitTurn();
           return landed;
         },
         onFailure: async (message) => {
@@ -512,6 +512,7 @@ export class AgentRuntime extends EventEmitter {
             summary: failed.summary
           });
           await this.record(runId, 'run.completed', { ...failed });
+          this.sessionContext.abortTurn(message);
           return failed;
         }
       }
@@ -533,6 +534,7 @@ export class AgentRuntime extends EventEmitter {
       return loopResult;
     }
 
+    this.sessionContext.commitTurn();
     return this.finalizeCrossRepoRun(
       input,
       mode,
@@ -610,7 +612,7 @@ export class AgentRuntime extends EventEmitter {
         })
       );
       await this.record(runId, 'run.completed', { ...cancelled });
-      this.appendConversation(input.input, cancelled.summary);
+      this.finishTurnWithAssistant(input.input, cancelled.summary);
       return cancelled;
     }
 
@@ -642,57 +644,55 @@ export class AgentRuntime extends EventEmitter {
       summary: result.summary
     });
     await this.record(runId, 'run.completed', { ...result });
-    this.appendConversation(input.input, result.summary);
+    this.finishTurnWithAssistant(input.input, result.summary);
     return result;
   }
 
-  private buildPlannerContext(
-    userInput: string,
-    mode: Exclude<AgentMode, 'auto'>
-  ) {
+  private finishTurnWithAssistant(userInput: string, assistantOutput: string): void {
+    if (!this.sessionContext.getThread().getOpenTurnId()) {
+      this.sessionContext.beginTurn(userInput);
+    }
+    this.sessionContext.appendAssistant(assistantOutput);
+    this.sessionContext.commitTurn();
+  }
+
+  private buildPlannerContext(mode: Exclude<AgentMode, 'auto'>): {
+    buildContextInput: {
+      systemPrompt: string;
+      mode: Exclude<AgentMode, 'auto'>;
+      tools: ToolMetadata[];
+    };
+    tools: ToolMetadata[];
+  } {
     const tools = this.toolGateway?.listTools({ mode }) ?? [];
     this.syncTodoContextSource();
-    const context = this.contextManager.build({
-      systemPrompt: PLANNER_SYSTEM_PROMPT,
-      currentUserInput: userInput,
-      mode,
+    return {
+      buildContextInput: {
+        systemPrompt: PLANNER_SYSTEM_PROMPT,
+        mode,
+        tools
+      },
       tools
-    });
-
-    return { context, tools };
+    };
   }
 
   private async recordPlannerContext(
     runId: string,
-    context: ReturnType<ContextManager['build']>
+    context: ContextSnapshot
   ): Promise<void> {
     await this.record(runId, 'context.built', {
       includedSources: context.includedSources,
       droppedSources: context.droppedSources,
       estimatedChars: context.estimatedChars,
+      estimatedTokens: context.estimatedTokens,
       report: context.report
     });
     await this.recordContextMaintenance(runId);
   }
 
   inspectContext(input: ContextInspectionInput): ContextInspection {
-    const currentUserInput = input.currentUserInput ?? '';
-    const mode =
-      input.requestedMode === 'auto'
-        ? currentUserInput.trim().length > 0
-          ? detectMode({
-              requestedMode: input.requestedMode,
-              input: currentUserInput
-            }).mode
-          : 'normal'
-        : input.requestedMode;
-    this.syncTodoContextSource();
-    const snapshot = this.contextManager.build({
-      systemPrompt: PLANNER_SYSTEM_PROMPT,
-      currentUserInput,
-      mode,
-      tools: this.toolGateway?.listTools({ mode }) ?? []
-    });
+    const { mode, buildContextInput } = this.resolveContextBuildInput(input);
+    const snapshot = this.sessionContext.snapshot(buildContextInput);
 
     return {
       ...snapshot,
@@ -700,25 +700,49 @@ export class AgentRuntime extends EventEmitter {
     };
   }
 
+  private resolveContextBuildInput(input: ContextInspectionInput): {
+    mode: Exclude<AgentMode, 'auto'>;
+    buildContextInput: {
+      systemPrompt: string;
+      mode: Exclude<AgentMode, 'auto'>;
+      tools: ToolMetadata[];
+    };
+  } {
+    const mode =
+      input.requestedMode === 'auto'
+        ? input.currentUserInput?.trim()
+          ? detectMode({
+              requestedMode: input.requestedMode,
+              input: input.currentUserInput ?? ''
+            }).mode
+          : 'normal'
+        : input.requestedMode;
+    this.syncTodoContextSource();
+    const tools = this.toolGateway?.listTools({ mode }) ?? [];
+    return {
+      mode,
+      buildContextInput: {
+        systemPrompt: PLANNER_SYSTEM_PROMPT,
+        mode,
+        tools
+      }
+    };
+  }
+
   async resolveToolApproval(input: ResolveToolApprovalInput): Promise<AgentResult> {
     return this.toolLoop.resolveToolApproval(input);
   }
 
-  /**
-   * 取消所有悬挂的工具审批（如进程退出）。返回被取消的 runId 列表。
-   */
   async cancelPendingApprovals(reason?: string): Promise<string[]> {
     return this.toolLoop.cancelPendingApprovals(reason);
   }
 
-  /** Stream follow-up after tool approval (preferred by TUI). */
   resolveToolApprovalStreaming(
     input: ResolveToolApprovalInput
   ): AsyncIterable<AgentRunStreamEvent> {
     return this.toolLoop.resolveToolApprovalStreaming(input);
   }
 
-  /** 从当前 run 的 trace 回填 report.changedFiles（Write/Edit 成功路径）。 */
   private async attachChangedFiles(result: AgentResult): Promise<AgentResult> {
     let events: TraceEvent[] = [];
     try {
@@ -743,30 +767,28 @@ export class AgentRuntime extends EventEmitter {
     });
   }
 
-  private appendConversation(userInput: string, assistantOutput: string): void {
-    this.contextManager.appendConversation({
-      role: 'user',
-      content: userInput
-    });
-    this.contextManager.appendConversation({
-      role: 'assistant',
-      content: assistantOutput
-    });
-  }
-
   private async recordContextMaintenance(runId: string): Promise<void> {
-    const maintenance = this.contextManager.getLastMaintenance();
+    const maintenance = this.sessionContext.getLastMaintenance();
     if (
       !maintenance ||
-      (!maintenance.compacted &&
-        maintenance.droppedMessageCount === 0 &&
-        !(maintenance.clearedToolResults && maintenance.clearedToolResults > 0))
+      (!maintenance.compacted && maintenance.droppedMessageCount === 0)
     ) {
       return;
     }
     await this.record(runId, 'context.compacted', {
       ...maintenance
     });
+  }
+
+  private async recordContextMaintenanceEvents(
+    runId: string,
+    maintenance: ContextMaintenanceResult[]
+  ): Promise<void> {
+    for (const item of maintenance) {
+      if (item.compacted || item.droppedMessageCount > 0) {
+        await this.record(runId, 'context.compacted', { ...item });
+      }
+    }
   }
 
   private async record(

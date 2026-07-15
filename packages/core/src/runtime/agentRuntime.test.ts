@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AgentRuntime } from './agentRuntime';
-import { InMemoryContextManager, type ContextManager } from '../context/contextManager';
+import { InMemoryContextManager, type SessionContext } from '../context/sessionContext';
 import type { LlmMessage } from '../llm/types';
 import type { TraceEvent } from '../domain';
 import type {
@@ -31,19 +31,9 @@ async function* streamFromComplete(
 }
 
 function getStoredConversation(
-  contextManager: ContextManager
+  sessionContext: SessionContext
 ): LlmMessage[] {
-  const snapshot = contextManager.build({
-    systemPrompt: '',
-    currentUserInput: '',
-    mode: 'normal'
-  });
-  return snapshot.messages.filter(
-    (message) =>
-      (message.role === 'user' || message.role === 'assistant') &&
-      typeof message.content === 'string' &&
-      message.content.length > 0
-  );
+  return sessionContext.getCommittedDialog();
 }
 
 describe('AgentRuntime', () => {
@@ -143,13 +133,15 @@ describe('AgentRuntime', () => {
     expect(traceStore.events.map((event) => event.type)).toContain(
       'llm.planner.completed'
     );
-    expect(
-      runtime.getContextUsage({ requestedMode: 'normal' })
-    ).toMatchObject({
-      usedTokens: 10,
-      maxTokens: 512_000,
-      label: '10/512K'
+    const usage = runtime.getContextUsage({ requestedMode: 'normal' });
+    expect(usage).toMatchObject({
+      usedTokens: expect.any(Number),
+      maxTokens: 480_000,
+      lastUsageTokens: 10,
+      label: expect.stringMatching(/\/480K$/)
     });
+    expect(usage.usedTokens).toBeGreaterThan(0);
+    expect(usage.ratio).toBeGreaterThan(0);
   });
 
   it('clears lastUsage when restoring a conversation', async () => {
@@ -163,8 +155,8 @@ describe('AgentRuntime', () => {
       input: '先产生 usage',
       requestedMode: 'normal'
     });
-    expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBe(
-      10
+    expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBeGreaterThan(
+      0
     );
 
     runtime.restoreConversation([
@@ -173,11 +165,14 @@ describe('AgentRuntime', () => {
     ]);
 
     expect(llmClient.lastUsage).toBeUndefined();
-    expect(runtime.getContextUsage({ requestedMode: 'normal' })).toMatchObject({
-      usedTokens: 0,
-      maxTokens: 512_000,
-      label: '0/512K'
+    const usage = runtime.getContextUsage({ requestedMode: 'normal' });
+    expect(usage).toMatchObject({
+      usedTokens: expect.any(Number),
+      maxTokens: 480_000,
+      lastUsageTokens: undefined,
+      label: expect.stringMatching(/\/480K$/)
     });
+    expect(usage.usedTokens).toBeGreaterThan(0);
     const context = runtime.inspectContext({ requestedMode: 'normal' });
     expect(context.messages.map((message) => message.content).join('\n')).toContain(
       '旧会话用户'

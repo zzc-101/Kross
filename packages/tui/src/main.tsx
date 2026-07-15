@@ -76,6 +76,11 @@ const closeTooling = (): void => {
     return;
   }
   toolingClosed = true;
+  try {
+    tooling.closeTraceStore();
+  } catch {
+    // best-effort during process shutdown
+  }
   void tooling.close().catch(() => undefined);
 };
 

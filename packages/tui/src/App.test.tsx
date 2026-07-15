@@ -378,14 +378,18 @@ describe('App', () => {
       await waitUntil(() => api !== undefined);
       await api?.submit('先产生 token 占用');
       await waitUntil(() => view.lastFrame()?.includes('带 usage 的回复') === true);
-      expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBe(
+      expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBeGreaterThan(
+        0
+      );
+      expect(runtime.getContextUsage({ requestedMode: 'normal' }).lastUsageTokens).toBe(
         37
       );
 
       await api?.resumeSession(target.id);
       await waitUntil(() => view.lastFrame()?.includes('恢复后回复') === true);
       expect(llmClient.lastUsage).toBeUndefined();
-      expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBe(
+      expect(runtime.getContextUsage({ requestedMode: 'normal' }).lastUsageTokens).toBeUndefined();
+      expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBeGreaterThan(
         0
       );
     } finally {
@@ -813,9 +817,10 @@ describe('App', () => {
     await submit?.('/context');
 
     expect(lastFrame()).toContain('Context');
-    expect(lastFrame()).toContain('总字符');
-    expect(lastFrame()).toContain('history');
-    expect(lastFrame()).toContain('contributors');
+    expect(lastFrame()).toContain('预估 token');
+    expect(lastFrame()).toContain('sections (tokens)');
+    expect(lastFrame()).toContain('thread');
+    expect(lastFrame()).toContain('最近治理');
   });
 
   it('prompts to import Claude Code or Codex config on first launch and saves the chosen config', async () => {

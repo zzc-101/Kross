@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { AgentRuntime } from '@kross/core';
 
-import type { ToolCallState } from '../ui';
+import type { ChatMessage, ToolCallState } from '../ui';
 import {
   applySubagentTraceEvent,
   pruneSubagentUi,
@@ -12,6 +12,7 @@ import { handleTraceEvent } from './traceMessages';
 
 export interface UseSubagentTraceOptions {
   agentRuntime: AgentRuntime;
+  append: (from: ChatMessage['from'], text: string) => number;
   upsertToolMessage: (key: string, tool: ToolCallState) => number;
   setLoadingVariant: React.Dispatch<React.SetStateAction<'thinking' | 'tool'>>;
   setAwaitingReply: React.Dispatch<React.SetStateAction<boolean>>;
@@ -20,6 +21,7 @@ export interface UseSubagentTraceOptions {
 
 export function useSubagentTrace({
   agentRuntime,
+  append,
   upsertToolMessage,
   setLoadingVariant,
   setAwaitingReply,
@@ -37,10 +39,13 @@ export function useSubagentTrace({
         upsertToolMessage,
         setLoadingVariant,
         setAwaitingReply,
-        setStreamingMessageId
+        setStreamingMessageId,
+        appendSystem: (text) => {
+          append('system', text);
+        }
       });
     });
-  }, [agentRuntime, upsertToolMessage, setAwaitingReply, setLoadingVariant, setStreamingMessageId]);
+  }, [agentRuntime, append, upsertToolMessage, setAwaitingReply, setLoadingVariant, setStreamingMessageId]);
 
   // Prune finished subagent cards (keep ~60s; keep while expanded).
   useEffect(() => {

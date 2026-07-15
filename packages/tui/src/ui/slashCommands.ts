@@ -64,6 +64,11 @@ export function listSlashCommands(): SlashCommand[] {
       category: 'inspection'
     },
     {
+      name: '/compact',
+      description: t('slash.compact.desc'),
+      category: 'inspection'
+    },
+    {
       name: '/trace',
       description: t('slash.trace.desc'),
       usage: '/trace [runId]',

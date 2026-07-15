@@ -1,14 +1,12 @@
-import { join } from 'node:path';
-
 import {
   connectAndRegisterMcpTools,
   createBuiltinTools,
   createDefaultSubagentRunner,
   createLlmClientFromKrossConfig,
   createLlmClientFromEnv,
-  JsonlTraceStore,
   loadKrossConfig,
   ObservableTraceStore,
+  SessionTraceStore,
   TodoStore,
   ToolGateway,
   type AgentRuntimeOptions,
@@ -30,6 +28,7 @@ export interface RuntimeTooling {
   /** Update LLM used by Task subagents (e.g. after /import). */
   setLlmClient: (client: LlmClient | undefined) => void;
   mcpManager?: McpManager;
+  closeTraceStore: () => void;
   close: () => Promise<void>;
 }
 
@@ -61,7 +60,7 @@ export function createRuntimeOptionsFromEnv(
   let traceStore = tooling?.traceStore;
   let todoStore = tooling?.todoStore;
   if (!toolGateway || !traceStore || !todoStore) {
-    const created = createLocalTooling(cwd, llmClient);
+    const created = createLocalTooling(cwd, llmClient, options);
     toolGateway = created.toolGateway;
     traceStore = created.traceStore;
     todoStore = created.todoStore;
@@ -93,7 +92,7 @@ export async function bootstrapRuntimeTooling(
   const llmClient =
     createLlmClientFromEnv(env, undefined, savedConfig?.llm?.contextWindow) ??
     createLlmClientFromKrossConfig(savedConfig);
-  const created = createLocalTooling(cwd, llmClient);
+  const created = createLocalTooling(cwd, llmClient, options);
   const mcpManager = await connectAndRegisterMcpTools(created.toolGateway, {
     workspaceRoot: cwd,
     env,
@@ -110,7 +109,9 @@ export async function bootstrapRuntimeTooling(
     todoStore: created.todoStore,
     setLlmClient: created.setLlmClient,
     mcpManager,
+    closeTraceStore: created.closeTraceStore,
     close: async () => {
+      created.closeTraceStore();
       await mcpManager.close();
     }
   };
@@ -118,16 +119,20 @@ export async function bootstrapRuntimeTooling(
 
 function createLocalTooling(
   cwd: string,
-  initialLlmClient?: LlmClient
+  initialLlmClient?: LlmClient,
+  options: CreateRuntimeConfigOptions = {}
 ): {
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
   todoStore: TodoStore;
   setLlmClient: (client: LlmClient | undefined) => void;
+  closeTraceStore: () => void;
 } {
-  const traceStore = new ObservableTraceStore(
-    new JsonlTraceStore(join(cwd, 'runs'))
-  );
+  const innerTraceStore = new SessionTraceStore({
+    workspacePath: cwd,
+    krossHome: options.krossHome
+  });
+  const traceStore = new ObservableTraceStore(innerTraceStore);
   const toolGateway = new ToolGateway({
     traceStore,
     defaultTimeoutMs: 120_000
@@ -157,6 +162,9 @@ function createLocalTooling(
     todoStore,
     setLlmClient: (client) => {
       subagentDeps.llmClient = client;
+    },
+    closeTraceStore: () => {
+      innerTraceStore.close();
     }
   };
 }

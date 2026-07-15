@@ -316,10 +316,10 @@ export function formatLocationLabel(input: {
 export function contextUsageTone(
   ratio: number
 ): typeof theme.statusReady | typeof theme.statusWarn | typeof theme.statusError | typeof theme.chip {
-  if (ratio >= 0.85) {
+  if (ratio >= 1) {
     return theme.statusError;
   }
-  if (ratio >= 0.6) {
+  if (ratio >= 0.8) {
     return theme.statusWarn;
   }
   if (ratio > 0) {

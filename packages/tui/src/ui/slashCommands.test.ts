@@ -11,6 +11,7 @@ describe('slashCommands', () => {
     expect(slashCommands.some((command) => command.name === '/perm')).toBe(true);
     expect(slashCommands.some((command) => command.name === '/lang')).toBe(true);
     expect(formatSlashHelp()).toContain('/context');
+    expect(formatSlashHelp()).toContain('/compact');
     expect(formatSlashHelp()).toContain('/resume [sessionId]');
     expect(formatSlashHelp()).toContain('/lang zh|en');
   });
@@ -55,7 +56,7 @@ describe('slashCommands', () => {
 
     const result = getSuggestions('/', { limit: 8 });
     expect(result.commands).toHaveLength(8);
-    expect(result.hiddenCount).toBe(4);
+    expect(result.hiddenCount).toBe(5);
     expect(result.commands.map((command: any) => command.category)).toEqual([
       'common',
       'common',

@@ -286,6 +286,7 @@ export function App({
     toggleSubagentExpand
   } = useSubagentTrace({
     agentRuntime,
+    append,
     upsertToolMessage,
     setLoadingVariant,
     setAwaitingReply,

@@ -1,4 +1,4 @@
-import type { ContextManager, ContextSnapshot } from '../context/contextManager';
+import type { ContextSnapshot, SessionContext } from '../context/sessionContext';
 import type { AgentMode, AgentResult, TraceEvent } from '../domain';
 import type { LlmClient } from '../llm/types';
 import type { TodoStore } from '../todo/todoStore';
@@ -9,7 +9,9 @@ import type { GitRunner } from '../workspace/workspaceDiff';
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
   llmClient?: LlmClient;
-  contextManager?: ContextManager;
+  sessionContext?: SessionContext;
+  /** @deprecated 使用 sessionContext */
+  contextManager?: SessionContext;
   toolGateway?: ToolGateway;
   maxToolIterations?: number;
   createRunId?: () => string;

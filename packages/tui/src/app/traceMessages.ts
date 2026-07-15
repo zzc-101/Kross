@@ -1,5 +1,7 @@
 import {
+  formatCompactCount,
   formatToolInputPreview as formatCoreToolInputPreview,
+  t,
   type AgentResult,
   type TraceEvent
 } from '@kross/core';
@@ -14,11 +16,20 @@ export function handleTraceEvent(
     setLoadingVariant: (variant: 'thinking' | 'tool') => void;
     setAwaitingReply: (value: boolean) => void;
     setStreamingMessageId: (id: number | undefined) => void;
+    appendSystem?: (text: string) => void;
   }
 ): void {
   // Subagent traffic shares ObservableTraceStore but must not paint into the
   // main transcript (panel uses applySubagentTraceEvent instead).
   if (isSubagentTraceEvent(event)) {
+    return;
+  }
+
+  if (event.type === 'context.compacted') {
+    const notice = formatContextCompactedNotice(event.payload);
+    if (notice && handlers.appendSystem) {
+      handlers.appendSystem(notice);
+    }
     return;
   }
 
@@ -146,6 +157,37 @@ export function appendApprovalResult(
   if (result.summary.trim().length > 0) {
     append('agent', result.summary);
   }
+}
+
+function formatContextCompactedNotice(
+  payload: Record<string, unknown>
+): string | undefined {
+  if (payload.compacted !== true) {
+    return undefined;
+  }
+  const stage = formatGovernanceStageLabel(payload.stage);
+  const before =
+    typeof payload.tokensBefore === 'number' ? payload.tokensBefore : 0;
+  const after =
+    typeof payload.tokensAfter === 'number' ? payload.tokensAfter : 0;
+  return t('context.compactedNotice', {
+    stage,
+    before: formatCompactCount(before),
+    after: formatCompactCount(after)
+  });
+}
+
+function formatGovernanceStageLabel(stage: unknown): string {
+  if (stage === 'tool-aging') {
+    return 'Stage1';
+  }
+  if (stage === 'turn-compaction') {
+    return 'Stage2';
+  }
+  if (stage === 'hard-truncation') {
+    return 'Stage3';
+  }
+  return typeof stage === 'string' ? stage : '-';
 }
 
 function formatToolInputPreview(

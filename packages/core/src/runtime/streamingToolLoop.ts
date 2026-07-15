@@ -3,6 +3,7 @@ import {
   type AgentMode,
   type AgentResult
 } from '../domain';
+import type { BuildContextInput, SessionContext } from '../context/sessionContext';
 import type { LlmClient, LlmMessage, LlmToolCall } from '../llm/types';
 import type { ToolGateway, ToolMetadata } from '../tools/toolGateway';
 import type { AgentRunStreamEvent } from './agentRuntimeTypes';
@@ -21,7 +22,7 @@ export { SOFT_LAND_FALLBACK };
 
 export type ToolBatchOutcome =
   | { kind: 'completed'; toolMessages: LlmMessage[] }
-  | { kind: 'approval'; result: AgentResult };
+  | { kind: 'approval'; result: AgentResult; completedToolMessages: LlmMessage[] };
 
 export type LlmStreamPurpose = 'planner' | 'planner-tool-followup';
 
@@ -41,9 +42,10 @@ export interface StreamingToolLoopHandlers {
 export interface StreamingToolLoopParams {
   runId: string;
   mode: Exclude<AgentMode, 'auto'>;
-  /** 本轮 run 的用户原始输入；审批挂起/续跑时沿用同一值写入对话历史 */
+  /** 本轮 run 的用户原始输入；审批挂起/续跑时沿用同一值 */
   originalUserInput: string;
-  messages: LlmMessage[];
+  sessionContext: SessionContext;
+  buildContextInput: BuildContextInput;
   tools: ToolMetadata[];
   startIteration: number;
   /** 首轮 stream 的 purpose；后续轮次固定为 planner-tool-followup */
@@ -71,8 +73,6 @@ export interface StreamingToolLoopDeps {
     mode: Exclude<AgentMode, 'auto'>;
     originalUserInput: string;
     calls: LlmToolCall[];
-    completedToolMessages: LlmMessage[];
-    messages: LlmMessage[];
     tools: ToolMetadata[];
     iteration: number;
   }): Promise<ToolBatchOutcome>;
@@ -84,24 +84,35 @@ export interface StreamingToolLoopDeps {
   }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>>;
   attachChangedFiles(result: AgentResult): Promise<AgentResult>;
   toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined;
+  onContextMaintained?(
+    runId: string,
+    maintenance: import('../context/contextGovernor').ContextMaintenanceResult[]
+  ): Promise<void>;
 }
 
 /**
- * 共享的工具调用循环：stream 模型 → 累积 delta → 触顶软着陆 → 执行工具 →
- * 审批挂起 → 回填 tool messages 再问模型 → 无 tool_calls 时产出最终 AgentResult。
+ * 共享的工具调用循环：每轮从 SessionContext.prepareRequest 取消息；
+ * assistant / tool 结果写入 Thread，不再局部累积 messages。
  */
 export async function* runStreamingToolLoop(
   deps: StreamingToolLoopDeps,
   params: StreamingToolLoopParams
 ): AsyncIterable<AgentRunStreamEvent> {
   const maxIterations = deps.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
-  let messages = params.messages;
+  const { sessionContext, buildContextInput } = params;
   let iteration = params.startIteration;
   let fullText = '';
   let fullThinking = '';
 
   try {
     while (true) {
+      sessionContext.setIteration(iteration);
+      const prepared = await sessionContext.prepareRequest(buildContextInput);
+      const messages = prepared.messages;
+      if (deps.onContextMaintained && prepared.maintenance.length > 0) {
+        await deps.onContextMaintained(params.runId, prepared.maintenance);
+      }
+
       let turnText = '';
       let turnThinking = '';
       const toolCalls: LlmToolCall[] = [];
@@ -142,6 +153,11 @@ export async function* runStreamingToolLoop(
           toolCalls.push(chunk.call);
         }
       }
+
+      sessionContext.calibrateFromUsage(
+        deps.llmClient.lastUsage?.inputTokens,
+        messages
+      );
 
       const completedEventType =
         purpose === 'planner'
@@ -196,6 +212,9 @@ export async function* runStreamingToolLoop(
       }
 
       if (toolCalls.length === 0 || !deps.toolGateway) {
+        if (turnText.trim().length > 0) {
+          sessionContext.appendAssistant(turnText);
+        }
         break;
       }
 
@@ -211,22 +230,32 @@ export async function* runStreamingToolLoop(
         calls: toolCalls.map((call) => ({ id: call.id, name: call.name }))
       });
 
-      const assistantMessage: LlmMessage = {
-        role: 'assistant',
-        content: turnText,
-        toolCalls
-      };
-      const batchMessages: LlmMessage[] = [...messages, assistantMessage];
+      sessionContext.appendAssistant(turnText, toolCalls);
+
       const batch = await deps.executeToolBatch({
         runId: params.runId,
         mode: params.mode,
         originalUserInput: params.originalUserInput,
         calls: toolCalls,
-        completedToolMessages: [],
-        messages: batchMessages,
         tools: params.tools,
         iteration
       });
+
+      const completedTools =
+        batch.kind === 'completed'
+          ? batch.toolMessages
+          : batch.completedToolMessages;
+      for (const toolMessage of completedTools) {
+        if (toolMessage.role === 'tool') {
+          sessionContext.appendToolResult({
+            toolCallId: toolMessage.toolCallId,
+            name: toolMessage.name,
+            content: toolMessage.content,
+            iteration
+          });
+        }
+      }
+
       if (batch.kind === 'approval') {
         const approval = await deps.attachChangedFiles(batch.result);
         await deps.record(params.runId, 'run.awaiting_approval', {
@@ -236,7 +265,6 @@ export async function* runStreamingToolLoop(
         return;
       }
 
-      messages = [...batchMessages, ...batch.toolMessages];
       iteration += 1;
     }
   } catch (error) {

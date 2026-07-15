@@ -64,6 +64,7 @@ export const zhCatalog = {
   'slash.lang.desc': '切换界面语言',
   'slash.status.desc': '查看当前运行状态',
   'slash.context.desc': '查看会话上下文占用',
+  'slash.compact.desc': '手动触发轮次压缩',
   'slash.trace.desc': '查看最近运行记录',
   'slash.diff.desc': '查看文件与 Git 变更',
   'slash.perm.desc': '切换工具权限模式',
@@ -189,6 +190,18 @@ export const zhCatalog = {
   'cmd.import.failed': '导入失败：{error}',
   'cmd.import.usage': '用法：{commands} | /import skip',
   'cmd.context.totalChars': '总字符: {chars}',
+  'cmd.context.title': 'Context',
+  'cmd.context.estimated': '预估 token',
+  'cmd.context.budget': '输入预算',
+  'cmd.context.threshold': '压缩阈值',
+  'cmd.context.lastUsage': '上次请求 input',
+  'cmd.context.sections': 'sections (tokens):',
+  'cmd.context.sources': 'sources:',
+  'cmd.context.maintenance': '最近治理:',
+  'cmd.context.noMaintenance': '(none)',
+  'cmd.compact.done':
+    '已压缩 {turns} 轮 · {before} -> {after} tokens（Stage2）',
+  'cmd.compact.nothing': '无可压缩内容（需保留最近 {preserve} 轮全文）',
   'cmd.lang.usage': '用法：/lang zh|en',
   'cmd.lang.current': '当前界面语言：{locale}',
   'cmd.lang.switched': '界面语言已切换为 {locale}',
@@ -199,7 +212,9 @@ export const zhCatalog = {
   'context.restoredTruncated':
     '已恢复会话：模型上下文保留最近 {kept} 条（含摘要），另有 {dropped} 条较早对话已压缩为摘要。',
   'context.restoredHardTrim':
-    '已恢复会话：模型上下文仅保留最近 {kept} 条对话，另有 {dropped} 条较早记录未载入模型。'
+    '已恢复会话：模型上下文仅保留最近 {kept} 条对话，另有 {dropped} 条较早记录未载入模型。',
+  'context.compactedNotice':
+    '上下文已压缩: {stage}, {before} -> {after} tokens'
 } as const satisfies MessageCatalog;
 
 export type MessageKey = keyof typeof zhCatalog;
@@ -250,6 +265,7 @@ export const enCatalog: Record<MessageKey, string> = {
   'slash.lang.desc': 'Switch UI language',
   'slash.status.desc': 'Show current status',
   'slash.context.desc': 'Show context usage',
+  'slash.compact.desc': 'Manually compact conversation turns',
   'slash.trace.desc': 'Show recent run traces',
   'slash.diff.desc': 'Show file and git changes',
   'slash.perm.desc': 'Switch tool permission mode',
@@ -373,6 +389,19 @@ export const enCatalog: Record<MessageKey, string> = {
   'cmd.import.failed': 'Import failed: {error}',
   'cmd.import.usage': 'Usage: {commands} | /import skip',
   'cmd.context.totalChars': 'Total chars: {chars}',
+  'cmd.context.title': 'Context',
+  'cmd.context.estimated': 'Estimated tokens',
+  'cmd.context.budget': 'Input budget',
+  'cmd.context.threshold': 'Compact threshold',
+  'cmd.context.lastUsage': 'Last request input',
+  'cmd.context.sections': 'sections (tokens):',
+  'cmd.context.sources': 'sources:',
+  'cmd.context.maintenance': 'Recent maintenance:',
+  'cmd.context.noMaintenance': '(none)',
+  'cmd.compact.done':
+    'Compacted {turns} turn(s) · {before} -> {after} tokens (Stage2)',
+  'cmd.compact.nothing':
+    'Nothing to compact (keeping latest {preserve} full turns)',
   'cmd.lang.usage': 'Usage: /lang zh|en',
   'cmd.lang.current': 'UI language: {locale}',
   'cmd.lang.switched': 'UI language switched to {locale}',
@@ -382,7 +411,9 @@ export const enCatalog: Record<MessageKey, string> = {
   'context.restoredTruncated':
     'Session restored: model context keeps the latest {kept} items (incl. summary); {dropped} earlier turns were compacted.',
   'context.restoredHardTrim':
-    'Session restored: model context keeps only the latest {kept} turns; {dropped} earlier turns were not loaded into the model.'
+    'Session restored: model context keeps only the latest {kept} turns; {dropped} earlier turns were not loaded into the model.',
+  'context.compactedNotice':
+    'Context compacted: {stage}, {before} -> {after} tokens'
 };
 
 export const catalogs: Record<AppLocale, Record<MessageKey, string>> = {
