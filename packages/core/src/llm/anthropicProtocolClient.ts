@@ -1,3 +1,4 @@
+import { abortableAsyncIterable, throwIfAborted } from '../abort';
 import { ensureOk, defaultFetch, joinUrl } from './http';
 import { parseSse } from './sse';
 import {
@@ -165,6 +166,7 @@ export class AnthropicProtocolClient implements LlmClient {
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    throwIfAborted(request.signal);
     this._lastUsage = undefined;
     const response = await this.fetchImpl(this.url(), {
       method: 'POST',
@@ -178,7 +180,11 @@ export class AnthropicProtocolClient implements LlmClient {
     const pendingToolUses = new Map<number, StreamingToolUseAccumulator>();
     let usage: LlmUsage | undefined;
 
-    for await (const event of parseSse(response)) {
+    for await (const event of abortableAsyncIterable(
+      parseSse(response),
+      request.signal,
+      { idleMs: 180_000, idleMessage: 'LLM stream idle for 180000ms' }
+    )) {
       if (event.event === 'message_stop') {
         this._lastUsage = usage;
         yield { type: 'done', ...(usage ? { usage } : {}) };

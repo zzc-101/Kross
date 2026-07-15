@@ -21,6 +21,7 @@ import {
 } from './piAiConvert';
 import {
   abortReason,
+  abortableAsyncIterable,
   isOperationAborted,
   raceAbort,
   throwIfAborted
@@ -40,6 +41,8 @@ import type {
 import { LlmProviderError } from './types';
 
 const DEFAULT_MAX_TOKENS = 32_768;
+/** 流式两次 chunk 之间最长空闲；超时当作取消，避免半开连接死等 + UI 空转 */
+const STREAM_IDLE_MS = 180_000;
 
 /**
  * LlmClient backed by @earendil-works/pi-ai.
@@ -163,7 +166,12 @@ export class PiAiLlmClient implements LlmClient {
     );
 
     try {
-      for await (const event of stream) {
+      // 每步 next() 与 signal 竞态：否则 provider 半开连接时 for-await 永不返回，
+      // Esc 无效，而 TUI spinner 仍 80ms 全屏重绘把事件循环打满。
+      for await (const event of abortableAsyncIterable(stream, request.signal, {
+        idleMs: STREAM_IDLE_MS,
+        idleMessage: `LLM stream idle for ${STREAM_IDLE_MS}ms`
+      })) {
         throwIfAborted(request.signal);
         const mapped = mapPiStreamEvent(event);
         if (!mapped) {

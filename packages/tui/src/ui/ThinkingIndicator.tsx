@@ -12,7 +12,8 @@ export function ThinkingIndicator({
   active: boolean;
   variant?: 'thinking' | 'tool' | 'cancelling';
 }) {
-  const frame = usePulse(symbols.busyFrames, 80, active);
+  // 200ms 足够动画；过密脉冲会在 await LLM 时触发 Ink 全屏 diff，打满事件循环导致 Esc 失灵
+  const frame = usePulse(symbols.busyFrames, 200, active);
   const [startedAt, setStartedAt] = useState<number>();
   const phases = useMemo(
     () =>

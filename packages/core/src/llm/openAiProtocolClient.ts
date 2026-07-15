@@ -1,5 +1,6 @@
 import { ensureOk, defaultFetch, joinUrl } from './http';
 import { parseSse } from './sse';
+import { abortableAsyncIterable, throwIfAborted } from '../abort';
 import {
   DEFAULT_THINKING_EFFORT,
   type ThinkingEffort
@@ -156,6 +157,7 @@ export class OpenAiProtocolClient implements LlmClient {
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    throwIfAborted(request.signal);
     this._lastUsage = undefined;
     const response = await this.fetchImpl(this.url(), {
       method: 'POST',
@@ -169,7 +171,11 @@ export class OpenAiProtocolClient implements LlmClient {
     const pendingToolCalls = new Map<number, StreamingToolCallAccumulator>();
     let usage: LlmUsage | undefined;
 
-    for await (const event of parseSse(response)) {
+    for await (const event of abortableAsyncIterable(
+      parseSse(response),
+      request.signal,
+      { idleMs: 180_000, idleMessage: 'LLM stream idle for 180000ms' }
+    )) {
       if (event.data === '[DONE]') {
         yield* flushToolCalls(pendingToolCalls);
         this._lastUsage = usage;

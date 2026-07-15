@@ -62,28 +62,91 @@ export function abortMessage(
  */
 export function raceAbort<T>(
   promise: Promise<T>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: { idleMs?: number; idleMessage?: string }
 ): Promise<T> {
-  if (!signal) {
-    return promise;
-  }
-  if (signal.aborted) {
+  if (signal?.aborted) {
     return Promise.reject(abortReason(signal));
   }
+
+  const idleMs = options?.idleMs;
+  if (!signal && (idleMs === undefined || idleMs <= 0)) {
+    return promise;
+  }
+
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      reject(abortReason(signal));
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(value);
-      },
-      (error) => {
-        signal.removeEventListener('abort', onAbort);
-        reject(error);
+    let settled = false;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const settle = (fn: () => void) => {
+      if (settled) {
+        return;
       }
+      settled = true;
+      if (idleTimer !== undefined) {
+        clearTimeout(idleTimer);
+      }
+      if (signal) {
+        signal.removeEventListener('abort', onAbort);
+      }
+      fn();
+    };
+
+    const onAbort = () => {
+      settle(() => reject(abortReason(signal)));
+    };
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    if (idleMs !== undefined && idleMs > 0) {
+      idleTimer = setTimeout(() => {
+        settle(() =>
+          reject(
+            new OperationAbortedError(
+              options?.idleMessage ?? `Idle timeout after ${idleMs}ms`
+            )
+          )
+        );
+      }, idleMs);
+    }
+
+    promise.then(
+      (value) => settle(() => resolve(value)),
+      (error) => settle(() => reject(error))
     );
   });
+}
+
+/**
+ * 安全迭代异步流：每一步 next() 都与 AbortSignal（及可选空闲超时）竞态，
+ * 避免 SSE/provider 半开连接导致 for-await 永久挂死、UI 空转。
+ */
+export async function* abortableAsyncIterable<T>(
+  source: AsyncIterable<T>,
+  signal?: AbortSignal,
+  options?: { idleMs?: number; idleMessage?: string }
+): AsyncIterable<T> {
+  const iterator = source[Symbol.asyncIterator]();
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const step = await raceAbort(
+        Promise.resolve(iterator.next()),
+        signal,
+        options
+      );
+      if (step.done) {
+        return;
+      }
+      yield step.value;
+    }
+  } finally {
+    try {
+      await iterator.return?.();
+    } catch {
+      // ignore close errors
+    }
+  }
 }

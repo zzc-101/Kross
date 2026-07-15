@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   OperationAbortedError,
   abortReason,
+  abortableAsyncIterable,
   isOperationAborted,
   raceAbort
 } from './abort';
@@ -29,6 +30,38 @@ describe('raceAbort', () => {
     await expect(
       raceAbort(Promise.resolve('ok'), controller.signal)
     ).resolves.toBe('ok');
+  });
+
+  it('rejects on idle timeout even without a signal', async () => {
+    await expect(
+      raceAbort(new Promise(() => undefined), undefined, {
+        idleMs: 20,
+        idleMessage: 'idle'
+      })
+    ).rejects.toThrow('idle');
+  });
+});
+
+describe('abortableAsyncIterable', () => {
+  it('stops yielding when abort fires between chunks', async () => {
+    const controller = new AbortController();
+    async function* source() {
+      yield 1;
+      await new Promise<void>(() => undefined); // hang
+      yield 2;
+    }
+
+    const collected: number[] = [];
+    const iter = abortableAsyncIterable(source(), controller.signal);
+    const run = (async () => {
+      for await (const value of iter) {
+        collected.push(value);
+        controller.abort(new Error('stop-iter'));
+      }
+    })();
+
+    await expect(run).rejects.toThrow('stop-iter');
+    expect(collected).toEqual([1]);
   });
 });
 
