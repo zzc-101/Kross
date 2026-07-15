@@ -11,6 +11,7 @@ import {
 import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createListTool } from './list';
+import { createRgTool } from './rg';
 import { createMoveTool } from './move';
 import { createReadTool } from './read';
 import { createStatTool } from './stat';
@@ -24,6 +25,7 @@ import { createWriteTool } from './write';
 import type { TodoStore } from '../../todo/todoStore';
 
 export { createExploreTools, createSubagentTools } from './exploreTools';
+export { createRgTool, buildRgArgs } from './rg';
 export {
   createDefaultSubagentRunner,
   createTaskTool,
@@ -40,6 +42,7 @@ export const builtinToolNames = [
   'Move',
   'Glob',
   'Grep',
+  'Rg',
   'List',
   'Stat',
   'GitStatus',
@@ -77,6 +80,7 @@ export function createBuiltinTools(
     createMoveTool(workspaceRoot),
     createGlobTool(workspaceRoot),
     createGrepTool(workspaceRoot),
+    createRgTool(workspaceRoot),
     createListTool(workspaceRoot),
     createStatTool(workspaceRoot),
     createGitStatusTool(workspaceRoot),

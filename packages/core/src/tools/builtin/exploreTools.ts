@@ -8,6 +8,7 @@ import {
 import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createListTool } from './list';
+import { createRgTool } from './rg';
 import { createReadTool } from './read';
 import { createStatTool } from './stat';
 import { createWriteTool } from './write';
@@ -22,6 +23,7 @@ export function createSubagentTools(workspaceRoot: string): ToolDefinition[] {
     createReadTool(workspaceRoot),
     createGlobTool(workspaceRoot),
     createGrepTool(workspaceRoot),
+    createRgTool(workspaceRoot),
     createListTool(workspaceRoot),
     createStatTool(workspaceRoot),
     createGitStatusTool(workspaceRoot),

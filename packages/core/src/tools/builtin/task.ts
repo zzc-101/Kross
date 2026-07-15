@@ -40,7 +40,7 @@ export function createTaskTool(
     name: 'Task',
     description:
       '派生子代理在独立上下文中完成聚焦任务并返回摘要。' +
-      '子代理可用 Read/Glob/Grep/List/Stat/Git* 与 Edit/Write；' +
+      '子代理可用 Read/Glob/Grep/Rg/List/Stat/Git* 与 Edit/Write；' +
       '不可用 Bash/Delete/Move/Task 等高危工具，子代理内无需用户审批。' +
       '子代理不能再派生子代理。',
     risk: 'read',

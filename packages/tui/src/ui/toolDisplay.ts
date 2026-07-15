@@ -4,6 +4,7 @@ const AGGREGATABLE = new Set([
   'Read',
   'Glob',
   'Grep',
+  'Rg',
   'fs.read',
   'fs.glob',
   'fs.grep'
@@ -169,6 +170,9 @@ export function formatToolTitle(tool: ToolCallState): string {
     }
     if (name === 'Grep' || name.toLowerCase() === 'grep') {
       return count === 1 ? `Grep ${items[0]?.path ?? ''}`.trim() : `Grep ${count} searches`;
+    }
+    if (name === 'Rg' || name.toLowerCase() === 'rg') {
+      return count === 1 ? `Rg ${items[0]?.path ?? ''}`.trim() : `Rg ${count} searches`;
     }
     return count === 1 ? name : `${name} ×${count}`;
   }

@@ -163,7 +163,7 @@ describe('runSubagent', () => {
     try {
       const tools = createSubagentTools(workspace).map((tool) => tool.name);
       expect(tools).toEqual(
-        expect.arrayContaining(['Read', 'Edit', 'Write', 'Glob', 'Grep'])
+        expect.arrayContaining(['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Rg'])
       );
       expect(tools).not.toContain('Bash');
       expect(tools).not.toContain('Delete');

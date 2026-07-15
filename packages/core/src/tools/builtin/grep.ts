@@ -23,7 +23,9 @@ export function createGrepTool(workspaceRoot: string): ToolDefinition<GrepInput>
   return {
     name: 'Grep',
     description:
-      '在工作区内递归搜索文件内容，返回匹配行（相对路径:行号:内容）。可用 include 按文件名 glob 过滤。',
+      '在工作区内递归搜索文件内容（纯 JS 实现，不依赖外部二进制）。' +
+      '返回匹配行（相对路径:行号:内容）。可用 include 按文件名 glob 过滤。' +
+      '优先使用更快的 Rg（ripgrep）；仅在 rg 不可用时用本工具。',
     risk: 'read',
     category: 'filesystem',
     inputSchema: z.object({

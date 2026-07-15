@@ -61,6 +61,7 @@ const readLikeTools = new Set([
   'Read',
   'Glob',
   'Grep',
+  'Rg',
   'List',
   'Stat',
   'GitStatus',

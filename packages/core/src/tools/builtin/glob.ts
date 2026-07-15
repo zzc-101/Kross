@@ -93,7 +93,9 @@ export function createGlobTool(workspaceRoot: string): ToolDefinition<GlobInput>
   return {
     name: 'Glob',
     description:
-      '按 glob 模式（支持 *、**、?）递归列出工作区内的文件路径，返回相对路径，每行一个。无斜杠的模式（如 *.ts、test.txt）会自动按 **/pattern 递归匹配；默认跳过 node_modules、.git 等目录。',
+      '按 glob 模式（支持 *、**、?）递归列出工作区内的文件路径，返回相对路径，每行一个。' +
+      '无斜杠的模式（如 *.ts、test.txt）会自动按 **/pattern 递归匹配；默认跳过 node_modules、.git 等目录。' +
+      '优先使用 Rg（filesOnly=true + glob）以获得更快速度与 gitignore 支持；本工具为纯 JS 回退。',
     risk: 'read',
     category: 'filesystem',
     inputSchema: z.object({
