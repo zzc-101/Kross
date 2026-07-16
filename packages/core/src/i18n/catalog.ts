@@ -66,6 +66,7 @@ export const zhCatalog = {
   'slash.lang.desc': '切换界面语言',
   'slash.status.desc': '查看当前运行状态',
   'slash.context.desc': '查看会话上下文占用',
+  'slash.instructions.desc': '查看工作区项目指令来源',
   'slash.compact.desc': '手动触发轮次压缩',
   'slash.trace.desc': '查看最近运行记录',
   'slash.diff.desc': '查看文件与 Git 变更',
@@ -225,6 +226,10 @@ export const zhCatalog = {
   'cmd.context.sources': 'sources:',
   'cmd.context.maintenance': '最近治理:',
   'cmd.context.noMaintenance': '(none)',
+  'cmd.instructions.title': 'Project instructions',
+  'cmd.instructions.loaded': 'loaded: {files} files, {used} / {limit} bytes',
+  'cmd.instructions.none': '未发现工作区根级项目指令。',
+  'cmd.instructions.diagnostics': 'diagnostics:',
   'cmd.compact.done':
     '已压缩 {turns} 轮 · {before} -> {after} tokens（Stage2）',
   'cmd.compact.nothing': '无可压缩内容（需保留最近 {preserve} 轮全文）',
@@ -297,6 +302,7 @@ export const enCatalog: Record<MessageKey, string> = {
   'slash.lang.desc': 'Switch UI language',
   'slash.status.desc': 'Show current status',
   'slash.context.desc': 'Show context usage',
+  'slash.instructions.desc': 'Show workspace project instruction sources',
   'slash.compact.desc': 'Manually compact conversation turns',
   'slash.trace.desc': 'Show recent run traces',
   'slash.diff.desc': 'Show file and git changes',
@@ -454,6 +460,10 @@ export const enCatalog: Record<MessageKey, string> = {
   'cmd.context.sources': 'sources:',
   'cmd.context.maintenance': 'Recent maintenance:',
   'cmd.context.noMaintenance': '(none)',
+  'cmd.instructions.title': 'Project instructions',
+  'cmd.instructions.loaded': 'loaded: {files} files, {used} / {limit} bytes',
+  'cmd.instructions.none': 'No root-level project instructions found.',
+  'cmd.instructions.diagnostics': 'diagnostics:',
   'cmd.compact.done':
     'Compacted {turns} turn(s) · {before} -> {after} tokens (Stage2)',
   'cmd.compact.nothing':

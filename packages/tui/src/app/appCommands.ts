@@ -20,6 +20,7 @@ import {
   type ContextSection,
   type ExternalAgentSource,
   type PermissionMode,
+  type ProjectInstructionsSnapshot,
   type ThinkingEffort
 } from '@kross/core';
 
@@ -149,6 +150,14 @@ export function handleCommand(
     return true;
   }
 
+  if (value === '/instructions') {
+    const snapshot = runtime.refreshProjectInstructions();
+    append('agent', formatProjectInstructionsInspection(snapshot), {
+      expanded: true
+    });
+    return true;
+  }
+
   if (value === '/expand') {
     toggleLastCollapsible();
     append('system', t('cmd.expandDone'));
@@ -230,6 +239,7 @@ export function handleCommand(
     try {
       const added = roots.add(argument);
       runtime.syncProjectRegistrySource();
+      runtime.refreshProjectInstructions();
       append(
         'system',
         t('cmd.addDir.ok', { id: added.id, path: added.path })
@@ -280,6 +290,7 @@ export function handleCommand(
         append('system', t('cmd.removeDir.missing', { target: argument }));
       } else {
         runtime.syncProjectRegistrySource();
+        runtime.refreshProjectInstructions();
         append('system', t('cmd.removeDir.ok', { target: argument }));
       }
     } catch (error) {
@@ -561,6 +572,49 @@ function formatContextInspection(
   ];
 
   return lines.filter((line): line is string => line !== undefined).join('\n');
+}
+
+export function formatProjectInstructionsInspection(
+  snapshot: ProjectInstructionsSnapshot
+): string {
+  const lines = [
+    t('cmd.instructions.title'),
+    t('cmd.instructions.loaded', {
+      files: snapshot.files.length,
+      used: formatCompactCount(snapshot.totalInjectedBytes),
+      limit: formatCompactCount(64 * 1024)
+    })
+  ];
+
+  if (snapshot.files.length === 0) {
+    lines.push(t('cmd.instructions.none'));
+  } else {
+    lines.push(
+      ...snapshot.files.map((file, index) =>
+        [
+          `${index + 1}. root=${file.rootId}`,
+          `source=${file.filename}`,
+          `precedence=${file.precedence}`,
+          `bytes=${formatCompactCount(file.injectedBytes)}`,
+          file.truncated ? 'truncated' : undefined
+        ]
+          .filter((part): part is string => part !== undefined)
+          .join(' ')
+      )
+    );
+  }
+
+  if (snapshot.diagnostics.length > 0) {
+    lines.push('', t('cmd.instructions.diagnostics'));
+    lines.push(
+      ...snapshot.diagnostics.map((item) => {
+        const source = item.path.replace(/^.*[\\/]/, '');
+        return `- root=${item.rootId} source=${source} code=${item.code}: ${item.message}`;
+      })
+    );
+  }
+
+  return lines.join('\n');
 }
 
 export function formatCompactResult(
