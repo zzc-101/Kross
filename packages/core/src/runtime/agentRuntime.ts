@@ -21,15 +21,8 @@ import {
 import {
   formatContextUsage
 } from '../llm/modelContextWindows';
-import {
-  cycleThinkingEffort,
-  DEFAULT_THINKING_EFFORT,
-  formatModelEffortLabel,
-  type ThinkingEffort
-} from '../llm/thinkingEffort';
-import type {
-  LlmClient
-} from '../llm/types';
+import type { ThinkingEffort } from '../llm/thinkingEffort';
+import type { LlmClient } from '../llm/types';
 import { detectMode } from '../modes/modeDetector';
 import {
   CONDUCTOR_PLAN_SYSTEM_PROMPT,
@@ -43,19 +36,12 @@ import {
   type ToolMetadata
 } from '../tools/toolGateway';
 import { createSetModeTool } from '../tools/builtin/setMode';
-import {
-  createApprovalPolicy,
-  type PermissionMode
-} from '../tools/permissionModes';
+import type { PermissionMode } from '../tools/permissionModes';
 import {
   isObservableTraceStore,
   type TraceEventListener
 } from '../trace/observableTraceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
-import {
-  formatRegistryForPrompt,
-  selectActiveProject
-} from '../workspace/projectRegistry';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { ListRunsOptions } from '../trace/traceStore';
 import type { RunTraceDetail, RunTraceSummary } from '../trace/traceSummary';
@@ -75,6 +61,8 @@ import {
   parseConductorTaskPlanFromText
 } from './conductorOrchestration';
 import { RuntimeInspection } from './runtimeInspection';
+import { ModelSession } from './modelSession';
+import { SessionServices } from './sessionServices';
 import {
   DEFAULT_MAX_TOOL_ITERATIONS,
   PLANNER_SYSTEM_PROMPT,
@@ -107,13 +95,8 @@ export class AgentRuntime extends EventEmitter {
   private readonly toolGateway: ToolGateway | undefined;
   private readonly inspection: RuntimeInspection;
   private readonly toolLoop: RuntimeToolLoop;
-  private permissionMode: PermissionMode = 'default';
-  /** 会话当前 Mode 策略（可被 /mode 或 SetMode 工具修改）。 */
-  private sessionMode: AgentMode = 'auto';
-  /** Held between plan/conductor gate and /approve execution. */
-  private pendingModeExecution:
-    | import('./agentRuntimeTypes').PendingModeExecution
-    | undefined;
+  private readonly modelSession: ModelSession;
+  private readonly sessionServices: SessionServices;
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
@@ -141,12 +124,21 @@ export class AgentRuntime extends EventEmitter {
       interruptTurn: (reason) => this.sessionContext.interruptTurn(reason),
       appendAssistantForCancel: (summary) =>
         this.sessionContext.appendAssistant(summary),
-      syncTodoContext: () => this.syncTodoContextSource(),
+      syncTodoContext: () => this.sessionServices.syncTodoContextSource(),
       onContextMaintained: (runId, maintenance) =>
         this.recordContextMaintenanceEvents(runId, maintenance)
     });
+    this.modelSession = new ModelSession(this.options, (client) => {
+      this.toolLoop.setLlmClient(client);
+      this.sessionContext.setLlmClient(client);
+    });
+    this.sessionServices = new SessionServices({
+      options: this.options,
+      sessionContext: this.sessionContext,
+      toolGateway: this.toolGateway,
+      emitModeChanged: (event) => this.emit('mode.changed', event)
+    });
     if (this.toolGateway) {
-      this.toolGateway.setApprovalPolicy(createApprovalPolicy(this.permissionMode));
       // SetMode 挂在 runtime 上，保证 get/set 与会话状态一致
       if (!this.toolGateway.listTools().some((t) => t.name === 'SetMode')) {
         this.toolGateway.register(
@@ -157,26 +149,19 @@ export class AgentRuntime extends EventEmitter {
         );
       }
     }
-    this.syncProjectRegistrySource();
-    this.syncSessionModeSource();
+    this.sessionServices.syncProjectRegistrySource();
+    this.sessionServices.syncSessionModeSource();
   }
 
   getSessionMode(): AgentMode {
-    return this.sessionMode;
+    return this.sessionServices.getSessionMode();
   }
 
   /**
    * 更新会话 Mode（策略）。同步 context source 并 emit `mode.changed` 供 TUI 刷新。
    */
   setSessionMode(mode: AgentMode): void {
-    if (this.sessionMode === mode) {
-      this.syncSessionModeSource();
-      return;
-    }
-    const previous = this.sessionMode;
-    this.sessionMode = mode;
-    this.syncSessionModeSource();
-    this.emit('mode.changed', { mode, previous });
+    this.sessionServices.setSessionMode(mode);
   }
 
   /** 订阅会话 Mode 变更（TUI 用于刷新页脚）。 */
@@ -189,36 +174,18 @@ export class AgentRuntime extends EventEmitter {
     };
   }
 
-  private syncSessionModeSource(): void {
-    this.sessionContext.addSource({
-      id: 'session-mode',
-      kind: 'user',
-      title: 'Session mode',
-      content: [
-        `当前会话 Mode：${this.sessionMode}`,
-        '- auto：默认 agent 工具环',
-        '- plan：先计划后开发（需确认）',
-        '- conductor：高级模型拆任务 → worker 执行 → 高级模型验收',
-        '用户要求切换时调用 SetMode 工具；多目录用 /add-dir，与 Mode 无关。'
-      ].join('\n'),
-      priority: 97,
-      pinned: true
-    });
-  }
-
   /** Last plan/conductor execution awaiting /approve (if any). */
   getPendingModeExecution(): PendingModeExecution | undefined {
-    return this.pendingModeExecution;
+    return this.sessionServices.getPendingModeExecution();
   }
 
   /** @deprecated use getPendingModeExecution */
   getPendingConductorPlan(): PendingConductorExecution | undefined {
-    const pending = this.pendingModeExecution;
-    return pending?.kind === 'conductor' ? pending : undefined;
+    return this.sessionServices.getPendingConductorPlan();
   }
 
   clearPendingModeExecution(): void {
-    this.pendingModeExecution = undefined;
+    this.sessionServices.clearPendingModeExecution();
   }
 
   clearPendingConductorPlan(): void {
@@ -226,69 +193,50 @@ export class AgentRuntime extends EventEmitter {
   }
 
   getWorkspaceRoots(): WorkspaceRoots | undefined {
-    return this.options.workspaceRoots;
+    return this.sessionServices.getWorkspaceRoots();
   }
 
   getPermissionMode(): PermissionMode {
-    return this.permissionMode;
+    return this.sessionServices.getPermissionMode();
   }
 
   setPermissionMode(mode: PermissionMode): void {
-    this.permissionMode = mode;
-    this.toolGateway?.setApprovalPolicy(createApprovalPolicy(mode));
+    this.sessionServices.setPermissionMode(mode);
   }
 
   getModelLabel(): string {
-    const client = this.options.llmClient;
-    return formatModelEffortLabel(
-      client?.model,
-      client?.thinkingEffort ?? DEFAULT_THINKING_EFFORT
-    );
+    return this.modelSession.getModelLabel();
   }
 
   getThinkingEffort(): ThinkingEffort {
-    return (
-      this.options.llmClient?.thinkingEffort ?? DEFAULT_THINKING_EFFORT
-    );
+    return this.modelSession.getThinkingEffort();
   }
 
   setThinkingEffort(effort: ThinkingEffort): void {
-    const client = this.options.llmClient;
-    if (!client?.setThinkingEffort) {
-      throw new Error('当前 LLM 客户端不支持切换思考强度');
-    }
-    client.setThinkingEffort(effort);
+    this.modelSession.setThinkingEffort(effort);
   }
 
   cycleThinkingEffort(): ThinkingEffort {
-    const next = cycleThinkingEffort(this.getThinkingEffort());
-    this.setThinkingEffort(next);
-    return next;
+    return this.modelSession.cycleThinkingEffort();
   }
 
   getLlmClient(): LlmClient | undefined {
-    return this.options.llmClient;
+    return this.modelSession.getLlmClient();
   }
 
   setLlmClient(client: LlmClient | undefined): void {
-    this.options.llmClient = client;
-    this.toolLoop.setLlmClient(client);
-    this.sessionContext.setLlmClient(client);
+    this.modelSession.setLlmClient(client);
   }
 
   setModel(model: string): void {
-    const client = this.options.llmClient;
-    if (!client?.setModel) {
-      throw new Error('当前 LLM 客户端不支持切换模型');
-    }
-    client.setModel(model);
+    this.modelSession.setModel(model);
   }
 
   restoreConversation(
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
   ): ContextMaintenanceResult {
     const maintenance = this.sessionContext.restoreConversation(messages);
-    this.options.llmClient?.clearLastUsage?.();
+    this.modelSession.getLlmClient()?.clearLastUsage?.();
     this.sessionContext.resetCalibration();
     return maintenance;
   }
@@ -298,7 +246,7 @@ export class AgentRuntime extends EventEmitter {
   }
 
   restoreContextState(state: SessionContextState): boolean {
-    this.options.llmClient?.clearLastUsage?.();
+    this.modelSession.getLlmClient()?.clearLastUsage?.();
     this.sessionContext.resetCalibration();
     return this.sessionContext.restoreState(state);
   }
@@ -329,79 +277,16 @@ export class AgentRuntime extends EventEmitter {
   }
 
   getTodoStore(): import('../todo/todoStore').TodoStore | undefined {
-    return this.options.todoStore;
+    return this.sessionServices.getTodoStore();
   }
 
   syncTodoContextSource(): void {
-    const store = this.options.todoStore;
-    if (!store) {
-      return;
-    }
-    const text = store.formatForPrompt();
-    if (!text) {
-      this.sessionContext.removeSource('session-todos');
-      return;
-    }
-    this.sessionContext.addSource({
-      id: 'session-todos',
-      kind: 'user',
-      title: 'Session todos',
-      content: text,
-      priority: 95,
-      pinned: true
-    });
+    this.sessionServices.syncTodoContextSource();
   }
 
   /** Inject workspace roots + optional project registry into SessionContext (public for /add-dir). */
   syncProjectRegistrySource(): void {
-    const roots = this.options.workspaceRoots;
-    if (roots) {
-      this.sessionContext.addSource({
-        id: 'workspace-roots',
-        kind: 'workspace',
-        title: 'Workspace roots',
-        content: roots.formatForPrompt(),
-        priority: 92,
-        pinned: true
-      });
-    } else {
-      this.sessionContext.removeSource('workspace-roots');
-    }
-
-    const registry = this.options.projectRegistry;
-    if (!registry) {
-      this.sessionContext.removeSource('project-registry');
-      return;
-    }
-    const selection = selectActiveProject(registry, {
-      activeProjectId: this.options.activeProjectId,
-      workspaceRoot: this.options.workspaceRoot
-    });
-    if (!selection) {
-      this.sessionContext.addSource({
-        id: 'project-registry',
-        kind: 'repo',
-        title: 'Project registry',
-        content:
-          'Project registry is configured but no active project could be selected. ' +
-          'Set defaultProjectId or ensure workspace is inside a registered repo path.\n' +
-          `Projects: ${Object.keys(registry.projects).join(', ')}`,
-        priority: 90,
-        pinned: true
-      });
-      return;
-    }
-    this.sessionContext.addSource({
-      id: 'project-registry',
-      kind: 'repo',
-      title: 'Project registry',
-      content: formatRegistryForPrompt(
-        selection,
-        this.options.projectRegistryPath
-      ),
-      priority: 90,
-      pinned: true
-    });
+    this.sessionServices.syncProjectRegistrySource();
   }
 
   getContextUsage(input: {
@@ -423,7 +308,7 @@ export class AgentRuntime extends EventEmitter {
       requestedMode: input.requestedMode,
       currentUserInput: input.currentUserInput
     });
-    const client = this.options.llmClient;
+    const client = this.modelSession.getLlmClient();
     const lastUsageTokens = client?.lastUsage?.inputTokens;
     const usedTokens = snapshot.estimatedTokens;
     const maxTokens = snapshot.inputBudget;
@@ -507,8 +392,8 @@ export class AgentRuntime extends EventEmitter {
       requestedMode: input.requestedMode,
       userInput: input.input,
       planApproved: input.approvals?.plan === true,
-      pending: this.pendingModeExecution,
-      hasLlm: Boolean(this.options.llmClient)
+      pending: this.sessionServices.getPendingModeExecution(),
+      hasLlm: Boolean(this.modelSession.getLlmClient())
     });
     const runId = this.createRunId();
 
@@ -742,7 +627,7 @@ export class AgentRuntime extends EventEmitter {
     userInput: string,
     signal?: AbortSignal
   ): Promise<{ kind: 'chat' | 'plan'; reason: string }> {
-    const client = this.options.llmClient;
+    const client = this.modelSession.getLlmClient();
     if (!client) {
       return isCasualChatInput(userInput)
         ? { kind: 'chat', reason: 'no-llm heuristic' }
@@ -777,7 +662,7 @@ export class AgentRuntime extends EventEmitter {
     signal?: AbortSignal;
     purpose?: string;
   }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>> {
-    const client = this.options.llmClient;
+    const client = this.modelSession.getLlmClient();
     if (!client) {
       return;
     }
@@ -821,12 +706,12 @@ export class AgentRuntime extends EventEmitter {
       '输入 /approve 按该计划开始开发，或 /reject 取消。'
     ].join('\n');
 
-    this.pendingModeExecution = {
+    this.sessionServices.setPendingModeExecution({
       kind: 'plan',
       goal: input.input,
       mode: 'plan',
       planText
-    };
+    });
 
     const cancelled = await this.attachChangedFiles(
       agentResultSchema.parse({
@@ -875,12 +760,12 @@ export class AgentRuntime extends EventEmitter {
       taskIds: plan.tasks.map((t) => t.id)
     });
 
-    this.pendingModeExecution = {
+    this.sessionServices.setPendingModeExecution({
       kind: 'conductor',
       goal: input.input,
       mode: 'conductor',
       plan
-    };
+    });
 
     const cancelled = await this.attachChangedFiles(
       agentResultSchema.parse({
@@ -910,7 +795,7 @@ export class AgentRuntime extends EventEmitter {
     goal: string,
     signal?: AbortSignal
   ): Promise<import('./conductorOrchestration').ConductorTaskPlan> {
-    const client = this.options.llmClient;
+    const client = this.modelSession.getLlmClient();
     if (!client) {
       return parseConductorTaskPlanFromText(goal, '');
     }
@@ -950,7 +835,7 @@ export class AgentRuntime extends EventEmitter {
     await this.record(runId, 'conductor.execution.started', {
       taskIds: plan.tasks.map((t) => t.id),
       workerModel: this.options.workerLlmClient?.model,
-      seniorModel: this.options.llmClient?.model
+      seniorModel: this.modelSession.getLlmClient()?.model
     });
 
     const runSubagent = this.options.runSubagent;
@@ -972,7 +857,7 @@ export class AgentRuntime extends EventEmitter {
         })
       );
       await this.record(runId, 'run.completed', { ...failed });
-      this.pendingModeExecution = undefined;
+      this.sessionServices.clearPendingModeExecution();
       this.finishTurnWithAssistant(goal, failed.summary);
       yield { type: 'result', result: failed };
       return;
@@ -1060,7 +945,7 @@ export class AgentRuntime extends EventEmitter {
       .join('\n\n');
 
     let reviewText = '';
-    if (this.options.llmClient) {
+    if (this.modelSession.getLlmClient()) {
       for await (const event of this.streamPlainAssistantText({
         systemPrompt: CONDUCTOR_REVIEW_SYSTEM_PROMPT,
         userText: `总目标：\n${goal}\n\nWorker 结果：\n${digest}`,
@@ -1100,8 +985,8 @@ export class AgentRuntime extends EventEmitter {
         report: {
           changedFiles: allChanged,
           evidence: [
-            `senior=${this.options.llmClient?.model ?? 'n/a'}`,
-            `worker=${this.options.workerLlmClient?.model ?? this.options.llmClient?.model ?? 'n/a'}`,
+            `senior=${this.modelSession.getLlmClient()?.model ?? 'n/a'}`,
+            `worker=${this.options.workerLlmClient?.model ?? this.modelSession.getLlmClient()?.model ?? 'n/a'}`,
             ...allEvidence
           ],
           risks: allRisks
@@ -1115,7 +1000,7 @@ export class AgentRuntime extends EventEmitter {
       tasks: taskOutcomes.map((o) => ({ id: o.taskId, status: o.status }))
     });
     await this.record(runId, 'run.completed', { ...result });
-    this.pendingModeExecution = undefined;
+    this.sessionServices.clearPendingModeExecution();
     this.finishTurnWithAssistant(goal, result.summary);
     yield { type: 'result', result };
   }
@@ -1162,12 +1047,12 @@ export class AgentRuntime extends EventEmitter {
     tools: ToolMetadata[];
   } {
     const tools = this.toolGateway?.listTools({ mode }) ?? [];
-    this.syncTodoContextSource();
-    this.syncProjectRegistrySource();
-    this.syncSessionModeSource();
+    this.sessionServices.syncTodoContextSource();
+    this.sessionServices.syncProjectRegistrySource();
+    this.sessionServices.syncSessionModeSource();
     return {
       buildContextInput: {
-        systemPrompt: `${PLANNER_SYSTEM_PROMPT}\n会话 Mode：${this.sessionMode}；本轮策略：${mode}。`,
+        systemPrompt: `${PLANNER_SYSTEM_PROMPT}\n会话 Mode：${this.sessionServices.getSessionMode()}；本轮策略：${mode}。`,
         mode,
         tools
       },
@@ -1216,7 +1101,7 @@ export class AgentRuntime extends EventEmitter {
             }).mode
           : 'auto'
         : input.requestedMode;
-    this.syncTodoContextSource();
+    this.sessionServices.syncTodoContextSource();
     const tools = this.toolGateway?.listTools({ mode }) ?? [];
     return {
       mode,
@@ -1393,5 +1278,3 @@ export function parsePlanIntentKind(
   }
   return undefined;
 }
-
-
