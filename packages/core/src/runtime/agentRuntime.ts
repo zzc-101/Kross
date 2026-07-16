@@ -36,6 +36,7 @@ import {
   type TraceEventListener
 } from '../trace/observableTraceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
+import type { ProjectInstructionsSnapshot } from '../workspace/projectInstructions';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { ListRunsOptions } from '../trace/traceStore';
 import type { RunTraceDetail, RunTraceSummary } from '../trace/traceSummary';
@@ -157,6 +158,7 @@ export class AgentRuntime extends EventEmitter {
       }
     }
     this.sessionServices.syncProjectRegistrySource();
+    this.sessionServices.refreshProjectInstructions();
     this.sessionServices.syncSessionModeSource();
   }
 
@@ -294,6 +296,14 @@ export class AgentRuntime extends EventEmitter {
   /** Inject workspace roots + optional project registry into SessionContext (public for /add-dir). */
   syncProjectRegistrySource(): void {
     this.sessionServices.syncProjectRegistrySource();
+  }
+
+  refreshProjectInstructions(): ProjectInstructionsSnapshot {
+    return this.sessionServices.refreshProjectInstructions();
+  }
+
+  getProjectInstructions(): ProjectInstructionsSnapshot {
+    return this.sessionServices.getProjectInstructions();
   }
 
   getContextUsage(input: {
@@ -625,6 +635,7 @@ export class AgentRuntime extends EventEmitter {
     const tools = this.toolGateway?.listTools({ mode }) ?? [];
     this.sessionServices.syncTodoContextSource();
     this.sessionServices.syncProjectRegistrySource();
+    this.sessionServices.refreshProjectInstructions();
     this.sessionServices.syncSessionModeSource();
     return {
       buildContextInput: {
@@ -678,6 +689,7 @@ export class AgentRuntime extends EventEmitter {
           : 'auto'
         : input.requestedMode;
     this.sessionServices.syncTodoContextSource();
+    this.sessionServices.refreshProjectInstructions();
     const tools = this.toolGateway?.listTools({ mode }) ?? [];
     return {
       mode,

@@ -1,11 +1,18 @@
-import type { AgentMode } from '../domain';
+import { basename, resolve } from 'node:path';
+
 import type { SessionContext } from '../context/sessionContext';
+import type { AgentMode } from '../domain';
 import { createApprovalPolicy, type PermissionMode } from '../tools/permissionModes';
 import type { ToolGateway } from '../tools/toolGateway';
 import {
   formatRegistryForPrompt,
   selectActiveProject
 } from '../workspace/projectRegistry';
+import {
+  formatProjectInstructionSource,
+  loadProjectInstructions,
+  type ProjectInstructionsSnapshot
+} from '../workspace/projectInstructions';
 import type { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type {
   PendingConductorExecution,
@@ -29,6 +36,8 @@ export class SessionServices {
   private permissionMode: PermissionMode = 'default';
   private sessionMode: AgentMode = 'auto';
   private pendingModeExecution: PendingModeExecution | undefined;
+  private projectInstructionSourceIds = new Set<string>();
+  private projectInstructions = loadProjectInstructions({ roots: [] });
 
   constructor(private readonly deps: SessionServicesOptions) {
     this.deps.toolGateway?.setApprovalPolicy(
@@ -169,5 +178,45 @@ export class SessionServices {
       priority: 90,
       pinned: true
     });
+  }
+
+  refreshProjectInstructions(): ProjectInstructionsSnapshot {
+    const roots = this.deps.options.workspaceRoots?.list() ??
+      (this.deps.options.workspaceRoot
+        ? [
+            {
+              id: basename(resolve(this.deps.options.workspaceRoot)) || 'primary',
+              path: this.deps.options.workspaceRoot,
+              primary: true
+            }
+          ]
+        : []);
+    const next = loadProjectInstructions({ roots });
+    if (next.signature === this.projectInstructions.signature) {
+      return this.projectInstructions;
+    }
+
+    for (const sourceId of this.projectInstructionSourceIds) {
+      this.deps.sessionContext.removeSource(sourceId);
+    }
+    this.projectInstructionSourceIds.clear();
+
+    for (const file of next.files) {
+      this.deps.sessionContext.addSource({
+        id: file.sourceId,
+        kind: 'repo',
+        title: `Project instructions: ${file.rootId}/${file.filename}`,
+        content: formatProjectInstructionSource(file),
+        priority: 99,
+        pinned: true
+      });
+      this.projectInstructionSourceIds.add(file.sourceId);
+    }
+    this.projectInstructions = next;
+    return next;
+  }
+
+  getProjectInstructions(): ProjectInstructionsSnapshot {
+    return this.projectInstructions;
   }
 }
