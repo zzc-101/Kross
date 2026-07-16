@@ -2,7 +2,7 @@ import type { ContextSnapshot, SessionContext } from '../context/sessionContext'
 import type {
   AgentMode,
   AgentResult,
-  CrossRepoPlan,
+  ConductorPlan,
   ImpactMap,
   ProjectRegistry,
   TraceEvent
@@ -16,6 +16,7 @@ import type {
   SubagentRunOutcome,
   SubagentRunRequest
 } from './subagentRunner';
+import type { WorkspaceRoots } from '../workspace/workspaceRoots';
 
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
@@ -36,6 +37,11 @@ export interface AgentRuntimeOptions {
   subagentDepth?: number;
   /** Session todo list shared with TodoWrite/TodoRead tools. */
   todoStore?: TodoStore;
+  /**
+   * Session multi-directory roots (/add-dir). When set, conductor impact and
+   * Task allowlist prefer these over (or in addition to) project registry.
+   */
+  workspaceRoots?: WorkspaceRoots;
   /** Loaded ~/.kross/projects.json (and optional workspace overlay). */
   projectRegistry?: ProjectRegistry;
   /** Absolute path of the registry file (for prompts / errors). */
@@ -43,8 +49,8 @@ export interface AgentRuntimeOptions {
   /** Prefer this project id when selecting from registry. */
   activeProjectId?: string;
   /**
-   * Spawn subagent for cross-repo execution (and tests).
-   * When omitted, approved cross-repo runs only produce a plan summary.
+   * Spawn subagent for conductor execution (and tests).
+   * When omitted, approved conductor runs only produce a plan summary.
    */
   runSubagent?: (
     request: SubagentRunRequest
@@ -62,10 +68,10 @@ export interface AgentRunInput {
 }
 
 /** In-memory plan held between /approve and execution (process lifetime). */
-export interface PendingCrossRepoExecution {
+export interface PendingConductorExecution {
   goal: string;
   mode: Exclude<AgentMode, 'auto'>;
-  plan: CrossRepoPlan;
+  plan: ConductorPlan;
   impactMap: ImpactMap;
   projectId: string;
   registrySourcePath?: string;

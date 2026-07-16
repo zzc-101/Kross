@@ -10,6 +10,7 @@ import {
   t,
   updateKrossLocale,
   updateKrossLlmConfig,
+  normalizeAgentMode,
   type AgentMode,
   type AgentRuntime,
   type ConfigImportController,
@@ -42,7 +43,7 @@ export function handleCommand(
   setImportPrompt: (prompt: ConfigImportPrompt | undefined) => void,
   refreshRuntime: () => void,
   toggleLastCollapsible: () => void,
-  hasPendingCrossRepoPlan: boolean,
+  hasPendingConductorPlan: boolean,
   choosePlanApproval: (approved: boolean) => Promise<void>,
   onLocaleChange?: () => void
 ): boolean {
@@ -155,8 +156,8 @@ export function handleCommand(
   }
 
   if (value === '/approve' || value === '/reject') {
-    if (!hasPendingCrossRepoPlan) {
-      append('system', t('app.noCrossRepoPlan'));
+    if (!hasPendingConductorPlan) {
+      append('system', t('app.noConductorPlan'));
       return true;
     }
     void choosePlanApproval(value === '/approve');
@@ -182,11 +183,95 @@ export function handleCommand(
 
   if (value.startsWith('/mode ')) {
     const nextMode = value.replace('/mode ', '').trim();
-    if (isAgentMode(nextMode)) {
-      setMode(nextMode);
-      append('system', t('cmd.modeSwitched', { mode: nextMode }));
+    const normalized = normalizeAgentMode(nextMode);
+    if (normalized) {
+      setMode(normalized);
+      append(
+        'system',
+        t('cmd.modeSwitched', {
+          mode: normalized === 'conductor' ? t('mode.conductor') : normalized
+        })
+      );
     } else {
       append('agent', t('cmd.modeUnknown'));
+    }
+    return true;
+  }
+
+  if (value === '/add-dir' || value.startsWith('/add-dir ')) {
+    const argument =
+      value === '/add-dir' ? '' : value.slice('/add-dir'.length).trim();
+    if (!argument) {
+      append('agent', t('cmd.addDir.usage'));
+      return true;
+    }
+    const roots = runtime.getWorkspaceRoots();
+    if (!roots) {
+      append('system', t('cmd.addDir.unavailable'));
+      return true;
+    }
+    try {
+      const added = roots.add(argument);
+      runtime.syncProjectRegistrySource();
+      append(
+        'system',
+        t('cmd.addDir.ok', { id: added.id, path: added.path })
+      );
+    } catch (error) {
+      append(
+        'system',
+        t('cmd.addDir.fail', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return true;
+  }
+
+  if (value === '/dirs') {
+    const roots = runtime.getWorkspaceRoots();
+    if (!roots) {
+      append('system', t('cmd.addDir.unavailable'));
+      return true;
+    }
+    const list = roots.list();
+    const lines = list.map(
+      (entry) =>
+        `- id=${entry.id}${entry.primary ? ' (primary)' : ''} path=${entry.path}`
+    );
+    append('agent', [t('cmd.dirs.header'), ...lines].join('\n'), {
+      expanded: true
+    });
+    return true;
+  }
+
+  if (value === '/remove-dir' || value.startsWith('/remove-dir ')) {
+    const argument =
+      value === '/remove-dir' ? '' : value.slice('/remove-dir'.length).trim();
+    if (!argument) {
+      append('agent', t('cmd.removeDir.usage'));
+      return true;
+    }
+    const roots = runtime.getWorkspaceRoots();
+    if (!roots) {
+      append('system', t('cmd.addDir.unavailable'));
+      return true;
+    }
+    try {
+      const removed = roots.remove(argument);
+      if (!removed) {
+        append('system', t('cmd.removeDir.missing', { target: argument }));
+      } else {
+        runtime.syncProjectRegistrySource();
+        append('system', t('cmd.removeDir.ok', { target: argument }));
+      }
+    } catch (error) {
+      append(
+        'system',
+        t('cmd.removeDir.fail', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      );
     }
     return true;
   }
@@ -272,9 +357,7 @@ export function formatImportPrompt(prompt: ConfigImportPrompt): string {
   ].join('\n');
 }
 
-function isAgentMode(value: string): value is AgentMode {
-  return value === 'auto' || value === 'normal' || value === 'cross-repo';
-}
+
 
 async function runSlashAsync(
   run: () => Promise<string>,

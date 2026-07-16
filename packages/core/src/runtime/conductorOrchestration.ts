@@ -1,5 +1,5 @@
 import type {
-  CrossRepoPlan,
+  ConductorPlan,
   ImpactMap,
   ImpactRepo,
   ProjectConfig,
@@ -117,12 +117,12 @@ function buildDefaultRepoTask(input: {
   ].join('\n');
 }
 
-export function buildCrossRepoPlan(input: {
+export function buildConductorPlan(input: {
   goal: string;
   projectId: string;
   impact: ImpactMap;
   llmSuggestion?: string;
-}): CrossRepoPlan {
+}): ConductorPlan {
   const repoSteps = input.impact.repos.map(
     (repo) =>
       `在 ${repo.id}（${repo.type ?? 'repo'}）执行：${(repo.tasks?.[0] ?? repo.reasons[0] ?? '按目标修改').slice(0, 120)}`
@@ -132,22 +132,22 @@ export function buildCrossRepoPlan(input: {
     projectId: input.projectId,
     llmSuggestion: input.llmSuggestion,
     steps: [
-      `使用 project registry 中的项目 ${input.projectId}`,
-      `生成影响面（strategy=${input.impact.strategy}，repos=${input.impact.repos.map((r) => r.id).join(', ')}）`,
+      `编排范围：${input.projectId}`,
+      `生成影响面（strategy=${input.impact.strategy}，targets=${input.impact.repos.map((r) => r.id).join(', ')}）`,
       ...repoSteps,
-      '用户确认后按仓库顺序派生子代理执行并汇总'
+      '用户确认后按目标顺序派生子代理执行并汇总'
     ]
   };
 }
 
-export function formatCrossRepoPlanSummary(input: {
-  plan: CrossRepoPlan;
+export function formatConductorPlanSummary(input: {
+  plan: ConductorPlan;
   impact: ImpactMap;
   registrySource?: string;
 }): string {
   const lines = [
-    '【跨仓库计划 · 等待确认】',
-    `项目：${input.plan.projectId}`,
+    '【指挥家计划 · 等待确认】',
+    `范围：${input.plan.projectId}`,
     input.registrySource ? `Registry：${input.registrySource}` : undefined,
     `影响面（${input.impact.strategy}）：`,
     ...input.impact.repos.map(
@@ -157,13 +157,13 @@ export function formatCrossRepoPlanSummary(input: {
     '步骤：',
     ...input.plan.steps.map((step, i) => `${i + 1}. ${step}`),
     '',
-    '输入 /approve 开始按仓库派生子代理执行，或 /reject 取消。',
-    '不依赖 codegraph；影响面来自 registry + 目标关键词启发式。'
+    '输入 /approve 开始按目标派生子代理执行，或 /reject 取消。',
+    '多目录请用 /add-dir；可选 ~/.kross/projects.json 作为项目模板。'
   ].filter((line): line is string => line !== undefined);
   return lines.join('\n');
 }
 
-export function formatCrossRepoExecutionSummary(input: {
+export function formatConductorExecutionSummary(input: {
   projectId: string;
   goal: string;
   outcomes: Array<{
@@ -175,7 +175,7 @@ export function formatCrossRepoExecutionSummary(input: {
   }>;
 }): string {
   const lines = [
-    `【跨仓库执行完成】项目 ${input.projectId}`,
+    `【指挥家执行完成】范围 ${input.projectId}`,
     `目标：${input.goal}`,
     '',
     ...input.outcomes.flatMap((o) => [

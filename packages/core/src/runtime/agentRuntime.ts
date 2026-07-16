@@ -48,6 +48,7 @@ import {
   formatRegistryForPrompt,
   selectActiveProject
 } from '../workspace/projectRegistry';
+import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { ListRunsOptions } from '../trace/traceStore';
 import type { RunTraceDetail, RunTraceSummary } from '../trace/traceSummary';
 import type {
@@ -56,15 +57,15 @@ import type {
   AgentRuntimeOptions,
   ContextInspection,
   ContextInspectionInput,
-  PendingCrossRepoExecution,
+  PendingConductorExecution,
   ResolveToolApprovalInput
 } from './agentRuntimeTypes';
 import {
-  buildCrossRepoPlan,
+  buildConductorPlan,
   buildImpactMapFromRegistry,
-  formatCrossRepoExecutionSummary,
-  formatCrossRepoPlanSummary
-} from './crossRepoOrchestration';
+  formatConductorExecutionSummary,
+  formatConductorPlanSummary
+} from './conductorOrchestration';
 import { RuntimeInspection } from './runtimeInspection';
 import {
   DEFAULT_MAX_TOOL_ITERATIONS,
@@ -99,8 +100,8 @@ export class AgentRuntime extends EventEmitter {
   private readonly inspection: RuntimeInspection;
   private readonly toolLoop: RuntimeToolLoop;
   private permissionMode: PermissionMode = 'default';
-  /** Held between cross-repo plan gate and /approve execution. */
-  private pendingCrossRepo: PendingCrossRepoExecution | undefined;
+  /** Held between conductor plan gate and /approve execution. */
+  private pendingConductor: PendingConductorExecution | undefined;
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
@@ -138,13 +139,17 @@ export class AgentRuntime extends EventEmitter {
     this.syncProjectRegistrySource();
   }
 
-  /** Last cross-repo plan awaiting /approve (if any). */
-  getPendingCrossRepoPlan(): PendingCrossRepoExecution | undefined {
-    return this.pendingCrossRepo;
+  /** Last conductor plan awaiting /approve (if any). */
+  getPendingConductorPlan(): PendingConductorExecution | undefined {
+    return this.pendingConductor;
   }
 
-  clearPendingCrossRepoPlan(): void {
-    this.pendingCrossRepo = undefined;
+  clearPendingConductorPlan(): void {
+    this.pendingConductor = undefined;
+  }
+
+  getWorkspaceRoots(): WorkspaceRoots | undefined {
+    return this.options.workspaceRoots;
   }
 
   getPermissionMode(): PermissionMode {
@@ -270,8 +275,22 @@ export class AgentRuntime extends EventEmitter {
     });
   }
 
-  /** Inject active project registry summary into SessionContext (pinned). */
+  /** Inject workspace roots + optional project registry into SessionContext (public for /add-dir). */
   syncProjectRegistrySource(): void {
+    const roots = this.options.workspaceRoots;
+    if (roots) {
+      this.sessionContext.addSource({
+        id: 'workspace-roots',
+        kind: 'workspace',
+        title: 'Workspace roots',
+        content: roots.formatForPrompt(),
+        priority: 92,
+        pinned: true
+      });
+    } else {
+      this.sessionContext.removeSource('workspace-roots');
+    }
+
     const registry = this.options.projectRegistry;
     if (!registry) {
       this.sessionContext.removeSource('project-registry');
@@ -423,8 +442,8 @@ export class AgentRuntime extends EventEmitter {
         return;
       }
 
-      if (detection.mode === 'cross-repo') {
-        const result = await this.runCrossRepo(
+      if (detection.mode === 'conductor') {
+        const result = await this.runConductor(
           input,
           detection.mode,
           runId,
@@ -550,49 +569,42 @@ export class AgentRuntime extends EventEmitter {
   }
 
   /**
-   * Cross-repo: plan-first (registry + heuristic impact) → approval gate →
-   * sequential per-repo subagents. No codegraph; no write tool loop before approve.
+   * Conductor (指挥家): plan-first → approval gate → sequential subagents.
+   * Impact prefers session workspace roots (/add-dir); falls back to projects.json.
    */
-  private async runCrossRepo(
+  private async runConductor(
     input: AgentRunInput,
     mode: Exclude<AgentMode, 'auto'>,
     runId: string,
-    crossRepoReason: string | undefined
+    conductorReason: string | undefined
   ): Promise<AgentResult> {
     throwIfAborted(input.signal);
     this.syncProjectRegistrySource();
 
-    if (input.approvals?.plan === true && this.pendingCrossRepo) {
-      return this.executeCrossRepoPlan(runId, this.pendingCrossRepo, input.signal);
+    if (input.approvals?.plan === true && this.pendingConductor) {
+      return this.executeConductorPlan(runId, this.pendingConductor, input.signal);
     }
 
-    return this.planCrossRepo(input, mode, runId, crossRepoReason);
+    return this.planConductor(input, mode, runId, conductorReason);
   }
 
-  private async planCrossRepo(
+  private async planConductor(
     input: AgentRunInput,
     mode: Exclude<AgentMode, 'auto'>,
     runId: string,
-    crossRepoReason: string | undefined
+    conductorReason: string | undefined
   ): Promise<AgentResult> {
-    const registry = this.options.projectRegistry;
-    if (!registry) {
+    const planned = this.buildConductorImpact(input.input);
+    if (!planned.ok) {
       const failed = await this.attachChangedFiles(
         agentResultSchema.parse({
           runId,
           mode,
           status: 'failed',
-          summary:
-            '未找到 project registry。请创建 ~/.kross/projects.json（示例见 README），' +
-            '声明多仓库项目后再使用 cross-repo 模式。',
+          summary: planned.summary,
           report: {
             changedFiles: [],
-            evidence: [
-              'cross-repo 需要本地 project registry，不依赖 codegraph',
-              this.options.projectRegistryPath
-                ? `期望路径: ${this.options.projectRegistryPath}`
-                : '期望路径: ~/.kross/projects.json'
-            ],
+            evidence: planned.evidence,
             risks: []
           }
         })
@@ -602,70 +614,39 @@ export class AgentRuntime extends EventEmitter {
       return failed;
     }
 
-    const selection = selectActiveProject(registry, {
-      activeProjectId: this.options.activeProjectId,
-      workspaceRoot: this.options.workspaceRoot
-    });
-    if (!selection) {
-      const failed = await this.attachChangedFiles(
-        agentResultSchema.parse({
-          runId,
-          mode,
-          status: 'failed',
-          summary:
-            'project registry 已加载，但无法选定 active project。' +
-            '请设置 defaultProjectId，或在 cwd 位于某 repo.path 下启动，或配置 activeProjectId。',
-          report: {
-            changedFiles: [],
-            evidence: [
-              `可用 projects: ${Object.keys(registry.projects).join(', ') || '(空)'}`
-            ],
-            risks: []
-          }
-        })
-      );
-      await this.record(runId, 'run.completed', { ...failed });
-      this.finishTurnWithAssistant(input.input, failed.summary);
-      return failed;
-    }
-
-    const impact = buildImpactMapFromRegistry({
-      projectId: selection.projectId,
-      project: selection.project,
-      goal: input.input
-    });
-    const plan = buildCrossRepoPlan({
+    const { impact, projectId, registrySourcePath } = planned;
+    const plan = buildConductorPlan({
       goal: input.input,
-      projectId: selection.projectId,
+      projectId,
       impact
     });
 
     await this.record(runId, 'plan.created', plan);
     await this.record(runId, 'impact_map.created', impact);
     await this.record(runId, 'approval.required', {
-      scope: 'cross-repo-plan',
-      reason: crossRepoReason,
-      projectId: selection.projectId,
+      scope: 'conductor-plan',
+      reason: conductorReason,
+      projectId,
       repos: impact.repos.map((repo) => repo.id)
     });
 
-    const summary = formatCrossRepoPlanSummary({
+    const summary = formatConductorPlanSummary({
       plan,
       impact,
-      registrySource: this.options.projectRegistryPath
+      registrySource: registrySourcePath
     });
 
-    this.pendingCrossRepo = {
+    this.pendingConductor = {
       goal: input.input,
       mode,
       plan,
       impactMap: impact,
-      projectId: selection.projectId,
-      registrySourcePath: this.options.projectRegistryPath
+      projectId,
+      registrySourcePath
     };
 
     if (input.approvals?.plan === true) {
-      return this.executeCrossRepoPlan(runId, this.pendingCrossRepo, input.signal);
+      return this.executeConductorPlan(runId, this.pendingConductor, input.signal);
     }
 
     const cancelled = await this.attachChangedFiles(
@@ -678,7 +659,7 @@ export class AgentRuntime extends EventEmitter {
         report: {
           changedFiles: [],
           evidence: [
-            `project=${selection.projectId}`,
+            `project=${projectId}`,
             `impact strategy=${impact.strategy}`,
             `repos=${impact.repos.map((r) => r.id).join(',')}`,
             '已在执行前触发确认门（plan-first，确认前不改文件）'
@@ -692,15 +673,89 @@ export class AgentRuntime extends EventEmitter {
     return cancelled;
   }
 
-  private async executeCrossRepoPlan(
+  /**
+   * Prefer /add-dir workspace roots (multi-dir always usable).
+   * Else project registry. Else primary cwd alone as single-root conductor.
+   */
+  private buildConductorImpact(goal: string):
+    | {
+        ok: true;
+        impact: import('../domain').ImpactMap;
+        projectId: string;
+        registrySourcePath?: string;
+      }
+    | { ok: false; summary: string; evidence: string[] } {
+    const roots = this.options.workspaceRoots;
+    if (roots && roots.list().length > 0) {
+      // Multi-dir: if only primary, still allow conductor on single root
+      const impact = roots.toImpactMap(goal);
+      return {
+        ok: true,
+        impact,
+        projectId: impact.projectId,
+        registrySourcePath: undefined
+      };
+    }
+
+    const registry = this.options.projectRegistry;
+    if (registry) {
+      const selection = selectActiveProject(registry, {
+        activeProjectId: this.options.activeProjectId,
+        workspaceRoot: this.options.workspaceRoot
+      });
+      if (!selection) {
+        return {
+          ok: false,
+          summary:
+            'project registry 已加载，但无法选定 active project。' +
+            '请设置 defaultProjectId，或用 /add-dir 加入目录。',
+          evidence: [
+            `可用 projects: ${Object.keys(registry.projects).join(', ') || '(空)'}`
+          ]
+        };
+      }
+      return {
+        ok: true,
+        impact: buildImpactMapFromRegistry({
+          projectId: selection.projectId,
+          project: selection.project,
+          goal
+        }),
+        projectId: selection.projectId,
+        registrySourcePath: this.options.projectRegistryPath
+      };
+    }
+
+    // Fallback: single primary workspace
+    const primary = this.options.workspaceRoot;
+    if (primary) {
+      const ephemeral = new WorkspaceRoots(primary);
+      return {
+        ok: true,
+        impact: ephemeral.toImpactMap(goal),
+        projectId: 'workspace'
+      };
+    }
+
+    return {
+      ok: false,
+      summary:
+        '指挥家模式需要至少一个工作区：启动目录、/add-dir 额外目录，或 ~/.kross/projects.json。',
+      evidence: [
+        '提示：/add-dir <path> 加入其它仓库；/dirs 查看当前 roots'
+      ]
+    };
+  }
+
+  private async executeConductorPlan(
     runId: string,
-    pending: PendingCrossRepoExecution,
+    pending: PendingConductorExecution,
     signal?: AbortSignal
   ): Promise<AgentResult> {
     throwIfAborted(signal);
     const { mode, impactMap, plan, projectId, goal } = pending;
 
-    await this.record(runId, 'cross_repo.execution.started', {
+    await this.record(runId, 'conductor.execution.started', {
       projectId,
       repos: impactMap.repos.map((r) => r.id)
     });
@@ -722,7 +777,7 @@ export class AgentRuntime extends EventEmitter {
         })
       );
       await this.record(runId, 'run.completed', { ...failed });
-      this.pendingCrossRepo = undefined;
+      this.pendingConductor = undefined;
       this.finishTurnWithAssistant(goal, failed.summary);
       return failed;
     }
@@ -746,7 +801,7 @@ export class AgentRuntime extends EventEmitter {
       try {
         const outcome = await runSubagent({
           prompt: taskPrompt,
-          title: `cross-repo:${repo.id}`.slice(0, 48),
+          title: `conductor:${repo.id}`.slice(0, 48),
           mode: 'general',
           parentRunId: runId,
           parentDepth: 0,
@@ -786,7 +841,7 @@ export class AgentRuntime extends EventEmitter {
       }
     }
 
-    const summary = formatCrossRepoExecutionSummary({
+    const summary = formatConductorExecutionSummary({
       projectId,
       goal,
       outcomes
@@ -817,7 +872,7 @@ export class AgentRuntime extends EventEmitter {
       repos: outcomes.map((o) => ({ repoId: o.repoId, status: o.status }))
     });
     await this.record(runId, 'run.completed', { ...result });
-    this.pendingCrossRepo = undefined;
+    this.pendingConductor = undefined;
     this.finishTurnWithAssistant(goal, result.summary);
     return result;
   }
@@ -826,7 +881,7 @@ export class AgentRuntime extends EventEmitter {
     input: AgentRunInput,
     mode: Exclude<AgentMode, 'auto'>,
     runId: string,
-    _crossRepoReason: string | undefined
+    _conductorReason: string | undefined
   ): Promise<AgentResult> {
     const missingModel = await this.attachChangedFiles(
       agentResultSchema.parse({

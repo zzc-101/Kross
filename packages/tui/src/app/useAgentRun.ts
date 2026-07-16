@@ -34,11 +34,11 @@ export interface UseAgentRunOptions {
     React.SetStateAction<PendingToolApproval | undefined>
   >;
   setApprovalSelection: React.Dispatch<React.SetStateAction<'approve' | 'reject'>>;
-  setPendingCrossRepoPlan: React.Dispatch<
+  setPendingConductorPlan: React.Dispatch<
     React.SetStateAction<{ prompt: string; mode: AgentMode } | undefined>
   >;
   pendingToolApproval: PendingToolApproval | undefined;
-  pendingCrossRepoPlan: { prompt: string; mode: AgentMode } | undefined;
+  pendingConductorPlan: { prompt: string; mode: AgentMode } | undefined;
   processingRef: React.MutableRefObject<boolean>;
 }
 
@@ -61,9 +61,9 @@ export function useAgentRun({
   setStreamingMessageId,
   setPendingToolApproval,
   setApprovalSelection,
-  setPendingCrossRepoPlan,
+  setPendingConductorPlan,
   pendingToolApproval,
-  pendingCrossRepoPlan,
+  pendingConductorPlan,
   processingRef
 }: UseAgentRunOptions) {
   const nextOperationIdRef = useRef(0);
@@ -182,10 +182,10 @@ export function useAgentRun({
       return settleInterruptedUi();
     }
 
-    if (result.mode === 'cross-repo' && result.status === 'cancelled') {
+    if (result.mode === 'conductor' && result.status === 'cancelled') {
       setStatus('waiting-approval');
-      setPendingCrossRepoPlan({ prompt, mode: options.requestedMode ?? mode });
-      append('system', t('app.crossRepoPaused'));
+      setPendingConductorPlan({ prompt, mode: options.requestedMode ?? mode });
+      append('system', t('app.conductorPaused'));
       return 'paused';
     }
 
@@ -216,7 +216,7 @@ export function useAgentRun({
     setApprovalSelection,
     setAwaitingReply,
     setLoadingVariant,
-    setPendingCrossRepoPlan,
+    setPendingConductorPlan,
     setPendingToolApproval,
     setStatus,
     setStreamingMessageId,
@@ -338,21 +338,21 @@ export function useAgentRun({
   ]);
 
   const choosePlanApproval = useCallback(async (approved: boolean) => {
-    if (!pendingCrossRepoPlan) {
-      append('system', t('app.noCrossRepoPlan'));
+    if (!pendingConductorPlan) {
+      append('system', t('app.noConductorPlan'));
       return;
     }
 
-    const pending = pendingCrossRepoPlan;
-    setPendingCrossRepoPlan(undefined);
+    const pending = pendingConductorPlan;
+    setPendingConductorPlan(undefined);
 
     if (!approved) {
       setStatus('ready');
-      append('system', t('app.crossRepoCancelled'));
+      append('system', t('app.conductorCancelled'));
       return;
     }
 
-    append('system', t('app.crossRepoConfirmed'));
+    append('system', t('app.conductorConfirmed'));
     processingRef.current = true;
     try {
       await runTurn(pending.prompt, {
@@ -364,10 +364,10 @@ export function useAgentRun({
     }
   }, [
     append,
-    pendingCrossRepoPlan,
+    pendingConductorPlan,
     processingRef,
     runTurn,
-    setPendingCrossRepoPlan,
+    setPendingConductorPlan,
     setStatus
   ]);
 
@@ -420,10 +420,10 @@ export function useAgentRun({
       return true;
     }
 
-    if (pendingCrossRepoPlan) {
-      setPendingCrossRepoPlan(undefined);
+    if (pendingConductorPlan) {
+      setPendingConductorPlan(undefined);
       setStatus('ready');
-      append('system', t('app.crossRepoCancelled'));
+      append('system', t('app.conductorCancelled'));
       processingRef.current = false;
       return true;
     }
@@ -432,11 +432,11 @@ export function useAgentRun({
   }, [
     agentRuntime,
     append,
-    pendingCrossRepoPlan,
+    pendingConductorPlan,
     pendingToolApproval,
     processingRef,
     setAwaitingReply,
-    setPendingCrossRepoPlan,
+    setPendingConductorPlan,
     setPendingToolApproval,
     setStatus,
     settleInterruptedUi

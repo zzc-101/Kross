@@ -14,6 +14,7 @@ import {
   SessionTraceStore,
   TodoStore,
   ToolGateway,
+  WorkspaceRoots,
   type AgentRuntimeOptions,
   type LlmClient,
   type LlmFetch,
@@ -30,9 +31,10 @@ export interface RuntimeTooling {
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
   todoStore: TodoStore;
+  workspaceRoots: WorkspaceRoots;
   /** Update LLM used by Task subagents (e.g. after /import). */
   setLlmClient: (client: LlmClient | undefined) => void;
-  /** Shared subagent runner (multi-root Task + cross-repo fan-out). */
+  /** Shared subagent runner (multi-root Task + conductor fan-out). */
   runSubagent: NonNullable<AgentRuntimeOptions['runSubagent']>;
   mcpManager?: McpManager;
   closeTraceStore: () => void;
@@ -51,7 +53,12 @@ export function createRuntimeOptionsFromEnv(
   options: CreateRuntimeConfigOptions = {},
   tooling?: Pick<
     RuntimeTooling,
-    'toolGateway' | 'traceStore' | 'todoStore' | 'setLlmClient' | 'runSubagent'
+    | 'toolGateway'
+    | 'traceStore'
+    | 'todoStore'
+    | 'setLlmClient'
+    | 'runSubagent'
+    | 'workspaceRoots'
   >
 ): AgentRuntimeOptions {
   const savedConfig = loadKrossConfig(options);
@@ -98,14 +105,31 @@ export function createRuntimeOptionsFromEnv(
   let traceStore = tooling?.traceStore;
   let todoStore = tooling?.todoStore;
   let runSubagent: AgentRuntimeOptions['runSubagent'] = tooling?.runSubagent;
-  if (!toolGateway || !traceStore || !todoStore || !runSubagent) {
+  let workspaceRoots = tooling?.workspaceRoots;
+  if (!toolGateway || !traceStore || !todoStore || !runSubagent || !workspaceRoots) {
     const created = createLocalTooling(cwd, llmClient, options, projectRegistry);
     toolGateway = toolGateway ?? created.toolGateway;
     traceStore = traceStore ?? created.traceStore;
     todoStore = todoStore ?? created.todoStore;
     runSubagent = runSubagent ?? created.runSubagent;
+    workspaceRoots = workspaceRoots ?? created.workspaceRoots;
   } else {
     tooling?.setLlmClient?.(llmClient);
+  }
+
+  // Seed workspace roots from registry paths (if not already added)
+  if (projectRegistry && workspaceRoots) {
+    for (const project of Object.values(projectRegistry.projects)) {
+      for (const repo of project.repos) {
+        try {
+          if (repo.path !== cwd) {
+            workspaceRoots.add(repo.path, repo.id);
+          }
+        } catch {
+          // ignore missing paths at startup
+        }
+      }
+    }
   }
 
   return {
@@ -113,6 +137,7 @@ export function createRuntimeOptionsFromEnv(
     toolGateway,
     todoStore,
     workspaceRoot: cwd,
+    workspaceRoots,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
     sessionContext,
@@ -174,6 +199,7 @@ export async function bootstrapRuntimeTooling(
     toolGateway: created.toolGateway,
     traceStore: created.traceStore,
     todoStore: created.todoStore,
+    workspaceRoots: created.workspaceRoots,
     setLlmClient: created.setLlmClient,
     runSubagent: created.runSubagent,
     mcpManager,
@@ -194,6 +220,7 @@ function createLocalTooling(
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
   todoStore: TodoStore;
+  workspaceRoots: WorkspaceRoots;
   setLlmClient: (client: LlmClient | undefined) => void;
   runSubagent: NonNullable<AgentRuntimeOptions['runSubagent']>;
   closeTraceStore: () => void;
@@ -208,15 +235,15 @@ function createLocalTooling(
     defaultTimeoutMs: 120_000
   });
   const todoStore = new TodoStore();
-
-  const allowedWorkspaceRoots = collectAllowedWorkspaceRoots(
-    projectRegistry,
-    cwd
-  );
+  const workspaceRoots = new WorkspaceRoots(cwd);
 
   const subagentDeps: SubagentRunDeps = {
     workspaceRoot: cwd,
-    allowedWorkspaceRoots,
+    getAllowedWorkspaceRoots: () => {
+      const fromRoots = workspaceRoots.allowedRoots();
+      const fromRegistry = collectAllowedWorkspaceRoots(projectRegistry, cwd);
+      return [...new Set([...fromRoots, ...fromRegistry])];
+    },
     traceStore,
     llmClient: initialLlmClient,
     maxDepth: 1,
@@ -225,17 +252,22 @@ function createLocalTooling(
 
   const runSubagent = createDefaultSubagentRunner(subagentDeps);
 
-  const resolveRepoPath = projectRegistry
-    ? (repoId: string): string | undefined => {
-        for (const project of Object.values(projectRegistry.projects)) {
-          const repo = project.repos.find((item) => item.id === repoId);
-          if (repo) {
-            return repo.path;
-          }
-        }
-        return undefined;
+  const resolveRepoPath = (repoId: string): string | undefined => {
+    const fromRoots = workspaceRoots.resolveById(repoId);
+    if (fromRoots) {
+      return fromRoots;
+    }
+    if (!projectRegistry) {
+      return undefined;
+    }
+    for (const project of Object.values(projectRegistry.projects)) {
+      const repo = project.repos.find((item) => item.id === repoId);
+      if (repo) {
+        return repo.path;
       }
-    : undefined;
+    }
+    return undefined;
+  };
 
   for (const tool of createBuiltinTools(cwd, {
     includeTask: true,
@@ -251,6 +283,7 @@ function createLocalTooling(
     toolGateway,
     traceStore,
     todoStore,
+    workspaceRoots,
     runSubagent,
     setLlmClient: (client) => {
       subagentDeps.llmClient = client;

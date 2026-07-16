@@ -662,7 +662,7 @@ describe('App', () => {
     await waitUntil(() => submit !== undefined);
     await submit?.('/mode');
 
-    expect(lastFrame()).toContain('用法：/mode auto|normal|cross-repo');
+    expect(lastFrame()).toContain('用法：/mode auto|normal|conductor');
     expect(lastFrame()).not.toContain('最小规划闭环');
   });
 
@@ -832,7 +832,7 @@ describe('App', () => {
     expect(view.lastFrame()).not.toContain('已拒绝 fs.write');
   });
 
-  it('shows cross-repo approval status for linkage requests', async () => {
+  it('shows conductor approval status for linkage requests', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);
 
@@ -840,11 +840,12 @@ describe('App', () => {
     await submit?.('给巡检任务增加任务来源字段，前后端联动');
     await waitUntil(() => lastFrame()?.includes('等待确认') === true);
 
-    expect(lastFrame()).toContain('cross-repo');
+    // Display uses i18n (指挥家), not raw mode id
+    expect(lastFrame()).toMatch(/指挥家|Conductor/);
     expect(lastFrame()).toContain('等待确认');
   });
 
-  it('can approve a paused cross-repo plan and continue the run', async () => {
+  it('can approve a paused conductor plan and continue the run', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
     let choosePlanApproval: ((approved: boolean) => Promise<void>) | undefined;
     const { lastFrame } = render(
@@ -864,13 +865,13 @@ describe('App', () => {
     await choosePlanApproval?.(true);
     await waitUntil(
       () =>
-        lastFrame()?.includes('跨仓库执行完成') === true ||
+        lastFrame()?.includes('指挥家执行完成') === true ||
         lastFrame()?.includes('memory subagent') === true
     );
 
     const frame = lastFrame() ?? '';
     expect(
-      frame.includes('跨仓库执行完成') || frame.includes('memory subagent')
+      frame.includes('指挥家执行完成') || frame.includes('memory subagent')
     ).toBe(true);
   });
 
@@ -1525,7 +1526,7 @@ describe('App', () => {
     await waitUntil(() => lastFrame()?.includes('查看全部命令') === true);
     expect(lastFrame()).toContain('命令');
     expect(lastFrame()).toContain('/help');
-    expect(lastFrame()).toContain('还有 5 项，继续输入筛选');
+    expect(lastFrame()).toMatch(/还有 \d+ 项，继续输入筛选/);
 
     setInput?.('/mo');
     await waitUntil(() => lastFrame()?.includes('切换 Agent 模式') === true);

@@ -182,9 +182,12 @@ describe('AgentRuntime', () => {
     }
   });
 
-  it('fails cross-repo when project registry is missing', async () => {
+  it('plans conductor on primary workspace when registry is missing', async () => {
     const traceStore = new InMemoryTraceStore();
-    const runtime = new AgentRuntime({ traceStore });
+    const runtime = new AgentRuntime({
+      traceStore,
+      workspaceRoot: '/tmp/primary-ws'
+    });
 
     const result = await runtime.run({
       input: '给巡检任务增加任务来源字段，前后端联动',
@@ -192,9 +195,10 @@ describe('AgentRuntime', () => {
       approvals: { plan: false }
     });
 
-    expect(result.mode).toBe('cross-repo');
-    expect(result.status).toBe('failed');
-    expect(result.summary).toContain('project registry');
+    expect(result.mode).toBe('conductor');
+    expect(result.status).toBe('cancelled');
+    expect(result.cancellationReason).toBe('approval-gate');
+    expect(result.summary).toContain('指挥家计划');
   });
 
   it('emits an approval gate with real impact map from registry', async () => {
@@ -221,10 +225,10 @@ describe('AgentRuntime', () => {
       approvals: { plan: false }
     });
 
-    expect(result.mode).toBe('cross-repo');
+    expect(result.mode).toBe('conductor');
     expect(result.status).toBe('cancelled');
     expect(result.cancellationReason).toBe('approval-gate');
-    expect(result.summary).toContain('跨仓库计划');
+    expect(result.summary).toContain('指挥家计划');
     expect(traceStore.events.map((event) => event.type)).toEqual(
       expect.arrayContaining([
         'plan.created',
@@ -237,7 +241,7 @@ describe('AgentRuntime', () => {
       strategy: expect.stringMatching(/heuristic|registry-only/),
       projectId: 'demo'
     });
-    expect(runtime.getPendingCrossRepoPlan()?.projectId).toBe('demo');
+    expect(runtime.getPendingConductorPlan()?.projectId).toBe('demo');
   });
 
   it('executes per-repo subagents after plan approval', async () => {
@@ -278,13 +282,13 @@ describe('AgentRuntime', () => {
 
     await runtime.run({
       input: '前后端联动改字段',
-      requestedMode: 'cross-repo',
+      requestedMode: 'conductor',
       approvals: { plan: false }
     });
 
     const result = await runtime.run({
       input: '前后端联动改字段',
-      requestedMode: 'cross-repo',
+      requestedMode: 'conductor',
       approvals: { plan: true }
     });
 
@@ -294,7 +298,7 @@ describe('AgentRuntime', () => {
     expect(result.summary).toContain('web');
     expect(result.report.evidence.some((e) => e.includes('api'))).toBe(true);
     expect(traceStore.events.map((e) => e.type)).toContain(
-      'cross_repo.execution.started'
+      'conductor.execution.started'
     );
   });
 
@@ -561,7 +565,7 @@ describe('AgentRuntime', () => {
       description: '扫描多仓库影响面',
       risk: 'read',
       inputSchema: z.object({}),
-      enabled: ({ mode }) => mode === 'cross-repo',
+      enabled: ({ mode }) => mode === 'conductor',
       execute: async () => ({ content: 'ok' })
     });
     toolGateway.register({
@@ -575,7 +579,8 @@ describe('AgentRuntime', () => {
       traceStore,
       llmClient,
       contextManager: new InMemoryContextManager(),
-      toolGateway
+      toolGateway,
+      workspaceRoot: '/tmp/ws'
     });
 
     await runtime.run({
@@ -583,19 +588,19 @@ describe('AgentRuntime', () => {
       requestedMode: 'auto'
     });
 
-    // normal mode: cross-repo-only tools must not appear
+    // normal mode: conductor-only tools must not appear
     expect(llmClient.requests[0]?.messages[0]?.content).toContain('fs.read');
     expect(llmClient.requests[0]?.messages[0]?.content).not.toContain(
       'cross.repo.scan'
     );
 
-    // cross-repo plan-first path does not run a write-capable tool loop
+    // conductor plan-first path does not run a write-capable tool loop
     const cross = await runtime.run({
       input: '给字段做前后端联动',
       requestedMode: 'auto'
     });
-    expect(cross.mode).toBe('cross-repo');
-    expect(cross.status).toBe('failed'); // no registry in this test
+    expect(cross.mode).toBe('conductor');
+    expect(cross.status).toBe('cancelled'); // cwd-only fallback plan
     expect(llmClient.requests.length).toBe(1);
   });
 

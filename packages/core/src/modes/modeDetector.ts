@@ -1,7 +1,7 @@
 import type { AgentMode } from '../domain';
 
 export interface ModeDetectionInput {
-  requestedMode: AgentMode;
+  requestedMode: AgentMode | string;
   input: string;
 }
 
@@ -12,7 +12,8 @@ export interface ModeDetectionResult {
   signals: string[];
 }
 
-const crossRepoSignals = [
+/** Signals that auto-route into conductor (orchestration) mode. */
+const conductorSignals = [
   '前后端',
   '前端',
   '后端',
@@ -23,35 +24,54 @@ const crossRepoSignals = [
   '接口字段',
   '字段贯通',
   'api client',
-  'openapi'
+  'openapi',
+  '指挥家',
+  'conductor'
 ];
 
+/** Accept legacy alias `cross-repo` as conductor. */
+export function normalizeAgentMode(value: string): AgentMode | undefined {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === 'cross-repo' || trimmed === 'cross_repo') {
+    return 'conductor';
+  }
+  if (trimmed === 'auto' || trimmed === 'normal' || trimmed === 'conductor') {
+    return trimmed;
+  }
+  return undefined;
+}
+
 export function detectMode(input: ModeDetectionInput): ModeDetectionResult {
-  if (input.requestedMode !== 'auto') {
+  const requested =
+    normalizeAgentMode(String(input.requestedMode)) ?? 'auto';
+
+  if (requested !== 'auto') {
     return {
-      mode: input.requestedMode,
-      reason: `用户显式选择 ${input.requestedMode} 模式`,
-      requiresApproval: input.requestedMode === 'cross-repo',
+      mode: requested,
+      reason: `用户显式选择 ${requested} 模式`,
+      requiresApproval: requested === 'conductor',
       signals: []
     };
   }
 
   const normalized = input.input.toLowerCase();
-  const signals = crossRepoSignals.filter((signal) =>
+  const signals = conductorSignals.filter((signal) =>
     normalized.includes(signal.toLowerCase())
   );
 
-  const hasCrossRepoIntent =
+  const hasConductorIntent =
     signals.includes('跨仓库') ||
     signals.includes('跨系统') ||
+    signals.includes('指挥家') ||
+    signals.includes('conductor') ||
     (signals.includes('前端') && signals.includes('后端')) ||
     signals.includes('前后端') ||
     (signals.includes('管理端') && signals.includes('联动'));
 
-  if (hasCrossRepoIntent) {
+  if (hasConductorIntent) {
     return {
-      mode: 'cross-repo',
-      reason: `检测到跨系统信号：${signals.join('、')}`,
+      mode: 'conductor',
+      reason: `检测到需要编排的信号：${signals.join('、')}`,
       requiresApproval: true,
       signals
     };
@@ -59,7 +79,7 @@ export function detectMode(input: ModeDetectionInput): ModeDetectionResult {
 
   return {
     mode: 'normal',
-    reason: '未检测到跨仓库信号，使用普通 agent 模式',
+    reason: '未检测到编排信号，使用普通 agent 模式',
     requiresApproval: false,
     signals
   };

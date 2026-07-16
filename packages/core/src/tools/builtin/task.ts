@@ -90,7 +90,7 @@ export function createTaskTool(
           type: 'string',
           description:
             '可选。project registry 中的仓库 id；指定后子代理在该仓库根目录下读写，' +
-            '用于 cross-repo 编排。不填则使用主 agent 工作区。'
+            '用于多目录/指挥家编排（/add-dir 的 id 或 registry repo id）。不填则使用主工作区。'
         }
       },
       required: ['description', 'prompt'],

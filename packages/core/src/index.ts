@@ -44,4 +44,5 @@ export * from './trace/observableTraceStore';
 export * from './workspace/changedFiles';
 export * from './workspace/projectRegistry';
 export * from './workspace/workspaceDiff';
-export * from './runtime/crossRepoOrchestration';
+export * from './workspace/workspaceRoots';
+export * from './runtime/conductorOrchestration';

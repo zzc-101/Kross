@@ -6,9 +6,9 @@
 
 - 交互式 TUI 入口，启动后像 Claude Code 一样输入自然语言任务。
 - 全屏 TUI 为 Ink 预留安全行，避免高频更新触发整屏 `clearTerminal`；触摸板滚动采用单层帧合并，消息视口复用稳定 paint layout，流式文本按帧批量更新。
-- `auto` / `normal` / `cross-repo` 三种模式。
-- 普通模式具备最小运行闭环：解析目标、生成计划、记录 trace、返回报告。
-- 跨仓库模式：检测联动信号 → 读取 `~/.kross/projects.json` → 生成影响面与计划 → `/approve` 后按仓派生子代理执行（**不内置 codegraph**）。
+- `auto` / `normal` / `conductor` 三种模式（UI i18n：指挥家 / Conductor；兼容 `cross-repo` 别名）。
+- 普通模式：本地工具环。指挥家：plan-first → `/approve` → 按目标扇出子代理。
+- 多目录：`/add-dir` `/dirs` `/remove-dir`（与 mode 正交）；可选 `projects.json` 作模板。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - 工作区级会话持久化：完整可见消息以 append-only JSONL 保存，SQLite 仅维护可重建的最近会话索引；启动页可选择历史会话，`/resume` 打开选择器，`/resume <sessionId>` 直接恢复。
 - TUI 界面 i18n：默认中文，支持 `/lang en|zh` 与 `AGENT_LANG` / `KROSS_LANG` / `config.locale` 切换英文。
@@ -52,7 +52,7 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 已实现：
 
 - 工具注册：每个工具声明名称、描述、风险等级、可选分类和输入 JSON Schema。
-- 条件启用：工具可以按当前模式等上下文动态出现在 planner prompt 中，例如只在 `cross-repo` 模式暴露跨仓库扫描工具。
+- 条件启用：工具可以按当前模式等上下文动态出现在 planner prompt 中，例如只在 `conductor` 模式暴露跨仓库扫描工具。
 - 入参校验：执行前用 zod schema 校验模型/调用方给出的输入。
 - 审批策略：默认只自动允许 `read` 工具，`write`、`execute`、`network` 会要求显式批准；也支持自定义 allow/ask/deny 策略并记录拒绝原因。
 - 选项式确认：当模型请求高风险工具时，TUI 会暂停当前运行并显示 Approve / Reject 选项，用户可用方向键切换、Enter 确认，也可按 `a`/`r`。
@@ -257,7 +257,7 @@ packages/core
   context          ConversationThread、TokenEstimator、ContextGovernor、SessionContext
   domain           共享协议和 zod schema
   llm              OpenAI-compatible / Anthropic-compatible 模型协议适配
-  modes            normal / cross-repo 模式检测
+  modes            normal / conductor 模式检测
   runtime          agent run 生命周期和事件流
   session          append-only JSONL 会话事实源和 SQLite 最近会话索引
   tools            Tool Gateway、工具注册、权限、入参校验和内置工具
@@ -276,17 +276,32 @@ packages/tui
 2. ~~实现 `/diff`~~：agent 触达文件 + git status/diff --stat + 建议验证命令；`report.changedFiles` 在 run 结束时从 Write/Edit 回填。
 3. 补齐 README 与真实能力的同步，持续让文档作为项目状态板使用。
 
-### Cross-repo 编排（不内置 codegraph）
+### 指挥家模式 + 多目录（不内置 codegraph）
 
-当前已落地 **plan-first** 闭环：
+**Mode（怎么干活）** 与 **workspace roots（能干哪些目录）** 已拆开：
 
-1. 读取本地 project registry（`~/.kross/projects.json`，可选工作区 `.kross/project.json` 合并）。
-2. 用 registry + 目标关键词启发式生成 Impact Map（**不依赖 codegraph**）。
-3. 展示计划并等待 `/approve` / `/reject`（确认前不改文件）。
-4. 批准后按 repo **顺序**派生子代理（`Task`/`runSubagent`，各自 `workspaceRoot = repo.path`）。
-5. 汇总各仓摘要、变更与风险写入最终报告与 trace。
+| 能力 | 命令 / 模式 | 说明 |
+|---|---|---|
+| 普通 agent | `/mode normal` | 默认工具环 |
+| 指挥家编排 | `/mode conductor` | 先计划、确认后再扇出子代理 |
+| 加目录 | `/add-dir /path/to/repo` | 会话级 allowlist + Task `repoId` |
+| 列目录 | `/dirs` | 主 cwd + 已 add 的目录 |
+| 移目录 | `/remove-dir <id\|path>` | 不能移除 primary |
 
-#### 配置示例 `~/.kross/projects.json`
+指挥家 impact 优先级：
+
+1. 当前会话 `WorkspaceRoots`（primary + `/add-dir`）
+2. 否则 `~/.kross/projects.json`（可选模板）
+3. 否则仅 primary cwd
+
+```bash
+/add-dir ~/work/api
+/add-dir ~/work/web
+/mode conductor
+# 描述前后端联动任务 → /approve
+```
+
+可选项目模板 `~/.kross/projects.json`（启动时会尝试 seed 到 roots）：
 
 ```json
 {
@@ -294,24 +309,13 @@ packages/tui
   "projects": {
     "my-app": {
       "repos": [
-        {
-          "id": "api",
-          "path": "/Users/me/work/api",
-          "type": "backend",
-          "testCommand": "npm test"
-        },
-        {
-          "id": "web",
-          "path": "/Users/me/work/web",
-          "type": "frontend"
-        }
+        { "id": "api", "path": "/Users/me/work/api", "type": "backend" },
+        { "id": "web", "path": "/Users/me/work/web", "type": "frontend" }
       ]
     }
   }
 }
 ```
 
-- `path` 建议用绝对路径；相对路径相对 registry 文件所在目录解析。
-- 启动时若 `cwd` 落在某个 `repo.path` 下，会自动选中对应 project；否则用 `defaultProjectId`。
-- 主 agent 工具仍绑定启动 cwd；跨仓写入请用 **Task + repoId**（allowlist 为 registry 中全部 path + cwd）。
-- `RepoConfig.codegraphIndex` 字段仅保留兼容，**运行时不使用**。
+- 界面语言：`/lang zh|en` 切换 mode 显示名（指挥家 / Conductor）。
+- `RepoConfig.codegraphIndex` 仅保留兼容，**运行时不使用**。

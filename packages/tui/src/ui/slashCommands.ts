@@ -12,7 +12,7 @@ export interface SlashCommand {
   usage?: string;
   category: SlashCommandCategory;
   suggestion?: boolean;
-  requiresPendingCrossRepoPlan?: boolean;
+  requiresPendingConductorPlan?: boolean;
 }
 
 /** Live slash command list (descriptions follow current locale). */
@@ -38,7 +38,25 @@ export function listSlashCommands(): SlashCommand[] {
     {
       name: '/mode',
       description: t('slash.mode.desc'),
-      usage: '/mode auto|normal|cross-repo',
+      usage: '/mode auto|normal|conductor',
+      category: 'common'
+    },
+    {
+      name: '/add-dir',
+      description: t('slash.addDir.desc'),
+      usage: '/add-dir <path>',
+      category: 'common'
+    },
+    {
+      name: '/dirs',
+      description: t('slash.dirs.desc'),
+      usage: '/dirs',
+      category: 'common'
+    },
+    {
+      name: '/remove-dir',
+      description: t('slash.removeDir.desc'),
+      usage: '/remove-dir <id|path>',
       category: 'common'
     },
     {
@@ -97,13 +115,13 @@ export function listSlashCommands(): SlashCommand[] {
       name: '/approve',
       description: t('slash.approve.desc'),
       category: 'contextual',
-      requiresPendingCrossRepoPlan: true
+      requiresPendingConductorPlan: true
     },
     {
       name: '/reject',
       description: t('slash.reject.desc'),
       category: 'contextual',
-      requiresPendingCrossRepoPlan: true
+      requiresPendingConductorPlan: true
     },
     {
       name: '/expand',
@@ -118,7 +136,7 @@ export function listSlashCommands(): SlashCommand[] {
 export const slashCommands: SlashCommand[] = listSlashCommands();
 
 export interface SlashSuggestionOptions {
-  hasPendingCrossRepoPlan?: boolean;
+  hasPendingConductorPlan?: boolean;
   limit?: number;
 }
 
@@ -144,8 +162,8 @@ export function getSlashCommandSuggestions(
       continue;
     }
     if (
-      command.requiresPendingCrossRepoPlan &&
-      !options.hasPendingCrossRepoPlan
+      command.requiresPendingConductorPlan &&
+      !options.hasPendingConductorPlan
     ) {
       continue;
     }

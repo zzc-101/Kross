@@ -52,7 +52,7 @@ describe('ToolGateway', () => {
       description: '执行 shell 命令',
       risk: 'execute',
       inputSchema: z.object({ cmd: z.string() }),
-      enabled: ({ mode }) => mode === 'cross-repo',
+      enabled: ({ mode }) => mode === 'conductor',
       execute: async () => ({ content: 'ok' })
     });
 
@@ -66,7 +66,7 @@ describe('ToolGateway', () => {
     expect(gateway.listTools({ mode: 'normal' })).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'shell.exec' })])
     );
-    expect(gateway.listTools({ mode: 'cross-repo' })).toEqual(
+    expect(gateway.listTools({ mode: 'conductor' })).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'shell.exec' })])
     );
   });

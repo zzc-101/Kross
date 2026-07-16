@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const agentModeSchema = z.enum(['auto', 'normal', 'cross-repo']);
+export const agentModeSchema = z.enum(['auto', 'normal', 'conductor']);
 export type AgentMode = z.infer<typeof agentModeSchema>;
 
 export const runStatusSchema = z.enum([
@@ -53,13 +53,13 @@ export const impactMapSchema = z.object({
 });
 export type ImpactMap = z.infer<typeof impactMapSchema>;
 
-export const crossRepoPlanSchema = z.object({
+export const conductorPlanSchema = z.object({
   goal: z.string().min(1),
   projectId: z.string().min(1),
   steps: z.array(z.string().min(1)).min(1),
   llmSuggestion: z.string().optional()
 });
-export type CrossRepoPlan = z.infer<typeof crossRepoPlanSchema>;
+export type ConductorPlan = z.infer<typeof conductorPlanSchema>;
 
 export const traceEventSchema = z.object({
   id: z.string().min(1),

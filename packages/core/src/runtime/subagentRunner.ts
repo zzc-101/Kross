@@ -50,8 +50,11 @@ export interface SubagentRunDeps {
    * Absolute roots Task may target. When set, request.workspaceRoot must
    * equal one of these (or be nested under one). When unset, only the default
    * workspaceRoot is allowed for overrides.
+   * Prefer getAllowedWorkspaceRoots for live /add-dir updates.
    */
   allowedWorkspaceRoots?: string[];
+  /** Dynamic allowlist (e.g. WorkspaceRoots.allowedRoots). Overrides static list. */
+  getAllowedWorkspaceRoots?: () => string[];
   llmClient?: LlmClient;
   traceStore: TraceStore;
   maxDepth?: number;
@@ -503,17 +506,25 @@ export function deriveSubagentTitle(prompt: string, maxLen = 36): string {
  */
 export function resolveSubagentWorkspaceRoot(
   request: Pick<SubagentRunRequest, 'workspaceRoot'>,
-  deps: Pick<SubagentRunDeps, 'workspaceRoot' | 'allowedWorkspaceRoots'>
+  deps: Pick<
+    SubagentRunDeps,
+    'workspaceRoot' | 'allowedWorkspaceRoots' | 'getAllowedWorkspaceRoots'
+  >
 ): string {
   const fallback = resolve(deps.workspaceRoot);
   const requested = request.workspaceRoot?.trim()
     ? resolve(request.workspaceRoot.trim())
     : fallback;
 
-  const allow =
-    deps.allowedWorkspaceRoots && deps.allowedWorkspaceRoots.length > 0
-      ? deps.allowedWorkspaceRoots.map((root) => resolve(root))
-      : [fallback];
+  const dynamic = deps.getAllowedWorkspaceRoots?.() ?? [];
+  const staticList = deps.allowedWorkspaceRoots ?? [];
+  const combined =
+    dynamic.length > 0
+      ? dynamic
+      : staticList.length > 0
+        ? staticList
+        : [fallback];
+  const allow = combined.map((root) => resolve(root));
 
   if (!isPathAllowed(requested, allow)) {
     throw new Error(

@@ -125,7 +125,8 @@ async function main(): Promise<void> {
         traceStore: tooling.traceStore,
         todoStore: tooling.todoStore,
         setLlmClient: tooling.setLlmClient,
-        runSubagent: tooling.runSubagent
+        runSubagent: tooling.runSubagent,
+        workspaceRoots: tooling.workspaceRoots
       }
     : undefined;
 

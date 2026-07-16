@@ -1,14 +1,15 @@
 import {
   AgentRuntime,
   ObservableTraceStore,
+  WorkspaceRoots,
   type AgentRuntimeOptions,
   type TraceEvent,
   type TraceStore
 } from '@kross/core';
 
 /**
- * Lightweight runtime for tests / fallback. Includes a sample multi-repo
- * registry so cross-repo plan gate can be exercised without ~/.kross files.
+ * Lightweight runtime for tests / fallback. Includes workspace roots + sample
+ * registry so conductor plan gate can be exercised without ~/.kross files.
  */
 export function createMemoryRuntime(
   overrides: Partial<AgentRuntimeOptions> = {}
@@ -27,6 +28,8 @@ export function createMemoryRuntime(
 
   return new AgentRuntime({
     traceStore: new ObservableTraceStore(new InMemoryTraceStore()),
+    workspaceRoot: '/tmp/kross-demo-primary',
+    workspaceRoots: new WorkspaceRoots('/tmp/kross-demo-primary'),
     projectRegistry: sampleRegistry,
     projectRegistryPath: '(memory) sample registry',
     runSubagent: async (request) => ({

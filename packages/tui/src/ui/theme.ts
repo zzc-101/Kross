@@ -129,8 +129,8 @@ export function formatModeLabel(mode: string): string {
       return t('mode.auto');
     case 'normal':
       return t('mode.normal');
-    case 'cross-repo':
-      return t('mode.crossRepo');
+    case 'conductor':
+      return t('mode.conductor');
     default:
       return mode;
   }

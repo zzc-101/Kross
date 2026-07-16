@@ -33,7 +33,7 @@ export interface UseAppSubmitOptions {
   setImportPrompt: React.Dispatch<React.SetStateAction<ConfigImportPrompt | undefined>>;
   setRuntimeGeneration: React.Dispatch<React.SetStateAction<number>>;
   toggleLastCollapsible: () => void;
-  pendingCrossRepoPlan: { prompt: string; mode: AgentMode } | undefined;
+  pendingConductorPlan: { prompt: string; mode: AgentMode } | undefined;
   choosePlanApproval: (approved: boolean) => Promise<void>;
   setLocaleGeneration: React.Dispatch<React.SetStateAction<number>>;
   processingRef: React.MutableRefObject<boolean>;
@@ -65,7 +65,7 @@ export function useAppSubmit({
   setImportPrompt,
   setRuntimeGeneration,
   toggleLastCollapsible,
-  pendingCrossRepoPlan,
+  pendingConductorPlan,
   choosePlanApproval,
   setLocaleGeneration,
   processingRef,
@@ -227,7 +227,7 @@ export function useAppSubmit({
         setImportPrompt,
         () => setRuntimeGeneration((current) => current + 1),
         toggleLastCollapsible,
-        Boolean(pendingCrossRepoPlan),
+        Boolean(pendingConductorPlan),
         choosePlanApproval,
         () => setLocaleGeneration((current) => current + 1)
       )
@@ -266,7 +266,7 @@ export function useAppSubmit({
     runTurn,
     slashSelectedIndex,
     slashSuggestions,
-    pendingCrossRepoPlan,
+    pendingConductorPlan,
     choosePlanApproval,
     ensureActiveSession,
     isHome,

@@ -13,23 +13,28 @@ describe('detectMode', () => {
     expect(result.requiresApproval).toBe(false);
   });
 
-  it('keeps explicit cross-repo mode', () => {
-    const result = detectMode({
-      requestedMode: 'cross-repo',
-      input: '解释一下这个工具'
-    });
-
-    expect(result.mode).toBe('cross-repo');
-    expect(result.reason).toContain('显式');
+  it('keeps explicit conductor mode and aliases cross-repo', () => {
+    expect(
+      detectMode({
+        requestedMode: 'conductor',
+        input: '解释一下这个工具'
+      }).mode
+    ).toBe('conductor');
+    expect(
+      detectMode({
+        requestedMode: 'cross-repo',
+        input: '解释一下这个工具'
+      }).mode
+    ).toBe('conductor');
   });
 
-  it('auto-detects front/back linkage as cross-repo', () => {
+  it('auto-detects front/back linkage as conductor', () => {
     const result = detectMode({
       requestedMode: 'auto',
       input: '给巡检任务增加任务来源字段，前后端联动，管理端也展示'
     });
 
-    expect(result.mode).toBe('cross-repo');
+    expect(result.mode).toBe('conductor');
     expect(result.requiresApproval).toBe(true);
   });
 

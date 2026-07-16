@@ -157,7 +157,7 @@ export function App({
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);
   const [pendingToolApproval, setPendingToolApproval] = useState<PendingToolApproval | undefined>();
-  const [pendingCrossRepoPlan, setPendingCrossRepoPlan] = useState<{
+  const [pendingConductorPlan, setPendingConductorPlan] = useState<{
     prompt: string;
     mode: AgentMode;
   } | undefined>();
@@ -243,7 +243,7 @@ export function App({
     processingRef,
     pendingToolApproval,
     setPendingToolApproval,
-    setPendingCrossRepoPlan,
+    setPendingConductorPlan,
     setAwaitingReply,
     setStreamingMessageId,
     setStatus,
@@ -274,11 +274,11 @@ export function App({
   const slashSuggestionResult = useMemo(
     () =>
       getSlashCommandSuggestions(input, {
-        hasPendingCrossRepoPlan: pendingCrossRepoPlan !== undefined
+        hasPendingConductorPlan: pendingConductorPlan !== undefined
       }),
     // localeGeneration: re-resolve descriptions after /lang
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
-    [input, pendingCrossRepoPlan, localeGeneration]
+    [input, pendingConductorPlan, localeGeneration]
   );
   const slashSuggestions = slashSuggestionResult.commands;
 
@@ -326,9 +326,9 @@ export function App({
     setStreamingMessageId,
     setPendingToolApproval,
     setApprovalSelection,
-    setPendingCrossRepoPlan,
+    setPendingConductorPlan,
     pendingToolApproval,
-    pendingCrossRepoPlan,
+    pendingConductorPlan,
     processingRef
   });
 
@@ -430,7 +430,7 @@ export function App({
     setImportPrompt,
     setRuntimeGeneration,
     toggleLastCollapsible,
-    pendingCrossRepoPlan,
+    pendingConductorPlan,
     choosePlanApproval,
     setLocaleGeneration,
     processingRef,

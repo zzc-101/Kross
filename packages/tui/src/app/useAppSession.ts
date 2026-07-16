@@ -41,7 +41,7 @@ export interface UseAppSessionOptions {
   setPendingToolApproval: React.Dispatch<
     React.SetStateAction<PendingToolApproval | undefined>
   >;
-  setPendingCrossRepoPlan: React.Dispatch<
+  setPendingConductorPlan: React.Dispatch<
     React.SetStateAction<{ prompt: string; mode: import('@kross/core').AgentMode } | undefined>
   >;
   setAwaitingReply: React.Dispatch<React.SetStateAction<boolean>>;
@@ -72,7 +72,7 @@ export function useAppSession({
   processingRef,
   pendingToolApproval,
   setPendingToolApproval,
-  setPendingCrossRepoPlan,
+  setPendingConductorPlan,
   setAwaitingReply,
   setStreamingMessageId,
   setStatus,
@@ -280,7 +280,7 @@ export function useAppSession({
     queueRef.current.length = 0;
     setQueueLength(0);
     setPendingToolApproval(undefined);
-    setPendingCrossRepoPlan(undefined);
+    setPendingConductorPlan(undefined);
     setAwaitingReply(false);
     setStreamingMessageId(undefined);
     setStatus('ready');
@@ -323,7 +323,7 @@ export function useAppSession({
     sessionStore,
     setAwaitingReply,
     setMessages,
-    setPendingCrossRepoPlan,
+    setPendingConductorPlan,
     setPendingToolApproval,
     setQueueLength,
     setStatus,
@@ -377,7 +377,7 @@ export function useAppSession({
       queueRef.current.length = 0;
       setQueueLength(0);
       setPendingToolApproval(undefined);
-      setPendingCrossRepoPlan(undefined);
+      setPendingConductorPlan(undefined);
       setAwaitingReply(false);
       setStreamingMessageId(undefined);
       setStatus('ready');
@@ -472,7 +472,7 @@ export function useAppSession({
     sessionStore,
     setAwaitingReply,
     setMessages,
-    setPendingCrossRepoPlan,
+    setPendingConductorPlan,
     setPendingToolApproval,
     setQueueLength,
     setStatus,

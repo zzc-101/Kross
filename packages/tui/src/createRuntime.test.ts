@@ -65,7 +65,8 @@ describe('createRuntimeOptionsFromEnv', () => {
         traceStore: first.traceStore as any,
         todoStore: first.todoStore!,
         setLlmClient,
-        runSubagent: first.runSubagent!
+        runSubagent: first.runSubagent!,
+        workspaceRoots: first.workspaceRoots!
       }
     );
     expect(second.toolGateway).toBe(first.toolGateway);
