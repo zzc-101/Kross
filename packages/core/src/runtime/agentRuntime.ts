@@ -616,8 +616,9 @@ export class AgentRuntime extends EventEmitter {
   }
 
   /**
-   * Plan mode: produce an implementation plan → /approve → full tool-loop develop.
-   * Pure greetings / small-talk skip the gate and chat normally.
+   * Plan mode: model judges whether input needs a plan.
+   * - chat/Q&A/small-talk → direct reply (no /approve)
+   * - real implementation task → plan text → /approve → tool-loop develop
    */
   private async runPlanMode(
     input: AgentRunInput,
@@ -627,29 +628,10 @@ export class AgentRuntime extends EventEmitter {
   ): Promise<AgentResult> {
     throwIfAborted(input.signal);
 
-    // 闲聊不必走 plan 门：否则「你好」也会卡在 /approve
-    if (
-      input.approvals?.plan !== true &&
-      isCasualChatInput(input.input) &&
-      this.options.llmClient
-    ) {
-      let result: AgentResult | undefined;
-      for await (const event of this.runAgentToolLoop(input, mode, runId)) {
-        if (event.type === 'result') {
-          result = event.result;
-        }
-      }
-      if (!result) {
-        throw new Error(`Plan-mode chat finished without result: ${runId}`);
-      }
-      return result;
-    }
-
     if (
       input.approvals?.plan === true &&
       this.pendingModeExecution?.kind === 'plan'
     ) {
-      // Should be handled in executeRun streaming path; fallback if called directly.
       const pending = this.pendingModeExecution;
       this.pendingModeExecution = undefined;
       if (!this.options.llmClient) {
@@ -669,7 +651,36 @@ export class AgentRuntime extends EventEmitter {
       return result;
     }
 
-    const planText = await this.buildPlanModeText(input.input, input.signal);
+    const decision = await this.decidePlanModeIntent(input.input, input.signal);
+    await this.record(runId, 'plan.intent', {
+      kind: decision.kind,
+      reason: decision.reason
+    });
+
+    if (decision.kind === 'chat') {
+      const reply = decision.reply;
+      const completed = await this.attachChangedFiles(
+        agentResultSchema.parse({
+          runId,
+          mode: 'plan',
+          status: 'completed',
+          summary: reply,
+          report: {
+            changedFiles: [],
+            evidence: [
+              'plan 模式：模型判断无需开发计划，直接回复',
+              decision.reason
+            ],
+            risks: []
+          }
+        })
+      );
+      await this.record(runId, 'run.completed', { ...completed });
+      this.finishTurnWithAssistant(input.input, completed.summary);
+      return completed;
+    }
+
+    const planText = decision.planText;
     await this.record(runId, 'plan.created', {
       mode: 'plan',
       goal: input.input,
@@ -723,7 +734,7 @@ export class AgentRuntime extends EventEmitter {
         summary,
         report: {
           changedFiles: [],
-          evidence: ['plan-first：确认前不改文件'],
+          evidence: ['plan-first：模型判断需要计划；确认前不改文件'],
           risks: []
         }
       })
@@ -733,50 +744,92 @@ export class AgentRuntime extends EventEmitter {
     return cancelled;
   }
 
-  private async buildPlanModeText(
-    goal: string,
+  /**
+   * 由高级模型判断：闲聊/问答直接回复，还是产出开发计划。
+   * 无模型时仅用轻量启发式兜底。
+   */
+  private async decidePlanModeIntent(
+    userInput: string,
     signal?: AbortSignal
-  ): Promise<string> {
+  ): Promise<
+    | { kind: 'chat'; reply: string; reason: string }
+    | { kind: 'plan'; planText: string; reason: string }
+  > {
     const client = this.options.llmClient;
     if (!client) {
-      return [
-        `目标：${goal}`,
-        '',
-        '建议步骤：',
-        '1. 阅读相关代码与测试，确认现状',
-        '2. 列出拟修改文件与接口影响',
-        '3. 按最小可验证增量实现',
-        '4. 跑相关测试并自检'
-      ].join('\n');
+      if (isCasualChatInput(userInput)) {
+        return {
+          kind: 'chat',
+          reply: '你好。当前是 Plan 模式；有具体开发任务时再说，我会先出计划请你确认。',
+          reason: 'no-llm + casual heuristic'
+        };
+      }
+      return {
+        kind: 'plan',
+        planText: [
+          `目标：${userInput}`,
+          '',
+          '建议步骤：',
+          '1. 阅读相关代码与测试，确认现状',
+          '2. 列出拟修改文件与接口影响',
+          '3. 按最小可验证增量实现',
+          '4. 跑相关测试并自检'
+        ].join('\n'),
+        reason: 'no-llm + task fallback template'
+      };
     }
+
     throwIfAborted(signal);
     try {
       const response = await client.complete({
         messages: [
           {
             role: 'system',
-            content:
-              '你是资深工程师。只输出可执行的开发计划（中文），包含：目标、步骤、涉及文件/模块、风险与验证方式。不要调用工具，不要改代码。'
+            content: [
+              '你在 Plan 模式路由层。根据用户输入判断是否需要「开发计划」。',
+              '',
+              '规则：',
+              '- 问候、闲聊、感谢、单纯提问且不要求改代码 → kind=chat，写自然回复。',
+              '- 要求写代码/改代码/修 bug/加功能/重构/跑测试并改仓库等 → kind=plan，写可执行开发计划（目标、步骤、涉及文件/模块、风险与验证）。',
+              '- 不要调用工具，不要编造已改代码。',
+              '',
+              '只输出 JSON（可包在 ```json 中）：',
+              '{"kind":"chat","reply":"...","reason":"..."}',
+              '或',
+              '{"kind":"plan","plan":"...","reason":"..."}'
+            ].join('\n')
           },
-          { role: 'user', content: goal }
+          { role: 'user', content: userInput }
         ],
-        metadata: { purpose: 'plan-mode' }
+        metadata: { purpose: 'plan-mode-intent' }
       });
-      const text = response.text?.trim();
-      if (text) {
-        return text;
+      const parsed = parsePlanModeIntent(userInput, response.text ?? '');
+      if (parsed) {
+        return parsed;
       }
     } catch {
-      // fall through to template
+      // fall through
     }
-    return [
-      `目标：${goal}`,
-      '',
-      '（模型未返回计划正文，使用默认模板）',
-      '1. 探索相关代码',
-      '2. 实现变更',
-      '3. 验证测试'
-    ].join('\n');
+
+    // 模型失败时的保守兜底：明显闲聊直回，否则出计划
+    if (isCasualChatInput(userInput)) {
+      return {
+        kind: 'chat',
+        reply: '你好。有具体开发任务时发我，我会在 Plan 模式下先出计划再动手。',
+        reason: 'llm-failed + casual heuristic'
+      };
+    }
+    return {
+      kind: 'plan',
+      planText: [
+        `目标：${userInput}`,
+        '',
+        '1. 探索相关代码',
+        '2. 实现变更',
+        '3. 验证测试'
+      ].join('\n'),
+      reason: 'llm-failed + task fallback'
+    };
   }
 
   /**
@@ -1325,7 +1378,7 @@ export class AgentRuntime extends EventEmitter {
   }
 }
 
-/** 闲聊/问候：plan 模式不必强制 plan 门。 */
+/** 无模型时的轻量兜底；主路径由 decidePlanModeIntent 的 LLM 判断。 */
 export function isCasualChatInput(input: string): boolean {
   const text = input.trim();
   if (text.length === 0) {
@@ -1337,6 +1390,66 @@ export function isCasualChatInput(input: string): boolean {
   return /^(你好|您好|嗨|哈喽|在吗|在不在|早上好|中午好|下午好|晚上好|谢谢|感谢|再见|拜拜|ok|okay|好的|嗯|hi|hello|hey|thanks|thank you|bye)([\s!！.。?？~～❤️🙏]*)$/i.test(
     text
   );
+}
+
+export function parsePlanModeIntent(
+  userInput: string,
+  raw: string
+):
+  | { kind: 'chat'; reply: string; reason: string }
+  | { kind: 'plan'; planText: string; reason: string }
+  | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
+  const candidate = (fenced?.[1] ?? trimmed).trim();
+  try {
+    const obj = JSON.parse(candidate) as Record<string, unknown>;
+    const kind = typeof obj.kind === 'string' ? obj.kind.toLowerCase() : '';
+    const reason =
+      typeof obj.reason === 'string' && obj.reason.trim()
+        ? obj.reason.trim()
+        : 'model';
+    if (kind === 'chat') {
+      const reply =
+        typeof obj.reply === 'string' && obj.reply.trim()
+          ? obj.reply.trim()
+          : typeof obj.message === 'string'
+            ? obj.message.trim()
+            : '';
+      if (reply) {
+        return { kind: 'chat', reply, reason };
+      }
+    }
+    if (kind === 'plan') {
+      const planText =
+        typeof obj.plan === 'string' && obj.plan.trim()
+          ? obj.plan.trim()
+          : typeof obj.planText === 'string'
+            ? obj.planText.trim()
+            : '';
+      if (planText) {
+        return { kind: 'plan', planText, reason };
+      }
+    }
+  } catch {
+    // not JSON
+  }
+  // 非 JSON：若整段像闲聊回复且输入是问候，当 chat
+  if (isCasualChatInput(userInput) && trimmed.length < 500) {
+    return { kind: 'chat', reply: trimmed, reason: 'non-json freeform chat' };
+  }
+  // 否则当计划正文
+  if (trimmed.length > 20) {
+    return {
+      kind: 'plan',
+      planText: trimmed,
+      reason: 'non-json freeform plan'
+    };
+  }
+  return undefined;
 }
 
 

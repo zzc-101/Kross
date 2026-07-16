@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { AgentRuntime, isCasualChatInput } from './agentRuntime';
+import {
+  AgentRuntime,
+  isCasualChatInput,
+  parsePlanModeIntent
+} from './agentRuntime';
 import { InMemoryContextManager, type SessionContext } from '../context/sessionContext';
 import type { LlmMessage } from '../llm/types';
 import type { TraceEvent } from '../domain';
@@ -1931,5 +1935,26 @@ describe('isCasualChatInput', () => {
     expect(isCasualChatInput('hello!')).toBe(true);
     expect(isCasualChatInput('修复登录 bug')).toBe(false);
     expect(isCasualChatInput('先规划再实现认证')).toBe(false);
+  });
+});
+
+describe('parsePlanModeIntent', () => {
+  it('parses chat and plan JSON from the model', () => {
+    expect(
+      parsePlanModeIntent(
+        '你好',
+        '{"kind":"chat","reply":"你好呀","reason":"greeting"}'
+      )
+    ).toEqual({
+      kind: 'chat',
+      reply: '你好呀',
+      reason: 'greeting'
+    });
+    expect(
+      parsePlanModeIntent(
+        '修登录',
+        '```json\n{"kind":"plan","plan":"1. 读代码\\n2. 改","reason":"task"}\n```'
+      )
+    ).toMatchObject({ kind: 'plan', reason: 'task' });
   });
 });
