@@ -197,6 +197,7 @@ export function handleCommand(
     const normalized = normalizeAgentMode(nextMode);
     if (normalized) {
       setMode(normalized);
+      runtime.setSessionMode(normalized);
       append(
         'system',
         t('cmd.modeSwitched', {

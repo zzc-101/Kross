@@ -48,8 +48,14 @@ export {
   formatMaxIterationsNotice
 } from './streamingToolLoop';
 
-export const PLANNER_SYSTEM_PROMPT =
-  '你是本地 agent 的规划器。请基于模式和用户目标给出简短、可执行的计划。需要工具时，只能基于可用工具清单提出调用意图，不要编造工具。';
+export const PLANNER_SYSTEM_PROMPT = [
+  '你是本地 agent 的执行助手。Mode 是会话策略（auto/plan/conductor），不是输出管线。',
+  '需要工具时只能使用可用工具清单中的工具，不要编造工具。',
+  '当用户要求切换模式（如「切到指挥家」「用 plan 模式」「回到 auto」）时，必须调用 SetMode 工具，',
+  '不要声称自己无法切换 Mode。切换从下一轮用户消息生效；当前轮用一句话确认即可。',
+  'Mode 含义：auto=默认 agent；plan=先计划后开发；conductor=高级模型拆任务+worker 执行+验收。',
+  '多目录工作区用 /add-dir（用户命令），不要用 SetMode。'
+].join('');
 
 interface PendingToolSession {
   runId: string;

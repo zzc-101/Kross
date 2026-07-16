@@ -42,6 +42,7 @@ import {
   ToolGateway,
   type ToolMetadata
 } from '../tools/toolGateway';
+import { createSetModeTool } from '../tools/builtin/setMode';
 import {
   createApprovalPolicy,
   type PermissionMode
@@ -107,6 +108,8 @@ export class AgentRuntime extends EventEmitter {
   private readonly inspection: RuntimeInspection;
   private readonly toolLoop: RuntimeToolLoop;
   private permissionMode: PermissionMode = 'default';
+  /** 会话当前 Mode 策略（可被 /mode 或 SetMode 工具修改）。 */
+  private sessionMode: AgentMode = 'auto';
   /** Held between plan/conductor gate and /approve execution. */
   private pendingModeExecution:
     | import('./agentRuntimeTypes').PendingModeExecution
@@ -144,8 +147,63 @@ export class AgentRuntime extends EventEmitter {
     });
     if (this.toolGateway) {
       this.toolGateway.setApprovalPolicy(createApprovalPolicy(this.permissionMode));
+      // SetMode 挂在 runtime 上，保证 get/set 与会话状态一致
+      if (!this.toolGateway.listTools().some((t) => t.name === 'SetMode')) {
+        this.toolGateway.register(
+          createSetModeTool({
+            getMode: () => this.getSessionMode(),
+            setMode: (mode) => this.setSessionMode(mode)
+          })
+        );
+      }
     }
     this.syncProjectRegistrySource();
+    this.syncSessionModeSource();
+  }
+
+  getSessionMode(): AgentMode {
+    return this.sessionMode;
+  }
+
+  /**
+   * 更新会话 Mode（策略）。同步 context source 并 emit `mode.changed` 供 TUI 刷新。
+   */
+  setSessionMode(mode: AgentMode): void {
+    if (this.sessionMode === mode) {
+      this.syncSessionModeSource();
+      return;
+    }
+    const previous = this.sessionMode;
+    this.sessionMode = mode;
+    this.syncSessionModeSource();
+    this.emit('mode.changed', { mode, previous });
+  }
+
+  /** 订阅会话 Mode 变更（TUI 用于刷新页脚）。 */
+  onModeChanged(
+    listener: (event: { mode: AgentMode; previous: AgentMode }) => void
+  ): () => void {
+    this.on('mode.changed', listener);
+    return () => {
+      this.off('mode.changed', listener);
+    };
+  }
+
+  private syncSessionModeSource(): void {
+    this.sessionContext.addSource({
+      id: 'session-mode',
+      kind: 'user',
+      title: 'Session mode',
+      content: [
+        `当前会话 Mode：${this.sessionMode}`,
+        '- auto：默认 agent 工具环',
+        '- plan：先计划后开发（需确认）',
+        '- conductor：高级模型拆任务 → worker 执行 → 高级模型验收',
+        '用户要求切换时调用 SetMode 工具；多目录用 /add-dir，与 Mode 无关。'
+      ].join('\n'),
+      priority: 97,
+      pinned: true
+    });
   }
 
   /** Last plan/conductor execution awaiting /approve (if any). */
@@ -1106,9 +1164,10 @@ export class AgentRuntime extends EventEmitter {
     const tools = this.toolGateway?.listTools({ mode }) ?? [];
     this.syncTodoContextSource();
     this.syncProjectRegistrySource();
+    this.syncSessionModeSource();
     return {
       buildContextInput: {
-        systemPrompt: PLANNER_SYSTEM_PROMPT,
+        systemPrompt: `${PLANNER_SYSTEM_PROMPT}\n会话 Mode：${this.sessionMode}；本轮策略：${mode}。`,
         mode,
         tools
       },

@@ -594,12 +594,15 @@ describe('AgentRuntime', () => {
     });
 
     expect(result.summary).toBe('结果是 3');
-    expect(llmClient.requests[0]?.tools).toEqual([
-      expect.objectContaining({
-        name: 'math.add',
-        parameters: expect.objectContaining({ type: 'object' })
-      })
-    ]);
+    expect(llmClient.requests[0]?.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'math.add',
+          parameters: expect.objectContaining({ type: 'object' })
+        }),
+        expect.objectContaining({ name: 'SetMode' })
+      ])
+    );
     expect(llmClient.requests[1]?.messages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1222,7 +1225,7 @@ describe('AgentRuntime', () => {
       (event) => event.type === 'context.built'
     );
     expect(contextEvent?.payload).toMatchObject({
-      includedSources: [],
+      includedSources: expect.arrayContaining(['session-mode']),
       droppedSources: [],
       report: expect.objectContaining({
         totalChars: expect.any(Number),

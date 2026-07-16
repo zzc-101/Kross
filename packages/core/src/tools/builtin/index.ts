@@ -20,6 +20,7 @@ import {
   createTaskTool,
   type CreateTaskToolOptions
 } from './task';
+import { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 import { createTodoReadTool, createTodoWriteTool } from './todo';
 import { createWriteTool } from './write';
 import type { TodoStore } from '../../todo/todoStore';
@@ -31,6 +32,7 @@ export {
   createTaskTool,
   type CreateTaskToolOptions
 } from './task';
+export { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 export { createTodoReadTool, createTodoWriteTool } from './todo';
 
 export const builtinToolNames = [
@@ -50,7 +52,8 @@ export const builtinToolNames = [
   'GitLog',
   'Task',
   'TodoWrite',
-  'TodoRead'
+  'TodoRead',
+  'SetMode'
 ] as const;
 
 export interface CreateBuiltinToolsOptions {
@@ -62,6 +65,8 @@ export interface CreateBuiltinToolsOptions {
   resolveRepoPath?: CreateTaskToolOptions['resolveRepoPath'];
   /** Session todo store; when set, registers TodoWrite + TodoRead. */
   todoStore?: TodoStore;
+  /** When set, registers SetMode for conversational mode switching. */
+  setMode?: CreateSetModeToolOptions;
 }
 
 /**
@@ -107,6 +112,10 @@ export function createBuiltinTools(
       createTodoWriteTool(options.todoStore),
       createTodoReadTool(options.todoStore)
     );
+  }
+
+  if (options.setMode) {
+    tools.push(createSetModeTool(options.setMode));
   }
 
   return tools;

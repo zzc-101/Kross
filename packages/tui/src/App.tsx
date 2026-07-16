@@ -142,10 +142,24 @@ export function App({
   const [importPrompt, setImportPrompt] = useState<ConfigImportPrompt | undefined>(
     initialImportPrompt
   );
-  const [mode, setMode] = useState<AgentMode>(initialMode);
+  const [mode, setMode] = useState<AgentMode>(
+    () => agentRuntime.getSessionMode?.() ?? initialMode
+  );
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() =>
     agentRuntime.getPermissionMode()
   );
+
+  // 同步 /mode 与 SetMode 工具到 runtime + UI
+  useEffect(() => {
+    agentRuntime.setSessionMode(mode);
+  }, [agentRuntime, mode]);
+
+  useEffect(() => {
+    const unsub = agentRuntime.onModeChanged(({ mode: next }) => {
+      setMode(next);
+    });
+    return unsub;
+  }, [agentRuntime]);
   // 不 memo：/model 会就地 setModel/setLlmClient，依赖 agentRuntime 引用不变，
   // 需在 append 触发的重渲染中重新读取，否则底栏一直显示旧模型。
   const modelLabel = agentRuntime.getModelLabel();
