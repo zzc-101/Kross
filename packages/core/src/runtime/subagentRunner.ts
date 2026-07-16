@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 
 import {
   isOperationAborted,
@@ -14,6 +14,10 @@ import {
 } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
+import {
+  formatProjectInstructionSource,
+  loadProjectInstructions
+} from '../workspace/projectInstructions';
 import { runCompleteToolLoop } from './completeToolLoop';
 import type {
   SubagentMode,
@@ -101,6 +105,10 @@ export async function runSubagent(
     deriveSubagentTitle(prompt);
 
   const workspaceRoot = resolveSubagentWorkspaceRoot(request, deps);
+  const rootId = request.repoId?.trim() || basename(workspaceRoot) || 'primary';
+  const projectInstructions = loadProjectInstructions({
+    roots: [{ id: rootId, path: workspaceRoot, primary: true }]
+  });
   const useWorker =
     request.preferWorkerModel === true && deps.workerLlmClient !== undefined;
   const llmClient = useWorker ? deps.workerLlmClient : deps.llmClient;
@@ -116,7 +124,14 @@ export async function runSubagent(
     workerModel: useWorker,
     model: llmClient?.model,
     promptPreview: prompt.slice(0, 240),
-    autoApprove: true
+    autoApprove: true,
+    projectInstructions: projectInstructions.files.map((file) => ({
+      filename: file.filename,
+      rootId: file.rootId,
+      truncated: file.truncated,
+      injectedBytes: file.injectedBytes
+    })),
+    projectInstructionDiagnosticCount: projectInstructions.diagnostics.length
   });
 
   if (!llmClient) {
@@ -179,6 +194,16 @@ export async function runSubagent(
     isSubagent: true,
     contextWindow: llmClient.contextWindow
   });
+  for (const file of projectInstructions.files) {
+    sessionContext.addSource({
+      id: file.sourceId,
+      kind: 'repo',
+      title: `Project instructions: ${file.rootId}/${file.filename}`,
+      content: formatProjectInstructionSource(file),
+      priority: 99,
+      pinned: true
+    });
+  }
 
   try {
     const summary = await runCompleteToolLoop({

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -55,6 +55,56 @@ class ScriptedLlmClient implements LlmClient {
 }
 
 describe('runSubagent', () => {
+  it('injects instructions only from the selected child root and traces provenance', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'kross-subagent-instructions-'));
+    try {
+      const main = join(parent, 'main');
+      const api = join(parent, 'api');
+      mkdirSync(main);
+      mkdirSync(api);
+      writeFileSync(join(main, 'AGENTS.md'), 'MAIN ROOT SECRET RULE');
+      writeFileSync(join(api, 'KROSS.md'), 'API ROOT SCOPED RULE');
+      const traceStore = new InMemoryTraceStore();
+      const llm = new ScriptedLlmClient('done');
+
+      await runSubagent(
+        {
+          prompt: 'Work only in API',
+          parentRunId: 'parent-scoped',
+          parentDepth: 0,
+          repoId: 'api',
+          workspaceRoot: api
+        },
+        {
+          workspaceRoot: main,
+          allowedWorkspaceRoots: [main, api],
+          traceStore,
+          llmClient: llm
+        }
+      );
+
+      const system = llm.requests[0]?.messages.find((message) => message.role === 'system');
+      expect(system?.content).toContain('API ROOT SCOPED RULE');
+      expect(system?.content).not.toContain('MAIN ROOT SECRET RULE');
+
+      const started = traceStore.events.find((event) => event.type === 'subagent.started');
+      expect(started?.payload).toMatchObject({
+        projectInstructions: [
+          expect.objectContaining({
+            filename: 'KROSS.md',
+            rootId: 'api',
+            truncated: false,
+            injectedBytes: expect.any(Number)
+          })
+        ],
+        projectInstructionDiagnosticCount: 0
+      });
+      expect(JSON.stringify(traceStore.events)).not.toContain('API ROOT SCOPED RULE');
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
   it('runs an isolated explore subagent and returns a structured result', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-'));
     try {
