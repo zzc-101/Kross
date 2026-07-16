@@ -602,6 +602,7 @@ export function App({
           status === 'interrupting'
         }
         modelLabel={modelLabel}
+        agentMode={mode}
         permissionMode={permissionMode}
         width={contentWidth}
         bottomGap={subagents.length > 0 ? 0 : undefined}

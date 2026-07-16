@@ -37,7 +37,7 @@ describe('Composer', () => {
     expect(lines[1]).toContain('描述任务，输入 / 查看命令');
     expect(lines[1]).toMatch(/│$/);
     expect(lines[2]).toMatch(
-      /^╰─+ Grok 4\.5 \(high\) · 权限：自动允许 ─╯$/
+      /^╰─+ Grok 4\.5 \(high\) · 模式：自动 · 权限：自动允许 ─╯$/
     );
     expect(lines.slice(COMPOSER_HEIGHT)).toEqual(['', '', '']);
   });

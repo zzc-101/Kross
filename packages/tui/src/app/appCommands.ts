@@ -177,7 +177,18 @@ export function handleCommand(
   }
 
   if (value === '/mode') {
-    append('agent', t('cmd.modeUsage'));
+    append(
+      'agent',
+      t('cmd.modeUsage', {
+        current:
+          mode === 'conductor'
+            ? t('mode.conductor')
+            : mode === 'plan'
+              ? t('mode.plan')
+              : t('mode.auto')
+      }),
+      { expanded: true }
+    );
     return true;
   }
 

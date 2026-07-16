@@ -51,6 +51,7 @@ export const zhCatalog = {
   'mode.auto': '自动',
   'mode.plan': '计划',
   'mode.conductor': '指挥家',
+  'mode.footer': '模式：{label}',
   'perm.default': '权限：默认',
   'perm.classifier': '权限：智能判断',
   'perm.auto': '权限：自动允许',
@@ -181,7 +182,8 @@ export const zhCatalog = {
   'cmd.status':
     '当前运行在本地 TUI。mode={mode} · perm={perm} · model={model}',
   'cmd.expandDone': '已切换最近一条 thinking 的折叠状态（也可用 ctrl+o）。',
-  'cmd.modeUsage': '用法：/mode auto|plan|conductor',
+  'cmd.modeUsage':
+    '当前模式：{current}\n用法：/mode auto|plan|conductor\n- auto 默认 agent，可自动切 plan/conductor\n- plan 先计划后开发\n- conductor 指挥家多目录编排',
   'cmd.modeSwitched': '已切换到 {mode} 模式',
   'cmd.modeUnknown': '未知模式，可选：auto、plan、conductor',
   'cmd.addDir.usage': '用法：/add-dir <绝对或相对路径>',
@@ -281,6 +283,7 @@ export const enCatalog: Record<MessageKey, string> = {
   'mode.auto': 'Auto',
   'mode.plan': 'Plan',
   'mode.conductor': 'Conductor',
+  'mode.footer': 'Mode: {label}',
   'perm.default': 'Perm: default',
   'perm.classifier': 'Perm: classifier',
   'perm.auto': 'Perm: auto-allow',
@@ -407,7 +410,8 @@ export const enCatalog: Record<MessageKey, string> = {
     'Running local TUI. mode={mode} · perm={perm} · model={model}',
   'cmd.expandDone':
     'Toggled the latest thinking block (also available via ctrl+o).',
-  'cmd.modeUsage': 'Usage: /mode auto|plan|conductor',
+  'cmd.modeUsage':
+    'Current mode: {current}\nUsage: /mode auto|plan|conductor\n- auto default agent; may auto-switch to plan/conductor\n- plan plan-first then implement\n- conductor multi-root orchestration',
   'cmd.modeSwitched': 'Switched to {mode} mode',
   'cmd.modeUnknown': 'Unknown mode. Choose: auto, plan, conductor',
   'cmd.addDir.usage': 'Usage: /add-dir <absolute or relative path>',

@@ -2,10 +2,15 @@ import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 
-import { t, type PermissionMode } from '@kross/core';
+import { t, type AgentMode, type PermissionMode } from '@kross/core';
 
 import { displayWidth } from './markdownParse';
-import { formatPermissionModeLabel, symbols, theme } from './theme';
+import {
+  formatAgentModeFooterLabel,
+  formatPermissionModeLabel,
+  symbols,
+  theme
+} from './theme';
 
 export const COMPOSER_HEIGHT = 3;
 export const COMPOSER_BOTTOM_GAP = 3;
@@ -19,6 +24,7 @@ export function Composer({
   onSubmit,
   disabled = false,
   modelLabel = 'no model',
+  agentMode = 'auto',
   permissionMode = 'default',
   width,
   bottomGap = COMPOSER_BOTTOM_GAP
@@ -28,6 +34,8 @@ export function Composer({
   onSubmit: (value: string) => void;
   disabled?: boolean;
   modelLabel?: string;
+  /** 当前 agent 模式（auto/plan/conductor） */
+  agentMode?: AgentMode | string;
   permissionMode?: PermissionMode;
   /** 全宽时传入终端列数 */
   width?: number;
@@ -37,8 +45,9 @@ export function Composer({
   const displayModelLabel =
     modelLabel === 'no model' ? t('composer.noModel') : modelLabel;
   const footerLabel = useMemo(
-    () => `${displayModelLabel} · ${formatPermissionModeLabel(permissionMode)}`,
-    [displayModelLabel, permissionMode]
+    () =>
+      `${displayModelLabel} · ${formatAgentModeFooterLabel(agentMode)} · ${formatPermissionModeLabel(permissionMode)}`,
+    [agentMode, displayModelLabel, permissionMode]
   );
 
   if (disabled) {
@@ -148,7 +157,7 @@ export function HelpHint() {
   return (
     <Box marginTop={0}>
       <Text dimColor>
-        /help · ctrl+p 模型与思考强度 · shift+tab 权限 · ctrl+o 思考过程
+        /help · /mode 切换模式 · ctrl+p 模型 · shift+tab 权限 · ctrl+o 思考过程
       </Text>
     </Box>
   );

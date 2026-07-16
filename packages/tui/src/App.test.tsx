@@ -521,7 +521,9 @@ describe('App', () => {
 
     await submit?.('/perm auto');
     await waitUntil(() => lastFrame()?.includes('权限：自动允许') === true);
-    expect(lastFrame()).toContain('fake-model (medium) · 权限：自动允许');
+    expect(lastFrame()).toContain(
+      'fake-model (medium) · 模式：自动 · 权限：自动允许'
+    );
   });
 
   it('updates context usage from the latest API inputTokens', async () => {
@@ -663,6 +665,7 @@ describe('App', () => {
     await submit?.('/mode');
 
     expect(lastFrame()).toContain('用法：/mode auto|plan|conductor');
+    expect(lastFrame()).toMatch(/当前模式：|Current mode:/);
     expect(lastFrame()).not.toContain('最小规划闭环');
   });
 

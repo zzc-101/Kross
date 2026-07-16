@@ -136,6 +136,11 @@ export function formatModeLabel(mode: string): string {
   }
 }
 
+/** Composer 页脚：模式：自动 / Mode: Auto */
+export function formatAgentModeFooterLabel(mode: string): string {
+  return t('mode.footer', { label: formatModeLabel(mode) });
+}
+
 export function formatPermissionModeLabel(mode: string): string {
   switch (mode) {
     case 'default':
