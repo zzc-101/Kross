@@ -1,6 +1,6 @@
 # Remaining Agent P0 Capabilities Implementation Plan
 
-> **状态：执行中。** Phase A-D 已实现，正在执行最终全量门禁。
+> **状态：已完成。** Phase A-D 已实现；最终全量门禁通过（107 个测试文件、601 个测试，typecheck、build、diff-check 全部成功）。
 
 **Goal:** 补齐 Kross 作为日常本地开发 agent 仍缺少的四个基础闭环：可发现并按需加载 Skills、安全且可撤销的文件修改、可跨重启恢复的工作状态、可管理的后台进程。
 
@@ -501,10 +501,10 @@ git diff --check
 
 只有同时满足以下条件，才认为“Agent 基础能力 P0”完成：
 
-- [ ] Project Instructions 已实现并保持全量回归通过。
-- [ ] Skills 具备真实 discovery + scoped metadata + safe on-demand read。
-- [ ] 所有内置文件修改均可审计，ApplyPatch 原子化，Undo 有 hash conflict guard。
-- [ ] Todo 与 pending execution 可跨重启恢复，且不恢复高风险权限/审批 continuation。
-- [ ] 后台进程具备 start/poll/stdin/kill/list/cleanup 全生命周期。
-- [ ] README 与架构文档只声明真实能力，不把 P1 写成已完成。
-- [ ] 全量 test/typecheck/build/diff-check 通过。
+- [x] Project Instructions 已实现并保持全量回归通过。
+- [x] Skills 具备真实 discovery + scoped metadata + safe on-demand read。
+- [x] 所有内置文件修改均可审计，ApplyPatch 原子化，Undo 有 hash conflict guard。
+- [x] Todo 与 pending execution 可跨重启恢复，且不恢复高风险权限/审批 continuation。
+- [x] 后台进程具备 start/poll/stdin/kill/list/cleanup 全生命周期。
+- [x] README 与架构文档只声明真实能力，不把 P1 写成已完成。
+- [x] 全量 test/typecheck/build/diff-check 通过。
