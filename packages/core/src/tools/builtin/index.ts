@@ -24,6 +24,8 @@ import { createApplyPatchTool } from './applyPatch';
 import type { TodoStore } from '../../todo/todoStore';
 import type { SkillRegistry } from '../../skills/skillRegistry';
 import type { MutationService } from '../../mutations/mutationService';
+import type { ProcessManager } from '../../process/processManager';
+import { createProcessTools } from './processTools';
 
 export { createExploreTools, createSubagentTools } from './exploreTools';
 export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
@@ -33,6 +35,7 @@ export { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 export { createTodoReadTool, createTodoWriteTool } from './todo';
 export { createReadSkillTool } from './readSkill';
 export { createApplyPatchTool } from './applyPatch';
+export { createProcessTools } from './processTools';
 
 export const builtinToolNames = [
   'Bash',
@@ -54,7 +57,12 @@ export const builtinToolNames = [
   'Task',
   'TodoWrite',
   'TodoRead',
-  'SetMode'
+  'SetMode',
+  'ProcessStart',
+  'ProcessPoll',
+  'ProcessWrite',
+  'ProcessKill',
+  'ProcessList'
 ] as const;
 
 export interface CreateBuiltinToolsOptions {
@@ -70,6 +78,8 @@ export interface CreateBuiltinToolsOptions {
   skillRegistry?: SkillRegistry;
   /** Durable pre/post image journal for all file mutation tools. */
   mutationService?: MutationService;
+  /** Main-session managed process lifecycle; intentionally omitted for subagents. */
+  processManager?: ProcessManager;
   /** When set, registers SetMode for conversational mode switching. */
   setMode?: CreateSetModeToolOptions;
 }
@@ -129,6 +139,10 @@ export function createBuiltinTools(
 
   if (options.setMode) {
     tools.push(createSetModeTool(options.setMode));
+  }
+
+  if (options.processManager) {
+    tools.push(...createProcessTools(options.processManager));
   }
 
   return tools;

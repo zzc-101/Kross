@@ -10,6 +10,7 @@ export * from './i18n';
 export * from './mcp';
 export * from './mutations/mutationJournal';
 export * from './mutations/mutationService';
+export * from './process/processManager';
 export * from './domain';
 export * from './llm/anthropicProtocolClient';
 export * from './llm/createLlmClient';

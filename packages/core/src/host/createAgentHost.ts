@@ -32,6 +32,7 @@ import {
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { SkillRegistry } from '../skills/skillRegistry';
 import { MutationCoordinator } from '../mutations/mutationService';
+import { ProcessManager } from '../process/processManager';
 
 export interface CreateAgentHostConfigOptions {
   homeDir?: string;
@@ -45,6 +46,7 @@ export interface AgentHostTooling {
   workspaceRoots: WorkspaceRoots;
   skillRegistry: SkillRegistry;
   mutationCoordinator: MutationCoordinator;
+  processManager: ProcessManager;
   /** Update LLM used by Task subagents (e.g. after /import). */
   setLlmClient: (client: LlmClient | undefined) => void;
   /** Shared subagent runner (multi-root Task + conductor fan-out). */
@@ -74,7 +76,7 @@ export function createRuntimeOptionsFromEnv(
     | 'workspaceRoots'
     | 'skillRegistry'
     | 'mutationCoordinator'
-  >
+  > & Partial<Pick<AgentHostTooling, 'processManager'>>
 ): AgentRuntimeOptions {
   const savedConfig = loadKrossConfig(options);
   const envClient = createLlmClientFromEnv(
@@ -123,6 +125,7 @@ export function createRuntimeOptionsFromEnv(
   let workspaceRoots = tooling?.workspaceRoots;
   let skillRegistry = tooling?.skillRegistry;
   let mutationCoordinator = tooling?.mutationCoordinator;
+  let processManager = tooling?.processManager ?? new ProcessManager(cwd);
   if (
     !toolGateway ||
     !traceStore ||
@@ -168,6 +171,7 @@ export function createRuntimeOptionsFromEnv(
     skillRegistry,
     personalSkillsDir: resolvePersonalSkillsDir(options),
     mutationCoordinator,
+    processManager,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
     sessionContext,
@@ -225,6 +229,15 @@ export async function bootstrapRuntimeTooling(
       console.error(`[kross:mcp] ${message}`);
     }
   });
+  let closePromise: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closePromise ??= (async () => {
+      await created.processManager.close();
+      created.closeTraceStore();
+      await mcpManager.close();
+    })();
+    return closePromise;
+  };
 
   return {
     toolGateway: created.toolGateway,
@@ -233,14 +246,12 @@ export async function bootstrapRuntimeTooling(
     workspaceRoots: created.workspaceRoots,
     skillRegistry: created.skillRegistry,
     mutationCoordinator: created.mutationCoordinator,
+    processManager: created.processManager,
     setLlmClient: created.setLlmClient,
     runSubagent: created.runSubagent,
     mcpManager,
     closeTraceStore: created.closeTraceStore,
-    close: async () => {
-      created.closeTraceStore();
-      await mcpManager.close();
-    }
+    close
   };
 }
 
@@ -256,6 +267,7 @@ function createLocalTooling(
   workspaceRoots: WorkspaceRoots;
   skillRegistry: SkillRegistry;
   mutationCoordinator: MutationCoordinator;
+  processManager: ProcessManager;
   setLlmClient: (client: LlmClient | undefined) => void;
   runSubagent: NonNullable<AgentRuntimeOptions['runSubagent']>;
   closeTraceStore: () => void;
@@ -276,6 +288,7 @@ function createLocalTooling(
     personalSkillsDir: resolvePersonalSkillsDir(options)
   });
   const mutationCoordinator = new MutationCoordinator(resolveKrossHome(options));
+  const processManager = new ProcessManager(cwd);
 
   const subagentDeps: SubagentRunDeps = {
     workspaceRoot: cwd,
@@ -320,7 +333,8 @@ function createLocalTooling(
     resolveRepoPath,
     todoStore,
     skillRegistry,
-    mutationService: mutationCoordinator.forWorkspace(cwd)
+    mutationService: mutationCoordinator.forWorkspace(cwd),
+    processManager
   })) {
     toolGateway.register(tool);
   }
@@ -332,6 +346,7 @@ function createLocalTooling(
     workspaceRoots,
     skillRegistry,
     mutationCoordinator,
+    processManager,
     runSubagent,
     setLlmClient: (client) => {
       subagentDeps.llmClient = client;

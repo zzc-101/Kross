@@ -57,6 +57,8 @@ export interface ToolHandlerResult {
 
 export interface ToolDefinition<TInput = unknown> extends ToolMetadata {
   inputSchema: z.ZodType<TInput>;
+  /** Return a secret-safe representation used only for trace/approval UI. */
+  redactInputForTrace?: (input: unknown) => unknown;
   timeoutMs?: number;
   /**
    * 工具级重试策略。
@@ -176,6 +178,9 @@ export class ToolGateway {
     }
 
     const parsedInput = parseInput(definition, input.input);
+    const traceInput = definition.redactInputForTrace
+      ? definition.redactInputForTrace(parsedInput)
+      : parsedInput;
     const approval = this.approvalPolicy({
       tool: toMetadata(definition),
       input: parsedInput
@@ -202,7 +207,7 @@ export class ToolGateway {
       await this.record(input.runId, 'tool_call.approval_required', {
         ...callMeta,
         reason: approval.reason,
-        input: parsedInput
+        input: traceInput
       });
       throw new ToolPermissionError(
         input.name,
@@ -221,7 +226,7 @@ export class ToolGateway {
     const startedAt = this.now().getTime();
     await this.record(input.runId, 'tool_call.started', {
       ...callMeta,
-      input: parsedInput,
+      input: traceInput,
       maxAttempts: retryPolicy.maxAttempts
     });
 

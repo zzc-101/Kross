@@ -62,6 +62,36 @@ describe('App', () => {
     expect(lastFrame()).toContain('当前内容不会保存');
   });
 
+  it('lists session-scoped managed processes with /processes', async () => {
+    const { ProcessManager } = await import('@kross/core');
+    const workspace = createTempHome();
+    const processManager = new ProcessManager(workspace, {
+      createProcessId: () => 'process-ui-test'
+    });
+    const started = await processManager.start({
+      command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify('setInterval(() => {}, 1000)')}`
+    });
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      processManager
+    });
+    let api: AppTestApi | undefined;
+    const view = render(
+      <App runtime={runtime} cwd={workspace} onReady={(next) => (api = next)} />
+    );
+
+    try {
+      await waitUntil(() => api !== undefined);
+      await api?.submit('/processes');
+      await waitUntil(() => view.lastFrame()?.includes(started.processId) === true);
+      expect(view.lastFrame()).toContain('running');
+    } finally {
+      view.unmount();
+      await processManager.close();
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('flushes the session and delegates shutdown when Ctrl+C is pressed', async () => {
     const homeDir = createTempHome();
     const workspace = join(homeDir, 'workspace');

@@ -44,8 +44,15 @@ export function formatToolInputPreview(
     return truncate(`${from} → ${to}`, maxChars);
   }
 
-  if (name === 'Bash' && typeof record.command === 'string') {
+  if ((name === 'Bash' || name === 'ProcessStart') && typeof record.command === 'string') {
     return truncate(`$ ${record.command}`, maxChars);
+  }
+
+  if (name === 'ProcessWrite' && typeof record.processId === 'string') {
+    return truncate(
+      `${record.processId} · ${Number(record.textBytes ?? 0)} bytes${record.eof === true ? ' · EOF' : ''}`,
+      maxChars
+    );
   }
 
   if (name === 'Task') {

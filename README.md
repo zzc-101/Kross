@@ -91,6 +91,7 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - 内置 Git 工具：`GitStatus`、`GitDiff`、`GitLog` 提供只读的结构化仓库检查，并拒绝读取仓库根目录位于 workspace 外的 Git 仓库。
 - `Read` 支持 `offset` / `limit` 分段读取大文件，避免先把超大文件完整塞进上下文。
 - `Bash` 会以 workspace 内目录作为 cwd 启动命令，但当前版本没有 OS 级沙箱；命令本身的系统访问能力主要由审批策略约束。
+- 后台进程工具：`ProcessStart` / `ProcessPoll` / `ProcessWrite` / `ProcessKill` / `ProcessList` 提供 session-scoped 生命周期；stdout/stderr 使用 bounded ring buffer，poll 单次最多 64 KiB，`/processes` 可查看 handle。正常退出 Kross 时会 TERM 全部活跃进程并在 grace period 后 KILL；已返回的 handle 不会因当前 turn 的 ESC 中断而自动终止。与 `Bash` 一样，这只有 cwd 边界、没有 OS 级沙箱。
 - 工具调用循环默认最多 **200 轮**（一轮 = 模型 tool_calls → 执行 → 回填），作死循环安全网，不是“正常任务配额”。触顶时 **软着陆**：丢弃未执行 tool_calls、强制一轮无工具文本总结（`completed`），并记录 `llm.tool_loop.max_iterations` + `llm.soft_land.completed`；可用 `AGENT_MAX_TOOL_ITERATIONS` 覆盖。
   - 对照：OpenCode 默认不限步，可选 `steps`，触顶要求 summarize；实现层约 1000 步硬保险。Codex 基本不按步数掐断。Claude Code 会话可跑大量工具调用，另有产品侧单 turn 工具次数限制。
 

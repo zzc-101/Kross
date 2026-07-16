@@ -1,6 +1,6 @@
 # Remaining Agent P0 Capabilities Implementation Plan
 
-> **状态：执行中。** Phase A Skills MVP、Phase B Safe Mutation、Phase C Durable Work State 已完成，Phase D 待执行。
+> **状态：执行中。** Phase A-D 已实现，正在执行最终全量门禁。
 
 **Goal:** 补齐 Kross 作为日常本地开发 agent 仍缺少的四个基础闭环：可发现并按需加载 Skills、安全且可撤销的文件修改、可跨重启恢复的工作状态、可管理的后台进程。
 
@@ -388,14 +388,14 @@ payload 包含完整、已校验的 `SessionWorkStateV1` 与可选 `contextMessa
 
 ## 16. Acceptance Criteria
 
-- [ ] start → poll → exit 完整链路有真实 child process 测试。
-- [ ] stdin write/EOF、TERM/KILL、非零退出码有测试。
-- [ ] cursor 增量读取、ring-buffer 截断和单次返回预算有效。
-- [ ] workspace cwd 越界和未知 processId 被拒绝。
-- [ ] env value、完整输出不进入 trace。
-- [ ] Runtime/host close 能清理全部活跃进程。
-- [ ] ESC 不误杀已脱离当前 turn 的 managed process。
-- [ ] subagent 工具列表默认不包含 Process*。
+- [x] start → poll → exit 完整链路有真实 child process 测试。
+- [x] stdin write/EOF、TERM/KILL、非零退出码有测试。
+- [x] cursor 增量读取、ring-buffer 截断和单次返回预算有效。
+- [x] workspace cwd 越界和未知 processId 被拒绝。
+- [x] env value、完整输出不进入 trace。
+- [x] Runtime/host close 能清理全部活跃进程。
+- [x] ESC 不误杀已脱离当前 turn 的 managed process。
+- [x] subagent 工具列表默认不包含 Process*。
 
 ---
 

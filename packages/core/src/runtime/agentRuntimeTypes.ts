@@ -17,6 +17,7 @@ import type {
 import type { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationCoordinator } from '../mutations/mutationService';
+import type { ProcessManager } from '../process/processManager';
 
 export type {
   PendingConductorExecution,
@@ -60,6 +61,8 @@ export interface AgentRuntimeOptions {
   personalSkillsDir?: string;
   /** Workspace-aware mutation journal and undo coordinator. */
   mutationCoordinator?: MutationCoordinator;
+  /** Main-session background process owner. Handles are never persisted. */
+  processManager?: ProcessManager;
   /** Loaded ~/.kross/projects.json (optional project template / seed). */
   projectRegistry?: ProjectRegistry;
   /** Absolute path of the registry file (for prompts / errors). */

@@ -235,6 +235,7 @@ describe('runSubagent', () => {
       expect(tools).not.toContain('Delete');
       expect(tools).not.toContain('Move');
       expect(tools).not.toContain('Task');
+      expect(tools.some((name) => name.startsWith('Process'))).toBe(false);
 
       const traceStore = new InMemoryTraceStore();
       // Smoke: subagent run with auto-approve path completes without approval-required.

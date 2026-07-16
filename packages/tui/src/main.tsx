@@ -47,9 +47,10 @@ const renderStdout = useAltScreen
 
 const sessionSetup = createSessionStore();
 let sessionStoreClosed = false;
-let toolingClosed = false;
+let toolingClosePromise: Promise<void> | undefined;
 let appApi: AppTestApi | undefined;
 let shuttingDown = false;
+let shutdownPromise: Promise<void> | undefined;
 let app: ReturnType<typeof render>;
 let tooling: RuntimeTooling | undefined;
 
@@ -71,39 +72,34 @@ const closeSessionStore = (): void => {
   }
 };
 
-const closeTooling = (): void => {
-  if (toolingClosed || !tooling) {
+const closeTooling = async (): Promise<void> => {
+  if (!tooling) {
     return;
   }
-  toolingClosed = true;
-  try {
-    tooling.closeTraceStore();
-  } catch {
-    // best-effort during process shutdown
-  }
-  void tooling.close().catch(() => undefined);
+  toolingClosePromise ??= tooling.close().catch(() => undefined);
+  await toolingClosePromise;
 };
 
-const shutdown = (): void => {
-  if (shuttingDown) {
-    return;
-  }
-  shuttingDown = true;
-  // 主动退出统一保证：合并流式缓冲 → 写 JSONL/SQLite → 卸载 UI → 关闭 DB/MCP。
-  appApi?.flushSession();
-  try {
-    app?.unmount();
-  } catch {
-    // ignore
-  }
-  closeSessionStore();
-  closeTooling();
-  restoreTerminal();
+const shutdown = (): Promise<void> => {
+  shutdownPromise ??= (async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // 主动退出统一保证：flush → unmount → DB → managed processes/MCP。
+    appApi?.flushSession();
+    try {
+      app?.unmount();
+    } catch {
+      // ignore
+    }
+    closeSessionStore();
+    await closeTooling();
+    restoreTerminal();
+  })();
+  return shutdownPromise;
 };
 
 const exitProcess = (): void => {
-  shutdown();
-  process.exit(0);
+  void shutdown().finally(() => process.exit(0));
 };
 
 async function main(): Promise<void> {
@@ -128,7 +124,8 @@ async function main(): Promise<void> {
         runSubagent: tooling.runSubagent,
         workspaceRoots: tooling.workspaceRoots,
         skillRegistry: tooling.skillRegistry,
-        mutationCoordinator: tooling.mutationCoordinator
+        mutationCoordinator: tooling.mutationCoordinator,
+        processManager: tooling.processManager
       }
     : undefined;
 
@@ -175,10 +172,10 @@ async function main(): Promise<void> {
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
-  void app.waitUntilExit().finally(() => {
+  void app.waitUntilExit().finally(async () => {
     appApi?.flushSession();
     closeSessionStore();
-    closeTooling();
+    await closeTooling();
     restoreTerminal();
   });
 }

@@ -36,7 +36,8 @@ describe('builtin tools integration', () => {
         name !== 'TodoRead' &&
         name !== 'SetMode' &&
         name !== 'ReadSkill' &&
-        name !== 'ApplyPatch'
+        name !== 'ApplyPatch' &&
+        !name.startsWith('Process')
     );
     expect(names.sort()).toEqual(coreOnly.sort());
   });

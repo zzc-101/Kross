@@ -6,9 +6,26 @@ import { join } from 'node:path';
 
 import { OpenAiProtocolClient } from '../llm/openAiProtocolClient';
 import { PiAiLlmClient } from '../llm/piAiLlmClient';
-import { createRuntimeOptionsFromEnv } from './createAgentHost';
+import { bootstrapRuntimeTooling, createRuntimeOptionsFromEnv } from './createAgentHost';
 
 describe('createRuntimeOptionsFromEnv', () => {
+  it('host close terminates all active managed processes', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-host-process-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-host-home-'));
+    const tooling = await bootstrapRuntimeTooling(workspace, {}, { homeDir });
+    try {
+      const started = await tooling.processManager.start({
+        command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify('setInterval(() => {}, 1000)')}`
+      });
+      await tooling.close();
+      expect(tooling.processManager.poll(started.processId).status).toBe('killed');
+    } finally {
+      await tooling.close();
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('wires trace store and optional OpenAI-compatible LLM client', () => {
     const options = createRuntimeOptionsFromEnv('/tmp/local-agent', {
       AGENT_LLM_PROVIDER: 'openai',

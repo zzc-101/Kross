@@ -165,6 +165,26 @@ export function handleCommand(
     return true;
   }
 
+  if (value === '/processes') {
+    const processes = runtime.listManagedProcesses();
+    append(
+      'agent',
+      processes.length === 0
+        ? t('cmd.processes.empty')
+        : [
+            t('cmd.processes.header'),
+            ...processes.map(
+              (process) =>
+                `- ${process.processId} · ${process.status}` +
+                `${process.exitCode !== undefined ? ` · exit=${process.exitCode}` : ''}` +
+                ` · ${process.command}`
+            )
+          ].join('\n'),
+      { expanded: true }
+    );
+    return true;
+  }
+
   if (value === '/expand') {
     toggleLastCollapsible();
     append('system', t('cmd.expandDone'));

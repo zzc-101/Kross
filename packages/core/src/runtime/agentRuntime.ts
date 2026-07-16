@@ -41,6 +41,7 @@ import type { SkillsSnapshot } from '../skills/skillDiscovery';
 import type { MutationRecord } from '../mutations/mutationJournal';
 import type { UndoResult } from '../mutations/mutationService';
 import type { SessionWorkStateV1 } from '../session/sessionWorkState';
+import type { ManagedProcessSummary } from '../process/processManager';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { ListRunsOptions } from '../trace/traceStore';
 import type { RunTraceDetail, RunTraceSummary } from '../trace/traceSummary';
@@ -217,6 +218,10 @@ export class AgentRuntime extends EventEmitter {
 
   getWorkspaceRoots(): WorkspaceRoots | undefined {
     return this.sessionServices.getWorkspaceRoots();
+  }
+
+  listManagedProcesses(): ManagedProcessSummary[] {
+    return this.options.processManager?.list() ?? [];
   }
 
   getPermissionMode(): PermissionMode {
