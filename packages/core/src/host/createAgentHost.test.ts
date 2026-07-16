@@ -68,7 +68,8 @@ describe('createRuntimeOptionsFromEnv', () => {
         setLlmClient,
         runSubagent: first.runSubagent!,
         workspaceRoots: first.workspaceRoots!,
-        skillRegistry: first.skillRegistry!
+        skillRegistry: first.skillRegistry!,
+        mutationCoordinator: first.mutationCoordinator!
       }
     );
     expect(second.toolGateway).toBe(first.toolGateway);
@@ -83,6 +84,8 @@ describe('createRuntimeOptionsFromEnv', () => {
     const names = options.toolGateway?.listTools().map((tool) => tool.name) ?? [];
     expect(names).toContain('TodoWrite');
     expect(names).toContain('TodoRead');
+    expect(names).toContain('ReadSkill');
+    expect(names).toContain('ApplyPatch');
   });
 
   it('applies config contextWindow even when credentials come from env', () => {

@@ -171,6 +171,28 @@ export function handleCommand(
     return true;
   }
 
+  if (value === '/undo' || value.startsWith('/undo ')) {
+    const target = value === '/undo' ? undefined : value.slice('/undo'.length).trim();
+    try {
+      const result = runtime.undoMutation(target || undefined);
+      append(
+        'system',
+        t('cmd.undo.done', {
+          transactions: result.transactions.length,
+          files: result.files.join(', ')
+        })
+      );
+    } catch (error) {
+      append(
+        'system',
+        t('cmd.undo.failed', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return true;
+  }
+
   if (value === '/approve' || value === '/reject') {
     if (!hasPendingConductorPlan) {
       append('system', t('app.noConductorPlan'));

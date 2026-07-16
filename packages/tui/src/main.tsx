@@ -127,7 +127,8 @@ async function main(): Promise<void> {
         setLlmClient: tooling.setLlmClient,
         runSubagent: tooling.runSubagent,
         workspaceRoots: tooling.workspaceRoots,
-        skillRegistry: tooling.skillRegistry
+        skillRegistry: tooling.skillRegistry,
+        mutationCoordinator: tooling.mutationCoordinator
       }
     : undefined;
 

@@ -13,6 +13,7 @@ describe('slashCommands', () => {
     expect(formatSlashHelp()).toContain('/context');
     expect(formatSlashHelp()).toContain('/instructions');
     expect(formatSlashHelp()).toContain('/skills');
+    expect(formatSlashHelp()).toContain('/undo');
     expect(formatSlashHelp()).toContain('/compact');
     expect(formatSlashHelp()).toContain('/resume [sessionId]');
     expect(formatSlashHelp()).toContain('/lang zh|en');

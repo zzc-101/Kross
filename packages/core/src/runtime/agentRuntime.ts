@@ -38,6 +38,8 @@ import {
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
 import type { ProjectInstructionsSnapshot } from '../workspace/projectInstructions';
 import type { SkillsSnapshot } from '../skills/skillDiscovery';
+import type { MutationRecord } from '../mutations/mutationJournal';
+import type { UndoResult } from '../mutations/mutationService';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { ListRunsOptions } from '../trace/traceStore';
 import type { RunTraceDetail, RunTraceSummary } from '../trace/traceSummary';
@@ -314,6 +316,22 @@ export class AgentRuntime extends EventEmitter {
 
   getSkills(): SkillsSnapshot {
     return this.sessionServices.getSkills();
+  }
+
+  listMutations(): MutationRecord[] {
+    const coordinator = this.options.mutationCoordinator;
+    if (!coordinator) return [];
+    const roots = this.options.workspaceRoots?.list() ??
+      (this.options.workspaceRoot
+        ? [{ path: this.options.workspaceRoot }]
+        : []);
+    return roots.flatMap((root) => coordinator.forWorkspace(root.path).listActive());
+  }
+
+  undoMutation(target?: string): UndoResult {
+    const coordinator = this.options.mutationCoordinator;
+    if (!coordinator) throw new Error('Mutation journal is not configured');
+    return coordinator.undo(target);
   }
 
   getContextUsage(input: {

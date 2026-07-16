@@ -12,13 +12,18 @@ import { createRgTool } from './rg';
 import { createReadTool } from './read';
 import { createStatTool } from './stat';
 import { createWriteTool } from './write';
+import type { MutationService } from '../../mutations/mutationService';
+import { createApplyPatchTool } from './applyPatch';
 
 /**
  * Subagent tool set: basic read + edit only.
  * Excludes high-risk tools: Bash, Delete, Move, Task, MCP, network.
  */
-export function createSubagentTools(workspaceRoot: string): ToolDefinition[] {
-  return [
+export function createSubagentTools(
+  workspaceRoot: string,
+  mutations?: MutationService
+): ToolDefinition[] {
+  const tools: ToolDefinition[] = [
     // read
     createReadTool(workspaceRoot),
     createGlobTool(workspaceRoot),
@@ -30,9 +35,11 @@ export function createSubagentTools(workspaceRoot: string): ToolDefinition[] {
     createGitDiffTool(workspaceRoot),
     createGitLogTool(workspaceRoot),
     // edit-related (no Delete/Move)
-    createEditTool(workspaceRoot),
-    createWriteTool(workspaceRoot)
+    createEditTool(workspaceRoot, mutations),
+    createWriteTool(workspaceRoot, mutations)
   ];
+  if (mutations) tools.push(createApplyPatchTool(workspaceRoot, mutations));
+  return tools;
 }
 
 /** @deprecated Use createSubagentTools */

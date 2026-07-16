@@ -15,6 +15,7 @@ import {
   lineDiffStats
 } from './fileChangeStats';
 import { resolveWritablePathWithinWorkspace } from './paths';
+import type { MutationService } from '../../mutations/mutationService';
 
 interface WriteInput {
   path: string;
@@ -32,7 +33,10 @@ export interface WriteResultData {
   diffPreview?: DiffPreview;
 }
 
-export function createWriteTool(workspaceRoot: string): ToolDefinition<WriteInput> {
+export function createWriteTool(
+  workspaceRoot: string,
+  mutations?: MutationService
+): ToolDefinition<WriteInput> {
   return {
     name: 'Write',
     description: '写入或覆盖工作区内的文件，自动创建不存在的父目录。',
@@ -51,7 +55,7 @@ export function createWriteTool(workspaceRoot: string): ToolDefinition<WriteInpu
       required: ['path', 'content'],
       additionalProperties: false
     },
-    execute: async ({ input }) => {
+    execute: async ({ input, runId }) => {
       const filePath = await resolveWritablePathWithinWorkspace(workspaceRoot, input.path);
       const displayPath = input.path;
       const previous = await readExisting(filePath);
@@ -63,8 +67,20 @@ export function createWriteTool(workspaceRoot: string): ToolDefinition<WriteInpu
       const totalLines = countLines(input.content);
       const delta = formatLineDelta(stats);
 
-      await mkdir(dirname(filePath), { recursive: true });
-      await writeFile(filePath, input.content, 'utf8');
+      const write = async () => {
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, input.content, 'utf8');
+      };
+      if (mutations) {
+        await mutations.record({
+          runId,
+          toolName: 'Write',
+          paths: [input.path],
+          action: write
+        });
+      } else {
+        await write();
+      }
 
       const action = created ? 'created' : 'overwrote';
       const diffPreview: DiffPreview = created

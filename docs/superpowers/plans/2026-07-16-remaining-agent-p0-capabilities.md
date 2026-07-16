@@ -1,6 +1,6 @@
 # Remaining Agent P0 Capabilities Implementation Plan
 
-> **状态：执行中。** Phase A Skills MVP 已完成，Phase B-D 待执行。
+> **状态：执行中。** Phase A Skills MVP、Phase B Safe Mutation 已完成，Phase C-D 待执行。
 
 **Goal:** 补齐 Kross 作为日常本地开发 agent 仍缺少的四个基础闭环：可发现并按需加载 Skills、安全且可撤销的文件修改、可跨重启恢复的工作状态、可管理的后台进程。
 
@@ -246,14 +246,14 @@ Tool Gateway 继续负责审批、timeout、trace；文件事务和 preimage 不
 
 ## 10. Acceptance Criteria
 
-- [ ] ApplyPatch 的 create/modify/delete/multi-file 行为有测试。
-- [ ] 任一 hunk/path 失败时 multi-file patch 零部分写入。
-- [ ] Write/Edit/Delete/Move/ApplyPatch 均产生 journal。
-- [ ] preimage 不出现在 trace、TUI 普通输出和模型上下文。
-- [ ] `/undo` 能恢复五类工具产生的改动。
-- [ ] postHash 不一致时整次撤销拒绝且不部分回滚。
-- [ ] symlink escape、workspace 外路径、二进制/超大 patch 被拒绝。
-- [ ] journal 中断写入后可恢复或标记 incomplete，不把半事务视为可撤销成功项。
+- [x] ApplyPatch 的 create/modify/delete/multi-file 行为有测试。
+- [x] 任一 hunk/path 失败时 multi-file patch 零部分写入。
+- [x] Write/Edit/Delete/Move/ApplyPatch 均产生 journal。
+- [x] preimage 不出现在 trace、TUI 普通输出和模型上下文。
+- [x] `/undo` 能恢复五类工具产生的改动。
+- [x] postHash 不一致时整次撤销拒绝且不部分回滚。
+- [x] symlink escape、workspace 外路径、二进制/超大 patch 被拒绝。
+- [x] journal 中断写入后可恢复或标记 incomplete，不把半事务视为可撤销成功项。
 
 ---
 

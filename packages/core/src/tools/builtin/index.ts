@@ -20,8 +20,10 @@ import { createTaskTool, type CreateTaskToolOptions } from './task';
 import { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 import { createTodoReadTool, createTodoWriteTool } from './todo';
 import { createWriteTool } from './write';
+import { createApplyPatchTool } from './applyPatch';
 import type { TodoStore } from '../../todo/todoStore';
 import type { SkillRegistry } from '../../skills/skillRegistry';
+import type { MutationService } from '../../mutations/mutationService';
 
 export { createExploreTools, createSubagentTools } from './exploreTools';
 export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
@@ -30,12 +32,14 @@ export { createDefaultSubagentRunner } from '../../runtime/subagentRunner';
 export { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 export { createTodoReadTool, createTodoWriteTool } from './todo';
 export { createReadSkillTool } from './readSkill';
+export { createApplyPatchTool } from './applyPatch';
 
 export const builtinToolNames = [
   'Bash',
   'Read',
   'ReadSkill',
   'Write',
+  'ApplyPatch',
   'Edit',
   'Delete',
   'Move',
@@ -64,6 +68,8 @@ export interface CreateBuiltinToolsOptions {
   todoStore?: TodoStore;
   /** Dynamic personal/project Skill registry; when set, registers ReadSkill. */
   skillRegistry?: SkillRegistry;
+  /** Durable pre/post image journal for all file mutation tools. */
+  mutationService?: MutationService;
   /** When set, registers SetMode for conversational mode switching. */
   setMode?: CreateSetModeToolOptions;
 }
@@ -80,10 +86,10 @@ export function createBuiltinTools(
   const tools: ToolDefinition[] = [
     createBashTool(workspaceRoot),
     createReadTool(workspaceRoot),
-    createWriteTool(workspaceRoot),
-    createEditTool(workspaceRoot),
-    createDeleteTool(workspaceRoot),
-    createMoveTool(workspaceRoot),
+    createWriteTool(workspaceRoot, options.mutationService),
+    createEditTool(workspaceRoot, options.mutationService),
+    createDeleteTool(workspaceRoot, options.mutationService),
+    createMoveTool(workspaceRoot, options.mutationService),
     createGlobTool(workspaceRoot),
     createGrepTool(workspaceRoot),
     createRgTool(workspaceRoot),
@@ -93,6 +99,10 @@ export function createBuiltinTools(
     createGitDiffTool(workspaceRoot),
     createGitLogTool(workspaceRoot)
   ];
+
+  if (options.mutationService) {
+    tools.push(createApplyPatchTool(workspaceRoot, options.mutationService));
+  }
 
   const includeTask =
     options.includeTask ?? options.runSubagent !== undefined;

@@ -46,6 +46,10 @@ selected subagent root
 
 `SkillRegistry` 动态发现 personal 与 workspace Skills；`SessionServices` 只把 metadata 注册到 `SessionContext`，`ReadSkill` 才读取正文或资源。主 agent 使用多 root registry，subagent 为自己的执行 root 建立独立 registry。TUI `/skills` 只消费 `AgentRuntime.refreshSkills()` 返回的 snapshot。
 
+## Safe Mutation 数据流
+
+`MutationCoordinator` 按 workspace root 管理 `MutationService`。Write/Edit/Delete/Move/ApplyPatch 在真实写入前追加 prepared journal 并保存 preimage blobs，成功后追加 postHash，失败或下次启动发现 incomplete 时恢复 preimage。`AgentRuntime.undoMutation()` 在所有相关 workspace 先做 postHash 冲突预检，再按逆序恢复；TUI `/undo` 不直接读取 journal。
+
 ## 刻意保留的边界
 
 - 本轮不收紧 `@kross/core` 全部 public exports。

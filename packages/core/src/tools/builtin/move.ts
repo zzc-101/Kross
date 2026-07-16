@@ -8,6 +8,7 @@ import {
   resolveExistingPathWithinWorkspace,
   resolveWritablePathWithinWorkspace
 } from './paths';
+import type { MutationService } from '../../mutations/mutationService';
 
 interface MoveInput {
   from: string;
@@ -20,7 +21,10 @@ export interface MoveResultData {
   mutated: boolean;
 }
 
-export function createMoveTool(workspaceRoot: string): ToolDefinition<MoveInput> {
+export function createMoveTool(
+  workspaceRoot: string,
+  mutations?: MutationService
+): ToolDefinition<MoveInput> {
   return {
     name: 'Move',
     description:
@@ -40,7 +44,7 @@ export function createMoveTool(workspaceRoot: string): ToolDefinition<MoveInput>
       required: ['from', 'to'],
       additionalProperties: false
     },
-    execute: async ({ input }) => {
+    execute: async ({ input, runId }) => {
       const fromPath = await resolveExistingPathWithinWorkspace(
         workspaceRoot,
         input.from
@@ -62,8 +66,20 @@ export function createMoveTool(workspaceRoot: string): ToolDefinition<MoveInput>
         };
       }
 
-      await mkdir(dirname(toPath), { recursive: true });
-      await rename(fromPath, toPath);
+      const move = async () => {
+        await mkdir(dirname(toPath), { recursive: true });
+        await rename(fromPath, toPath);
+      };
+      if (mutations) {
+        await mutations.record({
+          runId,
+          toolName: 'Move',
+          paths: [input.from, input.to],
+          action: move
+        });
+      } else {
+        await move();
+      }
 
       return {
         content: `已移动：${input.from} → ${input.to}`,

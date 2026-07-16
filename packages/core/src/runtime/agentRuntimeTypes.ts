@@ -16,6 +16,7 @@ import type {
 } from './subagentRunner';
 import type { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { SkillRegistry } from '../skills/skillRegistry';
+import type { MutationCoordinator } from '../mutations/mutationService';
 
 export type {
   PendingConductorExecution,
@@ -57,6 +58,8 @@ export interface AgentRuntimeOptions {
   skillRegistry?: SkillRegistry;
   /** Personal Skill directory used by the fallback registry. */
   personalSkillsDir?: string;
+  /** Workspace-aware mutation journal and undo coordinator. */
+  mutationCoordinator?: MutationCoordinator;
   /** Loaded ~/.kross/projects.json (optional project template / seed). */
   projectRegistry?: ProjectRegistry;
   /** Absolute path of the registry file (for prompts / errors). */

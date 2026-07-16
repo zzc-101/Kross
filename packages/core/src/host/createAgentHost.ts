@@ -31,6 +31,7 @@ import {
 } from '../workspace/projectRegistry';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { SkillRegistry } from '../skills/skillRegistry';
+import { MutationCoordinator } from '../mutations/mutationService';
 
 export interface CreateAgentHostConfigOptions {
   homeDir?: string;
@@ -43,6 +44,7 @@ export interface AgentHostTooling {
   todoStore: TodoStore;
   workspaceRoots: WorkspaceRoots;
   skillRegistry: SkillRegistry;
+  mutationCoordinator: MutationCoordinator;
   /** Update LLM used by Task subagents (e.g. after /import). */
   setLlmClient: (client: LlmClient | undefined) => void;
   /** Shared subagent runner (multi-root Task + conductor fan-out). */
@@ -71,6 +73,7 @@ export function createRuntimeOptionsFromEnv(
     | 'runSubagent'
     | 'workspaceRoots'
     | 'skillRegistry'
+    | 'mutationCoordinator'
   >
 ): AgentRuntimeOptions {
   const savedConfig = loadKrossConfig(options);
@@ -119,13 +122,15 @@ export function createRuntimeOptionsFromEnv(
   let runSubagent: AgentRuntimeOptions['runSubagent'] = tooling?.runSubagent;
   let workspaceRoots = tooling?.workspaceRoots;
   let skillRegistry = tooling?.skillRegistry;
+  let mutationCoordinator = tooling?.mutationCoordinator;
   if (
     !toolGateway ||
     !traceStore ||
     !todoStore ||
     !runSubagent ||
     !workspaceRoots ||
-    !skillRegistry
+    !skillRegistry ||
+    !mutationCoordinator
   ) {
     const created = createLocalTooling(cwd, llmClient, options, projectRegistry);
     toolGateway = toolGateway ?? created.toolGateway;
@@ -134,6 +139,7 @@ export function createRuntimeOptionsFromEnv(
     runSubagent = runSubagent ?? created.runSubagent;
     workspaceRoots = workspaceRoots ?? created.workspaceRoots;
     skillRegistry = skillRegistry ?? created.skillRegistry;
+    mutationCoordinator = mutationCoordinator ?? created.mutationCoordinator;
   } else {
     tooling?.setLlmClient?.(llmClient);
   }
@@ -161,6 +167,7 @@ export function createRuntimeOptionsFromEnv(
     workspaceRoots,
     skillRegistry,
     personalSkillsDir: resolvePersonalSkillsDir(options),
+    mutationCoordinator,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
     sessionContext,
@@ -225,6 +232,7 @@ export async function bootstrapRuntimeTooling(
     todoStore: created.todoStore,
     workspaceRoots: created.workspaceRoots,
     skillRegistry: created.skillRegistry,
+    mutationCoordinator: created.mutationCoordinator,
     setLlmClient: created.setLlmClient,
     runSubagent: created.runSubagent,
     mcpManager,
@@ -247,6 +255,7 @@ function createLocalTooling(
   todoStore: TodoStore;
   workspaceRoots: WorkspaceRoots;
   skillRegistry: SkillRegistry;
+  mutationCoordinator: MutationCoordinator;
   setLlmClient: (client: LlmClient | undefined) => void;
   runSubagent: NonNullable<AgentRuntimeOptions['runSubagent']>;
   closeTraceStore: () => void;
@@ -266,6 +275,7 @@ function createLocalTooling(
     getRoots: () => workspaceRoots.list(),
     personalSkillsDir: resolvePersonalSkillsDir(options)
   });
+  const mutationCoordinator = new MutationCoordinator(resolveKrossHome(options));
 
   const subagentDeps: SubagentRunDeps = {
     workspaceRoot: cwd,
@@ -280,7 +290,8 @@ function createLocalTooling(
     workerLlmClient: initialLlmClient,
     maxDepth: 1,
     maxToolIterations: 40,
-    personalSkillsDir: resolvePersonalSkillsDir(options)
+    personalSkillsDir: resolvePersonalSkillsDir(options),
+    getMutationService: (root) => mutationCoordinator.forWorkspace(root)
   };
 
   const runSubagent = createDefaultSubagentRunner(subagentDeps);
@@ -308,7 +319,8 @@ function createLocalTooling(
     runSubagent,
     resolveRepoPath,
     todoStore,
-    skillRegistry
+    skillRegistry,
+    mutationService: mutationCoordinator.forWorkspace(cwd)
   })) {
     toolGateway.register(tool);
   }
@@ -319,6 +331,7 @@ function createLocalTooling(
     todoStore,
     workspaceRoots,
     skillRegistry,
+    mutationCoordinator,
     runSubagent,
     setLlmClient: (client) => {
       subagentDeps.llmClient = client;
@@ -331,9 +344,11 @@ function createLocalTooling(
 }
 
 function resolvePersonalSkillsDir(options: CreateAgentHostConfigOptions): string {
-  const krossHome =
-    options.krossHome ?? join(options.homeDir ?? homedir(), '.kross');
-  return join(krossHome, 'skills');
+  return join(resolveKrossHome(options), 'skills');
+}
+
+function resolveKrossHome(options: CreateAgentHostConfigOptions): string {
+  return options.krossHome ?? join(options.homeDir ?? homedir(), '.kross');
 }
 
 /** AGENT_MAX_TOOL_ITERATIONS：正整数则采用，否则走 Runtime 默认（200，触顶软着陆）。 */

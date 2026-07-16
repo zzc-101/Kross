@@ -92,6 +92,12 @@ export function listSlashCommands(): SlashCommand[] {
       category: 'inspection'
     },
     {
+      name: '/undo',
+      description: t('slash.undo.desc'),
+      usage: '/undo [runId|transactionId]',
+      category: 'common'
+    },
+    {
       name: '/compact',
       description: t('slash.compact.desc'),
       usage: '/compact [额外压缩要求]',

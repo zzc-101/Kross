@@ -34,7 +34,9 @@ describe('builtin tools integration', () => {
         name !== 'Task' &&
         name !== 'TodoWrite' &&
         name !== 'TodoRead' &&
-        name !== 'SetMode'
+        name !== 'SetMode' &&
+        name !== 'ReadSkill' &&
+        name !== 'ApplyPatch'
     );
     expect(names.sort()).toEqual(coreOnly.sort());
   });

@@ -15,6 +15,7 @@
 - **多目录**：`/add-dir` `/dirs` `/remove-dir`，任意 mode 可用。
 - **Project Instructions**：自动加载每个 workspace root 根目录的 `CLAUDE.md`、`AGENTS.md`、`KROSS.md`，主 agent 与 Task/conductor worker 按 root 隔离遵守。
 - **Skills**：发现 `~/.kross/skills` 与各 root 的 `.agents/skills`，metadata 常驻上下文，正文/资源通过 `ReadSkill` 按需安全读取。
+- **Safe Mutation**：`ApplyPatch` 原子处理多文件补丁；Write/Edit/Delete/Move/ApplyPatch 统一记录 pre/post image，`/undo [runId|transactionId]` 做 hash 冲突保护撤销。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - 工作区级会话持久化：完整可见消息以 append-only JSONL 保存，SQLite 仅维护可重建的最近会话索引；启动页可选择历史会话，`/resume` 打开选择器，`/resume <sessionId>` 直接恢复。
 - TUI 界面 i18n：默认中文，支持 `/lang en|zh` 与 `AGENT_LANG` / `KROSS_LANG` / `config.locale` 切换英文。
@@ -85,7 +86,8 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - 结果摘要：保留原始输出，同时生成 summary 写入 trace 和上下文，避免大输出污染后续 prompt。
 - Trace：记录 `tool_call.started`、`tool_call.completed`、`tool_call.failed`、`tool_call.approval_required`、`tool_call.denied`。
 - 原生 tool-call loop：OpenAI-compatible 解析 `tool_calls`，Anthropic-compatible 解析 `tool_use`，Runtime 执行工具后把 tool result 回填给模型，支持多轮工具迭代直到模型返回最终文本。
-- 内置文件工具：`Read`、`Write`、`Edit`、`Delete`、`Move`、`Glob`、`Grep`、`Rg`、`List`、`Stat` 默认限制在 workspace 内，并使用真实路径校验阻断 symlink 越界。`Rg` 通过 `@vscode/ripgrep` **随应用内置**各平台 ripgrep 二进制，客户无需单独安装；优先用于内容搜索与文件枚举。`Grep`/`Glob` 为纯 JS 回退。`Edit` 支持 `edits[]` 一次多处替换与失败时附近内容提示。
+- 内置文件工具：`Read`、`Write`、`Edit`、`Delete`、`Move`、`ApplyPatch`、`Glob`、`Grep`、`Rg`、`List`、`Stat` 默认限制在 workspace 内，并使用真实路径校验阻断 symlink 越界。`ApplyPatch` 先校验全部路径/hunk 再提交，失败会恢复全部 preimage。`Rg` 通过 `@vscode/ripgrep` **随应用内置**各平台 ripgrep 二进制，客户无需单独安装；优先用于内容搜索与文件枚举。`Grep`/`Glob` 为纯 JS 回退。`Edit` 支持 `edits[]` 一次多处替换与失败时附近内容提示。
+- 文件 mutation journal：正文以 content-addressed blobs 存在 `~/.kross/mutations`，JSONL 只保存 hash/ref；`/undo` 默认撤销最近事务，也可指定 run/transaction。当前文件与 postHash 不一致时整次拒绝，不强制覆盖人工新改动。
 - 内置 Git 工具：`GitStatus`、`GitDiff`、`GitLog` 提供只读的结构化仓库检查，并拒绝读取仓库根目录位于 workspace 外的 Git 仓库。
 - `Read` 支持 `offset` / `limit` 分段读取大文件，避免先把超大文件完整塞进上下文。
 - `Bash` 会以 workspace 内目录作为 cwd 启动命令，但当前版本没有 OS 级沙箱；命令本身的系统访问能力主要由审批策略约束。
@@ -104,7 +106,7 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 
 - **`Task` 工具**：主 agent 可派生子代理执行聚焦任务。
 - **专用执行路径**（不走主 `AgentRuntime.run` 规划器壳）：独立 system prompt + 独立工具环。
-- **工具白名单**：Read / Glob / Grep / Rg / List / Stat / Git* / Edit / Write（无 Bash/Delete/Move/Task/MCP）。
+- **工具白名单**：Read / ReadSkill / Glob / Grep / Rg / List / Stat / Git* / Edit / Write / ApplyPatch（无 Bash/Delete/Move/Task/MCP）。
 - **子代理内 auto-allow**；**maxDepth=1**。
 - Trace：lifecycle 在父 run；子工具事件带 **`isSubagent: true`**，主 transcript 硬过滤。
 - Project Instructions：子代理只加载自己的执行 root；父 trace 仅记录 filename/rootId/bytes 等 provenance，不记录正文。
@@ -135,7 +137,6 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 
 - MCP resources / prompts、SSE/HTTP transport、运行时热重载 MCP 列表。
 - OS 级 Bash 沙箱。
-- `apply_patch` 专用内置工具。
 
 
 ### 权限和安全边界

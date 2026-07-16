@@ -10,6 +10,7 @@ import type { LlmClient } from '../llm/types';
 import { createSubagentTools } from '../tools/builtin/exploreTools';
 import { createReadSkillTool } from '../tools/builtin/readSkill';
 import { SkillRegistry } from '../skills/skillRegistry';
+import type { MutationService } from '../mutations/mutationService';
 import {
   ToolGateway,
   type ToolMetadata
@@ -59,12 +60,13 @@ export interface SubagentRunDeps {
   createRunId?: () => string;
   /** Personal Skill root shared with child agents. */
   personalSkillsDir?: string;
+  getMutationService?: (workspaceRoot: string) => MutationService;
 }
 
 export const SUBAGENT_SYSTEM_PROMPT = [
   'You are a focused subagent of Kross.',
   'Complete the assigned task using only the available tools.',
-  'Allowed tools: Read, ReadSkill, Glob, Grep, Rg, List, Stat, GitStatus/Diff/Log, Edit, Write.',
+  'Allowed tools: Read, ReadSkill, Glob, Grep, Rg, List, Stat, GitStatus/Diff/Log, Edit, Write, ApplyPatch.',
   'Prefer Rg (ripgrep) over Grep/Glob for search and file listing when available.',
   'Not available: Bash, Delete, Move, Task, network/MCP, or other high-risk tools.',
   'No user approval is required — use tools freely within the allowlist.',
@@ -180,7 +182,7 @@ export async function runSubagent(
   }
 
   const toolDefs = [
-    ...createSubagentTools(workspaceRoot),
+    ...createSubagentTools(workspaceRoot, deps.getMutationService?.(workspaceRoot)),
     createReadSkillTool(skillRegistry)
   ];
   const childGateway = new ToolGateway({

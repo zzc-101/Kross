@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import type { ToolDefinition } from '../toolGateway';
 import { resolveExistingPathWithinWorkspace } from './paths';
+import type { MutationService } from '../../mutations/mutationService';
 
 interface DeleteInput {
   path: string;
@@ -18,7 +19,10 @@ export interface DeleteResultData {
   mutated: boolean;
 }
 
-export function createDeleteTool(workspaceRoot: string): ToolDefinition<DeleteInput> {
+export function createDeleteTool(
+  workspaceRoot: string,
+  mutations?: MutationService
+): ToolDefinition<DeleteInput> {
   return {
     name: 'Delete',
     description:
@@ -41,7 +45,7 @@ export function createDeleteTool(workspaceRoot: string): ToolDefinition<DeleteIn
       required: ['path'],
       additionalProperties: false
     },
-    execute: async ({ input }) => {
+    execute: async ({ input, runId }) => {
       const filePath = await resolveExistingPathWithinWorkspace(
         workspaceRoot,
         input.path
@@ -64,10 +68,22 @@ export function createDeleteTool(workspaceRoot: string): ToolDefinition<DeleteIn
         };
       }
 
-      await rm(filePath, {
-        recursive: meta.isDirectory() && !meta.isSymbolicLink() ? recursive : false,
-        force: false
-      });
+      const remove = async () => {
+        await rm(filePath, {
+          recursive: meta.isDirectory() && !meta.isSymbolicLink() ? recursive : false,
+          force: false
+        });
+      };
+      if (mutations) {
+        await mutations.record({
+          runId,
+          toolName: 'Delete',
+          paths: [input.path],
+          action: remove
+        });
+      } else {
+        await remove();
+      }
 
       return {
         content: `已删除 ${kind}：${displayPath}`,

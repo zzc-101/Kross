@@ -14,6 +14,7 @@ import {
   hunkLineStats
 } from './fileChangeStats';
 import { resolveExistingPathWithinWorkspace } from './paths';
+import type { MutationService } from '../../mutations/mutationService';
 
 const singleEditSchema = z.object({
   old_string: z.string().min(1),
@@ -64,7 +65,10 @@ export interface EditResultData {
   hint?: string;
 }
 
-export function createEditTool(workspaceRoot: string): ToolDefinition<EditInput> {
+export function createEditTool(
+  workspaceRoot: string,
+  mutations?: MutationService
+): ToolDefinition<EditInput> {
   return {
     name: 'Edit',
     description:
@@ -99,7 +103,7 @@ export function createEditTool(workspaceRoot: string): ToolDefinition<EditInput>
       required: ['path'],
       additionalProperties: false
     },
-    execute: async ({ input }) => {
+    execute: async ({ input, runId }) => {
       const filePath = await resolveExistingPathWithinWorkspace(
         workspaceRoot,
         input.path
@@ -218,8 +222,20 @@ export function createEditTool(workspaceRoot: string): ToolDefinition<EditInput>
         };
       }
 
-      await mkdir(dirname(filePath), { recursive: true });
-      await writeFile(filePath, content, 'utf8');
+      const write = async () => {
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, content, 'utf8');
+      };
+      if (mutations) {
+        await mutations.record({
+          runId,
+          toolName: 'Edit',
+          paths: [input.path],
+          action: write
+        });
+      } else {
+        await write();
+      }
 
       const delta = formatLineDelta({
         linesAdded: totalAdded,
