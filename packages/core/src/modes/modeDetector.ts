@@ -29,12 +29,8 @@ const conductorSignals = [
   'conductor'
 ];
 
-/** Accept legacy alias `cross-repo` as conductor. */
 export function normalizeAgentMode(value: string): AgentMode | undefined {
   const trimmed = value.trim().toLowerCase();
-  if (trimmed === 'cross-repo' || trimmed === 'cross_repo') {
-    return 'conductor';
-  }
   if (trimmed === 'auto' || trimmed === 'normal' || trimmed === 'conductor') {
     return trimmed;
   }

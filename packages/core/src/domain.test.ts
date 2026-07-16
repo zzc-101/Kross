@@ -17,15 +17,13 @@ describe('domain schemas', () => {
               id: 'backend',
               path: '/Users/zc/IdeaProjects/jeecgboot',
               type: 'java-backend',
-              testCommand: 'mvn test',
-              codegraphIndex: 'rcc-backend'
+              testCommand: 'mvn test'
             },
             {
               id: 'frontend',
               path: '/Users/zc/WebstormProjects/jeecgboot-vue3',
               type: 'vue-frontend',
-              testCommand: 'pnpm lint',
-              codegraphIndex: 'rcc-frontend'
+              testCommand: 'pnpm lint'
             }
           ]
         }

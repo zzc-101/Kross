@@ -17,8 +17,7 @@ export const repoConfigSchema = z.object({
   id: z.string().min(1),
   path: z.string().min(1),
   type: z.string().min(1),
-  testCommand: z.string().min(1).optional(),
-  codegraphIndex: z.string().min(1).optional()
+  testCommand: z.string().min(1).optional()
 });
 export type RepoConfig = z.infer<typeof repoConfigSchema>;
 

@@ -181,7 +181,7 @@ export const zhCatalog = {
   'cmd.expandDone': '已切换最近一条 thinking 的折叠状态（也可用 ctrl+o）。',
   'cmd.modeUsage': '用法：/mode auto|normal|conductor',
   'cmd.modeSwitched': '已切换到 {mode} 模式',
-  'cmd.modeUnknown': '未知模式，可选：auto、normal、conductor（兼容 cross-repo）',
+  'cmd.modeUnknown': '未知模式，可选：auto、normal、conductor',
   'cmd.addDir.usage': '用法：/add-dir <绝对或相对路径>',
   'cmd.addDir.ok': '已加入工作区 id={id} path={path}',
   'cmd.addDir.fail': '加入失败：{error}',
@@ -405,8 +405,7 @@ export const enCatalog: Record<MessageKey, string> = {
     'Toggled the latest thinking block (also available via ctrl+o).',
   'cmd.modeUsage': 'Usage: /mode auto|normal|conductor',
   'cmd.modeSwitched': 'Switched to {mode} mode',
-  'cmd.modeUnknown':
-    'Unknown mode. Choose: auto, normal, conductor (alias: cross-repo)',
+  'cmd.modeUnknown': 'Unknown mode. Choose: auto, normal, conductor',
   'cmd.addDir.usage': 'Usage: /add-dir <absolute or relative path>',
   'cmd.addDir.ok': 'Added workspace root id={id} path={path}',
   'cmd.addDir.fail': 'Failed to add: {error}',

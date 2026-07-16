@@ -13,16 +13,10 @@ describe('detectMode', () => {
     expect(result.requiresApproval).toBe(false);
   });
 
-  it('keeps explicit conductor mode and aliases cross-repo', () => {
+  it('keeps explicit conductor mode', () => {
     expect(
       detectMode({
         requestedMode: 'conductor',
-        input: '解释一下这个工具'
-      }).mode
-    ).toBe('conductor');
-    expect(
-      detectMode({
-        requestedMode: 'cross-repo',
         input: '解释一下这个工具'
       }).mode
     ).toBe('conductor');

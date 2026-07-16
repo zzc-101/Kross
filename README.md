@@ -6,7 +6,7 @@
 
 - 交互式 TUI 入口，启动后像 Claude Code 一样输入自然语言任务。
 - 全屏 TUI 为 Ink 预留安全行，避免高频更新触发整屏 `clearTerminal`；触摸板滚动采用单层帧合并，消息视口复用稳定 paint layout，流式文本按帧批量更新。
-- `auto` / `normal` / `conductor` 三种模式（UI i18n：指挥家 / Conductor；兼容 `cross-repo` 别名）。
+- `auto` / `normal` / `conductor` 三种模式（UI i18n：中文「指挥家」/ 英文 Conductor）。
 - 普通模式：本地工具环。指挥家：plan-first → `/approve` → 按目标扇出子代理。
 - 多目录：`/add-dir` `/dirs` `/remove-dir`（与 mode 正交）；可选 `projects.json` 作模板。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
@@ -318,4 +318,3 @@ packages/tui
 ```
 
 - 界面语言：`/lang zh|en` 切换 mode 显示名（指挥家 / Conductor）。
-- `RepoConfig.codegraphIndex` 仅保留兼容，**运行时不使用**。
