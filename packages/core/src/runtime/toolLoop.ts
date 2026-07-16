@@ -14,8 +14,7 @@ import {
 import type {
   LlmClient,
   LlmMessage,
-  LlmToolCall,
-  LlmToolDefinition
+  LlmToolCall
 } from '../llm/types';
 import { formatToolInputPreview } from '../tools/formatToolInputPreview';
 import {
@@ -39,6 +38,9 @@ import {
   type StreamingToolLoopParams,
   type ToolBatchOutcome
 } from './streamingToolLoop';
+import { toLlmTools } from './toolLoopShared';
+
+export { toLlmTools } from './toolLoopShared';
 
 const SOFT_LAND_FALLBACK =
   '已达到工具调用轮次上限。请查看上文工具结果；如需继续，请再发一条指令推进剩余工作。';
@@ -653,20 +655,6 @@ export class RuntimeToolLoop {
     this.options.commitTurn();
     return cancelled;
   }
-}
-
-export function toLlmTools(
-  tools: ToolMetadata[]
-): LlmToolDefinition[] | undefined {
-  if (tools.length === 0) {
-    return undefined;
-  }
-
-  return tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters
-  }));
 }
 
 function softLandUserMessage(
