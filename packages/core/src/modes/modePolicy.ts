@@ -8,9 +8,9 @@
  */
 
 import type { AgentMode } from '../domain';
-import type { PendingModeExecution } from '../runtime/agentRuntimeTypes';
 import type { ModeDetectionResult } from './modeDetector';
 import { detectMode } from './modeDetector';
+import type { PendingModeExecution } from './pendingExecution';
 
 /** Runner 入口动作：策略只决定「做什么」，不负责怎么输出。 */
 export type ModeTurnAction =

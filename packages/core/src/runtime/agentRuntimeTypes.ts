@@ -10,12 +10,17 @@ import type { TodoStore } from '../todo/todoStore';
 import type { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import type { GitRunner } from '../workspace/workspaceDiff';
-import type { ConductorTaskPlan } from './conductorOrchestration';
 import type {
   SubagentRunOutcome,
   SubagentRunRequest
 } from './subagentRunner';
 import type { WorkspaceRoots } from '../workspace/workspaceRoots';
+
+export type {
+  PendingConductorExecution,
+  PendingPlanExecution,
+  PendingModeExecution
+} from '../modes/pendingExecution';
 
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
@@ -71,26 +76,6 @@ export interface AgentRunInput {
     plan?: boolean;
   };
 }
-
-/** Conductor task plan held between /approve and worker execution. */
-export interface PendingConductorExecution {
-  kind: 'conductor';
-  goal: string;
-  mode: 'conductor';
-  plan: ConductorTaskPlan;
-}
-
-/** Plan-mode plan held between /approve and development tool loop. */
-export interface PendingPlanExecution {
-  kind: 'plan';
-  goal: string;
-  mode: 'plan';
-  planText: string;
-}
-
-export type PendingModeExecution =
-  | PendingConductorExecution
-  | PendingPlanExecution;
 
 export interface ResolveToolApprovalInput {
   runId: string;
