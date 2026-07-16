@@ -25,7 +25,10 @@ export * from './modes/modePolicy';
 
 export * from './runtime/agentRuntime';
 export * from './runtime/agentRuntimeTypes';
+export { ModelSession } from './runtime/modelSession';
+export { ModeFlows, type ModeFlowsDeps } from './runtime/modeFlows';
 export * from './runtime/runtimeInspection';
+export { SessionServices, type SessionServicesOptions } from './runtime/sessionServices';
 export * from './runtime/subagentRunner';
 export * from './runtime/toolLoop';
 export * from './session/sessionStore';

@@ -260,17 +260,27 @@ npm run typecheck
 packages/core
   context          ConversationThread、TokenEstimator、ContextGovernor、SessionContext
   domain           共享协议和 zod schema
+  host             组合根：tooling、runtime options、MCP 装配
   llm              OpenAI-compatible / Anthropic-compatible 模型协议适配
-  modes            normal / conductor 模式检测
-  runtime          agent run 生命周期和事件流
+  modes            auto / plan / conductor 策略与 pending plan 类型
+  runtime          AgentRuntime 薄门面、ModeFlows、模型/会话服务和双工具环
   session          append-only JSONL 会话事实源和 SQLite 最近会话索引
   tools            Tool Gateway、工具注册、权限、入参校验和内置工具
   trace            JSONL trace 存储（~/.kross/traces/）
 
 packages/tui
   App              交互式终端界面
-  main             本地启动入口，trace 写入 ~/.kross/traces/，会话写入 ~/.kross/sessions/
+  main             消费 core host；trace 写入 ~/.kross/traces/，会话写入 ~/.kross/sessions/
 ```
+
+核心依赖方向与运行不变量：
+
+- `modes` 只负责策略与 pending execution schema，不依赖 `runtime`。
+- `host` 提供 `bootstrapRuntimeTooling` / `createRuntimeOptionsFromEnv`；TUI 只保留兼容 re-export。
+- `AgentRuntime` 负责装配、运行分发和公共 API；会话状态、模型绑定、plan/conductor 流程分别委托给 `SessionServices`、`ModelSession`、`ModeFlows`。
+- 主 agent 使用流式、可审批的 `RuntimeToolLoop`；subagent 使用 non-streaming、auto-allow 的 `completeToolLoop`，两者共享工具定义转换和顺序执行原语。
+- `Task` 只依赖 `SubagentRunner` 类型和纯格式化函数，不反向依赖 runner 实现。
+- `ConversationThread` 是模型对话上下文的单一事实源。
 
 ## 后续扩展
 
