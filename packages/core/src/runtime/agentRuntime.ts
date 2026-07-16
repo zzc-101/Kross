@@ -617,6 +617,7 @@ export class AgentRuntime extends EventEmitter {
 
   /**
    * Plan mode: produce an implementation plan → /approve → full tool-loop develop.
+   * Pure greetings / small-talk skip the gate and chat normally.
    */
   private async runPlanMode(
     input: AgentRunInput,
@@ -625,6 +626,24 @@ export class AgentRuntime extends EventEmitter {
     reason: string | undefined
   ): Promise<AgentResult> {
     throwIfAborted(input.signal);
+
+    // 闲聊不必走 plan 门：否则「你好」也会卡在 /approve
+    if (
+      input.approvals?.plan !== true &&
+      isCasualChatInput(input.input) &&
+      this.options.llmClient
+    ) {
+      let result: AgentResult | undefined;
+      for await (const event of this.runAgentToolLoop(input, mode, runId)) {
+        if (event.type === 'result') {
+          result = event.result;
+        }
+      }
+      if (!result) {
+        throw new Error(`Plan-mode chat finished without result: ${runId}`);
+      }
+      return result;
+    }
 
     if (
       input.approvals?.plan === true &&
@@ -1304,6 +1323,20 @@ export class AgentRuntime extends EventEmitter {
     await this.options.traceStore.append(event);
     this.emit('event', event);
   }
+}
+
+/** 闲聊/问候：plan 模式不必强制 plan 门。 */
+export function isCasualChatInput(input: string): boolean {
+  const text = input.trim();
+  if (text.length === 0) {
+    return true;
+  }
+  if (text.length > 40) {
+    return false;
+  }
+  return /^(你好|您好|嗨|哈喽|在吗|在不在|早上好|中午好|下午好|晚上好|谢谢|感谢|再见|拜拜|ok|okay|好的|嗯|hi|hello|hey|thanks|thank you|bye)([\s!！.。?？~～❤️🙏]*)$/i.test(
+    text
+  );
 }
 
 

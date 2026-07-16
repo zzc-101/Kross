@@ -189,10 +189,17 @@ export function useAgentRun({
     ) {
       setStatus('waiting-approval');
       setPendingConductorPlan({ prompt, mode: result.mode });
-      append(
-        'system',
-        result.mode === 'plan' ? t('app.planPaused') : t('app.conductorPaused')
-      );
+      // 计划/任务拆分正文在 summary 里，必须展示；不要只打一句 “paused”
+      if (result.summary.trim().length > 0) {
+        append('agent', result.summary);
+      } else {
+        append(
+          'system',
+          result.mode === 'plan' ? t('app.planPaused') : t('app.conductorPaused')
+        );
+      }
+      finalizeThinkingDurations();
+      setAwaitingReply(false);
       return 'paused';
     }
 

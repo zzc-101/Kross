@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AgentRuntime } from './agentRuntime';
+import { AgentRuntime, isCasualChatInput } from './agentRuntime';
 import { InMemoryContextManager, type SessionContext } from '../context/sessionContext';
 import type { LlmMessage } from '../llm/types';
 import type { TraceEvent } from '../domain';
@@ -1924,3 +1924,12 @@ function waitForAbort(signal: AbortSignal | undefined): Promise<never> {
     });
   });
 }
+
+describe('isCasualChatInput', () => {
+  it('recognizes greetings and rejects real tasks', () => {
+    expect(isCasualChatInput('你好')).toBe(true);
+    expect(isCasualChatInput('hello!')).toBe(true);
+    expect(isCasualChatInput('修复登录 bug')).toBe(false);
+    expect(isCasualChatInput('先规划再实现认证')).toBe(false);
+  });
+});
