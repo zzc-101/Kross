@@ -43,12 +43,62 @@ const planSignals = [
   '先plan'
 ];
 
+/** 明显是「干活」而不是纯切模式时的关键词。 */
+const workBeyondSwitchSignals = [
+  '拆任务',
+  '实现',
+  '修复',
+  '开发',
+  '重构',
+  '执行',
+  '验收',
+  '改代码',
+  '修 bug',
+  '修bug',
+  '编写',
+  '排查',
+  '优化',
+  '迁移'
+];
+
 export function normalizeAgentMode(value: string): AgentMode | undefined {
   const trimmed = value.trim().toLowerCase();
   if (trimmed === 'auto' || trimmed === 'plan' || trimmed === 'conductor') {
     return trimmed;
   }
   return undefined;
+}
+
+/**
+ * 识别纯会话 Mode 切换话术，让 agent-loop 调用 SetMode。
+ * 带具体工作内容的请求仍按正常 auto detection 路由。
+ */
+export function isModeSwitchRequest(input: string): boolean {
+  const text = input.trim();
+  if (!text || text.length > 72) {
+    return false;
+  }
+  if (/[：:].{6,}/.test(text)) {
+    return false;
+  }
+  const lower = text.toLowerCase();
+  if (workBeyondSwitchSignals.some((signal) => lower.includes(signal))) {
+    return false;
+  }
+
+  return (
+    /(切换|切到|切成|改成|改到|设为|设置为|进入|打开|启用|回到|返回).{0,16}(模式|mode|指挥家|conductor|plan|规划|auto|自动)/i.test(
+      text
+    ) ||
+    /(帮我|请|要|想).{0,8}(切换|切到).{0,12}(模式|指挥家|conductor|plan)/i.test(
+      text
+    ) ||
+    /^(用|使用)\s*(指挥家|conductor|plan|规划)\s*模式\s*[!！.。]?$/i.test(
+      text
+    ) ||
+    /switch\s+to\s+(conductor|plan|auto)\b/i.test(text) ||
+    /\bset\s*mode\b/i.test(text)
+  );
 }
 
 export function detectMode(input: ModeDetectionInput): ModeDetectionResult {
@@ -61,6 +111,15 @@ export function detectMode(input: ModeDetectionInput): ModeDetectionResult {
       reason: `用户显式选择 ${requested} 模式`,
       requiresApproval: requested === 'plan' || requested === 'conductor',
       signals: []
+    };
+  }
+
+  if (isModeSwitchRequest(input.input)) {
+    return {
+      mode: 'auto',
+      reason: 'auto 识别为切换 Mode 请求（走 agent-loop + SetMode）',
+      requiresApproval: false,
+      signals: ['mode-switch']
     };
   }
 

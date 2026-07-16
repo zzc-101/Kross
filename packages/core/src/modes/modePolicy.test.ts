@@ -13,6 +13,18 @@ describe('resolveModeTurn', () => {
     expect(action).toEqual({ type: 'agent-loop', mode: 'auto' });
   });
 
+  it('routes a pure mode switch to agent-loop for SetMode', () => {
+    const { detection, action } = resolveModeTurn({
+      requestedMode: 'auto',
+      userInput: '帮我切换指挥家模式',
+      planApproved: false,
+      hasLlm: true
+    });
+    expect(detection.mode).toBe('auto');
+    expect(detection.signals).toContain('mode-switch');
+    expect(action).toEqual({ type: 'agent-loop', mode: 'auto' });
+  });
+
   it('routes plan to plan-gate-flow', () => {
     const { action } = resolveModeTurn({
       requestedMode: 'plan',
