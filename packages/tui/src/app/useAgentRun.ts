@@ -363,6 +363,7 @@ export function useAgentRun({
     setPendingConductorPlan(undefined);
 
     if (!approved) {
+      agentRuntime.clearPendingModeExecution();
       setStatus('ready');
       append('system', t('app.conductorCancelled'));
       return;

@@ -308,6 +308,41 @@ export class ModeFlows {
     const { plan, goal } = pending;
     const mode = 'conductor' as const;
     const seniorClient = this.deps.modelSession.getLlmClient();
+    const missingRootIds = [
+      ...new Set(
+        plan.tasks
+          .map((task) => task.repoId)
+          .filter(
+            (repoId): repoId is string =>
+              Boolean(repoId) &&
+              !this.deps.options.workspaceRoots?.resolveById(repoId!)
+          )
+      )
+    ];
+    if (missingRootIds.length > 0) {
+      const message =
+        `指挥家计划引用了当前会话中不存在的 workspace root：${missingRootIds.join(', ')}。` +
+        '请先用 /add-dir 恢复这些目录，再次 /approve；计划尚未执行。';
+      yield { type: 'text-delta', text: message };
+      const blocked = await this.deps.attachChangedFiles(
+        agentResultSchema.parse({
+          runId,
+          mode,
+          status: 'cancelled',
+          cancellationReason: 'missing-workspace-root',
+          summary: message,
+          report: {
+            changedFiles: [],
+            evidence: ['恢复后的 conductor plan 已重新校验 workspace roots'],
+            risks: missingRootIds.map((id) => `缺失 workspace root: ${id}`)
+          }
+        })
+      );
+      await this.deps.record(runId, 'run.completed', { ...blocked });
+      this.deps.finishTurnWithAssistant(goal, blocked.summary);
+      yield { type: 'result', result: blocked };
+      return;
+    }
 
     await this.deps.record(runId, 'conductor.execution.started', {
       taskIds: plan.tasks.map((task) => task.id),

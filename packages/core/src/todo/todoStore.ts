@@ -92,6 +92,12 @@ export class TodoStore {
     this.emitChange();
   }
 
+  restore(todos: TodoItem[]): TodoStoreSnapshot {
+    this.items = dedupeById(todos.map(normalizeTodoItem));
+    this.emitChange();
+    return this.snapshot();
+  }
+
   private emitChange(): void {
     for (const listener of this.listeners) {
       listener();

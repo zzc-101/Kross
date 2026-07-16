@@ -22,6 +22,11 @@ import type { TodoStore } from '../todo/todoStore';
 import { SkillRegistry } from '../skills/skillRegistry';
 import type { SkillsSnapshot } from '../skills/skillDiscovery';
 import type { AgentRuntimeOptions } from './agentRuntimeTypes';
+import {
+  cloneSessionWorkState,
+  isSessionWorkState,
+  type SessionWorkStateV1
+} from '../session/sessionWorkState';
 
 export interface SessionServicesOptions {
   options: AgentRuntimeOptions;
@@ -31,6 +36,7 @@ export interface SessionServicesOptions {
     mode: AgentMode;
     previous: AgentMode;
   }) => void;
+  emitWorkStateChanged: () => void;
 }
 
 /** Session-scoped policy state and prompt-source synchronization. */
@@ -43,6 +49,7 @@ export class SessionServices {
   private skillIds = new Set<string>();
   private readonly skillRegistry: SkillRegistry;
   private skills: SkillsSnapshot;
+  private restoringWorkState = false;
 
   constructor(private readonly deps: SessionServicesOptions) {
     this.skillRegistry =
@@ -52,6 +59,12 @@ export class SessionServices {
         personalSkillsDir: deps.options.personalSkillsDir
       });
     this.skills = this.skillRegistry.getSnapshot();
+    deps.options.todoStore?.onChange(() => {
+      this.syncTodoContextSource();
+      if (!this.restoringWorkState) {
+        this.deps.emitWorkStateChanged();
+      }
+    });
     this.deps.toolGateway?.setApprovalPolicy(
       createApprovalPolicy(this.permissionMode)
     );
@@ -70,6 +83,7 @@ export class SessionServices {
     this.sessionMode = mode;
     this.syncSessionModeSource();
     this.deps.emitModeChanged({ mode, previous });
+    this.deps.emitWorkStateChanged();
   }
 
   syncSessionModeSource(): void {
@@ -100,10 +114,13 @@ export class SessionServices {
 
   setPendingModeExecution(pending: PendingModeExecution | undefined): void {
     this.pendingModeExecution = pending;
+    this.deps.emitWorkStateChanged();
   }
 
   clearPendingModeExecution(): void {
+    if (!this.pendingModeExecution) return;
     this.pendingModeExecution = undefined;
+    this.deps.emitWorkStateChanged();
   }
 
   getPermissionMode(): PermissionMode {
@@ -252,6 +269,38 @@ export class SessionServices {
 
   getSkills(): SkillsSnapshot {
     return this.skills;
+  }
+
+  exportWorkState(): SessionWorkStateV1 {
+    return {
+      version: 1,
+      todos: this.deps.options.todoStore?.list() ?? [],
+      pendingModeExecution: this.pendingModeExecution
+        ? JSON.parse(JSON.stringify(this.pendingModeExecution))
+        : undefined,
+      sessionMode: this.sessionMode
+    };
+  }
+
+  restoreWorkState(state: SessionWorkStateV1): boolean {
+    if (!isSessionWorkState(state)) return false;
+    const restored = cloneSessionWorkState(state);
+    const previousMode = this.sessionMode;
+    this.restoringWorkState = true;
+    try {
+      this.pendingModeExecution = restored.pendingModeExecution;
+      this.sessionMode = restored.sessionMode;
+      this.deps.options.todoStore?.restore(restored.todos);
+      this.syncSessionModeSource();
+      this.syncTodoContextSource();
+    } finally {
+      this.restoringWorkState = false;
+    }
+    if (previousMode !== this.sessionMode) {
+      this.deps.emitModeChanged({ mode: this.sessionMode, previous: previousMode });
+    }
+    this.deps.emitWorkStateChanged();
+    return true;
   }
 
   private getInstructionRoots() {

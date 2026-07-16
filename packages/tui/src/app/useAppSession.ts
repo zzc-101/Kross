@@ -25,6 +25,7 @@ export interface UseAppSessionOptions {
     | 'upsertMessage'
     | 'syncMessages'
     | 'upsertContextState'
+    | 'upsertWorkState'
   > | undefined;
   sessionStoreError?: string;
   cwd: string;
@@ -44,6 +45,7 @@ export interface UseAppSessionOptions {
   setPendingConductorPlan: React.Dispatch<
     React.SetStateAction<{ prompt: string; mode: import('@kross/core').AgentMode } | undefined>
   >;
+  setMode: React.Dispatch<React.SetStateAction<import('@kross/core').AgentMode>>;
   setAwaitingReply: React.Dispatch<React.SetStateAction<boolean>>;
   setStreamingMessageId: React.Dispatch<React.SetStateAction<number | undefined>>;
   setStatus: React.Dispatch<React.SetStateAction<string>>;
@@ -73,6 +75,7 @@ export function useAppSession({
   pendingToolApproval,
   setPendingToolApproval,
   setPendingConductorPlan,
+  setMode,
   setAwaitingReply,
   setStreamingMessageId,
   setStatus,
@@ -182,6 +185,7 @@ export function useAppSession({
             .map((message) => message.id)
         )
       );
+      sessionStore.upsertWorkState(sessionId, agentRuntime.exportWorkState());
     } catch (error) {
       if (reportError) {
         setSessionNotice(formatSessionError('session.syncFailed', error));
@@ -229,6 +233,18 @@ export function useAppSession({
       }
     };
   }, [messages, sessionStore, syncVisibleMessages]);
+
+  useEffect(() => {
+    return agentRuntime.onWorkStateChanged(() => {
+      const sessionId = activeSessionIdRef.current;
+      if (!sessionStore || !sessionId) return;
+      try {
+        sessionStore.upsertWorkState(sessionId, agentRuntime.exportWorkState());
+      } catch (error) {
+        setSessionNotice(formatSessionError('session.saveFailed', error));
+      }
+    });
+  }, [agentRuntime, sessionStore]);
 
   useEffect(() => {
     return () => {
@@ -287,6 +303,8 @@ export function useAppSession({
     setMessages([]);
     // 清空模型上下文与陈旧 usage，避免首页顶栏仍显示上一会话占用。
     agentRuntime.restoreConversation([]);
+    agentRuntime.restoreWorkState({ version: 1, todos: [], sessionMode: 'auto' });
+    setMode('auto');
 
     let sessions: SessionSummary[] = [];
     try {
@@ -323,6 +341,7 @@ export function useAppSession({
     sessionStore,
     setAwaitingReply,
     setMessages,
+    setMode,
     setPendingConductorPlan,
     setPendingToolApproval,
     setQueueLength,
@@ -404,6 +423,17 @@ export function useAppSession({
       const maintenance = restoredContext
         ? undefined
         : agentRuntime.restoreConversation(conversation);
+      const workState = restored.workState ?? {
+        version: 1 as const,
+        todos: [],
+        sessionMode: 'auto' as const
+      };
+      agentRuntime.restoreWorkState(workState);
+      setMode(workState.sessionMode);
+      const pending = agentRuntime.getPendingModeExecution();
+      setPendingConductorPlan(
+        pending ? { prompt: pending.goal, mode: pending.mode } : undefined
+      );
       setRecentSessions((current) => [
         restored.summary,
         ...current.filter((session) => session.id !== restored.summary.id)
@@ -472,6 +502,7 @@ export function useAppSession({
     sessionStore,
     setAwaitingReply,
     setMessages,
+    setMode,
     setPendingConductorPlan,
     setPendingToolApproval,
     setQueueLength,

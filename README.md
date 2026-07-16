@@ -100,7 +100,7 @@ Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行
 - 默认按 id **merge**；`merge: false` 整表替换。
 - 每轮请求前注入 context source `session-todos`，模型可持续看到进度。
 - **TUI 顶栏右上**：原权限芯片改为 `Todo done/total ▸/▾`；**点击展开**查看全部 todo（完成项 `✓` 打勾），再点收起。权限仍在 Composer 页脚（shift+tab）。
-- 内存态（进程内）；不跨重启持久化。
+- Todo、会话 Mode 和待确认的 plan/conductor 会作为 `work-state.updated` 快照写入会话 JSONL，重启并 `/resume` 后恢复；permission mode 与进程内工具审批不会恢复。
 
 已实现（Subagent P0）：
 

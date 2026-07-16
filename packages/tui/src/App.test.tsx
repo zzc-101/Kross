@@ -461,6 +461,73 @@ describe('App', () => {
     }
   });
 
+  it('restores durable todos, mode and approval gate, then persists rejection', async () => {
+    const { TodoStore } = await import('@kross/core');
+    const homeDir = createTempHome();
+    const workspace = join(homeDir, 'workspace');
+    mkdirSync(workspace);
+    const sessionStore = new HybridSessionStore({
+      krossHome: join(homeDir, '.kross'),
+      createSessionId: () => 'session-work-state-test'
+    });
+    const session = sessionStore.createSession(workspace);
+    sessionStore.syncMessages(session.id, [
+      { id: 1, from: 'user', text: '> 继续持久化计划' },
+      { id: 2, from: 'agent', text: '计划等待确认' }
+    ]);
+    sessionStore.upsertWorkState(session.id, {
+      version: 1,
+      todos: [{ id: 'p0', content: '恢复工作状态', status: 'in_progress' }],
+      sessionMode: 'plan',
+      pendingModeExecution: {
+        kind: 'plan',
+        goal: '继续持久化计划',
+        mode: 'plan',
+        planText: '1. 恢复\n2. 验证'
+      }
+    });
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      todoStore: new TodoStore(),
+      llmClient: new FakeLlmClient('不应自动执行')
+    });
+    let api: AppTestApi | undefined;
+    const view = render(
+      <App
+        runtime={runtime}
+        cwd={workspace}
+        sessionStore={sessionStore}
+        onReady={(next) => (api = next)}
+      />
+    );
+
+    try {
+      await waitUntil(() => api !== undefined);
+      await api?.resumeSession(session.id);
+      await waitUntil(
+        () =>
+          view.lastFrame()?.includes('Todo 0/1') === true &&
+          view.lastFrame()?.includes('等待确认') === true
+      );
+      expect(runtime.getSessionMode()).toBe('plan');
+      // Permission is process-local and never comes from the stored work state.
+      expect(runtime.getPermissionMode()).toBe('default');
+      expect(runtime.getPendingModeExecution()?.goal).toBe('继续持久化计划');
+
+      await api?.choosePlanApproval(false);
+      api?.flushSession();
+      expect(runtime.getPendingModeExecution()).toBeUndefined();
+      expect(
+        sessionStore.loadSession(workspace, session.id)?.workState
+          ?.pendingModeExecution
+      ).toBeUndefined();
+    } finally {
+      view.unmount();
+      sessionStore.close();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('creates and persists a session lazily after the first real prompt', async () => {
     const homeDir = createTempHome();
     const workspace = join(homeDir, 'workspace');

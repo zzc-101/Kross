@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SessionContext } from '../context/sessionContext';
+import { TodoStore } from '../todo/todoStore';
 import type { TraceStore } from '../trace/traceStore';
 import { AgentRuntime } from './agentRuntime';
 
@@ -78,7 +79,11 @@ describe('project instructions in AgentRuntime', () => {
     const root = makeWorkspace();
     const path = join(root, 'KROSS.md');
     writeFileSync(path, 'rules from checkpoint time');
-    const first = new AgentRuntime({ traceStore, workspaceRoot: root });
+    const first = new AgentRuntime({
+      traceStore,
+      workspaceRoot: root,
+      todoStore: new TodoStore()
+    });
     const state = first.exportContextState();
 
     expect(JSON.stringify(state)).not.toContain('rules from checkpoint time');
@@ -124,5 +129,37 @@ describe('skills in AgentRuntime', () => {
     expect(context.messages[0]?.content).toContain('Review changed code');
     expect(context.messages[0]?.content).toContain('id=review');
     expect(context.messages[0]?.content).not.toContain('SECRET SKILL BODY');
+  });
+});
+
+describe('durable work state in AgentRuntime', () => {
+  it('exports and restores todos, mode and pending execution without permission state', () => {
+    const root = makeWorkspace();
+    const first = new AgentRuntime({ traceStore, workspaceRoot: root });
+    first.getTodoStore()?.write({
+      todos: [{ id: 't1', content: 'Continue work', status: 'in_progress' }]
+    });
+    first.setSessionMode('plan');
+    first.setPermissionMode('auto');
+    const state = {
+      ...first.exportWorkState(),
+      pendingModeExecution: {
+        kind: 'plan' as const,
+        goal: 'Continue work',
+        mode: 'plan' as const,
+        planText: '1. Restore state\n2. Continue work'
+      }
+    };
+
+    const second = new AgentRuntime({
+      traceStore,
+      workspaceRoot: root,
+      todoStore: new TodoStore()
+    });
+    expect(second.restoreWorkState(state)).toBe(true);
+    expect(second.getSessionMode()).toBe('plan');
+    expect(second.getPermissionMode()).toBe('default');
+    expect(second.getTodoStore()?.list()).toEqual(state.todos);
+    expect(second.getPendingModeExecution()).toEqual(state.pendingModeExecution);
   });
 });

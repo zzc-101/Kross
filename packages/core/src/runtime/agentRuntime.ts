@@ -40,6 +40,7 @@ import type { ProjectInstructionsSnapshot } from '../workspace/projectInstructio
 import type { SkillsSnapshot } from '../skills/skillDiscovery';
 import type { MutationRecord } from '../mutations/mutationJournal';
 import type { UndoResult } from '../mutations/mutationService';
+import type { SessionWorkStateV1 } from '../session/sessionWorkState';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { ListRunsOptions } from '../trace/traceStore';
 import type { RunTraceDetail, RunTraceSummary } from '../trace/traceSummary';
@@ -136,7 +137,8 @@ export class AgentRuntime extends EventEmitter {
       options: this.options,
       sessionContext: this.sessionContext,
       toolGateway: this.toolGateway,
-      emitModeChanged: (event) => this.emit('mode.changed', event)
+      emitModeChanged: (event) => this.emit('mode.changed', event),
+      emitWorkStateChanged: () => this.emit('work-state.changed')
     });
     this.modeFlows = new ModeFlows({
       options: this.options,
@@ -184,6 +186,14 @@ export class AgentRuntime extends EventEmitter {
     this.on('mode.changed', listener);
     return () => {
       this.off('mode.changed', listener);
+    };
+  }
+
+  /** Subscribe to todo/mode/pending execution changes. */
+  onWorkStateChanged(listener: () => void): () => void {
+    this.on('work-state.changed', listener);
+    return () => {
+      this.off('work-state.changed', listener);
     };
   }
 
@@ -262,6 +272,14 @@ export class AgentRuntime extends EventEmitter {
     this.modelSession.getLlmClient()?.clearLastUsage?.();
     this.sessionContext.resetCalibration();
     return this.sessionContext.restoreState(state);
+  }
+
+  exportWorkState(): SessionWorkStateV1 {
+    return this.sessionServices.exportWorkState();
+  }
+
+  restoreWorkState(state: SessionWorkStateV1): boolean {
+    return this.sessionServices.restoreWorkState(state);
   }
 
   getLastContextMaintenance(): ContextMaintenanceResult | undefined {
@@ -453,6 +471,15 @@ export class AgentRuntime extends EventEmitter {
         action: action.type
       });
       throwIfAborted(input.signal);
+
+      if (
+        input.approvals?.plan === true &&
+        this.sessionServices.getPendingModeExecution()?.kind === 'plan'
+      ) {
+        // Approval consumes the durable plan before execution so a crash cannot
+        // resurrect an already-approved gate on the next launch.
+        this.sessionServices.clearPendingModeExecution();
+      }
 
       switch (action.type) {
         case 'agent-loop':

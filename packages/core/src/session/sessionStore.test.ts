@@ -22,6 +22,65 @@ afterEach(() => {
 });
 
 describe('HybridSessionStore', () => {
+  it('persists durable work state and deduplicates identical snapshots', () => {
+    const { root, workspace, store } = createStore();
+    const created = store.createSession(workspace);
+    const workState = {
+      version: 1 as const,
+      todos: [{ id: 't1', content: 'Ship it', status: 'in_progress' as const }],
+      sessionMode: 'plan' as const,
+      pendingModeExecution: {
+        kind: 'plan' as const,
+        mode: 'plan' as const,
+        goal: 'Ship it',
+        planText: '1. test\n2. ship'
+      }
+    };
+
+    store.upsertWorkState(created.id, workState);
+    store.upsertWorkState(created.id, workState);
+    store.close();
+
+    const reopened = new HybridSessionStore({ krossHome: join(root, '.kross') });
+    const restored = reopened.loadSession(workspace, created.id);
+    expect(restored?.workState).toEqual(workState);
+    const [eventPath] = findEventFiles(join(root, '.kross', 'sessions'));
+    expect(eventPath).toBeDefined();
+    const workEvents = readFileSync(eventPath!, 'utf8')
+      .split('\n')
+      .filter((line) => line.includes('work-state.updated'));
+    expect(workEvents).toHaveLength(1);
+    reopened.close();
+  });
+
+  it('ignores an unknown work-state version without blocking session recovery', () => {
+    const { root, workspace, store } = createStore();
+    const created = store.createSession(workspace);
+    store.upsertMessage(created.id, { id: 1, from: 'user', text: '> recover me' });
+    store.close();
+
+    const [eventPath] = findEventFiles(join(root, '.kross', 'sessions'));
+    appendFileSync(
+      eventPath!,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        eventId: 'invalid-work-state',
+        sessionId: created.id,
+        seq: 3,
+        type: 'work-state.updated',
+        timestamp: '2026-07-14T10:00:09.000Z',
+        payload: { workState: { version: 99, todos: [] } }
+      })}\n`,
+      'utf8'
+    );
+
+    const reopened = new HybridSessionStore({ krossHome: join(root, '.kross') });
+    const restored = reopened.loadSession(workspace, created.id);
+    expect(restored?.messages[0]?.text).toBe('> recover me');
+    expect(restored?.workState).toBeUndefined();
+    reopened.close();
+  });
+
   it('writes canonical JSONL events and lists the SQLite projection', () => {
     const { root, workspace, store } = createStore();
     const created = store.createSession(workspace);

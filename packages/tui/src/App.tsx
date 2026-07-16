@@ -78,6 +78,7 @@ export interface AppProps {
     | 'upsertMessage'
     | 'syncMessages'
     | 'upsertContextState'
+    | 'upsertWorkState'
   >;
 }
 
@@ -258,6 +259,7 @@ export function App({
     pendingToolApproval,
     setPendingToolApproval,
     setPendingConductorPlan,
+    setMode,
     setAwaitingReply,
     setStreamingMessageId,
     setStatus,

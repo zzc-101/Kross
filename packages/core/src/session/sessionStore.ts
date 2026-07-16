@@ -19,6 +19,11 @@ import {
   isSessionContextState,
   type SessionContextState
 } from '../context/sessionContext';
+import {
+  cloneSessionWorkState,
+  isSessionWorkState,
+  type SessionWorkStateV1
+} from './sessionWorkState';
 
 export type StoredSessionMessageFrom =
   | 'user'
@@ -54,6 +59,8 @@ export interface StoredSession {
   messages: StoredSessionMessage[];
   /** 治理后的模型上下文检查点；旧会话可能没有。 */
   contextState?: SessionContextState;
+  /** Durable agent work state (todos/mode/pending plan), separate from model context. */
+  workState?: SessionWorkStateV1;
 }
 
 export interface HybridSessionStoreOptions {
@@ -71,7 +78,8 @@ interface SessionEvent {
     | 'session.created'
     | 'session.renamed'
     | 'message.upserted'
-    | 'context.updated';
+    | 'context.updated'
+    | 'work-state.updated';
   timestamp: string;
   payload: Record<string, unknown>;
 }
@@ -91,6 +99,8 @@ interface SessionState {
   contextSignature?: string;
   /** 该检查点已覆盖到的最后一条 user/agent UI 消息。 */
   contextMessageId?: number;
+  workState?: SessionWorkStateV1;
+  workStateSignature?: string;
 }
 
 interface SessionRow {
@@ -256,6 +266,26 @@ export class HybridSessionStore {
     return toSummary(state);
   }
 
+  upsertWorkState(
+    sessionId: string,
+    workState: SessionWorkStateV1
+  ): SessionSummary | null {
+    const state = this.getState(sessionId);
+    if (!state || !isSessionWorkState(workState)) {
+      return null;
+    }
+    const normalized = cloneSessionWorkState(workState);
+    const signature = JSON.stringify(normalized);
+    if (state.workStateSignature === signature) {
+      return toSummary(state);
+    }
+    this.appendEvent(state, 'work-state.updated', { workState: normalized });
+    state.workState = normalized;
+    state.workStateSignature = signature;
+    this.writeProjection(state);
+    return toSummary(state);
+  }
+
   listRecent(workspacePath: string, limit = 5): SessionSummary[] {
     const canonicalPath = canonicalWorkspacePath(workspacePath);
     const workspaceId = createWorkspaceId(canonicalPath);
@@ -307,6 +337,9 @@ export class HybridSessionStore {
       messages: orderedMessages(state),
       contextState: isContextCheckpointCurrent(state)
         ? cloneContextState(state.contextState)
+        : undefined,
+      workState: state.workState
+        ? cloneSessionWorkState(state.workState)
         : undefined
     };
   }
@@ -577,6 +610,14 @@ function readStateFromFile(eventPath: string): SessionState | null {
       ]);
       continue;
     }
+    if (
+      event.type === 'work-state.updated' &&
+      isSessionWorkState(event.payload.workState)
+    ) {
+      state.workState = cloneSessionWorkState(event.payload.workState);
+      state.workStateSignature = JSON.stringify(state.workState);
+      continue;
+    }
     const message = event.payload.message;
     if (event.type === 'message.upserted' && isStoredSessionMessage(message)) {
       const normalized = cloneMessage(message);
@@ -622,7 +663,8 @@ function parseEvent(line: string): SessionEvent | null {
       (value.type !== 'session.created' &&
         value.type !== 'session.renamed' &&
         value.type !== 'message.upserted' &&
-        value.type !== 'context.updated') ||
+        value.type !== 'context.updated' &&
+        value.type !== 'work-state.updated') ||
       typeof value.timestamp !== 'string' ||
       !value.payload ||
       typeof value.payload !== 'object'

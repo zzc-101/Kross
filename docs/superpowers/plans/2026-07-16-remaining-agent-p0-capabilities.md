@@ -1,6 +1,6 @@
 # Remaining Agent P0 Capabilities Implementation Plan
 
-> **状态：执行中。** Phase A Skills MVP、Phase B Safe Mutation 已完成，Phase C-D 待执行。
+> **状态：执行中。** Phase A Skills MVP、Phase B Safe Mutation、Phase C Durable Work State 已完成，Phase D 待执行。
 
 **Goal:** 补齐 Kross 作为日常本地开发 agent 仍缺少的四个基础闭环：可发现并按需加载 Skills、安全且可撤销的文件修改、可跨重启恢复的工作状态、可管理的后台进程。
 
@@ -318,13 +318,13 @@ payload 包含完整、已校验的 `SessionWorkStateV1` 与可选 `contextMessa
 
 ## 13. Acceptance Criteria
 
-- [ ] Todo、session mode、pending plan/conductor 写入 append-only JSONL。
-- [ ] 重启恢复后 todo header、context source、mode footer 一致。
-- [ ] pending execution 恢复后仍等待显式确认，不自动运行。
-- [ ] approve/reject 后持久化清除，不产生幽灵 pending。
-- [ ] permission mode 和 pending tool approval 不被恢复。
-- [ ] 旧 session 与损坏 work-state event 可兼容降级。
-- [ ] 重复 snapshot 不重复追加 JSONL event。
+- [x] Todo、session mode、pending plan/conductor 写入 append-only JSONL。
+- [x] 重启恢复后 todo header、context source、mode footer 一致。
+- [x] pending execution 恢复后仍等待显式确认，不自动运行。
+- [x] approve/reject 后持久化清除，不产生幽灵 pending。
+- [x] permission mode 和 pending tool approval 不被恢复。
+- [x] 旧 session 与损坏 work-state event 可兼容降级。
+- [x] 重复 snapshot 不重复追加 JSONL event。
 
 ---
 
