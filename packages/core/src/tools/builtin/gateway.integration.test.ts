@@ -30,7 +30,11 @@ describe('builtin tools integration', () => {
     const gateway = makeGateway();
     const names = gateway.listTools({ mode: 'auto' }).map((t) => t.name);
     const coreOnly = [...builtinToolNames].filter(
-      (name) => name !== 'Task' && name !== 'TodoWrite' && name !== 'TodoRead'
+      (name) =>
+        name !== 'Task' &&
+        name !== 'TodoWrite' &&
+        name !== 'TodoRead' &&
+        name !== 'SetMode'
     );
     expect(names.sort()).toEqual(coreOnly.sort());
   });

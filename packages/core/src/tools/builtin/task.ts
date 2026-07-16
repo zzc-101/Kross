@@ -1,26 +1,25 @@
 import { z } from 'zod';
 
 import { isOperationAborted } from '../../abort';
-import {
-  formatSubagentToolContent,
-  runSubagent,
-  type SubagentMode,
-  type SubagentRunDeps,
-  type SubagentRunRequest
-} from '../../runtime/subagentRunner';
+import { formatSubagentToolContent } from '../../runtime/subagentFormat';
+import type {
+  SubagentMode,
+  SubagentRunner,
+  SubagentRunOutcome
+} from '../../runtime/subagentTypes';
 import type { ToolDefinition } from '../toolGateway';
 
 export interface CreateTaskToolOptions {
   /** Depth of the runtime that owns this Task tool (0 = main). */
   parentDepth?: number;
-  run: (
-    request: SubagentRunRequest
-  ) => Promise<Awaited<ReturnType<typeof runSubagent>>>;
+  run: SubagentRunner;
   /**
    * Resolve registry repo id → absolute workspace path.
    * When set, Task accepts optional `repoId` for multi-repo spawn.
    */
   resolveRepoPath?: (repoId: string) => string | undefined;
+  /** Override tool content formatting (defaults to formatSubagentToolContent). */
+  formatOutcome?: (outcome: SubagentRunOutcome) => string;
 }
 
 /** 短标题：必填，供 TUI 底栏单行展示；模型调用 Task 时必须传。 */
@@ -52,6 +51,7 @@ export function createTaskTool(
   options: CreateTaskToolOptions
 ): ToolDefinition<TaskInput> {
   const parentDepth = options.parentDepth ?? 0;
+  const formatOutcome = options.formatOutcome ?? formatSubagentToolContent;
 
   return {
     name: 'Task',
@@ -143,7 +143,7 @@ export function createTaskTool(
           workspaceRoot
         });
 
-        const content = formatSubagentToolContent(outcome);
+        const content = formatOutcome(outcome);
         const label = repoId ? `${title}@${repoId}` : title;
         return {
           content,
@@ -177,13 +177,6 @@ export function createTaskTool(
       }
     }
   };
-}
-
-/** Build a default Task runner bound to shared LLM/trace/workspace. */
-export function createDefaultSubagentRunner(
-  deps: SubagentRunDeps
-): CreateTaskToolOptions['run'] {
-  return (request) => runSubagent(request, deps);
 }
 
 function clip(value: string, max: number): string {

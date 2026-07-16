@@ -15,11 +15,7 @@ import { createRgTool } from './rg';
 import { createMoveTool } from './move';
 import { createReadTool } from './read';
 import { createStatTool } from './stat';
-import {
-  createDefaultSubagentRunner,
-  createTaskTool,
-  type CreateTaskToolOptions
-} from './task';
+import { createTaskTool, type CreateTaskToolOptions } from './task';
 import { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 import { createTodoReadTool, createTodoWriteTool } from './todo';
 import { createWriteTool } from './write';
@@ -27,11 +23,8 @@ import type { TodoStore } from '../../todo/todoStore';
 
 export { createExploreTools, createSubagentTools } from './exploreTools';
 export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
-export {
-  createDefaultSubagentRunner,
-  createTaskTool,
-  type CreateTaskToolOptions
-} from './task';
+export { createTaskTool, type CreateTaskToolOptions } from './task';
+export { createDefaultSubagentRunner } from '../../runtime/subagentRunner';
 export { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 export { createTodoReadTool, createTodoWriteTool } from './todo';
 

@@ -4,10 +4,7 @@ import {
   isOperationAborted,
   throwIfAborted
 } from '../abort';
-import {
-  subagentResultSchema,
-  type SubagentResult
-} from '../domain';
+import { subagentResultSchema } from '../domain';
 import { createSessionContext, type SessionContext } from '../context/sessionContext';
 import type {
   LlmClient,
@@ -23,29 +20,20 @@ import {
 } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
+import type {
+  SubagentMode,
+  SubagentRunOutcome,
+  SubagentRunRequest,
+  SubagentRunner
+} from './subagentTypes';
 
-export type SubagentMode = 'explore' | 'general';
-
-export interface SubagentRunRequest {
-  prompt: string;
-  mode?: SubagentMode;
-  /** 短标题（Task description），供 TUI 单行展示 */
-  title?: string;
-  parentRunId: string;
-  parentDepth?: number;
-  signal?: AbortSignal;
-  /**
-   * Override tools workspace root for this spawn (/add-dir root).
-   * Must be under deps.allowedWorkspaceRoots when that list is set.
-   */
-  workspaceRoot?: string;
-  /** Optional label for trace / UI (e.g. /add-dir id). */
-  repoId?: string;
-  /**
-   * Prefer workerLlmClient (经济/快速模型) when available — used by conductor.
-   */
-  preferWorkerModel?: boolean;
-}
+export type {
+  SubagentMode,
+  SubagentRunOutcome,
+  SubagentRunRequest,
+  SubagentRunner
+} from './subagentTypes';
+export { formatSubagentToolContent } from './subagentFormat';
 
 export interface SubagentRunDeps {
   /** Default workspace when request.workspaceRoot is omitted. */
@@ -68,13 +56,6 @@ export interface SubagentRunDeps {
   maxToolIterations?: number;
   now?: () => Date;
   createRunId?: () => string;
-}
-
-export interface SubagentRunOutcome {
-  result: SubagentResult;
-  subRunId: string;
-  mode: SubagentMode;
-  modeForcedToExplore: boolean;
 }
 
 export const SUBAGENT_SYSTEM_PROMPT = [
@@ -288,23 +269,11 @@ export async function runSubagent(
   }
 }
 
-export function formatSubagentToolContent(outcome: SubagentRunOutcome): string {
-  const { result, subRunId, mode } = outcome;
-  const lines = [
-    `Subagent ${mode} (${subRunId}) → ${result.status}`,
-    '',
-    result.summary,
-    result.evidence.length > 0
-      ? `\nEvidence:\n${result.evidence.map((item) => `- ${item}`).join('\n')}`
-      : undefined,
-    result.risks.length > 0
-      ? `\nRisks:\n${result.risks.map((item) => `- ${item}`).join('\n')}`
-      : undefined,
-    result.changedFiles.length > 0
-      ? `\nChanged files:\n${result.changedFiles.map((item) => `- ${item}`).join('\n')}`
-      : undefined
-  ].filter((line): line is string => line !== undefined);
-  return lines.join('\n');
+/** Build a default Task runner bound to shared LLM/trace/workspace. */
+export function createDefaultSubagentRunner(
+  deps: SubagentRunDeps
+): SubagentRunner {
+  return (request) => runSubagent(request, deps);
 }
 
 async function runSubagentToolLoop(input: {
