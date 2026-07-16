@@ -15,6 +15,7 @@ import type {
   SubagentRunRequest
 } from './subagentRunner';
 import type { WorkspaceRoots } from '../workspace/workspaceRoots';
+import type { SkillRegistry } from '../skills/skillRegistry';
 
 export type {
   PendingConductorExecution,
@@ -52,6 +53,10 @@ export interface AgentRuntimeOptions {
    * any mode may use Task(repoId) against these roots.
    */
   workspaceRoots?: WorkspaceRoots;
+  /** Shared dynamic Skill registry. Runtime creates a fallback when omitted. */
+  skillRegistry?: SkillRegistry;
+  /** Personal Skill directory used by the fallback registry. */
+  personalSkillsDir?: string;
   /** Loaded ~/.kross/projects.json (optional project template / seed). */
   projectRegistry?: ProjectRegistry;
   /** Absolute path of the registry file (for prompts / errors). */

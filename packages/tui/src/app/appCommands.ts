@@ -21,6 +21,7 @@ import {
   type ExternalAgentSource,
   type PermissionMode,
   type ProjectInstructionsSnapshot,
+  type SkillsSnapshot,
   type ThinkingEffort
 } from '@kross/core';
 
@@ -158,6 +159,12 @@ export function handleCommand(
     return true;
   }
 
+  if (value === '/skills') {
+    const snapshot = runtime.refreshSkills();
+    append('agent', formatSkillsInspection(snapshot), { expanded: true });
+    return true;
+  }
+
   if (value === '/expand') {
     toggleLastCollapsible();
     append('system', t('cmd.expandDone'));
@@ -240,6 +247,7 @@ export function handleCommand(
       const added = roots.add(argument);
       runtime.syncProjectRegistrySource();
       runtime.refreshProjectInstructions();
+      runtime.refreshSkills();
       append(
         'system',
         t('cmd.addDir.ok', { id: added.id, path: added.path })
@@ -291,6 +299,7 @@ export function handleCommand(
       } else {
         runtime.syncProjectRegistrySource();
         runtime.refreshProjectInstructions();
+        runtime.refreshSkills();
         append('system', t('cmd.removeDir.ok', { target: argument }));
       }
     } catch (error) {
@@ -614,6 +623,32 @@ export function formatProjectInstructionsInspection(
     );
   }
 
+  return lines.join('\n');
+}
+
+export function formatSkillsInspection(snapshot: SkillsSnapshot): string {
+  const lines = [
+    t('cmd.skills.title'),
+    t('cmd.skills.loaded', { count: snapshot.skills.length })
+  ];
+  if (snapshot.skills.length === 0) {
+    lines.push(t('cmd.skills.none'));
+  } else {
+    lines.push(
+      ...snapshot.skills.map(
+        (skill, index) =>
+          `${index + 1}. id=${skill.id} name=${skill.name} scope=${skill.scope} root=${skill.rootId}\n   ${skill.description}`
+      )
+    );
+  }
+  if (snapshot.diagnostics.length > 0) {
+    lines.push('', t('cmd.skills.diagnostics'));
+    lines.push(
+      ...snapshot.diagnostics.map(
+        (item) => `- root=${item.rootId} code=${item.code}: ${item.message}`
+      )
+    );
+  }
   return lines.join('\n');
 }
 

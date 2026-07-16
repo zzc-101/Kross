@@ -12,6 +12,7 @@ describe('slashCommands', () => {
     expect(slashCommands.some((command) => command.name === '/lang')).toBe(true);
     expect(formatSlashHelp()).toContain('/context');
     expect(formatSlashHelp()).toContain('/instructions');
+    expect(formatSlashHelp()).toContain('/skills');
     expect(formatSlashHelp()).toContain('/compact');
     expect(formatSlashHelp()).toContain('/resume [sessionId]');
     expect(formatSlashHelp()).toContain('/lang zh|en');
@@ -33,6 +34,9 @@ describe('slashCommands', () => {
     expect(
       filterSlashCommands('/ins').map((command) => command.name)
     ).toEqual(['/instructions']);
+    expect(filterSlashCommands('/ski').map((command) => command.name)).toEqual([
+      '/skills'
+    ]);
     expect(listSlashCommands().some((command) => command.name === '/model')).toBe(
       true
     );

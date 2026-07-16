@@ -42,6 +42,10 @@ selected subagent root
 
 固定语义：root-level only；`CLAUDE.md < AGENTS.md < KROSS.md`；最多 16 文件、单文件 32 KiB、总计 64 KiB；symlink 的 canonical target 必须仍在所属 root 内。
 
+## Skills 数据流
+
+`SkillRegistry` 动态发现 personal 与 workspace Skills；`SessionServices` 只把 metadata 注册到 `SessionContext`，`ReadSkill` 才读取正文或资源。主 agent 使用多 root registry，subagent 为自己的执行 root 建立独立 registry。TUI `/skills` 只消费 `AgentRuntime.refreshSkills()` 返回的 snapshot。
+
 ## 刻意保留的边界
 
 - 本轮不收紧 `@kross/core` 全部 public exports。

@@ -64,6 +64,18 @@ describe('runSubagent', () => {
       mkdirSync(api);
       writeFileSync(join(main, 'AGENTS.md'), 'MAIN ROOT SECRET RULE');
       writeFileSync(join(api, 'KROSS.md'), 'API ROOT SCOPED RULE');
+      const mainSkill = join(main, '.agents', 'skills', 'main-only');
+      const apiSkill = join(api, '.agents', 'skills', 'api-only');
+      mkdirSync(mainSkill, { recursive: true });
+      mkdirSync(apiSkill, { recursive: true });
+      writeFileSync(
+        join(mainSkill, 'SKILL.md'),
+        '---\ndescription: MAIN SKILL SECRET\n---\nmain body'
+      );
+      writeFileSync(
+        join(apiSkill, 'SKILL.md'),
+        '---\ndescription: API scoped skill\n---\nAPI SKILL BODY'
+      );
       const traceStore = new InMemoryTraceStore();
       const llm = new ScriptedLlmClient('done');
 
@@ -86,6 +98,10 @@ describe('runSubagent', () => {
       const system = llm.requests[0]?.messages.find((message) => message.role === 'system');
       expect(system?.content).toContain('API ROOT SCOPED RULE');
       expect(system?.content).not.toContain('MAIN ROOT SECRET RULE');
+      expect(system?.content).toContain('API scoped skill');
+      expect(system?.content).not.toContain('API SKILL BODY');
+      expect(system?.content).not.toContain('MAIN SKILL SECRET');
+      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).toContain('ReadSkill');
 
       const started = traceStore.events.find((event) => event.type === 'subagent.started');
       expect(started?.payload).toMatchObject({

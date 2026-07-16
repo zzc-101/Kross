@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -100,5 +100,29 @@ describe('project instructions in AgentRuntime', () => {
     expect(runtime.inspectContext({ requestedMode: 'auto' }).includedSources).toEqual([
       'session-mode'
     ]);
+  });
+});
+
+describe('skills in AgentRuntime', () => {
+  it('injects scoped metadata without eagerly injecting the skill body', () => {
+    const root = makeWorkspace();
+    const skillDir = join(root, '.agents', 'skills', 'review');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: Review\ndescription: Review changed code\n---\nSECRET SKILL BODY'
+    );
+
+    const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
+    const context = runtime.inspectContext({ requestedMode: 'auto' });
+
+    expect(runtime.getSkills().skills[0]).toMatchObject({
+      id: 'review',
+      name: 'Review',
+      description: 'Review changed code'
+    });
+    expect(context.messages[0]?.content).toContain('Review changed code');
+    expect(context.messages[0]?.content).toContain('id=review');
+    expect(context.messages[0]?.content).not.toContain('SECRET SKILL BODY');
   });
 });

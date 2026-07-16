@@ -14,12 +14,14 @@ import { createListTool } from './list';
 import { createRgTool } from './rg';
 import { createMoveTool } from './move';
 import { createReadTool } from './read';
+import { createReadSkillTool } from './readSkill';
 import { createStatTool } from './stat';
 import { createTaskTool, type CreateTaskToolOptions } from './task';
 import { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 import { createTodoReadTool, createTodoWriteTool } from './todo';
 import { createWriteTool } from './write';
 import type { TodoStore } from '../../todo/todoStore';
+import type { SkillRegistry } from '../../skills/skillRegistry';
 
 export { createExploreTools, createSubagentTools } from './exploreTools';
 export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
@@ -27,10 +29,12 @@ export { createTaskTool, type CreateTaskToolOptions } from './task';
 export { createDefaultSubagentRunner } from '../../runtime/subagentRunner';
 export { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 export { createTodoReadTool, createTodoWriteTool } from './todo';
+export { createReadSkillTool } from './readSkill';
 
 export const builtinToolNames = [
   'Bash',
   'Read',
+  'ReadSkill',
   'Write',
   'Edit',
   'Delete',
@@ -58,6 +62,8 @@ export interface CreateBuiltinToolsOptions {
   resolveRepoPath?: CreateTaskToolOptions['resolveRepoPath'];
   /** Session todo store; when set, registers TodoWrite + TodoRead. */
   todoStore?: TodoStore;
+  /** Dynamic personal/project Skill registry; when set, registers ReadSkill. */
+  skillRegistry?: SkillRegistry;
   /** When set, registers SetMode for conversational mode switching. */
   setMode?: CreateSetModeToolOptions;
 }
@@ -105,6 +111,10 @@ export function createBuiltinTools(
       createTodoWriteTool(options.todoStore),
       createTodoReadTool(options.todoStore)
     );
+  }
+
+  if (options.skillRegistry) {
+    tools.push(createReadSkillTool(options.skillRegistry));
   }
 
   if (options.setMode) {

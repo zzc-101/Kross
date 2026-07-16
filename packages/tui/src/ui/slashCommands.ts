@@ -87,6 +87,11 @@ export function listSlashCommands(): SlashCommand[] {
       category: 'inspection'
     },
     {
+      name: '/skills',
+      description: t('slash.skills.desc'),
+      category: 'inspection'
+    },
+    {
       name: '/compact',
       description: t('slash.compact.desc'),
       usage: '/compact [额外压缩要求]',

@@ -8,6 +8,8 @@ import { subagentResultSchema } from '../domain';
 import { createSessionContext } from '../context/sessionContext';
 import type { LlmClient } from '../llm/types';
 import { createSubagentTools } from '../tools/builtin/exploreTools';
+import { createReadSkillTool } from '../tools/builtin/readSkill';
+import { SkillRegistry } from '../skills/skillRegistry';
 import {
   ToolGateway,
   type ToolMetadata
@@ -55,12 +57,14 @@ export interface SubagentRunDeps {
   maxToolIterations?: number;
   now?: () => Date;
   createRunId?: () => string;
+  /** Personal Skill root shared with child agents. */
+  personalSkillsDir?: string;
 }
 
 export const SUBAGENT_SYSTEM_PROMPT = [
   'You are a focused subagent of Kross.',
   'Complete the assigned task using only the available tools.',
-  'Allowed tools: Read, Glob, Grep, Rg, List, Stat, GitStatus/Diff/Log, Edit, Write.',
+  'Allowed tools: Read, ReadSkill, Glob, Grep, Rg, List, Stat, GitStatus/Diff/Log, Edit, Write.',
   'Prefer Rg (ripgrep) over Grep/Glob for search and file listing when available.',
   'Not available: Bash, Delete, Move, Task, network/MCP, or other high-risk tools.',
   'No user approval is required — use tools freely within the allowlist.',
@@ -109,6 +113,11 @@ export async function runSubagent(
   const projectInstructions = loadProjectInstructions({
     roots: [{ id: rootId, path: workspaceRoot, primary: true }]
   });
+  const skillRegistry = new SkillRegistry({
+    getRoots: () => [{ id: rootId, path: workspaceRoot, primary: true }],
+    personalSkillsDir: deps.personalSkillsDir
+  });
+  const skills = skillRegistry.refresh();
   const useWorker =
     request.preferWorkerModel === true && deps.workerLlmClient !== undefined;
   const llmClient = useWorker ? deps.workerLlmClient : deps.llmClient;
@@ -131,7 +140,13 @@ export async function runSubagent(
       truncated: file.truncated,
       injectedBytes: file.injectedBytes
     })),
-    projectInstructionDiagnosticCount: projectInstructions.diagnostics.length
+    projectInstructionDiagnosticCount: projectInstructions.diagnostics.length,
+    skills: skills.skills.map((skill) => ({
+      id: skill.id,
+      rootId: skill.rootId,
+      scope: skill.scope
+    })),
+    skillDiagnosticCount: skills.diagnostics.length
   });
 
   if (!llmClient) {
@@ -164,7 +179,10 @@ export async function runSubagent(
     };
   }
 
-  const toolDefs = createSubagentTools(workspaceRoot);
+  const toolDefs = [
+    ...createSubagentTools(workspaceRoot),
+    createReadSkillTool(skillRegistry)
+  ];
   const childGateway = new ToolGateway({
     traceStore: deps.traceStore,
     defaultTimeoutMs: 120_000,
@@ -202,6 +220,14 @@ export async function runSubagent(
       content: formatProjectInstructionSource(file),
       priority: 99,
       pinned: true
+    });
+  }
+  for (const skill of skills.skills) {
+    sessionContext.registerSkill({
+      id: skill.descriptorId,
+      name: skill.name,
+      description: skill.description,
+      location: `id=${skill.id} scope=${skill.scope} rootId=${skill.rootId} path=${skill.entryPath}`
     });
   }
 

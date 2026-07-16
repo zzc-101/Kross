@@ -32,6 +32,8 @@ export { SessionServices, type SessionServicesOptions } from './runtime/sessionS
 export * from './runtime/subagentRunner';
 export * from './runtime/toolLoop';
 export * from './session/sessionStore';
+export * from './skills/skillDiscovery';
+export * from './skills/skillRegistry';
 export * from './todo';
 export * from './tools/toolGateway';
 export * from './tools/toolRetry';

@@ -19,6 +19,8 @@ import type {
   PendingModeExecution
 } from '../modes/pendingExecution';
 import type { TodoStore } from '../todo/todoStore';
+import { SkillRegistry } from '../skills/skillRegistry';
+import type { SkillsSnapshot } from '../skills/skillDiscovery';
 import type { AgentRuntimeOptions } from './agentRuntimeTypes';
 
 export interface SessionServicesOptions {
@@ -38,8 +40,18 @@ export class SessionServices {
   private pendingModeExecution: PendingModeExecution | undefined;
   private projectInstructionSourceIds = new Set<string>();
   private projectInstructions = loadProjectInstructions({ roots: [] });
+  private skillIds = new Set<string>();
+  private readonly skillRegistry: SkillRegistry;
+  private skills: SkillsSnapshot;
 
   constructor(private readonly deps: SessionServicesOptions) {
+    this.skillRegistry =
+      deps.options.skillRegistry ??
+      new SkillRegistry({
+        getRoots: () => this.getInstructionRoots(),
+        personalSkillsDir: deps.options.personalSkillsDir
+      });
+    this.skills = this.skillRegistry.getSnapshot();
     this.deps.toolGateway?.setApprovalPolicy(
       createApprovalPolicy(this.permissionMode)
     );
@@ -181,16 +193,7 @@ export class SessionServices {
   }
 
   refreshProjectInstructions(): ProjectInstructionsSnapshot {
-    const roots = this.deps.options.workspaceRoots?.list() ??
-      (this.deps.options.workspaceRoot
-        ? [
-            {
-              id: basename(resolve(this.deps.options.workspaceRoot)) || 'primary',
-              path: this.deps.options.workspaceRoot,
-              primary: true
-            }
-          ]
-        : []);
+    const roots = this.getInstructionRoots();
     const next = loadProjectInstructions({ roots });
     if (next.signature === this.projectInstructions.signature) {
       return this.projectInstructions;
@@ -218,5 +221,49 @@ export class SessionServices {
 
   getProjectInstructions(): ProjectInstructionsSnapshot {
     return this.projectInstructions;
+  }
+
+  refreshSkills(): SkillsSnapshot {
+    const next = this.skillRegistry.refresh();
+    if (next.signature === this.skills.signature) {
+      return this.skills;
+    }
+    for (const id of this.skillIds) {
+      this.deps.sessionContext.removeSkill(id);
+    }
+    this.skillIds.clear();
+    for (const skill of next.skills) {
+      this.deps.sessionContext.registerSkill({
+        id: skill.descriptorId,
+        name: skill.name,
+        description: skill.description,
+        location: [
+          `id=${skill.id}`,
+          `scope=${skill.scope}`,
+          `rootId=${skill.rootId}`,
+          `path=${skill.entryPath}`
+        ].join(' ')
+      });
+      this.skillIds.add(skill.descriptorId);
+    }
+    this.skills = next;
+    return next;
+  }
+
+  getSkills(): SkillsSnapshot {
+    return this.skills;
+  }
+
+  private getInstructionRoots() {
+    return this.deps.options.workspaceRoots?.list() ??
+      (this.deps.options.workspaceRoot
+        ? [
+            {
+              id: basename(resolve(this.deps.options.workspaceRoot)) || 'primary',
+              path: this.deps.options.workspaceRoot,
+              primary: true
+            }
+          ]
+        : []);
   }
 }

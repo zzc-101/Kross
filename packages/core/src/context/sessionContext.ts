@@ -245,6 +245,10 @@ export class SessionContext {
     this.skills.set(skill.id, skill);
   }
 
+  removeSkill(id: string): void {
+    this.skills.delete(id);
+  }
+
   clearSources(): void {
     this.sources.clear();
   }
