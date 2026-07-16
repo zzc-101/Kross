@@ -54,7 +54,7 @@ describe('formatContextInspection', () => {
     });
 
     expect(text).toContain('Context');
-    expect(text).toContain('mode: normal');
+    expect(text).toContain('mode: auto');
     expect(text).toContain('预估 token: 12.4K / 224K');
     expect(text).toContain('压缩阈值: 179.2K');
     expect(text).toContain('上次请求 input: 10.5K');
