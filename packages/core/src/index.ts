@@ -21,6 +21,7 @@ export * from './llm/thinkingEffort';
 export * from './llm/types';
 export * from './llm/modelContextWindows';
 export * from './modes/modeDetector';
+export * from './modes/modePolicy';
 
 export * from './runtime/agentRuntime';
 export * from './runtime/agentRuntimeTypes';

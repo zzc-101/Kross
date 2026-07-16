@@ -7,10 +7,12 @@
 - 交互式 TUI 入口，启动后像 Claude Code 一样输入自然语言任务。
 - 全屏 TUI 为 Ink 预留安全行，避免高频更新触发整屏 `clearTerminal`；触摸板滚动采用单层帧合并，消息视口复用稳定 paint layout，流式文本按帧批量更新。
 - `auto` / `plan` / `conductor` 三种模式（UI i18n：自动 / 计划 / 指挥家）。
-- **auto**（默认）：普通 agent 工具环；可按输入自动切到 plan 或 conductor。
-- **plan**：先产出计划 → `/approve` → 再进入开发工具环。
-- **conductor（指挥家）**：**高级模型**拆任务 → **经济/快速 worker 子代理**执行 → **高级模型验收**（不是多目录模式）。
-- **多目录**：`/add-dir` `/dirs` `/remove-dir`，**任意 mode 可用**，与指挥家正交；可选 `projects.json` 作模板。
+- **Mode = 策略**（`modePolicy`）：只决定意图/审批/是否派 worker，**不拥有输出管线**。
+- **统一 Runner**：用户可见文本一律 `text-delta` 流式；`complete()` 仅内部短调用（分类 JSON 等）。
+- **auto**：默认 agent tool loop；可自动切 plan/conductor。
+- **plan**：模型判断是否需要计划 → 流式出计划 → `/approve` → 同一 tool loop 开发。
+- **conductor**：高级模型拆任务 → worker 子代理 → 流式验收（≠ 多目录）。
+- **多目录**：`/add-dir` `/dirs` `/remove-dir`，任意 mode 可用。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - 工作区级会话持久化：完整可见消息以 append-only JSONL 保存，SQLite 仅维护可重建的最近会话索引；启动页可选择历史会话，`/resume` 打开选择器，`/resume <sessionId>` 直接恢复。
 - TUI 界面 i18n：默认中文，支持 `/lang en|zh` 与 `AGENT_LANG` / `KROSS_LANG` / `config.locale` 切换英文。

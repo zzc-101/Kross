@@ -32,6 +32,13 @@ import type {
 } from '../llm/types';
 import { detectMode } from '../modes/modeDetector';
 import {
+  CONDUCTOR_PLAN_SYSTEM_PROMPT,
+  CONDUCTOR_REVIEW_SYSTEM_PROMPT,
+  PLAN_BODY_SYSTEM_PROMPT,
+  PLAN_INTENT_SYSTEM_PROMPT,
+  resolveModeTurn
+} from '../modes/modePolicy';
+import {
   ToolGateway,
   type ToolMetadata
 } from '../tools/toolGateway';
@@ -59,7 +66,6 @@ import type {
   ContextInspectionInput,
   PendingConductorExecution,
   PendingModeExecution,
-  PendingPlanExecution,
   ResolveToolApprovalInput
 } from './agentRuntimeTypes';
 import {
@@ -432,12 +438,19 @@ export class AgentRuntime extends EventEmitter {
     yield* this.executeRun(input);
   }
 
+  /**
+   * 统一 Runner：mode 只通过 ModePolicy 决定动作，输出管线唯一。
+   * 用户可见文本只允许 text-delta / thinking-delta。
+   */
   private async *executeRun(
     input: AgentRunInput
   ): AsyncIterable<AgentRunStreamEvent> {
-    const detection = detectMode({
+    const { detection, action } = resolveModeTurn({
       requestedMode: input.requestedMode,
-      input: input.input
+      userInput: input.input,
+      planApproved: input.approvals?.plan === true,
+      pending: this.pendingModeExecution,
+      hasLlm: Boolean(this.options.llmClient)
     });
     const runId = this.createRunId();
 
@@ -447,42 +460,52 @@ export class AgentRuntime extends EventEmitter {
       await this.record(runId, 'planner.started', {
         requestedMode: input.requestedMode
       });
-      await this.record(runId, 'mode.detected', { ...detection });
+      await this.record(runId, 'mode.detected', {
+        ...detection,
+        action: action.type
+      });
       throwIfAborted(input.signal);
 
-      if (detection.mode === 'auto' && this.options.llmClient) {
-        yield* this.runAgentToolLoop(input, detection.mode, runId);
-        return;
-      }
+      switch (action.type) {
+        case 'agent-loop':
+          yield* this.runAgentToolLoop(input, action.mode, runId, {
+            planText: action.planText
+          });
+          return;
 
-      if (detection.mode === 'plan') {
-        yield* this.runPlanModeStreaming(
-          input,
-          detection.mode,
-          runId,
-          detection.reason
-        );
-        return;
-      }
+        case 'plan-gate-flow':
+          yield* this.runnerPlanGatePhase(input, runId, detection.reason);
+          return;
 
-      if (detection.mode === 'conductor') {
-        const result = await this.runConductor(
-          input,
-          detection.mode,
-          runId,
-          detection.reason
-        );
-        yield { type: 'result', result };
-        return;
-      }
+        case 'conductor-gate-flow':
+          yield* this.runnerConductorGatePhase(input, runId, detection.reason);
+          return;
 
-      const result = await this.finishRunWithoutLlm(
-        input,
-        detection.mode,
-        runId,
-        detection.reason
-      );
-      yield { type: 'result', result };
+        case 'conductor-execute':
+          yield* this.runnerConductorExecutePhase(
+            runId,
+            action.pending,
+            input.signal
+          );
+          return;
+
+        case 'no-llm': {
+          const result = await this.finishRunWithoutLlm(
+            input,
+            action.mode,
+            runId,
+            detection.reason
+          );
+          yield { type: 'result', result };
+          return;
+        }
+
+        default: {
+          const _exhaustive: never = action;
+          void _exhaustive;
+          yield* this.runAgentToolLoop(input, 'auto', runId);
+        }
+      }
     } catch (error) {
       if (!isOperationAborted(error, input.signal)) {
         throw error;
@@ -605,102 +628,40 @@ export class AgentRuntime extends EventEmitter {
   }
 
   /**
-   * Plan mode — 输出与 auto 一样走流式 text-delta，不单独接非流式通道。
-   * - 模型判断 chat → 通用 streaming tool loop
-   * - 模型判断 plan → 流式写出计划 → /approve 后再 streaming tool loop
+   * Runner 阶段：plan 策略的门控流程（分类 + 流式计划 or agent-loop）。
+   * 不是「plan 输出管线」——可见文本仍走 stream / agent-loop。
    */
-  private async *runPlanModeStreaming(
+  private async *runnerPlanGatePhase(
     input: AgentRunInput,
-    mode: AgentMode,
     runId: string,
     reason: string | undefined
   ): AsyncIterable<AgentRunStreamEvent> {
     throwIfAborted(input.signal);
 
-    if (
-      input.approvals?.plan === true &&
-      this.pendingModeExecution?.kind === 'plan'
-    ) {
-      const pending = this.pendingModeExecution;
-      this.pendingModeExecution = undefined;
-      if (!this.options.llmClient) {
-        yield {
-          type: 'result',
-          result: await this.finishRunWithoutLlm(input, mode, runId, reason)
-        };
-        return;
-      }
-      yield* this.runAgentToolLoop(input, 'plan', runId, {
-        planText: pending.planText
-      });
-      return;
-    }
-
-    if (!this.options.llmClient) {
-      // 无模型：启发式。闲聊给固定文案流式吐出；任务用模板计划。
-      if (isCasualChatInput(input.input)) {
-        const reply =
-          '你好。当前是 Plan 模式；有具体开发任务时再说，我会先出计划请你确认。';
-        for (const ch of reply) {
-          yield { type: 'text-delta', text: ch };
-        }
-        const completed = await this.attachChangedFiles(
-          agentResultSchema.parse({
-            runId,
-            mode: 'plan',
-            status: 'completed',
-            summary: reply,
-            report: {
-              changedFiles: [],
-              evidence: ['plan 模式无 LLM：闲聊兜底'],
-              risks: []
-            }
-          })
-        );
-        await this.record(runId, 'run.completed', { ...completed });
-        this.finishTurnWithAssistant(input.input, completed.summary);
-        yield { type: 'result', result: completed };
-        return;
-      }
-      const planText = [
-        `目标：${input.input}`,
-        '',
-        '建议步骤：',
-        '1. 阅读相关代码与测试',
-        '2. 列出拟修改文件',
-        '3. 实现并验证'
-      ].join('\n');
-      yield* this.finishPlanGateWithText(input, runId, planText, reason, true);
-      return;
-    }
-
-    // 1) 轻量分类（短 JSON，不展示正文；正文一律 stream）
+    // 1) 内部短分类（complete 仅 JSON，不展示）
     const intent = await this.classifyPlanIntent(input.input, input.signal);
     await this.record(runId, 'plan.intent', intent);
 
-    // 2) chat → 通用流式 tool loop（与 auto 同一条输出管线）
+    // 2) chat → 唯一 agent-loop 管线
     if (intent.kind === 'chat') {
-      yield* this.runAgentToolLoop(input, mode, runId);
+      yield* this.runAgentToolLoop(input, 'plan', runId);
       return;
     }
 
-    // 3) plan → 流式生成计划正文，再进确认门
+    // 3) 流式写计划 → 确认门
     const header = '【Plan 模式 · 等待确认】\n\n';
     const footer = '\n\n输入 /approve 按该计划开始开发，或 /reject 取消。';
     yield { type: 'text-delta', text: header };
 
     let planBody = '';
     for await (const event of this.streamPlainAssistantText({
-      systemPrompt:
-        '你是资深工程师。用户已确定需要开发计划。只输出可执行的开发计划（中文），' +
-        '包含：目标、步骤、涉及文件/模块、风险与验证方式。不要调用工具，不要改代码，不要输出 JSON 外壳。',
+      systemPrompt: PLAN_BODY_SYSTEM_PROMPT,
       userText: input.input,
-      signal: input.signal
+      signal: input.signal,
+      purpose: 'plan-body'
     })) {
-      if (event.type === 'text-delta') {
-        planBody += event.text;
-        yield event;
-      }
+      planBody += event.text;
+      yield event;
     }
 
     if (!planBody.trim()) {
@@ -715,16 +676,10 @@ export class AgentRuntime extends EventEmitter {
     }
 
     yield { type: 'text-delta', text: footer };
-    yield* this.finishPlanGateWithText(
-      input,
-      runId,
-      planBody.trim(),
-      reason,
-      false
-    );
+    yield* this.finishPlanGateWithText(input, runId, planBody.trim(), reason);
   }
 
-  /** 分类仅返回 kind，不生成展示正文（避免非流式整段输出）。 */
+  /** 内部 complete：只解析 kind，禁止当用户回复展示。 */
   private async classifyPlanIntent(
     userInput: string,
     signal?: AbortSignal
@@ -739,19 +694,11 @@ export class AgentRuntime extends EventEmitter {
     try {
       const response = await client.complete({
         messages: [
-          {
-            role: 'system',
-            content: [
-              'Plan 模式路由。只判断用户是否需要「可执行开发计划」。',
-              '- 问候/闲聊/感谢/不改代码的问答 → {"kind":"chat","reason":"..."}',
-              '- 写代码/改代码/修 bug/加功能/重构/改仓库 → {"kind":"plan","reason":"..."}',
-              '只输出上述 JSON，不要其它文字。'
-            ].join('\n')
-          },
+          { role: 'system', content: PLAN_INTENT_SYSTEM_PROMPT },
           { role: 'user', content: userInput }
         ],
         maxTokens: 80,
-        metadata: { purpose: 'plan-mode-intent' }
+        metadata: { purpose: 'plan-mode-intent', internal: true }
       });
       const kind = parsePlanIntentKind(response.text ?? '');
       if (kind) {
@@ -765,11 +712,12 @@ export class AgentRuntime extends EventEmitter {
       : { kind: 'plan', reason: 'llm-failed heuristic' };
   }
 
-  /** 通用流式助手文本（text-delta），供 plan 正文等使用。 */
+  /** 统一流式助手文本原语（用户可见）。 */
   private async *streamPlainAssistantText(input: {
     systemPrompt: string;
     userText: string;
     signal?: AbortSignal;
+    purpose?: string;
   }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>> {
     const client = this.options.llmClient;
     if (!client) {
@@ -782,7 +730,7 @@ export class AgentRuntime extends EventEmitter {
         { role: 'user', content: input.userText }
       ],
       signal: input.signal,
-      metadata: { purpose: 'plan-mode-stream' }
+      metadata: { purpose: input.purpose ?? 'assistant-stream' }
     })) {
       throwIfAborted(input.signal);
       if (chunk.type === 'text-delta' && chunk.text) {
@@ -795,20 +743,8 @@ export class AgentRuntime extends EventEmitter {
     input: AgentRunInput,
     runId: string,
     planText: string,
-    reason: string | undefined,
-    emitBody: boolean
+    reason: string | undefined
   ): AsyncIterable<AgentRunStreamEvent> {
-    if (emitBody) {
-      const full = [
-        '【Plan 模式 · 等待确认】',
-        '',
-        planText,
-        '',
-        '输入 /approve 按该计划开始开发，或 /reject 取消。'
-      ].join('\n');
-      yield { type: 'text-delta', text: full };
-    }
-
     await this.record(runId, 'plan.created', {
       mode: 'plan',
       goal: input.input,
@@ -854,39 +790,21 @@ export class AgentRuntime extends EventEmitter {
   }
 
   /**
-   * Conductor (指挥家): 高级模型拆任务 → 经济/快速 worker 子代理执行 → 高级模型验收。
-   * 多目录是 /add-dir 能力，不在此模式绑定。
+   * Runner 阶段：指挥家策略 — 内部拿任务 JSON，流式展示给人看的计划，再确认门。
    */
-  private async runConductor(
+  private async *runnerConductorGatePhase(
     input: AgentRunInput,
-    mode: AgentMode,
     runId: string,
     conductorReason: string | undefined
-  ): Promise<AgentResult> {
+  ): AsyncIterable<AgentRunStreamEvent> {
     throwIfAborted(input.signal);
     this.syncProjectRegistrySource();
 
-    if (
-      input.approvals?.plan === true &&
-      this.pendingModeExecution?.kind === 'conductor'
-    ) {
-      return this.executeConductorPlan(
-        runId,
-        this.pendingModeExecution,
-        input.signal
-      );
-    }
-
-    return this.planConductor(input, mode, runId, conductorReason);
-  }
-
-  private async planConductor(
-    input: AgentRunInput,
-    mode: AgentMode,
-    runId: string,
-    conductorReason: string | undefined
-  ): Promise<AgentResult> {
     const plan = await this.buildConductorTaskPlan(input.input, input.signal);
+    const summary = formatConductorTaskPlanSummary(plan);
+    // 用户可见：流式吐出格式化计划（非 complete 直出）
+    yield { type: 'text-delta', text: summary };
+
     await this.record(runId, 'plan.created', {
       mode: 'conductor',
       goal: plan.goal,
@@ -899,21 +817,12 @@ export class AgentRuntime extends EventEmitter {
       taskIds: plan.tasks.map((t) => t.id)
     });
 
-    const summary = formatConductorTaskPlanSummary(plan);
     this.pendingModeExecution = {
       kind: 'conductor',
       goal: input.input,
       mode: 'conductor',
       plan
     };
-
-    if (input.approvals?.plan === true) {
-      return this.executeConductorPlan(
-        runId,
-        this.pendingModeExecution,
-        input.signal
-      );
-    }
 
     const cancelled = await this.attachChangedFiles(
       agentResultSchema.parse({
@@ -926,8 +835,8 @@ export class AgentRuntime extends EventEmitter {
           changedFiles: [],
           evidence: [
             `tasks=${plan.tasks.map((t) => t.id).join(',')}`,
-            '指挥家：高级模型规划 → 确认后 worker 执行 → 高级模型验收',
-            '多目录请用 /add-dir（任意 mode）'
+            '指挥家策略：高级模型规划 → worker 执行 → 高级模型验收',
+            '多目录是 /add-dir，与 mode 正交'
           ],
           risks: []
         }
@@ -935,9 +844,10 @@ export class AgentRuntime extends EventEmitter {
     );
     await this.record(runId, 'run.completed', { ...cancelled });
     this.finishTurnWithAssistant(input.input, cancelled.summary);
-    return cancelled;
+    yield { type: 'result', result: cancelled };
   }
 
+  /** 内部 complete：任务 JSON（不可直接当 chat 展示；展示用 format 后 stream）。 */
   private async buildConductorTaskPlan(
     goal: string,
     signal?: AbortSignal
@@ -953,21 +863,13 @@ export class AgentRuntime extends EventEmitter {
     try {
       const response = await client.complete({
         messages: [
-          {
-            role: 'system',
-            content:
-              '你是指挥家（高级编排模型）。把用户目标拆成可由「经济/快速 worker 子代理」并行或串行执行的任务。\n' +
-              '只输出 JSON（可包在 ```json 代码块中），schema:\n' +
-              '{"goal":string,"notes"?:string,"tasks":[{"id":string,"title":string,"prompt":string,"repoId"?:string}]}\n' +
-              '要求：tasks 至少 1 个；prompt 必须完整可独立执行；repoId 仅当需要绑定 /add-dir 的 root id 时填写。\n' +
-              '不要写代码实现，不要调用工具。'
-          },
+          { role: 'system', content: CONDUCTOR_PLAN_SYSTEM_PROMPT },
           {
             role: 'user',
             content: `目标：\n${goal}\n\n当前工作区 roots：\n${rootsHint}`
           }
         ],
-        metadata: { purpose: 'conductor-plan' }
+        metadata: { purpose: 'conductor-plan', internal: true }
       });
       return parseConductorTaskPlanFromText(goal, response.text ?? '');
     } catch {
@@ -975,11 +877,14 @@ export class AgentRuntime extends EventEmitter {
     }
   }
 
-  private async executeConductorPlan(
+  /**
+   * Runner 阶段：指挥家执行 — worker 子代理 + 流式验收。
+   */
+  private async *runnerConductorExecutePhase(
     runId: string,
     pending: PendingConductorExecution,
     signal?: AbortSignal
-  ): Promise<AgentResult> {
+  ): AsyncIterable<AgentRunStreamEvent> {
     throwIfAborted(signal);
     const { plan, goal } = pending;
     const mode = 'conductor' as const;
@@ -992,13 +897,15 @@ export class AgentRuntime extends EventEmitter {
 
     const runSubagent = this.options.runSubagent;
     if (!runSubagent) {
+      const msg =
+        '指挥家计划已确认，但运行时未注入 runSubagent，无法派生 worker 子代理。';
+      yield { type: 'text-delta', text: msg };
       const failed = await this.attachChangedFiles(
         agentResultSchema.parse({
           runId,
           mode,
           status: 'failed',
-          summary:
-            '指挥家计划已确认，但运行时未注入 runSubagent，无法派生 worker 子代理。',
+          summary: msg,
           report: {
             changedFiles: [],
             evidence: ['缺少 AgentRuntimeOptions.runSubagent'],
@@ -1009,7 +916,8 @@ export class AgentRuntime extends EventEmitter {
       await this.record(runId, 'run.completed', { ...failed });
       this.pendingModeExecution = undefined;
       this.finishTurnWithAssistant(goal, failed.summary);
-      return failed;
+      yield { type: 'result', result: failed };
+      return;
     }
 
     const roots = this.options.workspaceRoots;
@@ -1027,6 +935,10 @@ export class AgentRuntime extends EventEmitter {
 
     for (const task of plan.tasks) {
       throwIfAborted(signal);
+      yield {
+        type: 'text-delta',
+        text: `\n\n▸ Worker 执行任务 [${task.id}] ${task.title}…\n`
+      };
       const workspaceRoot = task.repoId
         ? roots?.resolveById(task.repoId)
         : undefined;
@@ -1051,6 +963,10 @@ export class AgentRuntime extends EventEmitter {
           changedFiles: result.changedFiles,
           risks: result.risks
         });
+        yield {
+          type: 'text-delta',
+          text: `  → ${result.status}: ${result.summary.slice(0, 300)}\n`
+        };
         for (const file of result.changedFiles) {
           allChanged.push(`${task.id}:${file}`);
         }
@@ -1071,16 +987,40 @@ export class AgentRuntime extends EventEmitter {
           changedFiles: [],
           risks: [message]
         });
+        yield { type: 'text-delta', text: `  → failed: ${message}\n` };
         allEvidence.push(`${task.id}: failed — ${message}`);
         allRisks.push(`${task.id}: ${message}`);
       }
     }
 
-    const reviewText = await this.reviewConductorOutcomes(
-      goal,
-      taskOutcomes,
-      signal
-    );
+    yield { type: 'text-delta', text: '\n### 高级模型验收\n\n' };
+    const digest = taskOutcomes
+      .map(
+        (o) =>
+          `### ${o.taskId} ${o.title} [${o.status}]\n${o.summary}\nfiles=${o.changedFiles.join(', ') || '—'}\nrisks=${o.risks.join('; ') || '—'}`
+      )
+      .join('\n\n');
+
+    let reviewText = '';
+    if (this.options.llmClient) {
+      for await (const event of this.streamPlainAssistantText({
+        systemPrompt: CONDUCTOR_REVIEW_SYSTEM_PROMPT,
+        userText: `总目标：\n${goal}\n\nWorker 结果：\n${digest}`,
+        signal,
+        purpose: 'conductor-review'
+      })) {
+        reviewText += event.text;
+        yield event;
+      }
+    }
+    if (!reviewText.trim()) {
+      reviewText = [
+        '（无高级模型流式验收）',
+        `共 ${taskOutcomes.length} 个子任务，失败 ${taskOutcomes.filter((o) => o.status === 'failed').length} 个。`
+      ].join('\n');
+      yield { type: 'text-delta', text: reviewText };
+    }
+
     await this.record(runId, 'conductor.review.completed', {
       taskCount: taskOutcomes.length,
       reviewPreview: reviewText.slice(0, 400)
@@ -1119,57 +1059,7 @@ export class AgentRuntime extends EventEmitter {
     await this.record(runId, 'run.completed', { ...result });
     this.pendingModeExecution = undefined;
     this.finishTurnWithAssistant(goal, result.summary);
-    return result;
-  }
-
-  private async reviewConductorOutcomes(
-    goal: string,
-    outcomes: Array<{
-      taskId: string;
-      title: string;
-      status: string;
-      summary: string;
-      changedFiles: string[];
-      risks: string[];
-    }>,
-    signal?: AbortSignal
-  ): Promise<string> {
-    const client = this.options.llmClient;
-    const digest = outcomes
-      .map(
-        (o) =>
-          `### ${o.taskId} ${o.title} [${o.status}]\n${o.summary}\nfiles=${o.changedFiles.join(', ') || '—'}\nrisks=${o.risks.join('; ') || '—'}`
-      )
-      .join('\n\n');
-    if (!client) {
-      return [
-        '（无高级模型，跳过验收 LLM）',
-        `共 ${outcomes.length} 个子任务，失败 ${outcomes.filter((o) => o.status === 'failed').length} 个。`,
-        '请人工核对 worker 输出。'
-      ].join('\n');
-    }
-    throwIfAborted(signal);
-    try {
-      const response = await client.complete({
-        messages: [
-          {
-            role: 'system',
-            content:
-              '你是指挥家高级模型，负责验收 worker 子代理的结果。' +
-              '用中文给出：是否达标、遗漏、风险、建议的后续动作。简洁有条理。'
-          },
-          {
-            role: 'user',
-            content: `总目标：\n${goal}\n\nWorker 结果：\n${digest}`
-          }
-        ],
-        metadata: { purpose: 'conductor-review' }
-      });
-      return response.text?.trim() || '（验收模型未返回正文）';
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return `验收阶段模型调用失败：${message}\n\n原始 worker 摘要：\n${digest}`;
-    }
+    yield { type: 'result', result };
   }
 
   private async finishRunWithoutLlm(
