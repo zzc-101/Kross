@@ -183,7 +183,7 @@ export const zhCatalog = {
     '当前运行在本地 TUI。mode={mode} · perm={perm} · model={model}',
   'cmd.expandDone': '已切换最近一条 thinking 的折叠状态（也可用 ctrl+o）。',
   'cmd.modeUsage':
-    '当前模式：{current}\n用法：/mode auto|plan|conductor\n- auto 默认 agent，可自动切 plan/conductor\n- plan 先计划后开发\n- conductor 指挥家多目录编排',
+    '当前模式：{current}\n用法：/mode auto|plan|conductor\n- auto 默认 agent，可自动切 plan/conductor\n- plan 先计划后开发\n- conductor 指挥家：高级模型拆任务，worker 执行，高级模型验收\n多目录与 mode 无关：/add-dir /dirs /remove-dir',
   'cmd.modeSwitched': '已切换到 {mode} 模式',
   'cmd.modeUnknown': '未知模式，可选：auto、plan、conductor',
   'cmd.addDir.usage': '用法：/add-dir <绝对或相对路径>',
@@ -411,7 +411,7 @@ export const enCatalog: Record<MessageKey, string> = {
   'cmd.expandDone':
     'Toggled the latest thinking block (also available via ctrl+o).',
   'cmd.modeUsage':
-    'Current mode: {current}\nUsage: /mode auto|plan|conductor\n- auto default agent; may auto-switch to plan/conductor\n- plan plan-first then implement\n- conductor multi-root orchestration',
+    'Current mode: {current}\nUsage: /mode auto|plan|conductor\n- auto default agent; may auto-switch to plan/conductor\n- plan plan-first then implement\n- conductor senior model plans, workers execute, senior reviews\nMulti-dir is orthogonal: /add-dir /dirs /remove-dir',
   'cmd.modeSwitched': 'Switched to {mode} mode',
   'cmd.modeUnknown': 'Unknown mode. Choose: auto, plan, conductor',
   'cmd.addDir.usage': 'Usage: /add-dir <absolute or relative path>',

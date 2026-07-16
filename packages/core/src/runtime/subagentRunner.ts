@@ -35,12 +35,16 @@ export interface SubagentRunRequest {
   parentDepth?: number;
   signal?: AbortSignal;
   /**
-   * Override tools workspace root for this spawn (multi-repo).
+   * Override tools workspace root for this spawn (/add-dir root).
    * Must be under deps.allowedWorkspaceRoots when that list is set.
    */
   workspaceRoot?: string;
-  /** Optional label for trace / UI (e.g. registry repo id). */
+  /** Optional label for trace / UI (e.g. /add-dir id). */
   repoId?: string;
+  /**
+   * Prefer workerLlmClient (经济/快速模型) when available — used by conductor.
+   */
+  preferWorkerModel?: boolean;
 }
 
 export interface SubagentRunDeps {
@@ -55,7 +59,10 @@ export interface SubagentRunDeps {
   allowedWorkspaceRoots?: string[];
   /** Dynamic allowlist (e.g. WorkspaceRoots.allowedRoots). Overrides static list. */
   getAllowedWorkspaceRoots?: () => string[];
+  /** Default / senior model client */
   llmClient?: LlmClient;
+  /** Cheaper/faster worker model for conductor-spawned subagents */
+  workerLlmClient?: LlmClient;
   traceStore: TraceStore;
   maxDepth?: number;
   maxToolIterations?: number;
@@ -118,6 +125,9 @@ export async function runSubagent(
     deriveSubagentTitle(prompt);
 
   const workspaceRoot = resolveSubagentWorkspaceRoot(request, deps);
+  const useWorker =
+    request.preferWorkerModel === true && deps.workerLlmClient !== undefined;
+  const llmClient = useWorker ? deps.workerLlmClient : deps.llmClient;
 
   await appendTrace(deps.traceStore, request.parentRunId, 'subagent.started', {
     ...lifecycleExtras,
@@ -126,18 +136,25 @@ export async function runSubagent(
     title,
     repoId: request.repoId,
     workspaceRoot,
+    preferWorkerModel: request.preferWorkerModel === true,
+    workerModel: useWorker,
+    model: llmClient?.model,
     promptPreview: prompt.slice(0, 240),
     autoApprove: true
   });
 
-  if (!deps.llmClient) {
+  if (!llmClient) {
     const failed = subagentResultSchema.parse({
       status: 'failed',
       summary: 'Subagent failed: no LLM client configured',
       changedFiles: [],
       diffSummary: [],
       commandsRun: [],
-      evidence: ['子代理未检测到可用 LLM client'],
+      evidence: [
+        useWorker
+          ? '指挥家 worker 子代理未配置 workerLlmClient / 主模型'
+          : '子代理未检测到可用 LLM client'
+      ],
       risks: ['请配置模型后再派生子代理'],
       needsReview: []
     });
@@ -182,16 +199,16 @@ export async function runSubagent(
   );
 
   const sessionContext = createSessionContext({
-    client: deps.llmClient,
+    client: llmClient,
     isSubagent: true,
-    contextWindow: deps.llmClient.contextWindow
+    contextWindow: llmClient.contextWindow
   });
 
   try {
     const summary = await runSubagentToolLoop({
       runId: subRunId,
       prompt,
-      llmClient: deps.llmClient,
+      llmClient,
       gateway: childGateway,
       tools: toolMeta,
       sessionContext,

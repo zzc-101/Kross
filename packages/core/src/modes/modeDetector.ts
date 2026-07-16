@@ -13,21 +13,20 @@ export interface ModeDetectionResult {
   signals: string[];
 }
 
-/** Signals that auto-route into conductor (multi-target orchestration). */
+/**
+ * Conductor = 高级模型编排（拆任务 → worker 执行 → 高级模型验收）。
+ * 不是多目录：多目录是 /add-dir。
+ */
 const conductorSignals = [
-  '前后端',
-  '前端',
-  '后端',
-  '管理端',
-  '跨仓库',
-  '跨系统',
-  '联动',
-  '接口字段',
-  '字段贯通',
-  'api client',
-  'openapi',
   '指挥家',
-  'conductor'
+  'conductor',
+  '多代理',
+  '子代理分工',
+  '派生执行',
+  '经济模型',
+  '快速模型',
+  '分工协作',
+  '编排执行'
 ];
 
 /** Signals that auto-route into plan-first mode. */
@@ -65,25 +64,15 @@ export function detectMode(input: ModeDetectionInput): ModeDetectionResult {
     };
   }
 
-  const text = input.input;
-  const lower = text.toLowerCase();
+  const lower = input.input.toLowerCase();
 
   const conductorHits = conductorSignals.filter((signal) =>
     lower.includes(signal.toLowerCase())
   );
-  const hasConductorIntent =
-    conductorHits.includes('跨仓库') ||
-    conductorHits.includes('跨系统') ||
-    conductorHits.includes('指挥家') ||
-    conductorHits.includes('conductor') ||
-    (conductorHits.includes('前端') && conductorHits.includes('后端')) ||
-    conductorHits.includes('前后端') ||
-    (conductorHits.includes('管理端') && conductorHits.includes('联动'));
-
-  if (hasConductorIntent) {
+  if (conductorHits.length > 0) {
     return {
       mode: 'conductor',
-      reason: `auto 检测到编排信号：${conductorHits.join('、')}`,
+      reason: `auto 检测到指挥家编排信号：${conductorHits.join('、')}`,
       requiresApproval: true,
       signals: conductorHits
     };

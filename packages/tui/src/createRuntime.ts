@@ -145,7 +145,8 @@ export function createRuntimeOptionsFromEnv(
     projectRegistry,
     projectRegistryPath,
     activeProjectId: activeSelection?.projectId,
-    runSubagent
+    runSubagent,
+    workerLlmClient: llmClient
   };
 }
 
@@ -246,6 +247,8 @@ function createLocalTooling(
     },
     traceStore,
     llmClient: initialLlmClient,
+    // worker 默认与主模型相同；后续可从 config 注入更便宜的 workerLlmClient
+    workerLlmClient: initialLlmClient,
     maxDepth: 1,
     maxToolIterations: 40
   };
@@ -287,6 +290,7 @@ function createLocalTooling(
     runSubagent,
     setLlmClient: (client) => {
       subagentDeps.llmClient = client;
+      subagentDeps.workerLlmClient = client;
     },
     closeTraceStore: () => {
       innerTraceStore.close();

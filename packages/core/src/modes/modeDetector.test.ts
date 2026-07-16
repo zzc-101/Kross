@@ -14,21 +14,28 @@ describe('detectMode', () => {
   });
 
   it('keeps explicit plan and conductor modes', () => {
-    expect(
-      detectMode({ requestedMode: 'plan', input: '随便' }).mode
-    ).toBe('plan');
+    expect(detectMode({ requestedMode: 'plan', input: '随便' }).mode).toBe(
+      'plan'
+    );
     expect(
       detectMode({ requestedMode: 'conductor', input: '随便' }).mode
     ).toBe('conductor');
     expect(normalizeAgentMode('normal')).toBeUndefined();
   });
 
-  it('auto-detects front/back linkage as conductor', () => {
+  it('does not treat multi-dir phrasing as conductor', () => {
     const result = detectMode({
       requestedMode: 'auto',
       input: '给巡检任务增加任务来源字段，前后端联动，管理端也展示'
     });
+    expect(result.mode).toBe('auto');
+  });
 
+  it('auto-detects conductor orchestration phrasing', () => {
+    const result = detectMode({
+      requestedMode: 'auto',
+      input: '用指挥家模式：高级模型拆任务，经济模型执行再验收'
+    });
     expect(result.mode).toBe('conductor');
     expect(result.requiresApproval).toBe(true);
   });

@@ -1,196 +1,140 @@
-import type {
-  ConductorPlan,
-  ImpactMap,
-  ImpactRepo,
-  ProjectConfig,
-  RepoConfig
-} from '../domain';
-import { impactMapSchema } from '../domain';
+import { z } from 'zod';
 
 /**
- * Build impact map without codegraph: keyword match on repo id/type,
- * or include all repos when the goal looks cross-cutting.
+ * Conductor = 高级模型编排，不是多目录。
+ * 多目录是 /add-dir 的会话能力，任意 mode 可用。
  */
-export function buildImpactMapFromRegistry(input: {
-  projectId: string;
-  project: ProjectConfig;
-  goal: string;
-}): ImpactMap {
-  const goal = input.goal.trim();
-  const lower = goal.toLowerCase();
-  const matched: ImpactRepo[] = [];
 
-  for (const repo of input.project.repos) {
-    const reasons = matchRepoReasons(repo, lower, goal);
-    if (reasons.length > 0) {
-      matched.push({
-        id: repo.id,
-        path: repo.path,
-        type: repo.type,
-        reasons,
-        tasks: [
-          buildDefaultRepoTask({
-            goal,
-            repo,
-            reasons
-          })
-        ]
-      });
-    }
-  }
+export const conductorTaskSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  /** 交给经济/快速 worker 子代理的完整指令 */
+  prompt: z.string().min(1),
+  /**
+   * 可选：绑定会话 workspace root id（/add-dir 的 id）。
+   * 不填则 worker 使用主工作区。
+   */
+  repoId: z.string().min(1).optional()
+});
+export type ConductorTask = z.infer<typeof conductorTaskSchema>;
 
-  const repos =
-    matched.length > 0
-      ? matched
-      : input.project.repos.map((repo) => ({
-          id: repo.id,
-          path: repo.path,
-          type: repo.type,
-          reasons: [
-            '未命中具体仓库关键词，默认纳入全部仓库；确认后将在各仓派生子代理'
-          ],
-          tasks: [
-            buildDefaultRepoTask({
-              goal,
-              repo,
-              reasons: ['full-project scope']
-            })
-          ]
-        }));
+export const conductorTaskPlanSchema = z.object({
+  goal: z.string().min(1),
+  tasks: z.array(conductorTaskSchema).min(1),
+  /** 给人看的步骤摘要 */
+  notes: z.string().optional()
+});
+export type ConductorTaskPlan = z.infer<typeof conductorTaskPlanSchema>;
 
-  return impactMapSchema.parse({
-    strategy: matched.length > 0 ? 'heuristic' : 'registry-only',
-    projectId: input.projectId,
-    repos
-  });
-}
-
-function matchRepoReasons(
-  repo: RepoConfig,
-  lowerGoal: string,
-  goal: string
-): string[] {
-  const reasons: string[] = [];
-  const id = repo.id.toLowerCase();
-  const type = repo.type.toLowerCase();
-
-  if (lowerGoal.includes(id)) {
-    reasons.push(`目标文本命中 repo id「${repo.id}」`);
-  }
-  if (lowerGoal.includes(type)) {
-    reasons.push(`目标文本命中 type「${repo.type}」`);
-  }
-
-  const backendish =
-    /backend|后端|api|server|java|spring|服务端/.test(type) ||
-    /backend|后端|api|server/.test(id);
-  const frontendish =
-    /frontend|前端|web|vue|react|ui|管理端|admin/.test(type) ||
-    /frontend|前端|web|ui|admin/.test(id);
-
-  if (backendish && /后端|前后端|接口|api|openapi|字段|服务端/.test(goal)) {
-    reasons.push('目标涉及后端/接口/字段，匹配 backend 类仓库');
-  }
-  if (
-    frontendish &&
-    /前端|前后端|管理端|页面|ui|client|openapi/.test(goal)
-  ) {
-    reasons.push('目标涉及前端/页面/客户端，匹配 frontend 类仓库');
-  }
-  if (/跨仓库|跨系统|联动|贯通/.test(goal)) {
-    reasons.push('目标含跨仓/联动信号');
-  }
-
-  return dedupe(reasons);
-}
-
-function buildDefaultRepoTask(input: {
-  goal: string;
-  repo: RepoConfig;
-  reasons: string[];
-}): string {
-  return [
-    `在仓库 ${input.repo.id}（${input.repo.type}，路径 ${input.repo.path}）中推进跨仓任务。`,
-    `总体目标：${input.goal}`,
-    `纳入原因：${input.reasons.join('；')}`,
-    '约束：只修改本仓库内文件；完成后给出变更摘要、关键路径与风险。'
-  ].join('\n');
-}
-
-export function buildConductorPlan(input: {
-  goal: string;
-  projectId: string;
-  impact: ImpactMap;
-  llmSuggestion?: string;
-}): ConductorPlan {
-  const repoSteps = input.impact.repos.map(
-    (repo) =>
-      `在 ${repo.id}（${repo.type ?? 'repo'}）执行：${(repo.tasks?.[0] ?? repo.reasons[0] ?? '按目标修改').slice(0, 120)}`
-  );
-  return {
-    goal: input.goal,
-    projectId: input.projectId,
-    llmSuggestion: input.llmSuggestion,
-    steps: [
-      `编排范围：${input.projectId}`,
-      `生成影响面（strategy=${input.impact.strategy}，targets=${input.impact.repos.map((r) => r.id).join(', ')}）`,
-      ...repoSteps,
-      '用户确认后按目标顺序派生子代理执行并汇总'
-    ]
-  };
-}
-
-export function formatConductorPlanSummary(input: {
-  plan: ConductorPlan;
-  impact: ImpactMap;
-  registrySource?: string;
-}): string {
+export function formatConductorTaskPlanSummary(plan: ConductorTaskPlan): string {
   const lines = [
     '【指挥家计划 · 等待确认】',
-    `范围：${input.plan.projectId}`,
-    input.registrySource ? `Registry：${input.registrySource}` : undefined,
-    `影响面（${input.impact.strategy}）：`,
-    ...input.impact.repos.map(
-      (repo) =>
-        `- ${repo.id} [${repo.type ?? '?'}] ${repo.path}\n  原因：${repo.reasons.join('；') || '—'}`
-    ),
-    '步骤：',
-    ...input.plan.steps.map((step, i) => `${i + 1}. ${step}`),
     '',
-    '输入 /approve 开始按目标派生子代理执行，或 /reject 取消。',
-    '多目录请用 /add-dir；可选 ~/.kross/projects.json 作为项目模板。'
+    `目标：${plan.goal}`,
+    plan.notes ? `说明：${plan.notes}` : undefined,
+    '',
+    '任务拆分（将由经济/快速模型子代理执行，高级模型验收）：',
+    ...plan.tasks.map(
+      (task, i) =>
+        `${i + 1}. [${task.id}] ${task.title}` +
+        (task.repoId ? `  · root=${task.repoId}` : '') +
+        `\n   ${task.prompt.slice(0, 200)}${task.prompt.length > 200 ? '…' : ''}`
+    ),
+    '',
+    '输入 /approve 派生子代理执行并由高级模型验收，或 /reject 取消。',
+    '说明：多目录请用 /add-dir（任意 mode 可用），与指挥家模式无关。'
   ].filter((line): line is string => line !== undefined);
   return lines.join('\n');
 }
 
-export function formatConductorExecutionSummary(input: {
-  projectId: string;
+export function formatConductorReviewSummary(input: {
   goal: string;
-  outcomes: Array<{
-    repoId: string;
+  taskOutcomes: Array<{
+    taskId: string;
+    title: string;
     status: string;
     summary: string;
     changedFiles: string[];
     risks: string[];
   }>;
+  reviewText: string;
 }): string {
   const lines = [
-    `【指挥家执行完成】范围 ${input.projectId}`,
+    '【指挥家执行完成 · 高级模型验收】',
     `目标：${input.goal}`,
     '',
-    ...input.outcomes.flatMap((o) => [
-      `### ${o.repoId} → ${o.status}`,
+    '### Worker 子代理结果',
+    ...input.taskOutcomes.flatMap((o) => [
+      `#### ${o.taskId} — ${o.title} → ${o.status}`,
       o.summary,
       o.changedFiles.length > 0
         ? `变更：${o.changedFiles.join(', ')}`
         : '变更：（无）',
       o.risks.length > 0 ? `风险：${o.risks.join('；')}` : undefined,
       ''
-    ])
+    ]),
+    '### 验收结论',
+    input.reviewText
   ].filter((line): line is string => line !== undefined);
   return lines.join('\n').trim();
 }
 
-function dedupe(values: string[]): string[] {
-  return [...new Set(values)];
+/** Heuristic fallback when senior model cannot emit structured tasks. */
+export function buildDefaultConductorTasks(goal: string): ConductorTask[] {
+  return [
+    {
+      id: 'explore',
+      title: '探索与定位',
+      prompt: [
+        '只读探索任务。',
+        `总体目标：${goal}`,
+        '找出相关文件、关键符号与现状；不要修改文件。',
+        '返回：路径列表、发现摘要、建议修改点。'
+      ].join('\n')
+    },
+    {
+      id: 'implement',
+      title: '实现改动',
+      prompt: [
+        '实现任务。',
+        `总体目标：${goal}`,
+        '在工作区内完成最小必要改动；完成后列出变更文件与风险。'
+      ].join('\n')
+    }
+  ];
+}
+
+/**
+ * Parse senior-model JSON task plan. Accepts fenced ```json blocks.
+ */
+export function parseConductorTaskPlanFromText(
+  goal: string,
+  text: string
+): ConductorTaskPlan {
+  const trimmed = text.trim();
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
+  const candidate = (fenced?.[1] ?? trimmed).trim();
+  try {
+    const raw = JSON.parse(candidate) as unknown;
+    const parsed = conductorTaskPlanSchema.safeParse({
+      ...(typeof raw === 'object' && raw !== null ? raw : {}),
+      goal:
+        typeof raw === 'object' &&
+        raw !== null &&
+        'goal' in raw &&
+        typeof (raw as { goal: unknown }).goal === 'string'
+          ? (raw as { goal: string }).goal
+          : goal
+    });
+    if (parsed.success && parsed.data.tasks.length > 0) {
+      return parsed.data;
+    }
+  } catch {
+    // fall through
+  }
+  return {
+    goal,
+    notes: '高级模型未返回合法 JSON 任务列表，已使用默认两阶段拆分。',
+    tasks: buildDefaultConductorTasks(goal)
+  };
 }

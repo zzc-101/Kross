@@ -63,10 +63,9 @@ import type {
   ResolveToolApprovalInput
 } from './agentRuntimeTypes';
 import {
-  buildConductorPlan,
-  buildImpactMapFromRegistry,
-  formatConductorExecutionSummary,
-  formatConductorPlanSummary
+  formatConductorReviewSummary,
+  formatConductorTaskPlanSummary,
+  parseConductorTaskPlanFromText
 } from './conductorOrchestration';
 import { RuntimeInspection } from './runtimeInspection';
 import {
@@ -762,8 +761,8 @@ export class AgentRuntime extends EventEmitter {
   }
 
   /**
-   * Conductor (指挥家): plan-first → approval gate → sequential subagents.
-   * Impact prefers session workspace roots (/add-dir); falls back to projects.json.
+   * Conductor (指挥家): 高级模型拆任务 → 经济/快速 worker 子代理执行 → 高级模型验收。
+   * 多目录是 /add-dir 能力，不在此模式绑定。
    */
   private async runConductor(
     input: AgentRunInput,
@@ -794,56 +793,25 @@ export class AgentRuntime extends EventEmitter {
     runId: string,
     conductorReason: string | undefined
   ): Promise<AgentResult> {
-    const planned = this.buildConductorImpact(input.input);
-    if (!planned.ok) {
-      const failed = await this.attachChangedFiles(
-        agentResultSchema.parse({
-          runId,
-          mode,
-          status: 'failed',
-          summary: planned.summary,
-          report: {
-            changedFiles: [],
-            evidence: planned.evidence,
-            risks: []
-          }
-        })
-      );
-      await this.record(runId, 'run.completed', { ...failed });
-      this.finishTurnWithAssistant(input.input, failed.summary);
-      return failed;
-    }
-
-    const { impact, projectId, registrySourcePath } = planned;
-    const plan = buildConductorPlan({
-      goal: input.input,
-      projectId,
-      impact
+    const plan = await this.buildConductorTaskPlan(input.input, input.signal);
+    await this.record(runId, 'plan.created', {
+      mode: 'conductor',
+      goal: plan.goal,
+      tasks: plan.tasks,
+      notes: plan.notes
     });
-
-    await this.record(runId, 'plan.created', plan);
-    await this.record(runId, 'impact_map.created', impact);
     await this.record(runId, 'approval.required', {
       scope: 'conductor-plan',
       reason: conductorReason,
-      projectId,
-      repos: impact.repos.map((repo) => repo.id)
+      taskIds: plan.tasks.map((t) => t.id)
     });
 
-    const summary = formatConductorPlanSummary({
-      plan,
-      impact,
-      registrySource: registrySourcePath
-    });
-
+    const summary = formatConductorTaskPlanSummary(plan);
     this.pendingModeExecution = {
       kind: 'conductor',
       goal: input.input,
       mode: 'conductor',
-      plan,
-      impactMap: impact,
-      projectId,
-      registrySourcePath
+      plan
     };
 
     if (input.approvals?.plan === true) {
@@ -857,17 +825,16 @@ export class AgentRuntime extends EventEmitter {
     const cancelled = await this.attachChangedFiles(
       agentResultSchema.parse({
         runId,
-        mode,
+        mode: 'conductor',
         status: 'cancelled',
         cancellationReason: 'approval-gate',
         summary,
         report: {
           changedFiles: [],
           evidence: [
-            `project=${projectId}`,
-            `impact strategy=${impact.strategy}`,
-            `repos=${impact.repos.map((r) => r.id).join(',')}`,
-            '已在执行前触发确认门（plan-first，确认前不改文件）'
+            `tasks=${plan.tasks.map((t) => t.id).join(',')}`,
+            '指挥家：高级模型规划 → 确认后 worker 执行 → 高级模型验收',
+            '多目录请用 /add-dir（任意 mode）'
           ],
           risks: []
         }
@@ -878,78 +845,41 @@ export class AgentRuntime extends EventEmitter {
     return cancelled;
   }
 
-  /**
-   * Prefer /add-dir workspace roots (multi-dir always usable).
-   * Else project registry. Else primary cwd alone as single-root conductor.
-   */
-  private buildConductorImpact(goal: string):
-    | {
-        ok: true;
-        impact: import('../domain').ImpactMap;
-        projectId: string;
-        registrySourcePath?: string;
-      }
-    | { ok: false; summary: string; evidence: string[] } {
-    const roots = this.options.workspaceRoots;
-    if (roots && roots.list().length > 0) {
-      // Multi-dir: if only primary, still allow conductor on single root
-      const impact = roots.toImpactMap(goal);
-      return {
-        ok: true,
-        impact,
-        projectId: impact.projectId,
-        registrySourcePath: undefined
-      };
+  private async buildConductorTaskPlan(
+    goal: string,
+    signal?: AbortSignal
+  ): Promise<import('./conductorOrchestration').ConductorTaskPlan> {
+    const client = this.options.llmClient;
+    if (!client) {
+      return parseConductorTaskPlanFromText(goal, '');
     }
-
-    const registry = this.options.projectRegistry;
-    if (registry) {
-      const selection = selectActiveProject(registry, {
-        activeProjectId: this.options.activeProjectId,
-        workspaceRoot: this.options.workspaceRoot
+    throwIfAborted(signal);
+    const rootsHint = this.options.workspaceRoots
+      ? this.options.workspaceRoots.formatForPrompt()
+      : '（仅主工作区；可用 /add-dir 增加目录，并在任务里填 repoId）';
+    try {
+      const response = await client.complete({
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是指挥家（高级编排模型）。把用户目标拆成可由「经济/快速 worker 子代理」并行或串行执行的任务。\n' +
+              '只输出 JSON（可包在 ```json 代码块中），schema:\n' +
+              '{"goal":string,"notes"?:string,"tasks":[{"id":string,"title":string,"prompt":string,"repoId"?:string}]}\n' +
+              '要求：tasks 至少 1 个；prompt 必须完整可独立执行；repoId 仅当需要绑定 /add-dir 的 root id 时填写。\n' +
+              '不要写代码实现，不要调用工具。'
+          },
+          {
+            role: 'user',
+            content: `目标：\n${goal}\n\n当前工作区 roots：\n${rootsHint}`
+          }
+        ],
+        metadata: { purpose: 'conductor-plan' }
       });
-      if (!selection) {
-        return {
-          ok: false,
-          summary:
-            'project registry 已加载，但无法选定 active project。' +
-            '请设置 defaultProjectId，或用 /add-dir 加入目录。',
-          evidence: [
-            `可用 projects: ${Object.keys(registry.projects).join(', ') || '(空)'}`
-          ]
-        };
-      }
-      return {
-        ok: true,
-        impact: buildImpactMapFromRegistry({
-          projectId: selection.projectId,
-          project: selection.project,
-          goal
-        }),
-        projectId: selection.projectId,
-        registrySourcePath: this.options.projectRegistryPath
-      };
+      return parseConductorTaskPlanFromText(goal, response.text ?? '');
+    } catch {
+      return parseConductorTaskPlanFromText(goal, '');
     }
-
-    // Fallback: single primary workspace
-    const primary = this.options.workspaceRoot;
-    if (primary) {
-      const ephemeral = new WorkspaceRoots(primary);
-      return {
-        ok: true,
-        impact: ephemeral.toImpactMap(goal),
-        projectId: 'workspace'
-      };
-    }
-
-    return {
-      ok: false,
-      summary:
-        '指挥家模式需要至少一个工作区：启动目录、/add-dir 额外目录，或 ~/.kross/projects.json。',
-      evidence: [
-        '提示：/add-dir <path> 加入其它仓库；/dirs 查看当前 roots'
-      ]
-    };
   }
 
   private async executeConductorPlan(
@@ -958,11 +888,13 @@ export class AgentRuntime extends EventEmitter {
     signal?: AbortSignal
   ): Promise<AgentResult> {
     throwIfAborted(signal);
-    const { mode, impactMap, plan, projectId, goal } = pending;
+    const { plan, goal } = pending;
+    const mode = 'conductor' as const;
 
     await this.record(runId, 'conductor.execution.started', {
-      projectId,
-      repos: impactMap.repos.map((r) => r.id)
+      taskIds: plan.tasks.map((t) => t.id),
+      workerModel: this.options.workerLlmClient?.model,
+      seniorModel: this.options.llmClient?.model
     });
 
     const runSubagent = this.options.runSubagent;
@@ -973,7 +905,7 @@ export class AgentRuntime extends EventEmitter {
           mode,
           status: 'failed',
           summary:
-            '跨仓库计划已确认，但运行时未注入 runSubagent，无法派生子代理。',
+            '指挥家计划已确认，但运行时未注入 runSubagent，无法派生 worker 子代理。',
           report: {
             changedFiles: [],
             evidence: ['缺少 AgentRuntimeOptions.runSubagent'],
@@ -987,8 +919,10 @@ export class AgentRuntime extends EventEmitter {
       return failed;
     }
 
-    const outcomes: Array<{
-      repoId: string;
+    const roots = this.options.workspaceRoots;
+    const taskOutcomes: Array<{
+      taskId: string;
+      title: string;
       status: string;
       summary: string;
       changedFiles: string[];
@@ -998,60 +932,73 @@ export class AgentRuntime extends EventEmitter {
     const allEvidence: string[] = [];
     const allRisks: string[] = [];
 
-    for (const repo of impactMap.repos) {
+    for (const task of plan.tasks) {
       throwIfAborted(signal);
-      const taskPrompt =
-        repo.tasks?.[0] ??
-        `在仓库 ${repo.id}（${repo.path}）中推进：${goal}`;
+      const workspaceRoot = task.repoId
+        ? roots?.resolveById(task.repoId)
+        : undefined;
       try {
         const outcome = await runSubagent({
-          prompt: taskPrompt,
-          title: `conductor:${repo.id}`.slice(0, 48),
+          prompt: task.prompt,
+          title: task.title.slice(0, 48),
           mode: 'general',
           parentRunId: runId,
           parentDepth: 0,
           signal,
-          repoId: repo.id,
-          workspaceRoot: repo.path
+          repoId: task.repoId,
+          workspaceRoot,
+          preferWorkerModel: true
         });
         const result = outcome.result;
-        outcomes.push({
-          repoId: repo.id,
+        taskOutcomes.push({
+          taskId: task.id,
+          title: task.title,
           status: result.status,
           summary: result.summary,
           changedFiles: result.changedFiles,
           risks: result.risks
         });
         for (const file of result.changedFiles) {
-          allChanged.push(`${repo.id}:${file}`);
+          allChanged.push(`${task.id}:${file}`);
         }
         allEvidence.push(
-          `${repo.id}: ${result.status} — ${result.summary.slice(0, 200)}`
+          `${task.id}: ${result.status} — ${result.summary.slice(0, 200)}`
         );
-        allRisks.push(...result.risks.map((r) => `${repo.id}: ${r}`));
+        allRisks.push(...result.risks.map((r) => `${task.id}: ${r}`));
       } catch (error) {
         if (isOperationAborted(error, signal)) {
           throw error;
         }
         const message = error instanceof Error ? error.message : String(error);
-        outcomes.push({
-          repoId: repo.id,
+        taskOutcomes.push({
+          taskId: task.id,
+          title: task.title,
           status: 'failed',
           summary: message,
           changedFiles: [],
           risks: [message]
         });
-        allEvidence.push(`${repo.id}: failed — ${message}`);
-        allRisks.push(`${repo.id}: ${message}`);
+        allEvidence.push(`${task.id}: failed — ${message}`);
+        allRisks.push(`${task.id}: ${message}`);
       }
     }
 
-    const summary = formatConductorExecutionSummary({
-      projectId,
+    const reviewText = await this.reviewConductorOutcomes(
       goal,
-      outcomes
+      taskOutcomes,
+      signal
+    );
+    await this.record(runId, 'conductor.review.completed', {
+      taskCount: taskOutcomes.length,
+      reviewPreview: reviewText.slice(0, 400)
     });
-    const anyFailed = outcomes.some((o) => o.status === 'failed');
+
+    const summary = formatConductorReviewSummary({
+      goal,
+      taskOutcomes,
+      reviewText
+    });
+    const anyFailed = taskOutcomes.some((o) => o.status === 'failed');
 
     const result = await this.attachChangedFiles(
       agentResultSchema.parse({
@@ -1062,8 +1009,8 @@ export class AgentRuntime extends EventEmitter {
         report: {
           changedFiles: allChanged,
           evidence: [
-            `project=${projectId}`,
-            `plan steps=${plan.steps.length}`,
+            `senior=${this.options.llmClient?.model ?? 'n/a'}`,
+            `worker=${this.options.workerLlmClient?.model ?? this.options.llmClient?.model ?? 'n/a'}`,
             ...allEvidence
           ],
           risks: allRisks
@@ -1074,12 +1021,62 @@ export class AgentRuntime extends EventEmitter {
     await this.record(runId, 'review.completed', {
       status: result.status,
       summary: result.summary,
-      repos: outcomes.map((o) => ({ repoId: o.repoId, status: o.status }))
+      tasks: taskOutcomes.map((o) => ({ id: o.taskId, status: o.status }))
     });
     await this.record(runId, 'run.completed', { ...result });
     this.pendingModeExecution = undefined;
     this.finishTurnWithAssistant(goal, result.summary);
     return result;
+  }
+
+  private async reviewConductorOutcomes(
+    goal: string,
+    outcomes: Array<{
+      taskId: string;
+      title: string;
+      status: string;
+      summary: string;
+      changedFiles: string[];
+      risks: string[];
+    }>,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const client = this.options.llmClient;
+    const digest = outcomes
+      .map(
+        (o) =>
+          `### ${o.taskId} ${o.title} [${o.status}]\n${o.summary}\nfiles=${o.changedFiles.join(', ') || '—'}\nrisks=${o.risks.join('; ') || '—'}`
+      )
+      .join('\n\n');
+    if (!client) {
+      return [
+        '（无高级模型，跳过验收 LLM）',
+        `共 ${outcomes.length} 个子任务，失败 ${outcomes.filter((o) => o.status === 'failed').length} 个。`,
+        '请人工核对 worker 输出。'
+      ].join('\n');
+    }
+    throwIfAborted(signal);
+    try {
+      const response = await client.complete({
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是指挥家高级模型，负责验收 worker 子代理的结果。' +
+              '用中文给出：是否达标、遗漏、风险、建议的后续动作。简洁有条理。'
+          },
+          {
+            role: 'user',
+            content: `总目标：\n${goal}\n\nWorker 结果：\n${digest}`
+          }
+        ],
+        metadata: { purpose: 'conductor-review' }
+      });
+      return response.text?.trim() || '（验收模型未返回正文）';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return `验收阶段模型调用失败：${message}\n\n原始 worker 摘要：\n${digest}`;
+    }
   }
 
   private async finishRunWithoutLlm(

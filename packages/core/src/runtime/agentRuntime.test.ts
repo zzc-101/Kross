@@ -182,7 +182,7 @@ describe('AgentRuntime', () => {
     }
   });
 
-  it('plans conductor on primary workspace when registry is missing', async () => {
+  it('conductor plans worker tasks and waits for approval', async () => {
     const traceStore = new InMemoryTraceStore();
     const runtime = new AgentRuntime({
       traceStore,
@@ -190,8 +190,8 @@ describe('AgentRuntime', () => {
     });
 
     const result = await runtime.run({
-      input: '给巡检任务增加任务来源字段，前后端联动',
-      requestedMode: 'auto',
+      input: '用指挥家拆任务交给 worker',
+      requestedMode: 'conductor',
       approvals: { plan: false }
     });
 
@@ -199,77 +199,28 @@ describe('AgentRuntime', () => {
     expect(result.status).toBe('cancelled');
     expect(result.cancellationReason).toBe('approval-gate');
     expect(result.summary).toContain('指挥家计划');
-  });
-
-  it('emits an approval gate with real impact map from registry', async () => {
-    const traceStore = new InMemoryTraceStore();
-    const runtime = new AgentRuntime({
-      traceStore,
-      projectRegistry: {
-        defaultProjectId: 'demo',
-        projects: {
-          demo: {
-            repos: [
-              { id: 'api', path: '/tmp/demo-api', type: 'backend' },
-              { id: 'web', path: '/tmp/demo-web', type: 'frontend' }
-            ]
-          }
-        }
-      },
-      projectRegistryPath: '/tmp/projects.json'
-    });
-
-    const result = await runtime.run({
-      input: '给巡检任务增加任务来源字段，前后端联动',
-      requestedMode: 'auto',
-      approvals: { plan: false }
-    });
-
-    expect(result.mode).toBe('conductor');
-    expect(result.status).toBe('cancelled');
-    expect(result.cancellationReason).toBe('approval-gate');
-    expect(result.summary).toContain('指挥家计划');
-    expect(traceStore.events.map((event) => event.type)).toEqual(
-      expect.arrayContaining([
-        'plan.created',
-        'impact_map.created',
-        'approval.required'
-      ])
+    expect(runtime.getPendingConductorPlan()?.plan.tasks.length).toBeGreaterThan(
+      0
     );
-    const impact = traceStore.events.find((e) => e.type === 'impact_map.created');
-    expect(impact?.payload).toMatchObject({
-      strategy: expect.stringMatching(/heuristic|registry-only/),
-      projectId: 'demo'
-    });
-    expect(runtime.getPendingConductorPlan()?.projectId).toBe('demo');
   });
 
-  it('executes per-repo subagents after plan approval', async () => {
+  it('executes worker subagents then senior review after conductor approval', async () => {
     const traceStore = new InMemoryTraceStore();
     const spawned: string[] = [];
     const runtime = new AgentRuntime({
       traceStore,
-      projectRegistry: {
-        defaultProjectId: 'demo',
-        projects: {
-          demo: {
-            repos: [
-              { id: 'api', path: '/tmp/demo-api', type: 'backend' },
-              { id: 'web', path: '/tmp/demo-web', type: 'frontend' }
-            ]
-          }
-        }
-      },
+      workspaceRoot: '/tmp/ws',
       runSubagent: async (request) => {
-        spawned.push(request.repoId ?? 'none');
+        spawned.push(request.title ?? 'task');
+        expect(request.preferWorkerModel).toBe(true);
         return {
-          subRunId: `sub-${request.repoId}`,
+          subRunId: `sub-${spawned.length}`,
           mode: 'general' as const,
           modeForcedToExplore: false,
           result: {
             status: 'completed' as const,
-            summary: `done ${request.repoId}`,
-            changedFiles: [`${request.repoId}.ts`],
+            summary: `done ${request.title}`,
+            changedFiles: [`${request.title}.ts`],
             diffSummary: [],
             commandsRun: [],
             evidence: [],
@@ -281,24 +232,25 @@ describe('AgentRuntime', () => {
     });
 
     await runtime.run({
-      input: '前后端联动改字段',
+      input: '指挥家：实现登录修复',
       requestedMode: 'conductor',
       approvals: { plan: false }
     });
 
     const result = await runtime.run({
-      input: '前后端联动改字段',
+      input: '指挥家：实现登录修复',
       requestedMode: 'conductor',
       approvals: { plan: true }
     });
 
     expect(result.status).toBe('completed');
-    expect(spawned).toEqual(expect.arrayContaining(['api', 'web']));
-    expect(result.summary).toContain('api');
-    expect(result.summary).toContain('web');
-    expect(result.report.evidence.some((e) => e.includes('api'))).toBe(true);
+    expect(spawned.length).toBeGreaterThan(0);
+    expect(result.summary).toContain('指挥家执行完成');
     expect(traceStore.events.map((e) => e.type)).toContain(
       'conductor.execution.started'
+    );
+    expect(traceStore.events.map((e) => e.type)).toContain(
+      'conductor.review.completed'
     );
   });
 
@@ -594,14 +546,13 @@ describe('AgentRuntime', () => {
       'cross.repo.scan'
     );
 
-    // conductor plan-first path does not run a write-capable tool loop
+    // multi-dir phrasing stays on auto agent loop (not conductor)
     const cross = await runtime.run({
       input: '给字段做前后端联动',
       requestedMode: 'auto'
     });
-    expect(cross.mode).toBe('conductor');
-    expect(cross.status).toBe('cancelled'); // cwd-only fallback plan
-    expect(llmClient.requests.length).toBe(1);
+    expect(cross.mode).toBe('auto');
+    expect(llmClient.requests.length).toBeGreaterThanOrEqual(1);
   });
 
   it('executes model tool calls and asks the LLM for a final answer with tool output', async () => {

@@ -9,8 +9,8 @@
 - `auto` / `plan` / `conductor` 三种模式（UI i18n：自动 / 计划 / 指挥家）。
 - **auto**（默认）：普通 agent 工具环；可按输入自动切到 plan 或 conductor。
 - **plan**：先产出计划 → `/approve` → 再进入开发工具环。
-- **conductor**：指挥家多目标编排（plan-first → 按 root 扇出子代理）。
-- 多目录：`/add-dir` `/dirs` `/remove-dir`（与 mode 正交）；可选 `projects.json` 作模板。
+- **conductor（指挥家）**：**高级模型**拆任务 → **经济/快速 worker 子代理**执行 → **高级模型验收**（不是多目录模式）。
+- **多目录**：`/add-dir` `/dirs` `/remove-dir`，**任意 mode 可用**，与指挥家正交；可选 `projects.json` 作模板。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - 工作区级会话持久化：完整可见消息以 append-only JSONL 保存，SQLite 仅维护可重建的最近会话索引；启动页可选择历史会话，`/resume` 打开选择器，`/resume <sessionId>` 直接恢复。
 - TUI 界面 i18n：默认中文，支持 `/lang en|zh` 与 `AGENT_LANG` / `KROSS_LANG` / `config.locale` 切换英文。
@@ -278,30 +278,25 @@ packages/tui
 2. ~~实现 `/diff`~~：agent 触达文件 + git status/diff --stat + 建议验证命令；`report.changedFiles` 在 run 结束时从 Write/Edit 回填。
 3. 补齐 README 与真实能力的同步，持续让文档作为项目状态板使用。
 
-### 指挥家模式 + 多目录（不内置 codegraph）
-
-**Mode（怎么干活）** 与 **workspace roots（能干哪些目录）** 已拆开：
+### 指挥家 vs 多目录（正交）
 
 | 能力 | 命令 / 模式 | 说明 |
 |---|---|---|
 | 自动 agent | `/mode auto` | 默认工具环，可自动切 plan/conductor |
-| 计划优先 | `/mode plan` | 先计划、确认后再开发 |
-| 指挥家编排 | `/mode conductor` | 先计划、确认后按目录扇出子代理 |
-| 加目录 | `/add-dir /path/to/repo` | 会话级 allowlist + Task `repoId` |
-| 列目录 | `/dirs` | 主 cwd + 已 add 的目录 |
-| 移目录 | `/remove-dir <id\|path>` | 不能移除 primary |
-
-指挥家 impact 优先级：
-
-1. 当前会话 `WorkspaceRoots`（primary + `/add-dir`）
-2. 否则 `~/.kross/projects.json`（可选模板）
-3. 否则仅 primary cwd
+| 计划优先 | `/mode plan` | 先计划、确认后再**本 agent 开发** |
+| **指挥家** | `/mode conductor` | **高级模型**拆任务 → worker 子代理执行 → **高级模型验收** |
+| 加目录 | `/add-dir <path>` | 会话 allowlist；**任意 mode** 可用 |
+| 列/移目录 | `/dirs` `/remove-dir` | 管理会话 roots |
 
 ```bash
+# 多目录（auto 即可）
 /add-dir ~/work/api
 /add-dir ~/work/web
+/mode auto
+
+# 指挥家：模型编排，不是“多仓模式”
 /mode conductor
-# 描述前后端联动任务 → /approve
+# 描述复杂任务 → 确认任务拆分 → worker 执行 → 高级模型验收
 ```
 
 可选项目模板 `~/.kross/projects.json`（启动时会尝试 seed 到 roots）：

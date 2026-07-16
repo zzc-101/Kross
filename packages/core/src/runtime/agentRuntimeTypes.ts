@@ -2,8 +2,6 @@ import type { ContextSnapshot, SessionContext } from '../context/sessionContext'
 import type {
   AgentMode,
   AgentResult,
-  ConductorPlan,
-  ImpactMap,
   ProjectRegistry,
   TraceEvent
 } from '../domain';
@@ -12,6 +10,7 @@ import type { TodoStore } from '../todo/todoStore';
 import type { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import type { GitRunner } from '../workspace/workspaceDiff';
+import type { ConductorTaskPlan } from './conductorOrchestration';
 import type {
   SubagentRunOutcome,
   SubagentRunRequest
@@ -20,7 +19,13 @@ import type { WorkspaceRoots } from '../workspace/workspaceRoots';
 
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
+  /** 高级模型（指挥家规划 + 验收）；也是默认 agent 模型 */
   llmClient?: LlmClient;
+  /**
+   * 经济/快速 worker 模型，供指挥家派生子代理时使用。
+   * 未配置时子代理回退到 llmClient。
+   */
+  workerLlmClient?: LlmClient;
   sessionContext?: SessionContext;
   /** @deprecated 使用 sessionContext */
   contextManager?: SessionContext;
@@ -38,19 +43,19 @@ export interface AgentRuntimeOptions {
   /** Session todo list shared with TodoWrite/TodoRead tools. */
   todoStore?: TodoStore;
   /**
-   * Session multi-directory roots (/add-dir). When set, conductor impact and
-   * Task allowlist prefer these over (or in addition to) project registry.
+   * Session multi-directory roots (/add-dir). Orthogonal to modes —
+   * any mode may use Task(repoId) against these roots.
    */
   workspaceRoots?: WorkspaceRoots;
-  /** Loaded ~/.kross/projects.json (and optional workspace overlay). */
+  /** Loaded ~/.kross/projects.json (optional project template / seed). */
   projectRegistry?: ProjectRegistry;
   /** Absolute path of the registry file (for prompts / errors). */
   projectRegistryPath?: string;
   /** Prefer this project id when selecting from registry. */
   activeProjectId?: string;
   /**
-   * Spawn subagent for conductor execution (and tests).
-   * When omitted, approved conductor runs only produce a plan summary.
+   * Spawn subagent (conductor workers + Task tool).
+   * When omitted, conductor cannot fan out workers.
    */
   runSubagent?: (
     request: SubagentRunRequest
@@ -67,15 +72,12 @@ export interface AgentRunInput {
   };
 }
 
-/** Conductor plan held between /approve and execution (process lifetime). */
+/** Conductor task plan held between /approve and worker execution. */
 export interface PendingConductorExecution {
   kind: 'conductor';
   goal: string;
   mode: 'conductor';
-  plan: ConductorPlan;
-  impactMap: ImpactMap;
-  projectId: string;
-  registrySourcePath?: string;
+  plan: ConductorTaskPlan;
 }
 
 /** Plan-mode plan held between /approve and development tool loop. */

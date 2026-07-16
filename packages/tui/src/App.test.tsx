@@ -840,7 +840,8 @@ describe('App', () => {
     const { lastFrame } = render(<App onReady={(api) => (submit = api.submit)} />);
 
     await waitUntil(() => submit !== undefined);
-    await submit?.('给巡检任务增加任务来源字段，前后端联动');
+    await submit?.('/mode conductor');
+    await submit?.('用指挥家拆任务并派 worker 执行');
     await waitUntil(() => lastFrame()?.includes('等待确认') === true);
 
     // Display uses i18n (指挥家), not raw mode id
@@ -861,7 +862,8 @@ describe('App', () => {
     );
 
     await waitUntil(() => submit !== undefined);
-    await submit?.('给巡检任务增加任务来源字段，前后端联动');
+    await submit?.('/mode conductor');
+    await submit?.('用指挥家拆任务并派 worker 执行');
     await waitUntil(() => lastFrame()?.includes('等待确认') === true);
 
     expect(typeof choosePlanApproval).toBe('function');
@@ -869,12 +871,15 @@ describe('App', () => {
     await waitUntil(
       () =>
         lastFrame()?.includes('指挥家执行完成') === true ||
-        lastFrame()?.includes('memory subagent') === true
+        lastFrame()?.includes('memory subagent') === true ||
+        lastFrame()?.includes('验收') === true
     );
 
     const frame = lastFrame() ?? '';
     expect(
-      frame.includes('指挥家执行完成') || frame.includes('memory subagent')
+      frame.includes('指挥家执行完成') ||
+        frame.includes('memory subagent') ||
+        frame.includes('验收')
     ).toBe(true);
   });
 
