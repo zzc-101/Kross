@@ -7,8 +7,9 @@
 - `modes`：mode policy、conductor plan schema、pending execution 类型。禁止依赖 `runtime`。
 - `tools`：Tool Gateway 与 builtin tools。`Task` 只依赖 `SubagentRunner` 类型和纯格式化函数。
 - `host`：core composition root，负责模型、context、tooling、MCP、workspace roots 的装配。
+- `workspace`：workspace roots、项目注册、diff 与 Project Instructions 纯加载器；不得反向依赖 runtime、SessionContext 或 TUI。
 - `runtime`：运行协调层，由薄门面 `AgentRuntime` 组合以下协作对象：
-  - `SessionServices`：mode、permission、pending execution、todo/registry context source。
+  - `SessionServices`：mode、permission、pending execution、todo/registry/project-instruction context source lifecycle。
   - `ModelSession`：LLM client、model、thinking effort 绑定。
   - `ModeFlows`：plan gate、conductor gate、worker fan-out 与验收。
   - `RuntimeToolLoop`：主 agent 流式工具环和审批恢复。
@@ -22,6 +23,24 @@
 4. 两种工具环共享 tool metadata 转换、顺序 tool execution 和重复调用 stall detection。
 5. TUI 不再拥有 runtime composition root，只消费 core host。
 6. `ConversationThread` 继续作为模型对话上下文的单一事实源。
+7. 项目指令不写入 `SessionContextState`；构造、请求和恢复后的下一次 context 构建均读取磁盘当前内容。
+8. 主 agent 按带 scope 的多 root sources 注入；subagent/conductor worker 只加载实际执行 root。
+
+## Project Instructions 数据流
+
+```text
+workspace roots
+  -> workspace/projectInstructions (realpath、优先级、UTF-8 预算、诊断)
+    -> SessionServices (signature cache、旧 source 清理、pinned source 注入)
+      -> AgentRuntime public refresh/get API
+        -> TUI /instructions（只展示 provenance，不展示正文）
+
+selected subagent root
+  -> 同一纯 loader
+    -> child SessionContext（独立 pinned sources）
+```
+
+固定语义：root-level only；`CLAUDE.md < AGENTS.md < KROSS.md`；最多 16 文件、单文件 32 KiB、总计 64 KiB；symlink 的 canonical target 必须仍在所属 root 内。
 
 ## 刻意保留的边界
 

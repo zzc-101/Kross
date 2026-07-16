@@ -380,7 +380,7 @@ export function formatProjectInstructionSource(
 ): string {
   const scope = file.rootPrimary
     ? `These instructions apply to the primary workspace root ${file.rootId}.`
-    : `These instructions only applies to workspace root ${file.rootId}; do not apply them to other roots.`;
+    : `These instructions apply only to workspace root ${file.rootId}; do not apply them to other roots.`;
   return [
     'Project instructions',
     `scope: rootId=${file.rootId} root=${file.rootPath}`,

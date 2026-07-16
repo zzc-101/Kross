@@ -153,6 +153,18 @@ describe('loadProjectInstructions', () => {
     expect(snapshot.diagnostics.filter((item) => item.code === 'total-limit')).toHaveLength(2);
   });
 
+  it('enforces the file-count limit in precedence allocation order', () => {
+    const root = makeRoot('main', true);
+    writeFileSync(join(root.path, 'CLAUDE.md'), 'claude');
+    writeFileSync(join(root.path, 'AGENTS.md'), 'agents');
+    writeFileSync(join(root.path, 'KROSS.md'), 'kross');
+
+    const snapshot = loadProjectInstructions({ roots: [root], maxFiles: 1 });
+
+    expect(snapshot.files.map((file) => file.filename)).toEqual(['KROSS.md']);
+    expect(snapshot.diagnostics.filter((item) => item.code === 'file-limit')).toHaveLength(2);
+  });
+
   it('formats root scope, source and precedence without leaking extra roots', () => {
     const root = makeRoot('api');
     writeFileSync(join(root.path, 'AGENTS.md'), 'Only run API tests.');
@@ -164,7 +176,7 @@ describe('loadProjectInstructions', () => {
     expect(formatted).toContain(root.path);
     expect(formatted).toContain('AGENTS.md');
     expect(formatted).toContain('precedence=20');
-    expect(formatted).toContain('only applies to workspace root api');
+    expect(formatted).toContain('apply only to workspace root api');
     expect(formatted).toContain('Only run API tests.');
   });
 });
