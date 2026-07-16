@@ -216,9 +216,18 @@ export class ModeFlows {
     throwIfAborted(input.signal);
     this.deps.sessionServices.syncProjectRegistrySource();
 
+    // Internal complete can take time; show visible progress before it starts.
+    yield {
+      type: 'text-delta',
+      text: '【指挥家】正在拆分任务…\n\n'
+    };
+
     const plan = await this.buildConductorTaskPlan(input.input, input.signal);
     const summary = formatConductorTaskPlanSummary(plan);
-    yield { type: 'text-delta', text: summary };
+    for (const chunk of chunkTextForStream(summary)) {
+      throwIfAborted(input.signal);
+      yield { type: 'text-delta', text: chunk };
+    }
 
     await this.deps.record(runId, 'plan.created', {
       mode: 'conductor',
@@ -480,6 +489,21 @@ export function isCasualChatInput(input: string): boolean {
   return /^(你好|您好|嗨|哈喽|在吗|在不在|早上好|中午好|下午好|晚上好|谢谢|感谢|再见|拜拜|ok|okay|好的|嗯|hi|hello|hey|thanks|thank you|bye)([\s!！.。?？~～❤️🙏]*)$/i.test(
     text
   );
+}
+
+/** Split formatted content into text-deltas without changing stored summaries. */
+export function chunkTextForStream(text: string, chunkSize = 64): string[] {
+  if (!text) {
+    return [];
+  }
+  if (chunkSize <= 0 || text.length <= chunkSize) {
+    return [text];
+  }
+  const chunks: string[] = [];
+  for (let offset = 0; offset < text.length; offset += chunkSize) {
+    chunks.push(text.slice(offset, offset + chunkSize));
+  }
+  return chunks;
 }
 
 /** Parse internal plan-intent JSON without exposing it as assistant output. */

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AgentRuntime,
+  chunkTextForStream,
   isCasualChatInput,
   parsePlanIntentKind
 } from './agentRuntime';
@@ -206,6 +207,33 @@ describe('AgentRuntime', () => {
     expect(runtime.getPendingConductorPlan()?.plan.tasks.length).toBeGreaterThan(
       0
     );
+  });
+
+  it('streams conductor progress and chunked plan without polluting summary', async () => {
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      workspaceRoot: '/tmp/primary-ws'
+    });
+
+    const deltas: string[] = [];
+    let resultSummary = '';
+    for await (const event of runtime.runStreaming({
+      input: '用指挥家拆任务交给 worker',
+      requestedMode: 'conductor',
+      approvals: { plan: false }
+    })) {
+      if (event.type === 'text-delta') {
+        deltas.push(event.text);
+      } else if (event.type === 'result') {
+        resultSummary = event.result.summary;
+      }
+    }
+
+    expect(deltas.length).toBeGreaterThan(1);
+    expect(deltas[0]).toContain('正在拆分任务');
+    expect(deltas.join('')).toContain('指挥家计划');
+    expect(resultSummary).toContain('指挥家计划');
+    expect(resultSummary).not.toContain('正在拆分任务');
   });
 
   it('executes worker subagents then senior review after conductor approval', async () => {
@@ -1938,6 +1966,17 @@ describe('isCasualChatInput', () => {
     expect(isCasualChatInput('hello!')).toBe(true);
     expect(isCasualChatInput('修复登录 bug')).toBe(false);
     expect(isCasualChatInput('先规划再实现认证')).toBe(false);
+  });
+});
+
+describe('chunkTextForStream', () => {
+  it('splits long text while preserving short text', () => {
+    expect(chunkTextForStream('abcdefgh', 3)).toEqual([
+      'abc',
+      'def',
+      'gh'
+    ]);
+    expect(chunkTextForStream('short', 64)).toEqual(['short']);
   });
 });
 

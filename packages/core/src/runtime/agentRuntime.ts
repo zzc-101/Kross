@@ -73,7 +73,11 @@ export type {
 } from './agentRuntimeTypes';
 
 export type { ContextMaintenanceResult } from '../context/sessionContext';
-export { isCasualChatInput, parsePlanIntentKind } from './modeFlows';
+export {
+  chunkTextForStream,
+  isCasualChatInput,
+  parsePlanIntentKind
+} from './modeFlows';
 
 /**
  * 工具调用轮次安全上限（默认）。
