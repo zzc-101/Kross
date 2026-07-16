@@ -456,23 +456,12 @@ export class AgentRuntime extends EventEmitter {
       }
 
       if (detection.mode === 'plan') {
-        if (input.approvals?.plan === true && this.pendingModeExecution?.kind === 'plan') {
-          const pending = this.pendingModeExecution;
-          this.pendingModeExecution = undefined;
-          if (this.options.llmClient) {
-            yield* this.runAgentToolLoop(input, 'plan', runId, {
-              planText: pending.planText
-            });
-            return;
-          }
-        }
-        const result = await this.runPlanMode(
+        yield* this.runPlanModeStreaming(
           input,
           detection.mode,
           runId,
           detection.reason
         );
-        yield { type: 'result', result };
         return;
       }
 
@@ -616,16 +605,16 @@ export class AgentRuntime extends EventEmitter {
   }
 
   /**
-   * Plan mode: model judges whether input needs a plan.
-   * - chat/Q&A/small-talk → direct reply (no /approve)
-   * - real implementation task → plan text → /approve → tool-loop develop
+   * Plan mode — 输出与 auto 一样走流式 text-delta，不单独接非流式通道。
+   * - 模型判断 chat → 通用 streaming tool loop
+   * - 模型判断 plan → 流式写出计划 → /approve 后再 streaming tool loop
    */
-  private async runPlanMode(
+  private async *runPlanModeStreaming(
     input: AgentRunInput,
     mode: AgentMode,
     runId: string,
     reason: string | undefined
-  ): Promise<AgentResult> {
+  ): AsyncIterable<AgentRunStreamEvent> {
     throwIfAborted(input.signal);
 
     if (
@@ -635,52 +624,191 @@ export class AgentRuntime extends EventEmitter {
       const pending = this.pendingModeExecution;
       this.pendingModeExecution = undefined;
       if (!this.options.llmClient) {
-        return this.finishRunWithoutLlm(input, mode, runId, reason);
+        yield {
+          type: 'result',
+          result: await this.finishRunWithoutLlm(input, mode, runId, reason)
+        };
+        return;
       }
-      let result: AgentResult | undefined;
-      for await (const event of this.runAgentToolLoop(input, 'plan', runId, {
+      yield* this.runAgentToolLoop(input, 'plan', runId, {
         planText: pending.planText
-      })) {
-        if (event.type === 'result') {
-          result = event.result;
+      });
+      return;
+    }
+
+    if (!this.options.llmClient) {
+      // 无模型：启发式。闲聊给固定文案流式吐出；任务用模板计划。
+      if (isCasualChatInput(input.input)) {
+        const reply =
+          '你好。当前是 Plan 模式；有具体开发任务时再说，我会先出计划请你确认。';
+        for (const ch of reply) {
+          yield { type: 'text-delta', text: ch };
         }
+        const completed = await this.attachChangedFiles(
+          agentResultSchema.parse({
+            runId,
+            mode: 'plan',
+            status: 'completed',
+            summary: reply,
+            report: {
+              changedFiles: [],
+              evidence: ['plan 模式无 LLM：闲聊兜底'],
+              risks: []
+            }
+          })
+        );
+        await this.record(runId, 'run.completed', { ...completed });
+        this.finishTurnWithAssistant(input.input, completed.summary);
+        yield { type: 'result', result: completed };
+        return;
       }
-      if (!result) {
-        throw new Error(`Plan execution finished without result: ${runId}`);
-      }
-      return result;
+      const planText = [
+        `目标：${input.input}`,
+        '',
+        '建议步骤：',
+        '1. 阅读相关代码与测试',
+        '2. 列出拟修改文件',
+        '3. 实现并验证'
+      ].join('\n');
+      yield* this.finishPlanGateWithText(input, runId, planText, reason, true);
+      return;
     }
 
-    const decision = await this.decidePlanModeIntent(input.input, input.signal);
-    await this.record(runId, 'plan.intent', {
-      kind: decision.kind,
-      reason: decision.reason
-    });
+    // 1) 轻量分类（短 JSON，不展示正文；正文一律 stream）
+    const intent = await this.classifyPlanIntent(input.input, input.signal);
+    await this.record(runId, 'plan.intent', intent);
 
-    if (decision.kind === 'chat') {
-      const reply = decision.reply;
-      const completed = await this.attachChangedFiles(
-        agentResultSchema.parse({
-          runId,
-          mode: 'plan',
-          status: 'completed',
-          summary: reply,
-          report: {
-            changedFiles: [],
-            evidence: [
-              'plan 模式：模型判断无需开发计划，直接回复',
-              decision.reason
-            ],
-            risks: []
-          }
-        })
-      );
-      await this.record(runId, 'run.completed', { ...completed });
-      this.finishTurnWithAssistant(input.input, completed.summary);
-      return completed;
+    // 2) chat → 通用流式 tool loop（与 auto 同一条输出管线）
+    if (intent.kind === 'chat') {
+      yield* this.runAgentToolLoop(input, mode, runId);
+      return;
     }
 
-    const planText = decision.planText;
+    // 3) plan → 流式生成计划正文，再进确认门
+    const header = '【Plan 模式 · 等待确认】\n\n';
+    const footer = '\n\n输入 /approve 按该计划开始开发，或 /reject 取消。';
+    yield { type: 'text-delta', text: header };
+
+    let planBody = '';
+    for await (const event of this.streamPlainAssistantText({
+      systemPrompt:
+        '你是资深工程师。用户已确定需要开发计划。只输出可执行的开发计划（中文），' +
+        '包含：目标、步骤、涉及文件/模块、风险与验证方式。不要调用工具，不要改代码，不要输出 JSON 外壳。',
+      userText: input.input,
+      signal: input.signal
+    })) {
+      if (event.type === 'text-delta') {
+        planBody += event.text;
+        yield event;
+      }
+    }
+
+    if (!planBody.trim()) {
+      planBody = [
+        `目标：${input.input}`,
+        '',
+        '1. 探索相关代码',
+        '2. 实现变更',
+        '3. 验证测试'
+      ].join('\n');
+      yield { type: 'text-delta', text: planBody };
+    }
+
+    yield { type: 'text-delta', text: footer };
+    yield* this.finishPlanGateWithText(
+      input,
+      runId,
+      planBody.trim(),
+      reason,
+      false
+    );
+  }
+
+  /** 分类仅返回 kind，不生成展示正文（避免非流式整段输出）。 */
+  private async classifyPlanIntent(
+    userInput: string,
+    signal?: AbortSignal
+  ): Promise<{ kind: 'chat' | 'plan'; reason: string }> {
+    const client = this.options.llmClient;
+    if (!client) {
+      return isCasualChatInput(userInput)
+        ? { kind: 'chat', reason: 'no-llm heuristic' }
+        : { kind: 'plan', reason: 'no-llm heuristic' };
+    }
+    throwIfAborted(signal);
+    try {
+      const response = await client.complete({
+        messages: [
+          {
+            role: 'system',
+            content: [
+              'Plan 模式路由。只判断用户是否需要「可执行开发计划」。',
+              '- 问候/闲聊/感谢/不改代码的问答 → {"kind":"chat","reason":"..."}',
+              '- 写代码/改代码/修 bug/加功能/重构/改仓库 → {"kind":"plan","reason":"..."}',
+              '只输出上述 JSON，不要其它文字。'
+            ].join('\n')
+          },
+          { role: 'user', content: userInput }
+        ],
+        maxTokens: 80,
+        metadata: { purpose: 'plan-mode-intent' }
+      });
+      const kind = parsePlanIntentKind(response.text ?? '');
+      if (kind) {
+        return kind;
+      }
+    } catch {
+      // fall through
+    }
+    return isCasualChatInput(userInput)
+      ? { kind: 'chat', reason: 'llm-failed heuristic' }
+      : { kind: 'plan', reason: 'llm-failed heuristic' };
+  }
+
+  /** 通用流式助手文本（text-delta），供 plan 正文等使用。 */
+  private async *streamPlainAssistantText(input: {
+    systemPrompt: string;
+    userText: string;
+    signal?: AbortSignal;
+  }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>> {
+    const client = this.options.llmClient;
+    if (!client) {
+      return;
+    }
+    throwIfAborted(input.signal);
+    for await (const chunk of client.stream({
+      messages: [
+        { role: 'system', content: input.systemPrompt },
+        { role: 'user', content: input.userText }
+      ],
+      signal: input.signal,
+      metadata: { purpose: 'plan-mode-stream' }
+    })) {
+      throwIfAborted(input.signal);
+      if (chunk.type === 'text-delta' && chunk.text) {
+        yield { type: 'text-delta', text: chunk.text };
+      }
+    }
+  }
+
+  private async *finishPlanGateWithText(
+    input: AgentRunInput,
+    runId: string,
+    planText: string,
+    reason: string | undefined,
+    emitBody: boolean
+  ): AsyncIterable<AgentRunStreamEvent> {
+    if (emitBody) {
+      const full = [
+        '【Plan 模式 · 等待确认】',
+        '',
+        planText,
+        '',
+        '输入 /approve 按该计划开始开发，或 /reject 取消。'
+      ].join('\n');
+      yield { type: 'text-delta', text: full };
+    }
+
     await this.record(runId, 'plan.created', {
       mode: 'plan',
       goal: input.input,
@@ -706,25 +834,6 @@ export class AgentRuntime extends EventEmitter {
       planText
     };
 
-    if (input.approvals?.plan === true) {
-      this.pendingModeExecution = undefined;
-      if (!this.options.llmClient) {
-        return this.finishRunWithoutLlm(input, mode, runId, reason);
-      }
-      let result: AgentResult | undefined;
-      for await (const event of this.runAgentToolLoop(input, 'plan', runId, {
-        planText
-      })) {
-        if (event.type === 'result') {
-          result = event.result;
-        }
-      }
-      if (!result) {
-        throw new Error(`Plan execution finished without result: ${runId}`);
-      }
-      return result;
-    }
-
     const cancelled = await this.attachChangedFiles(
       agentResultSchema.parse({
         runId,
@@ -734,102 +843,14 @@ export class AgentRuntime extends EventEmitter {
         summary,
         report: {
           changedFiles: [],
-          evidence: ['plan-first：模型判断需要计划；确认前不改文件'],
+          evidence: ['plan-first：确认前不改文件'],
           risks: []
         }
       })
     );
     await this.record(runId, 'run.completed', { ...cancelled });
     this.finishTurnWithAssistant(input.input, cancelled.summary);
-    return cancelled;
-  }
-
-  /**
-   * 由高级模型判断：闲聊/问答直接回复，还是产出开发计划。
-   * 无模型时仅用轻量启发式兜底。
-   */
-  private async decidePlanModeIntent(
-    userInput: string,
-    signal?: AbortSignal
-  ): Promise<
-    | { kind: 'chat'; reply: string; reason: string }
-    | { kind: 'plan'; planText: string; reason: string }
-  > {
-    const client = this.options.llmClient;
-    if (!client) {
-      if (isCasualChatInput(userInput)) {
-        return {
-          kind: 'chat',
-          reply: '你好。当前是 Plan 模式；有具体开发任务时再说，我会先出计划请你确认。',
-          reason: 'no-llm + casual heuristic'
-        };
-      }
-      return {
-        kind: 'plan',
-        planText: [
-          `目标：${userInput}`,
-          '',
-          '建议步骤：',
-          '1. 阅读相关代码与测试，确认现状',
-          '2. 列出拟修改文件与接口影响',
-          '3. 按最小可验证增量实现',
-          '4. 跑相关测试并自检'
-        ].join('\n'),
-        reason: 'no-llm + task fallback template'
-      };
-    }
-
-    throwIfAborted(signal);
-    try {
-      const response = await client.complete({
-        messages: [
-          {
-            role: 'system',
-            content: [
-              '你在 Plan 模式路由层。根据用户输入判断是否需要「开发计划」。',
-              '',
-              '规则：',
-              '- 问候、闲聊、感谢、单纯提问且不要求改代码 → kind=chat，写自然回复。',
-              '- 要求写代码/改代码/修 bug/加功能/重构/跑测试并改仓库等 → kind=plan，写可执行开发计划（目标、步骤、涉及文件/模块、风险与验证）。',
-              '- 不要调用工具，不要编造已改代码。',
-              '',
-              '只输出 JSON（可包在 ```json 中）：',
-              '{"kind":"chat","reply":"...","reason":"..."}',
-              '或',
-              '{"kind":"plan","plan":"...","reason":"..."}'
-            ].join('\n')
-          },
-          { role: 'user', content: userInput }
-        ],
-        metadata: { purpose: 'plan-mode-intent' }
-      });
-      const parsed = parsePlanModeIntent(userInput, response.text ?? '');
-      if (parsed) {
-        return parsed;
-      }
-    } catch {
-      // fall through
-    }
-
-    // 模型失败时的保守兜底：明显闲聊直回，否则出计划
-    if (isCasualChatInput(userInput)) {
-      return {
-        kind: 'chat',
-        reply: '你好。有具体开发任务时发我，我会在 Plan 模式下先出计划再动手。',
-        reason: 'llm-failed + casual heuristic'
-      };
-    }
-    return {
-      kind: 'plan',
-      planText: [
-        `目标：${userInput}`,
-        '',
-        '1. 探索相关代码',
-        '2. 实现变更',
-        '3. 验证测试'
-      ].join('\n'),
-      reason: 'llm-failed + task fallback'
-    };
+    yield { type: 'result', result: cancelled };
   }
 
   /**
@@ -1392,13 +1413,10 @@ export function isCasualChatInput(input: string): boolean {
   );
 }
 
-export function parsePlanModeIntent(
-  userInput: string,
+/** 解析 plan 意图分类 JSON（仅 kind，不承载展示正文）。 */
+export function parsePlanIntentKind(
   raw: string
-):
-  | { kind: 'chat'; reply: string; reason: string }
-  | { kind: 'plan'; planText: string; reason: string }
-  | undefined {
+): { kind: 'chat' | 'plan'; reason: string } | undefined {
   const trimmed = raw.trim();
   if (!trimmed) {
     return undefined;
@@ -1412,42 +1430,17 @@ export function parsePlanModeIntent(
       typeof obj.reason === 'string' && obj.reason.trim()
         ? obj.reason.trim()
         : 'model';
-    if (kind === 'chat') {
-      const reply =
-        typeof obj.reply === 'string' && obj.reply.trim()
-          ? obj.reply.trim()
-          : typeof obj.message === 'string'
-            ? obj.message.trim()
-            : '';
-      if (reply) {
-        return { kind: 'chat', reply, reason };
-      }
-    }
-    if (kind === 'plan') {
-      const planText =
-        typeof obj.plan === 'string' && obj.plan.trim()
-          ? obj.plan.trim()
-          : typeof obj.planText === 'string'
-            ? obj.planText.trim()
-            : '';
-      if (planText) {
-        return { kind: 'plan', planText, reason };
-      }
+    if (kind === 'chat' || kind === 'plan') {
+      return { kind, reason };
     }
   } catch {
-    // not JSON
+    // fall through
   }
-  // 非 JSON：若整段像闲聊回复且输入是问候，当 chat
-  if (isCasualChatInput(userInput) && trimmed.length < 500) {
-    return { kind: 'chat', reply: trimmed, reason: 'non-json freeform chat' };
+  if (/\bkind\b["']?\s*[:=]\s*["']?chat/i.test(trimmed)) {
+    return { kind: 'chat', reason: 'regex' };
   }
-  // 否则当计划正文
-  if (trimmed.length > 20) {
-    return {
-      kind: 'plan',
-      planText: trimmed,
-      reason: 'non-json freeform plan'
-    };
+  if (/\bkind\b["']?\s*[:=]\s*["']?plan/i.test(trimmed)) {
+    return { kind: 'plan', reason: 'regex' };
   }
   return undefined;
 }

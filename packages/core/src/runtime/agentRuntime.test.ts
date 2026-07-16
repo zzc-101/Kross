@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AgentRuntime,
   isCasualChatInput,
-  parsePlanModeIntent
+  parsePlanIntentKind
 } from './agentRuntime';
 import { InMemoryContextManager, type SessionContext } from '../context/sessionContext';
 import type { LlmMessage } from '../llm/types';
@@ -1938,23 +1938,13 @@ describe('isCasualChatInput', () => {
   });
 });
 
-describe('parsePlanModeIntent', () => {
-  it('parses chat and plan JSON from the model', () => {
+describe('parsePlanIntentKind', () => {
+  it('parses chat and plan kind from JSON', () => {
     expect(
-      parsePlanModeIntent(
-        '你好',
-        '{"kind":"chat","reply":"你好呀","reason":"greeting"}'
-      )
-    ).toEqual({
-      kind: 'chat',
-      reply: '你好呀',
-      reason: 'greeting'
-    });
+      parsePlanIntentKind('{"kind":"chat","reason":"greeting"}')
+    ).toEqual({ kind: 'chat', reason: 'greeting' });
     expect(
-      parsePlanModeIntent(
-        '修登录',
-        '```json\n{"kind":"plan","plan":"1. 读代码\\n2. 改","reason":"task"}\n```'
-      )
-    ).toMatchObject({ kind: 'plan', reason: 'task' });
+      parsePlanIntentKind('```json\n{"kind":"plan","reason":"task"}\n```')
+    ).toEqual({ kind: 'plan', reason: 'task' });
   });
 });
