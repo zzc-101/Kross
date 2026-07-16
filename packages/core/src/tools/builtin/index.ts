@@ -58,6 +58,8 @@ export interface CreateBuiltinToolsOptions {
   includeTask?: boolean;
   parentDepth?: number;
   runSubagent?: CreateTaskToolOptions['run'];
+  /** Resolve project-registry repoId → absolute path (multi-repo Task). */
+  resolveRepoPath?: CreateTaskToolOptions['resolveRepoPath'];
   /** Session todo store; when set, registers TodoWrite + TodoRead. */
   todoStore?: TodoStore;
 }
@@ -94,7 +96,8 @@ export function createBuiltinTools(
     tools.push(
       createTaskTool({
         parentDepth: options.parentDepth ?? 0,
-        run: options.runSubagent
+        run: options.runSubagent,
+        resolveRepoPath: options.resolveRepoPath
       })
     );
   }

@@ -182,7 +182,7 @@ describe('AgentRuntime', () => {
     }
   });
 
-  it('emits an approval gate before cross-repo execution', async () => {
+  it('fails cross-repo when project registry is missing', async () => {
     const traceStore = new InMemoryTraceStore();
     const runtime = new AgentRuntime({ traceStore });
 
@@ -193,26 +193,108 @@ describe('AgentRuntime', () => {
     });
 
     expect(result.mode).toBe('cross-repo');
-    expect(result.status).toBe('cancelled');
-    expect(traceStore.events.map((event) => event.type)).toContain(
-      'approval.required'
-    );
+    expect(result.status).toBe('failed');
+    expect(result.summary).toContain('project registry');
   });
 
-  it('creates a cross-repo impact map placeholder when approved', async () => {
+  it('emits an approval gate with real impact map from registry', async () => {
     const traceStore = new InMemoryTraceStore();
-    const runtime = new AgentRuntime({ traceStore });
+    const runtime = new AgentRuntime({
+      traceStore,
+      projectRegistry: {
+        defaultProjectId: 'demo',
+        projects: {
+          demo: {
+            repos: [
+              { id: 'api', path: '/tmp/demo-api', type: 'backend' },
+              { id: 'web', path: '/tmp/demo-web', type: 'frontend' }
+            ]
+          }
+        }
+      },
+      projectRegistryPath: '/tmp/projects.json'
+    });
 
     const result = await runtime.run({
       input: '给巡检任务增加任务来源字段，前后端联动',
       requestedMode: 'auto',
-      approvals: { plan: true }
+      approvals: { plan: false }
     });
 
     expect(result.mode).toBe('cross-repo');
-    expect(result.report.evidence).toContain('已生成跨仓库影响面占位图');
-    expect(traceStore.events.map((event) => event.type)).toContain(
-      'impact_map.created'
+    expect(result.status).toBe('cancelled');
+    expect(result.cancellationReason).toBe('approval-gate');
+    expect(result.summary).toContain('跨仓库计划');
+    expect(traceStore.events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'plan.created',
+        'impact_map.created',
+        'approval.required'
+      ])
+    );
+    const impact = traceStore.events.find((e) => e.type === 'impact_map.created');
+    expect(impact?.payload).toMatchObject({
+      strategy: expect.stringMatching(/heuristic|registry-only/),
+      projectId: 'demo'
+    });
+    expect(runtime.getPendingCrossRepoPlan()?.projectId).toBe('demo');
+  });
+
+  it('executes per-repo subagents after plan approval', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const spawned: string[] = [];
+    const runtime = new AgentRuntime({
+      traceStore,
+      projectRegistry: {
+        defaultProjectId: 'demo',
+        projects: {
+          demo: {
+            repos: [
+              { id: 'api', path: '/tmp/demo-api', type: 'backend' },
+              { id: 'web', path: '/tmp/demo-web', type: 'frontend' }
+            ]
+          }
+        }
+      },
+      runSubagent: async (request) => {
+        spawned.push(request.repoId ?? 'none');
+        return {
+          subRunId: `sub-${request.repoId}`,
+          mode: 'general' as const,
+          modeForcedToExplore: false,
+          result: {
+            status: 'completed' as const,
+            summary: `done ${request.repoId}`,
+            changedFiles: [`${request.repoId}.ts`],
+            diffSummary: [],
+            commandsRun: [],
+            evidence: [],
+            risks: [],
+            needsReview: []
+          }
+        };
+      }
+    });
+
+    await runtime.run({
+      input: '前后端联动改字段',
+      requestedMode: 'cross-repo',
+      approvals: { plan: false }
+    });
+
+    const result = await runtime.run({
+      input: '前后端联动改字段',
+      requestedMode: 'cross-repo',
+      approvals: { plan: true }
+    });
+
+    expect(result.status).toBe('completed');
+    expect(spawned).toEqual(expect.arrayContaining(['api', 'web']));
+    expect(result.summary).toContain('api');
+    expect(result.summary).toContain('web');
+    expect(result.report.evidence.some((e) => e.includes('api'))).toBe(true);
+    expect(traceStore.events.map((e) => e.type)).toContain(
+      'cross_repo.execution.started'
     );
   });
 
@@ -470,7 +552,7 @@ describe('AgentRuntime', () => {
     expect(llmClient.requests[0]?.messages[0]?.content).toContain('读取文件内容');
   });
 
-  it('only exposes tools enabled for the detected mode', async () => {
+  it('only exposes mode-gated tools in normal planner context', async () => {
     const traceStore = new InMemoryTraceStore();
     const llmClient = new FakeLlmClient('ok');
     const toolGateway = new ToolGateway();
@@ -480,6 +562,13 @@ describe('AgentRuntime', () => {
       risk: 'read',
       inputSchema: z.object({}),
       enabled: ({ mode }) => mode === 'cross-repo',
+      execute: async () => ({ content: 'ok' })
+    });
+    toolGateway.register({
+      name: 'fs.read',
+      description: '读取文件',
+      risk: 'read',
+      inputSchema: z.object({ path: z.string() }),
       execute: async () => ({ content: 'ok' })
     });
     const runtime = new AgentRuntime({
@@ -493,17 +582,21 @@ describe('AgentRuntime', () => {
       input: '解释一下 README',
       requestedMode: 'auto'
     });
-    await runtime.run({
-      input: '给字段做前后端联动',
-      requestedMode: 'auto'
-    });
 
+    // normal mode: cross-repo-only tools must not appear
+    expect(llmClient.requests[0]?.messages[0]?.content).toContain('fs.read');
     expect(llmClient.requests[0]?.messages[0]?.content).not.toContain(
       'cross.repo.scan'
     );
-    expect(llmClient.requests[1]?.messages[0]?.content).toContain(
-      'cross.repo.scan'
-    );
+
+    // cross-repo plan-first path does not run a write-capable tool loop
+    const cross = await runtime.run({
+      input: '给字段做前后端联动',
+      requestedMode: 'auto'
+    });
+    expect(cross.mode).toBe('cross-repo');
+    expect(cross.status).toBe('failed'); // no registry in this test
+    expect(llmClient.requests.length).toBe(1);
   });
 
   it('executes model tool calls and asks the LLM for a final answer with tool output', async () => {

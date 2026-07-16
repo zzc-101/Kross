@@ -8,7 +8,7 @@
 - 全屏 TUI 为 Ink 预留安全行，避免高频更新触发整屏 `clearTerminal`；触摸板滚动采用单层帧合并，消息视口复用稳定 paint layout，流式文本按帧批量更新。
 - `auto` / `normal` / `cross-repo` 三种模式。
 - 普通模式具备最小运行闭环：解析目标、生成计划、记录 trace、返回报告。
-- 跨仓库模式已经具备入口和确认门：检测到前后端/管理端/跨系统联动后，在执行前暂停等待确认，可通过 `/approve` 继续或 `/reject` 取消。
+- 跨仓库模式：检测联动信号 → 读取 `~/.kross/projects.json` → 生成影响面与计划 → `/approve` 后按仓派生子代理执行（**不内置 codegraph**）。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - 工作区级会话持久化：完整可见消息以 append-only JSONL 保存，SQLite 仅维护可重建的最近会话索引；启动页可选择历史会话，`/resume` 打开选择器，`/resume <sessionId>` 直接恢复。
 - TUI 界面 i18n：默认中文，支持 `/lang en|zh` 与 `AGENT_LANG` / `KROSS_LANG` / `config.locale` 切换英文。
@@ -276,11 +276,42 @@ packages/tui
 2. ~~实现 `/diff`~~：agent 触达文件 + git status/diff --stat + 建议验证命令；`report.changedFiles` 在 run 结束时从 Write/Edit 回填。
 3. 补齐 README 与真实能力的同步，持续让文档作为项目状态板使用。
 
-随后把 `cross-repo` 从占位模式扩展成真实编排：
+### Cross-repo 编排（不内置 codegraph）
 
-1. 读取本地 project registry。
-2. 主代理调用已有 codegraph 服务做跨仓库影响面探索。
-3. 生成 Cross-Repo Impact Map。
-4. 拆分 repo 级子代理任务。
-5. 子代理执行修改并回传 diff、测试和风险。
-6. 主代理二次验收并保存完整 trace。
+当前已落地 **plan-first** 闭环：
+
+1. 读取本地 project registry（`~/.kross/projects.json`，可选工作区 `.kross/project.json` 合并）。
+2. 用 registry + 目标关键词启发式生成 Impact Map（**不依赖 codegraph**）。
+3. 展示计划并等待 `/approve` / `/reject`（确认前不改文件）。
+4. 批准后按 repo **顺序**派生子代理（`Task`/`runSubagent`，各自 `workspaceRoot = repo.path`）。
+5. 汇总各仓摘要、变更与风险写入最终报告与 trace。
+
+#### 配置示例 `~/.kross/projects.json`
+
+```json
+{
+  "defaultProjectId": "my-app",
+  "projects": {
+    "my-app": {
+      "repos": [
+        {
+          "id": "api",
+          "path": "/Users/me/work/api",
+          "type": "backend",
+          "testCommand": "npm test"
+        },
+        {
+          "id": "web",
+          "path": "/Users/me/work/web",
+          "type": "frontend"
+        }
+      ]
+    }
+  }
+}
+```
+
+- `path` 建议用绝对路径；相对路径相对 registry 文件所在目录解析。
+- 启动时若 `cwd` 落在某个 `repo.path` 下，会自动选中对应 project；否则用 `defaultProjectId`。
+- 主 agent 工具仍绑定启动 cwd；跨仓写入请用 **Task + repoId**（allowlist 为 registry 中全部 path + cwd）。
+- `RepoConfig.codegraphIndex` 字段仅保留兼容，**运行时不使用**。

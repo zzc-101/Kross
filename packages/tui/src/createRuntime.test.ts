@@ -52,6 +52,7 @@ describe('createRuntimeOptionsFromEnv', () => {
     const first = createRuntimeOptionsFromEnv('/tmp/local-agent', {});
     expect(first.toolGateway).toBeDefined();
     expect(first.todoStore).toBeDefined();
+    expect(first.runSubagent).toBeDefined();
     const setLlmClient = vi.fn();
     const second = createRuntimeOptionsFromEnv(
       '/tmp/local-agent',
@@ -63,12 +64,14 @@ describe('createRuntimeOptionsFromEnv', () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test reuses opaque store instance
         traceStore: first.traceStore as any,
         todoStore: first.todoStore!,
-        setLlmClient
+        setLlmClient,
+        runSubagent: first.runSubagent!
       }
     );
     expect(second.toolGateway).toBe(first.toolGateway);
     expect(second.traceStore).toBe(first.traceStore);
     expect(second.todoStore).toBe(first.todoStore);
+    expect(second.runSubagent).toBe(first.runSubagent);
     expect(setLlmClient).toHaveBeenCalled();
   });
 

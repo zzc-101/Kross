@@ -1,10 +1,21 @@
 import type { ContextSnapshot, SessionContext } from '../context/sessionContext';
-import type { AgentMode, AgentResult, TraceEvent } from '../domain';
+import type {
+  AgentMode,
+  AgentResult,
+  CrossRepoPlan,
+  ImpactMap,
+  ProjectRegistry,
+  TraceEvent
+} from '../domain';
 import type { LlmClient } from '../llm/types';
 import type { TodoStore } from '../todo/todoStore';
 import type { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import type { GitRunner } from '../workspace/workspaceDiff';
+import type {
+  SubagentRunOutcome,
+  SubagentRunRequest
+} from './subagentRunner';
 
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
@@ -25,6 +36,19 @@ export interface AgentRuntimeOptions {
   subagentDepth?: number;
   /** Session todo list shared with TodoWrite/TodoRead tools. */
   todoStore?: TodoStore;
+  /** Loaded ~/.kross/projects.json (and optional workspace overlay). */
+  projectRegistry?: ProjectRegistry;
+  /** Absolute path of the registry file (for prompts / errors). */
+  projectRegistryPath?: string;
+  /** Prefer this project id when selecting from registry. */
+  activeProjectId?: string;
+  /**
+   * Spawn subagent for cross-repo execution (and tests).
+   * When omitted, approved cross-repo runs only produce a plan summary.
+   */
+  runSubagent?: (
+    request: SubagentRunRequest
+  ) => Promise<SubagentRunOutcome>;
 }
 
 export interface AgentRunInput {
@@ -35,6 +59,16 @@ export interface AgentRunInput {
   approvals?: {
     plan?: boolean;
   };
+}
+
+/** In-memory plan held between /approve and execution (process lifetime). */
+export interface PendingCrossRepoExecution {
+  goal: string;
+  mode: Exclude<AgentMode, 'auto'>;
+  plan: CrossRepoPlan;
+  impactMap: ImpactMap;
+  projectId: string;
+  registrySourcePath?: string;
 }
 
 export interface ResolveToolApprovalInput {

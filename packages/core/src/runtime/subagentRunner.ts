@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 import {
   isOperationAborted,
   throwIfAborted
@@ -32,10 +34,24 @@ export interface SubagentRunRequest {
   parentRunId: string;
   parentDepth?: number;
   signal?: AbortSignal;
+  /**
+   * Override tools workspace root for this spawn (multi-repo).
+   * Must be under deps.allowedWorkspaceRoots when that list is set.
+   */
+  workspaceRoot?: string;
+  /** Optional label for trace / UI (e.g. registry repo id). */
+  repoId?: string;
 }
 
 export interface SubagentRunDeps {
+  /** Default workspace when request.workspaceRoot is omitted. */
   workspaceRoot: string;
+  /**
+   * Absolute roots Task may target. When set, request.workspaceRoot must
+   * equal one of these (or be nested under one). When unset, only the default
+   * workspaceRoot is allowed for overrides.
+   */
+  allowedWorkspaceRoots?: string[];
   llmClient?: LlmClient;
   traceStore: TraceStore;
   maxDepth?: number;
@@ -98,11 +114,15 @@ export async function runSubagent(
     request.title?.trim() ||
     deriveSubagentTitle(prompt);
 
+  const workspaceRoot = resolveSubagentWorkspaceRoot(request, deps);
+
   await appendTrace(deps.traceStore, request.parentRunId, 'subagent.started', {
     ...lifecycleExtras,
     mode,
     parentDepth,
     title,
+    repoId: request.repoId,
+    workspaceRoot,
     promptPreview: prompt.slice(0, 240),
     autoApprove: true
   });
@@ -121,6 +141,8 @@ export async function runSubagent(
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.failed', {
       ...lifecycleExtras,
       mode,
+      repoId: request.repoId,
+      workspaceRoot,
       error: failed.summary
     });
     return {
@@ -131,7 +153,7 @@ export async function runSubagent(
     };
   }
 
-  const toolDefs = createSubagentTools(deps.workspaceRoot);
+  const toolDefs = createSubagentTools(workspaceRoot);
   const childGateway = new ToolGateway({
     traceStore: deps.traceStore,
     defaultTimeoutMs: 120_000,
@@ -474,6 +496,41 @@ export function deriveSubagentTitle(prompt: string, maxLen = 36): string {
     return oneLine;
   }
   return `${oneLine.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+/**
+ * Resolve and allowlist-check the workspace root for a subagent spawn.
+ */
+export function resolveSubagentWorkspaceRoot(
+  request: Pick<SubagentRunRequest, 'workspaceRoot'>,
+  deps: Pick<SubagentRunDeps, 'workspaceRoot' | 'allowedWorkspaceRoots'>
+): string {
+  const fallback = resolve(deps.workspaceRoot);
+  const requested = request.workspaceRoot?.trim()
+    ? resolve(request.workspaceRoot.trim())
+    : fallback;
+
+  const allow =
+    deps.allowedWorkspaceRoots && deps.allowedWorkspaceRoots.length > 0
+      ? deps.allowedWorkspaceRoots.map((root) => resolve(root))
+      : [fallback];
+
+  if (!isPathAllowed(requested, allow)) {
+    throw new Error(
+      `Subagent workspaceRoot not allowed: ${requested}. ` +
+        `Allowed roots: ${allow.join(', ')}`
+    );
+  }
+  return requested;
+}
+
+function isPathAllowed(target: string, allowList: string[]): boolean {
+  for (const root of allowList) {
+    if (target === root || target.startsWith(root + '/') || target.startsWith(root + '\\')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function appendTrace(

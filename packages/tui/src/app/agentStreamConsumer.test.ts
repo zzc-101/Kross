@@ -72,11 +72,9 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
             status: 'completed',
             summary: '答案',
             report: {
-              goal: '',
-              plan: [],
+              changedFiles: [],
               evidence: [],
-              risks: [],
-              nextActions: []
+              risks: []
             }
           }
         }
@@ -105,7 +103,7 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
       events([
         { type: 'turn-start', iteration: 1 },
         { type: 'thinking-delta', text: '准备读文件' },
-        { type: 'tools-start', iteration: 1 },
+        { type: 'tools-start', iteration: 1, count: 1 },
         {
           type: 'result',
           result: {
@@ -114,11 +112,9 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
             status: 'completed',
             summary: 'done',
             report: {
-              goal: '',
-              plan: [],
+              changedFiles: [],
               evidence: [],
-              risks: [],
-              nextActions: []
+              risks: []
             }
           }
         }
@@ -150,11 +146,9 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
             status: 'completed',
             summary: '直接答',
             report: {
-              goal: '',
-              plan: [],
+              changedFiles: [],
               evidence: [],
-              risks: [],
-              nextActions: []
+              risks: []
             }
           }
         }

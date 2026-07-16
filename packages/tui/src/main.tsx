@@ -124,7 +124,8 @@ async function main(): Promise<void> {
         toolGateway: tooling.toolGateway,
         traceStore: tooling.traceStore,
         todoStore: tooling.todoStore,
-        setLlmClient: tooling.setLlmClient
+        setLlmClient: tooling.setLlmClient,
+        runSubagent: tooling.runSubagent
       }
     : undefined;
 

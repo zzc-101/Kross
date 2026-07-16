@@ -862,9 +862,16 @@ describe('App', () => {
 
     expect(typeof choosePlanApproval).toBe('function');
     await choosePlanApproval?.(true);
-    await waitUntil(() => lastFrame()?.includes('跨仓库任务计划已创建') === true);
+    await waitUntil(
+      () =>
+        lastFrame()?.includes('跨仓库执行完成') === true ||
+        lastFrame()?.includes('memory subagent') === true
+    );
 
-    expect(lastFrame()).toContain('跨仓库任务计划已创建');
+    const frame = lastFrame() ?? '';
+    expect(
+      frame.includes('跨仓库执行完成') || frame.includes('memory subagent')
+    ).toBe(true);
   });
 
   it('does not collapse long agent replies', async () => {

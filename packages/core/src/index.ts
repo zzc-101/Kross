@@ -42,4 +42,6 @@ export * from './trace/sessionTraceStore';
 export * from './trace/traceSummary';
 export * from './trace/observableTraceStore';
 export * from './workspace/changedFiles';
+export * from './workspace/projectRegistry';
 export * from './workspace/workspaceDiff';
+export * from './runtime/crossRepoOrchestration';

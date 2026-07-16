@@ -16,6 +16,11 @@ export interface CreateTaskToolOptions {
   run: (
     request: SubagentRunRequest
   ) => Promise<Awaited<ReturnType<typeof runSubagent>>>;
+  /**
+   * Resolve registry repo id → absolute workspace path.
+   * When set, Task accepts optional `repoId` for multi-repo spawn.
+   */
+  resolveRepoPath?: (repoId: string) => string | undefined;
 }
 
 /** 短标题：必填，供 TUI 底栏单行展示；模型调用 Task 时必须传。 */
@@ -29,7 +34,12 @@ const taskInputSchema = z.object({
     .max(TITLE_MAX),
   prompt: z.string().min(1),
   /** Optional label; tool allowlist is always read+edit (no Bash/Delete/Move). */
-  mode: z.enum(['explore', 'general']).optional()
+  mode: z.enum(['explore', 'general']).optional(),
+  /**
+   * Optional project-registry repo id. Subagent tools bind to that repo's path
+   * (must be in the runtime allowlist). Prefer this over inventing absolute paths.
+   */
+  repoId: z.string().min(1).optional()
 });
 
 type TaskInput = z.infer<typeof taskInputSchema>;
@@ -48,6 +58,7 @@ export function createTaskTool(
     description:
       '派生子代理在独立上下文中完成聚焦任务并返回摘要。' +
       '调用时必须同时提供 description（极短标题，用于 UI 单行展示）与 prompt（完整任务说明）。' +
+      '可选 repoId：在跨仓项目中指定 project registry 中的仓库 id，子代理将绑定该仓库路径。' +
       '子代理可用 Read/Glob/Grep/Rg/List/Stat/Git* 与 Edit/Write；' +
       '不可用 Bash/Delete/Move/Task 等高危工具，子代理内无需用户审批。' +
       '子代理不能再派生子代理。',
@@ -74,6 +85,12 @@ export function createTaskTool(
           type: 'string',
           enum: ['explore', 'general'],
           description: '可选标签；工具集相同（read+edit，无高危工具）'
+        },
+        repoId: {
+          type: 'string',
+          description:
+            '可选。project registry 中的仓库 id；指定后子代理在该仓库根目录下读写，' +
+            '用于 cross-repo 编排。不填则使用主 agent 工作区。'
         }
       },
       required: ['description', 'prompt'],
@@ -90,6 +107,30 @@ export function createTaskTool(
 
       const mode = (input.mode ?? 'explore') as SubagentMode;
       const title = input.description.trim();
+      const repoId = input.repoId?.trim();
+
+      let workspaceRoot: string | undefined;
+      if (repoId) {
+        if (!options.resolveRepoPath) {
+          return {
+            content:
+              `Task failed: repoId=${repoId} 需要 project registry，` +
+              '请配置 ~/.kross/projects.json 后重试。',
+            summary: `Task repoId unresolved: ${repoId}`
+          };
+        }
+        const resolved = options.resolveRepoPath(repoId);
+        if (!resolved) {
+          return {
+            content:
+              `Task failed: unknown repoId "${repoId}"。` +
+              '请使用 registry 中已声明的仓库 id。',
+            summary: `unknown repoId: ${repoId}`
+          };
+        }
+        workspaceRoot = resolved;
+      }
+
       try {
         const outcome = await options.run({
           prompt: input.prompt,
@@ -97,13 +138,16 @@ export function createTaskTool(
           title,
           parentRunId: runId,
           parentDepth,
-          signal
+          signal,
+          repoId,
+          workspaceRoot
         });
 
         const content = formatSubagentToolContent(outcome);
+        const label = repoId ? `${title}@${repoId}` : title;
         return {
           content,
-          summary: `Task(${title}) → ${outcome.result.status}: ${clip(
+          summary: `Task(${label}) → ${outcome.result.status}: ${clip(
             outcome.result.summary,
             160
           )}`,
@@ -111,6 +155,8 @@ export function createTaskTool(
             subRunId: outcome.subRunId,
             mode: outcome.mode,
             title,
+            repoId,
+            workspaceRoot,
             status: outcome.result.status,
             evidence: outcome.result.evidence,
             risks: outcome.result.risks,

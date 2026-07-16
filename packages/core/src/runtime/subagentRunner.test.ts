@@ -332,7 +332,7 @@ describe('runSubagent abort', () => {
       class ToolCallingLlm implements LlmClient {
         readonly provider = 'openai' as const;
 
-        async complete(): Promise<LlmResponse> {
+        async complete(_request: LlmRequest): Promise<LlmResponse> {
           return {
             provider: this.provider,
             model: 'fake',
@@ -355,7 +355,7 @@ describe('runSubagent abort', () => {
 
       const llm = new ToolCallingLlm();
       const original = llm.complete.bind(llm);
-      llm.complete = async (request) => {
+      llm.complete = async (request: LlmRequest) => {
         const response = await original(request);
         // Abort after tool_calls are produced so executeToolCalls sees aborted signal
         // (throwIfAborted / gateway.call(signal)) before any child tool runs.

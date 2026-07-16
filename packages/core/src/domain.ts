@@ -27,10 +27,39 @@ export const projectConfigSchema = z.object({
 });
 export type ProjectConfig = z.infer<typeof projectConfigSchema>;
 
+/** ~/.kross/projects.json — multi-repo project registry (no codegraph required). */
 export const projectRegistrySchema = z.object({
+  /** Optional default project when cwd does not match a repo path. */
+  defaultProjectId: z.string().min(1).optional(),
   projects: z.record(projectConfigSchema)
 });
 export type ProjectRegistry = z.infer<typeof projectRegistrySchema>;
+
+export const impactRepoSchema = z.object({
+  id: z.string().min(1),
+  path: z.string().min(1),
+  type: z.string().min(1).optional(),
+  reasons: z.array(z.string()).default([]),
+  focusPaths: z.array(z.string()).optional(),
+  /** Per-repo subagent task prompts (execution phase). */
+  tasks: z.array(z.string()).optional()
+});
+export type ImpactRepo = z.infer<typeof impactRepoSchema>;
+
+export const impactMapSchema = z.object({
+  strategy: z.enum(['registry+llm', 'registry-only', 'heuristic']),
+  projectId: z.string().min(1),
+  repos: z.array(impactRepoSchema)
+});
+export type ImpactMap = z.infer<typeof impactMapSchema>;
+
+export const crossRepoPlanSchema = z.object({
+  goal: z.string().min(1),
+  projectId: z.string().min(1),
+  steps: z.array(z.string().min(1)).min(1),
+  llmSuggestion: z.string().optional()
+});
+export type CrossRepoPlan = z.infer<typeof crossRepoPlanSchema>;
 
 export const traceEventSchema = z.object({
   id: z.string().min(1),

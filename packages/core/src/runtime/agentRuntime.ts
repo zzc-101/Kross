@@ -44,6 +44,10 @@ import {
   type TraceEventListener
 } from '../trace/observableTraceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
+import {
+  formatRegistryForPrompt,
+  selectActiveProject
+} from '../workspace/projectRegistry';
 import type { ListRunsOptions } from '../trace/traceStore';
 import type { RunTraceDetail, RunTraceSummary } from '../trace/traceSummary';
 import type {
@@ -52,8 +56,15 @@ import type {
   AgentRuntimeOptions,
   ContextInspection,
   ContextInspectionInput,
+  PendingCrossRepoExecution,
   ResolveToolApprovalInput
 } from './agentRuntimeTypes';
+import {
+  buildCrossRepoPlan,
+  buildImpactMapFromRegistry,
+  formatCrossRepoExecutionSummary,
+  formatCrossRepoPlanSummary
+} from './crossRepoOrchestration';
 import { RuntimeInspection } from './runtimeInspection';
 import {
   DEFAULT_MAX_TOOL_ITERATIONS,
@@ -88,6 +99,8 @@ export class AgentRuntime extends EventEmitter {
   private readonly inspection: RuntimeInspection;
   private readonly toolLoop: RuntimeToolLoop;
   private permissionMode: PermissionMode = 'default';
+  /** Held between cross-repo plan gate and /approve execution. */
+  private pendingCrossRepo: PendingCrossRepoExecution | undefined;
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
@@ -122,6 +135,16 @@ export class AgentRuntime extends EventEmitter {
     if (this.toolGateway) {
       this.toolGateway.setApprovalPolicy(createApprovalPolicy(this.permissionMode));
     }
+    this.syncProjectRegistrySource();
+  }
+
+  /** Last cross-repo plan awaiting /approve (if any). */
+  getPendingCrossRepoPlan(): PendingCrossRepoExecution | undefined {
+    return this.pendingCrossRepo;
+  }
+
+  clearPendingCrossRepoPlan(): void {
+    this.pendingCrossRepo = undefined;
   }
 
   getPermissionMode(): PermissionMode {
@@ -247,6 +270,44 @@ export class AgentRuntime extends EventEmitter {
     });
   }
 
+  /** Inject active project registry summary into SessionContext (pinned). */
+  syncProjectRegistrySource(): void {
+    const registry = this.options.projectRegistry;
+    if (!registry) {
+      this.sessionContext.removeSource('project-registry');
+      return;
+    }
+    const selection = selectActiveProject(registry, {
+      activeProjectId: this.options.activeProjectId,
+      workspaceRoot: this.options.workspaceRoot
+    });
+    if (!selection) {
+      this.sessionContext.addSource({
+        id: 'project-registry',
+        kind: 'repo',
+        title: 'Project registry',
+        content:
+          'Project registry is configured but no active project could be selected. ' +
+          'Set defaultProjectId or ensure workspace is inside a registered repo path.\n' +
+          `Projects: ${Object.keys(registry.projects).join(', ')}`,
+        priority: 90,
+        pinned: true
+      });
+      return;
+    }
+    this.sessionContext.addSource({
+      id: 'project-registry',
+      kind: 'repo',
+      title: 'Project registry',
+      content: formatRegistryForPrompt(
+        selection,
+        this.options.projectRegistryPath
+      ),
+      priority: 90,
+      pinned: true
+    });
+  }
+
   getContextUsage(input: {
     requestedMode: AgentMode;
     currentUserInput?: string;
@@ -362,8 +423,8 @@ export class AgentRuntime extends EventEmitter {
         return;
       }
 
-      if (detection.mode === 'cross-repo' && this.options.llmClient) {
-        const result = await this.runCrossRepoWithToolLoop(
+      if (detection.mode === 'cross-repo') {
+        const result = await this.runCrossRepo(
           input,
           detection.mode,
           runId,
@@ -488,227 +549,302 @@ export class AgentRuntime extends EventEmitter {
     });
   }
 
-  private async runCrossRepoWithToolLoop(
+  /**
+   * Cross-repo: plan-first (registry + heuristic impact) → approval gate →
+   * sequential per-repo subagents. No codegraph; no write tool loop before approve.
+   */
+  private async runCrossRepo(
     input: AgentRunInput,
     mode: Exclude<AgentMode, 'auto'>,
     runId: string,
     crossRepoReason: string | undefined
   ): Promise<AgentResult> {
     throwIfAborted(input.signal);
-    this.sessionContext.beginTurn(input.input);
-    const { buildContextInput, tools } = this.buildPlannerContext(mode);
-    const prepared = await this.sessionContext.prepareRequest(
-      buildContextInput,
-      input.signal
-    );
-    throwIfAborted(input.signal);
-    await this.recordPlannerContext(runId, prepared);
+    this.syncProjectRegistrySource();
 
-    let loopResult: AgentResult | undefined;
-    let softLanded = false;
-    for await (const event of this.toolLoop.runStreamingToolLoop({
-      runId,
-      mode,
-      originalUserInput: input.input,
-      sessionContext: this.sessionContext,
-      buildContextInput,
-      tools,
-      startIteration: 1,
-      firstStreamPurpose: 'planner',
-      firstIterationMetadata: {
-        includedSources: prepared.includedSources,
-        droppedSources: prepared.droppedSources,
-        contextReport: prepared.report
-      },
-      signal: input.signal,
-      handlers: {
-        onSuccess: async ({ fullText }) =>
-          this.attachChangedFiles(
-            agentResultSchema.parse({
-              runId,
-              mode,
-              status: 'completed',
-              summary: fullText,
-              report: {
-                changedFiles: [],
-                evidence: ['planner LLM 已返回计划建议'],
-                risks: []
-              }
-            })
-          ),
-        onSoftLand: async ({ summary }) => {
-          softLanded = true;
-          this.sessionContext.appendAssistant(summary);
-          const landed = await this.toolLoop.createMaxToolIterationsResult(
-            runId,
-            mode,
-            summary
-          );
-          await this.record(runId, 'review.completed', {
-            status: landed.status,
-            summary: landed.summary
-          });
-          await this.record(runId, 'run.completed', { ...landed });
-          this.sessionContext.commitTurn();
-          return landed;
-        },
-        onFailure: async (message) => {
-          const failed = await this.attachChangedFiles(
-            agentResultSchema.parse({
-              runId,
-              mode,
-              status: 'failed',
-              summary: `模型请求失败：${message}`,
-              report: {
-                changedFiles: [],
-                evidence: [`LLM 请求失败: ${message}`],
-                risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
-              }
-            })
-          );
-          await this.record(runId, 'review.completed', {
-            status: failed.status,
-            summary: failed.summary
-          });
-          await this.record(runId, 'run.completed', { ...failed });
-          this.sessionContext.abortTurn(message);
-          return failed;
-        },
-        onCancelled: async ({ reason, stage }) =>
-          this.completeInterruptedRun({ runId, mode, reason, stage })
-      }
-    })) {
-      if (event.type === 'result') {
-        loopResult = event.result;
-      }
+    if (input.approvals?.plan === true && this.pendingCrossRepo) {
+      return this.executeCrossRepoPlan(runId, this.pendingCrossRepo, input.signal);
     }
 
-    if (!loopResult) {
-      throw new Error(`Cross-repo run finished without result: ${runId}`);
-    }
-
-    if (
-      loopResult.status === 'approval-required' ||
-      loopResult.status === 'failed' ||
-      loopResult.status === 'cancelled' ||
-      softLanded
-    ) {
-      return loopResult;
-    }
-
-    this.sessionContext.commitTurn();
-    return this.finalizeCrossRepoRun(
-      input,
-      mode,
-      runId,
-      loopResult.summary,
-      crossRepoReason
-    );
+    return this.planCrossRepo(input, mode, runId, crossRepoReason);
   }
 
-  private async finishRunWithoutLlm(
+  private async planCrossRepo(
     input: AgentRunInput,
     mode: Exclude<AgentMode, 'auto'>,
     runId: string,
     crossRepoReason: string | undefined
   ): Promise<AgentResult> {
-    if (mode === 'normal') {
-      const missingModel = await this.attachChangedFiles(
+    const registry = this.options.projectRegistry;
+    if (!registry) {
+      const failed = await this.attachChangedFiles(
         agentResultSchema.parse({
           runId,
           mode,
           status: 'failed',
           summary:
-            '未配置模型，无法生成真实回复。请配置 AGENT_LLM_PROVIDER 以及对应的 OPENAI_* 或 ANTHROPIC_* 环境变量后重试。',
-          report: {
-            changedFiles: [],
-            evidence: ['未检测到可用 LLM client'],
-            risks: []
-          }
-        })
-      );
-
-      await this.record(runId, 'run.completed', { ...missingModel });
-      return missingModel;
-    }
-
-    return this.finalizeCrossRepoRun(
-      input,
-      mode,
-      runId,
-      undefined,
-      crossRepoReason
-    );
-  }
-
-  private async finalizeCrossRepoRun(
-    input: AgentRunInput,
-    mode: Exclude<AgentMode, 'auto'>,
-    runId: string,
-    llmSuggestion: string | undefined,
-    crossRepoReason: string | undefined
-  ): Promise<AgentResult> {
-    const plan = createPlan(input.input, mode, llmSuggestion);
-    await this.record(runId, 'plan.created', plan);
-
-    await this.record(runId, 'approval.required', {
-      scope: 'cross-repo-plan',
-      reason: crossRepoReason
-    });
-
-    if (input.approvals?.plan !== true) {
-      const cancelled = await this.attachChangedFiles(
-        agentResultSchema.parse({
-          runId,
-          mode,
-          status: 'cancelled',
-          cancellationReason: 'approval-gate',
-          summary: '跨仓库计划等待确认，当前运行已取消',
+            '未找到 project registry。请创建 ~/.kross/projects.json（示例见 README），' +
+            '声明多仓库项目后再使用 cross-repo 模式。',
           report: {
             changedFiles: [],
             evidence: [
-              ...(llmSuggestion ? ['planner LLM 已返回计划建议'] : []),
-              '已在执行前触发确认门'
+              'cross-repo 需要本地 project registry，不依赖 codegraph',
+              this.options.projectRegistryPath
+                ? `期望路径: ${this.options.projectRegistryPath}`
+                : '期望路径: ~/.kross/projects.json'
             ],
             risks: []
           }
         })
       );
-      await this.record(runId, 'run.completed', { ...cancelled });
-      this.finishTurnWithAssistant(input.input, cancelled.summary);
-      return cancelled;
+      await this.record(runId, 'run.completed', { ...failed });
+      this.finishTurnWithAssistant(input.input, failed.summary);
+      return failed;
     }
 
-    await this.record(runId, 'impact_map.created', {
-      strategy: 'codegraph-placeholder',
-      repos: [],
-      note: '后续接入 codegraph adapter 后填充真实影响面'
+    const selection = selectActiveProject(registry, {
+      activeProjectId: this.options.activeProjectId,
+      workspaceRoot: this.options.workspaceRoot
     });
+    if (!selection) {
+      const failed = await this.attachChangedFiles(
+        agentResultSchema.parse({
+          runId,
+          mode,
+          status: 'failed',
+          summary:
+            'project registry 已加载，但无法选定 active project。' +
+            '请设置 defaultProjectId，或在 cwd 位于某 repo.path 下启动，或配置 activeProjectId。',
+          report: {
+            changedFiles: [],
+            evidence: [
+              `可用 projects: ${Object.keys(registry.projects).join(', ') || '(空)'}`
+            ],
+            risks: []
+          }
+        })
+      );
+      await this.record(runId, 'run.completed', { ...failed });
+      this.finishTurnWithAssistant(input.input, failed.summary);
+      return failed;
+    }
+
+    const impact = buildImpactMapFromRegistry({
+      projectId: selection.projectId,
+      project: selection.project,
+      goal: input.input
+    });
+    const plan = buildCrossRepoPlan({
+      goal: input.input,
+      projectId: selection.projectId,
+      impact
+    });
+
+    await this.record(runId, 'plan.created', plan);
+    await this.record(runId, 'impact_map.created', impact);
+    await this.record(runId, 'approval.required', {
+      scope: 'cross-repo-plan',
+      reason: crossRepoReason,
+      projectId: selection.projectId,
+      repos: impact.repos.map((repo) => repo.id)
+    });
+
+    const summary = formatCrossRepoPlanSummary({
+      plan,
+      impact,
+      registrySource: this.options.projectRegistryPath
+    });
+
+    this.pendingCrossRepo = {
+      goal: input.input,
+      mode,
+      plan,
+      impactMap: impact,
+      projectId: selection.projectId,
+      registrySourcePath: this.options.projectRegistryPath
+    };
+
+    if (input.approvals?.plan === true) {
+      return this.executeCrossRepoPlan(runId, this.pendingCrossRepo, input.signal);
+    }
+
+    const cancelled = await this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId,
+        mode,
+        status: 'cancelled',
+        cancellationReason: 'approval-gate',
+        summary,
+        report: {
+          changedFiles: [],
+          evidence: [
+            `project=${selection.projectId}`,
+            `impact strategy=${impact.strategy}`,
+            `repos=${impact.repos.map((r) => r.id).join(',')}`,
+            '已在执行前触发确认门（plan-first，确认前不改文件）'
+          ],
+          risks: []
+        }
+      })
+    );
+    await this.record(runId, 'run.completed', { ...cancelled });
+    this.finishTurnWithAssistant(input.input, cancelled.summary);
+    return cancelled;
+  }
+
+  private async executeCrossRepoPlan(
+    runId: string,
+    pending: PendingCrossRepoExecution,
+    signal?: AbortSignal
+  ): Promise<AgentResult> {
+    throwIfAborted(signal);
+    const { mode, impactMap, plan, projectId, goal } = pending;
+
+    await this.record(runId, 'cross_repo.execution.started', {
+      projectId,
+      repos: impactMap.repos.map((r) => r.id)
+    });
+
+    const runSubagent = this.options.runSubagent;
+    if (!runSubagent) {
+      const failed = await this.attachChangedFiles(
+        agentResultSchema.parse({
+          runId,
+          mode,
+          status: 'failed',
+          summary:
+            '跨仓库计划已确认，但运行时未注入 runSubagent，无法派生子代理。',
+          report: {
+            changedFiles: [],
+            evidence: ['缺少 AgentRuntimeOptions.runSubagent'],
+            risks: []
+          }
+        })
+      );
+      await this.record(runId, 'run.completed', { ...failed });
+      this.pendingCrossRepo = undefined;
+      this.finishTurnWithAssistant(goal, failed.summary);
+      return failed;
+    }
+
+    const outcomes: Array<{
+      repoId: string;
+      status: string;
+      summary: string;
+      changedFiles: string[];
+      risks: string[];
+    }> = [];
+    const allChanged: string[] = [];
+    const allEvidence: string[] = [];
+    const allRisks: string[] = [];
+
+    for (const repo of impactMap.repos) {
+      throwIfAborted(signal);
+      const taskPrompt =
+        repo.tasks?.[0] ??
+        `在仓库 ${repo.id}（${repo.path}）中推进：${goal}`;
+      try {
+        const outcome = await runSubagent({
+          prompt: taskPrompt,
+          title: `cross-repo:${repo.id}`.slice(0, 48),
+          mode: 'general',
+          parentRunId: runId,
+          parentDepth: 0,
+          signal,
+          repoId: repo.id,
+          workspaceRoot: repo.path
+        });
+        const result = outcome.result;
+        outcomes.push({
+          repoId: repo.id,
+          status: result.status,
+          summary: result.summary,
+          changedFiles: result.changedFiles,
+          risks: result.risks
+        });
+        for (const file of result.changedFiles) {
+          allChanged.push(`${repo.id}:${file}`);
+        }
+        allEvidence.push(
+          `${repo.id}: ${result.status} — ${result.summary.slice(0, 200)}`
+        );
+        allRisks.push(...result.risks.map((r) => `${repo.id}: ${r}`));
+      } catch (error) {
+        if (isOperationAborted(error, signal)) {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        outcomes.push({
+          repoId: repo.id,
+          status: 'failed',
+          summary: message,
+          changedFiles: [],
+          risks: [message]
+        });
+        allEvidence.push(`${repo.id}: failed — ${message}`);
+        allRisks.push(`${repo.id}: ${message}`);
+      }
+    }
+
+    const summary = formatCrossRepoExecutionSummary({
+      projectId,
+      goal,
+      outcomes
+    });
+    const anyFailed = outcomes.some((o) => o.status === 'failed');
 
     const result = await this.attachChangedFiles(
       agentResultSchema.parse({
         runId,
         mode,
-        status: 'completed',
-        summary: '跨仓库任务计划已创建，等待接入子代理执行',
+        status: anyFailed ? 'failed' : 'completed',
+        summary,
         report: {
-          changedFiles: [],
+          changedFiles: allChanged,
           evidence: [
-            ...(llmSuggestion ? ['planner LLM 已返回计划建议'] : []),
-            '已生成跨仓库影响面占位图'
+            `project=${projectId}`,
+            `plan steps=${plan.steps.length}`,
+            ...allEvidence
           ],
-          risks: ['当前版本尚未接入真实 codegraph 和子代理执行']
+          risks: allRisks
         }
       })
     );
 
     await this.record(runId, 'review.completed', {
       status: result.status,
-      summary: result.summary
+      summary: result.summary,
+      repos: outcomes.map((o) => ({ repoId: o.repoId, status: o.status }))
     });
     await this.record(runId, 'run.completed', { ...result });
-    this.finishTurnWithAssistant(input.input, result.summary);
+    this.pendingCrossRepo = undefined;
+    this.finishTurnWithAssistant(goal, result.summary);
     return result;
+  }
+
+  private async finishRunWithoutLlm(
+    input: AgentRunInput,
+    mode: Exclude<AgentMode, 'auto'>,
+    runId: string,
+    _crossRepoReason: string | undefined
+  ): Promise<AgentResult> {
+    const missingModel = await this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId,
+        mode,
+        status: 'failed',
+        summary:
+          '未配置模型，无法生成真实回复。请配置 AGENT_LLM_PROVIDER 以及对应的 OPENAI_* 或 ANTHROPIC_* 环境变量后重试。',
+        report: {
+          changedFiles: [],
+          evidence: ['未检测到可用 LLM client'],
+          risks: []
+        }
+      })
+    );
+
+    await this.record(runId, 'run.completed', { ...missingModel });
+    return missingModel;
   }
 
   private finishTurnWithAssistant(userInput: string, assistantOutput: string): void {
@@ -729,6 +865,7 @@ export class AgentRuntime extends EventEmitter {
   } {
     const tools = this.toolGateway?.listTools({ mode }) ?? [];
     this.syncTodoContextSource();
+    this.syncProjectRegistrySource();
     return {
       buildContextInput: {
         systemPrompt: PLANNER_SYSTEM_PROMPT,
@@ -912,19 +1049,4 @@ export class AgentRuntime extends EventEmitter {
   }
 }
 
-function createPlan(
-  goal: string,
-  _mode: Exclude<AgentMode, 'auto'>,
-  llmSuggestion?: string
-) {
-  return {
-    goal,
-    llmSuggestion,
-    steps: [
-      '读取 project registry',
-      '使用 codegraph 生成跨仓库影响面',
-      '拆分 repo 级子任务',
-      '等待用户确认后执行'
-    ]
-  };
-}
+

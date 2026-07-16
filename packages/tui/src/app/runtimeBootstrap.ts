@@ -1,13 +1,50 @@
 import {
   AgentRuntime,
   ObservableTraceStore,
+  type AgentRuntimeOptions,
   type TraceEvent,
   type TraceStore
 } from '@kross/core';
 
-export function createMemoryRuntime(): AgentRuntime {
+/**
+ * Lightweight runtime for tests / fallback. Includes a sample multi-repo
+ * registry so cross-repo plan gate can be exercised without ~/.kross files.
+ */
+export function createMemoryRuntime(
+  overrides: Partial<AgentRuntimeOptions> = {}
+): AgentRuntime {
+  const sampleRegistry = {
+    defaultProjectId: 'demo',
+    projects: {
+      demo: {
+        repos: [
+          { id: 'api', path: '/tmp/kross-demo-api', type: 'backend' },
+          { id: 'web', path: '/tmp/kross-demo-web', type: 'frontend' }
+        ]
+      }
+    }
+  };
+
   return new AgentRuntime({
-    traceStore: new ObservableTraceStore(new InMemoryTraceStore())
+    traceStore: new ObservableTraceStore(new InMemoryTraceStore()),
+    projectRegistry: sampleRegistry,
+    projectRegistryPath: '(memory) sample registry',
+    runSubagent: async (request) => ({
+      subRunId: `sub-memory-${request.repoId ?? 'local'}`,
+      mode: request.mode === 'general' ? 'general' : 'explore',
+      modeForcedToExplore: false,
+      result: {
+        status: 'completed',
+        summary: `memory subagent completed for ${request.repoId ?? 'local'}`,
+        changedFiles: [],
+        diffSummary: [],
+        commandsRun: [],
+        evidence: [],
+        risks: [],
+        needsReview: []
+      }
+    }),
+    ...overrides
   });
 }
 
