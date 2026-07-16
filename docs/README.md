@@ -12,6 +12,7 @@
 | 了解审批、文件边界和本地数据风险 | [安全模型](security.md) |
 | 排查启动、模型、撤销或 MCP 问题 | [故障排查](troubleshooting.md) |
 | 理解 Runtime、上下文和工具系统 | [技术概览](technical-overview.md) |
+| 检查 npm 包并准备版本发布 | [发布指南](releasing.md) |
 
 ## 文档约定
 

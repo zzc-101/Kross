@@ -25,7 +25,7 @@ cd Kross
 npm install
 ```
 
-Kross 当前从源码运行，尚未发布稳定的全局 CLI 包。
+Kross 当前从源码运行，尚未发布稳定的全局 CLI 包。仓库已经提供 `@zzc-101/kross` 的构建与安装冒烟测试；首个 npm 版本发布后可以全局安装并直接运行 `kross`。
 
 ## 3. 配置模型
 
