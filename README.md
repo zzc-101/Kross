@@ -137,7 +137,15 @@ flowchart LR
 - `packages/tui`：基于 Ink 的交互式终端界面。
 - `docs/superpowers`：设计规格与实施计划。
 
-更完整的内部行为、上下文治理、工具系统和架构说明见 [技术概览](docs/technical-overview.md)。
+## 文档
+
+- [文档导航](docs/README.md)
+- [快速上手](docs/getting-started.md)
+- [配置参考](docs/configuration.md)
+- [命令手册](docs/command-reference.md)
+- [安全模型](docs/security.md)
+- [故障排查](docs/troubleshooting.md)
+- [技术概览](docs/technical-overview.md)
 
 ## 安全边界
 
