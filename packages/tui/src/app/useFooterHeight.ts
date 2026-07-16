@@ -3,7 +3,6 @@ import { useMemo } from 'react';
 import type { PendingToolApproval } from '@kross/core';
 
 import {
-  COMPOSER_BOTTOM_GAP,
   COMPOSER_HEIGHT,
   resolveApprovalPanelHeight,
   resolveSlashSuggestHeight,
@@ -23,6 +22,7 @@ export interface FooterLayoutInput {
   subagentExpanded: boolean;
   slashSuggestions: SlashCommand[];
   slashHiddenCount: number;
+  composerBottomGap: number;
 }
 
 export function useFooterHeight(input: FooterLayoutInput): number {
@@ -35,7 +35,8 @@ export function useFooterHeight(input: FooterLayoutInput): number {
     subagents,
     subagentExpanded,
     slashSuggestions,
-    slashHiddenCount
+    slashHiddenCount,
+    composerBottomGap
   } = input;
 
   return useMemo(() => {
@@ -53,7 +54,7 @@ export function useFooterHeight(input: FooterLayoutInput): number {
     } else {
       // Composer 本体 3 行；无子代理时底 gap=3，有子代理时 gap=0 并由 sub 条占 1 行
       h += COMPOSER_HEIGHT;
-      h += subH > 0 ? 0 : COMPOSER_BOTTOM_GAP;
+      h += subH > 0 ? 0 : composerBottomGap;
     }
 
     if (
@@ -84,6 +85,7 @@ export function useFooterHeight(input: FooterLayoutInput): number {
     subagents,
     subagentExpanded,
     slashSuggestions,
-    slashHiddenCount
+    slashHiddenCount,
+    composerBottomGap
   ]);
 }

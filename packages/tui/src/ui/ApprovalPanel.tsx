@@ -64,9 +64,9 @@ export function ApprovalPanel({
       </Row>
 
       <Row>
-        <Text dimColor>工具  </Text>
+        <Text dimColor>{t('approval.toolLabel')}  </Text>
         <Text bold>{approval.toolName}</Text>
-        <Text dimColor>  ·  风险  </Text>
+        <Text dimColor>  ·  {t('approval.riskLabel')}  </Text>
         <Text color={riskColor} bold>
           {presentation.riskLabel}
         </Text>
@@ -85,7 +85,7 @@ export function ApprovalPanel({
 
       {approval.reason ? (
         <Row>
-          <Text dimColor>说明  </Text>
+          <Text dimColor>{t('approval.reasonLabel')}  </Text>
           <Text>
             {truncate(formatApprovalReason(approval.reason), innerWidth - 6)}
           </Text>
@@ -99,7 +99,7 @@ export function ApprovalPanel({
           dimColor={selection !== 'approve'}
         >
           {selection === 'approve' ? `${highlight} ` : '  '}
-          允许一次
+          {t('approval.approveOnce')}
         </Text>
         <Text>    </Text>
         <Text
@@ -108,7 +108,7 @@ export function ApprovalPanel({
           dimColor={selection !== 'reject'}
         >
           {selection === 'reject' ? `${highlight} ` : '  '}
-          拒绝
+          {t('approval.reject')}
         </Text>
       </Row>
 
@@ -123,7 +123,7 @@ export function ApprovalPanel({
 }
 
 export function resolveApprovalPanelWidth(availableWidth: number): number {
-  return Math.max(30, Math.min(Math.floor(availableWidth), 72));
+  return Math.max(12, Math.min(Math.floor(availableWidth), 72));
 }
 
 export function resolveApprovalPanelHeight(

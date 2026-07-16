@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Box, Text } from 'ink';
+import { t } from '@kross/core';
 
 import { MessageLine, type ChatMessage } from './MessageLine';
 import {
@@ -122,11 +123,11 @@ export function MessageViewport({
       <Box flexDirection="column">
         {tip ? (
           <Box marginBottom={1}>
-            <Text dimColor>tip · {tip}</Text>
+            <Text dimColor>{t('common.tip')} · {tip}</Text>
           </Box>
         ) : null}
         {messages.length > capped.length ? (
-          <Text dimColor> ↑ 更早消息已省略</Text>
+          <Text dimColor> {t('scroll.olderOmitted')}</Text>
         ) : null}
         {capped.map((message) => (
           <MessageLine
@@ -155,7 +156,7 @@ export function MessageViewport({
       >
         {tip ? (
           <Box marginBottom={1}>
-            <Text dimColor>tip · {tip}</Text>
+            <Text dimColor>{t('common.tip')} · {tip}</Text>
           </Box>
         ) : null}
         {windowed.items.map((item, index) => (

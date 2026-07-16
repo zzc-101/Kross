@@ -6,13 +6,32 @@ export function resolveShellRows(rows: number): number {
   return Math.max(1, Math.floor(rows));
 }
 
+export function resolveContentWidth(
+  columns: number,
+  shellMode: boolean
+): number {
+  const horizontalPadding = shellMode ? 2 : 4;
+  return Math.max(12, Math.floor(columns) - horizontalPadding);
+}
+
+export function resolveSlashSuggestionLimit(
+  rows: number,
+  shellMode: boolean
+): number {
+  if (!shellMode) return 8;
+  if (rows < 14) return 1;
+  if (rows < 20) return 2;
+  if (rows < 30) return 4;
+  return 8;
+}
+
 export function resolveMessageViewportHeight(input: {
   rows: number;
   headerHeight: number;
   footerHeight: number;
 }): number {
   return Math.max(
-    4,
+    1,
     resolveShellRows(input.rows) -
       input.headerHeight -
       input.footerHeight -
@@ -57,7 +76,7 @@ export function AppShell({
           overflowY="hidden"
           justifyContent={isHome ? 'center' : 'flex-end'}
           alignItems={isHome ? 'center' : 'stretch'}
-          minHeight={3}
+          minHeight={1}
         >
           {isHome ? homeBody : chatBody}
         </Box>

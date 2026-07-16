@@ -9,19 +9,25 @@ import {
 } from './frameOutput';
 
 describe('terminal frame output', () => {
-  it('detects Ghostty synchronized output without enabling it for Terminal.app', () => {
+  it('keeps Ghostty and Terminal.app on bounded row diffs', () => {
     expect(
       isSynchronizedOutputSupported({
         TERM_PROGRAM: 'ghostty',
         TERM: 'xterm-ghostty'
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isSynchronizedOutputSupported({
         TERM_PROGRAM: 'Apple_Terminal',
         TERM: 'xterm-256color'
       })
     ).toBe(false);
+    expect(
+      isSynchronizedOutputSupported({
+        TERM_PROGRAM: 'WezTerm',
+        TERM: 'xterm-256color'
+      })
+    ).toBe(true);
   });
 
   it('updates only changed rows when synchronized output is unavailable', () => {
@@ -74,6 +80,48 @@ describe('terminal frame output', () => {
     expect(target.writes).toHaveLength(1);
     expect(target.writes[0]).toMatch(/^\x1b\[\?2026h/);
     expect(target.writes[0]).toMatch(/\x1b\[\?2026l$/);
+
+    target.writes.length = 0;
+    output.write(
+      ansiEscapes.eraseLines(4) + 'header\nnew body\nfooter\n'
+    );
+    expect(target.writes[0]).toContain('header');
+    expect(target.writes[0]).toContain('new body');
+    expect(target.writes[0]).toContain('\x1b[24;1H');
+  });
+
+  it('never addresses rows below the visible terminal', () => {
+    const target = new RecordingStdout(80, 3);
+    const output = createTerminalFrameOutput(target.asWriteStream(), {
+      synchronized: false
+    });
+
+    output.write('one\ntwo\nthree\nfour\nfive\n');
+
+    expect(target.writes[0]).toContain('\x1b[3;1H');
+    expect(target.writes[0]).not.toContain('\x1b[4;1H');
+    expect(target.writes[0]).not.toContain('\x1b[5;1H');
+  });
+
+  it('clears and repaints the visible frame after a terminal resize', () => {
+    const target = new RecordingStdout(80, 4);
+    const output = createTerminalFrameOutput(target.asWriteStream(), {
+      synchronized: false
+    });
+
+    output.write('header\nold body\nfooter\n');
+    target.writes.length = 0;
+    target.columns = 40;
+    target.rows = 3;
+    output.write(
+      ansiEscapes.eraseLines(4) + 'header\nnew body\nfooter\n'
+    );
+
+    expect(target.writes).toHaveLength(1);
+    expect(target.writes[0]).toContain(ansiEscapes.clearTerminal);
+    expect(target.writes[0]).toContain('header');
+    expect(target.writes[0]).toContain('new body');
+    expect(target.writes[0]).not.toContain('\x1b[4;1H');
   });
 });
 
@@ -82,8 +130,8 @@ class RecordingStdout extends EventEmitter {
   readonly isTTY = true;
 
   constructor(
-    readonly columns: number,
-    readonly rows: number
+    public columns: number,
+    public rows: number
   ) {
     super();
   }

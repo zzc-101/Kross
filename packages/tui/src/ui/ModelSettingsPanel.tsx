@@ -12,7 +12,7 @@ export function ModelSettingsPanel({
   state: ModelSettingsState;
   width?: number;
 }) {
-  const boxWidth = Math.max(36, Math.min(width ?? 56, 72));
+  const boxWidth = Math.max(12, Math.min(width ?? 56, 72));
   const innerWidth = boxWidth - 4;
   const hRule = symbols.boxHorizontal.repeat(boxWidth - 2);
 
@@ -68,7 +68,7 @@ export function ModelSettingsPanel({
                 selected={index === state.modelIndex && item.configured}
                 label={item.label}
                 dimmed={!item.configured}
-                badge={item.current ? 'current' : undefined}
+                badge={item.current ? t('settings.current') : undefined}
               />
             </Row>
           ))}

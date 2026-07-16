@@ -74,11 +74,9 @@ export function SlashSuggest({
           </React.Fragment>
         );
       })}
-      <Text dimColor>
-        ↑↓ 选择 · Enter 执行 · Esc 关闭
-      </Text>
+      <Text dimColor>{t('slash.suggest.hotkeys')}</Text>
       {hiddenCount > 0 ? (
-        <Text dimColor>还有 {hiddenCount} 项，继续输入筛选</Text>
+        <Text dimColor>{t('slash.suggest.more', { count: hiddenCount })}</Text>
       ) : null}
     </Box>
   );
@@ -93,5 +91,5 @@ export function resolveSlashSuggestHeight(
 }
 
 export function resolveSlashUsageWidth(width: number): number {
-  return Math.max(18, Math.min(30, Math.floor(width * 0.38)));
+  return Math.max(8, Math.min(30, Math.floor(width * 0.38)));
 }

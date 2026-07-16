@@ -16,6 +16,7 @@ import {
 
 import {
   ApprovalPanel,
+  COMPOSER_BOTTOM_GAP,
   Composer,
   getSlashCommandSuggestions,
   formatCwdLabel,
@@ -34,7 +35,9 @@ import { useMouseScroll } from './ui/useMouseScroll';
 import { stripMouseArtifactsFromInput } from './terminal/mouseTracking';
 import {
   AppShell,
-  resolveMessageViewportHeight
+  resolveContentWidth,
+  resolveMessageViewportHeight,
+  resolveSlashSuggestionLimit
 } from './app/AppShell';
 import { formatImportPrompt } from './app/appCommands';
 import { useViewportScroll } from './app/useViewportScroll';
@@ -290,17 +293,18 @@ export function App({
   const slashSuggestionResult = useMemo(
     () =>
       getSlashCommandSuggestions(input, {
-        hasPendingConductorPlan: pendingConductorPlan !== undefined
+        hasPendingConductorPlan: pendingConductorPlan !== undefined,
+        limit: resolveSlashSuggestionLimit(rows, shellMode)
       }),
     // localeGeneration: re-resolve descriptions after /lang
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
-    [input, pendingConductorPlan, localeGeneration]
+    [input, pendingConductorPlan, localeGeneration, rows, shellMode]
   );
   const slashSuggestions = slashSuggestionResult.commands;
 
   useEffect(() => {
     setSlashSelectedIndex(0);
-  }, [input]);
+  }, [input, slashSuggestions.length]);
 
   const {
     subagents,
@@ -493,7 +497,10 @@ export function App({
     toggleSubagentExpand
   ]);
 
-  const contentWidth = Math.max(40, columns - (shellMode ? 2 : 4));
+  const contentWidth = resolveContentWidth(columns, shellMode);
+  const compactLayout = shellMode && (rows < 30 || columns < 60);
+  const composerBottomGap =
+    subagents.length > 0 || compactLayout ? 0 : COMPOSER_BOTTOM_GAP;
 
   const contextUsage = useMemo(
     () =>
@@ -517,7 +524,8 @@ export function App({
     subagents,
     subagentExpanded,
     slashSuggestions,
-    slashHiddenCount: slashSuggestionResult.hiddenCount
+    slashHiddenCount: slashSuggestionResult.hiddenCount,
+    composerBottomGap
   });
 
   const headerHeight = resolveHeaderHeight({
@@ -621,7 +629,7 @@ export function App({
         agentMode={mode}
         permissionMode={permissionMode}
         width={contentWidth}
-        bottomGap={subagents.length > 0 ? 0 : undefined}
+        bottomGap={composerBottomGap}
       />
 
       <SubagentPanel subagents={subagents} width={contentWidth} />
@@ -638,6 +646,7 @@ export function App({
       notice={appError ?? (importPrompt ? formatImportPrompt(importPrompt) : undefined)}
       recentSessions={recentSessions}
       selectedSessionIndex={selectedRecentSession}
+      compact={compactLayout}
     />
   );
 

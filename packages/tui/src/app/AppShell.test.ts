@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  resolveContentWidth,
   resolveMessageViewportHeight,
+  resolveSlashSuggestionLimit,
   resolveShellRows
 } from './AppShell';
 
@@ -20,5 +22,22 @@ describe('AppShell layout', () => {
         footerHeight: 4
       })
     ).toBe(17);
+
+    expect(
+      resolveMessageViewportHeight({
+        rows: 10,
+        headerHeight: 2,
+        footerHeight: 12
+      })
+    ).toBe(1);
+  });
+
+  it('keeps content and slash suggestions inside compact terminals', () => {
+    expect(resolveContentWidth(40, true)).toBe(38);
+    expect(resolveContentWidth(20, true)).toBe(18);
+    expect(resolveSlashSuggestionLimit(12, true)).toBe(1);
+    expect(resolveSlashSuggestionLimit(18, true)).toBe(2);
+    expect(resolveSlashSuggestionLimit(24, true)).toBe(4);
+    expect(resolveSlashSuggestionLimit(40, true)).toBe(8);
   });
 });

@@ -25,11 +25,16 @@ export function isSynchronizedOutputSupported(
 
   const termProgram = env.TERM_PROGRAM;
   const term = env.TERM;
+  // Ghostty on macOS currently shows blank unchanged rows during DEC 2026
+  // updates in real overlay/resize transitions. Keep the bounded row-diff path
+  // until synchronized updates are proven stable end to end.
+  if (termProgram === 'ghostty' || term === 'xterm-ghostty') {
+    return false;
+  }
   if (
     termProgram === 'iTerm.app' ||
     termProgram === 'WezTerm' ||
     termProgram === 'WarpTerminal' ||
-    termProgram === 'ghostty' ||
     termProgram === 'contour' ||
     termProgram === 'vscode' ||
     termProgram === 'alacritty'
@@ -40,7 +45,7 @@ export function isSynchronizedOutputSupported(
   if (term?.includes('kitty') || env.KITTY_WINDOW_ID) {
     return true;
   }
-  if (term === 'xterm-ghostty' || term?.startsWith('foot')) {
+  if (term?.startsWith('foot')) {
     return true;
   }
   if (term?.includes('alacritty') || env.ZED_TERM || env.WT_SESSION) {
@@ -85,6 +90,8 @@ export function createTerminalFrameOutput(
 class TerminalFrameWriter {
   private previousFrame: string[] | undefined;
   private previousInkLineCount = 0;
+  private previousColumns: number | undefined;
+  private previousRows: number | undefined;
 
   constructor(
     private readonly stdout: NodeJS.WriteStream,
@@ -114,13 +121,28 @@ class TerminalFrameWriter {
       );
     }
 
-    const patches = renderFrameDiff(
-      this.previousFrame,
-      frame.lines,
-      this.stdout.rows
-    );
-    this.previousFrame = frame.lines;
+    const terminalRows = normalizeTerminalDimension(this.stdout.rows);
+    const terminalColumns = normalizeTerminalDimension(this.stdout.columns);
+    const resized =
+      this.previousFrame !== undefined &&
+      (terminalRows !== this.previousRows || terminalColumns !== this.previousColumns);
+    const visibleFrame = frame.lines.slice(0, terminalRows);
+    // Ghostty 等终端在 DEC 2026 同步更新中对「只写变化行」的处理并不
+    // 稳定：结构性切换后未重写的行可能变空。同步模式本身可以隐藏整帧
+    // 重绘过程，因此这里优先保证物理帧与逻辑帧完全一致。
+    const patches = this.synchronized
+      ? (resized ? ansiEscapes.clearTerminal : '') +
+        renderFullFrame(visibleFrame, terminalRows)
+      : (resized ? ansiEscapes.clearTerminal : '') +
+        renderFrameDiff(
+          resized ? undefined : this.previousFrame,
+          visibleFrame,
+          terminalRows
+        );
+    this.previousFrame = visibleFrame;
     this.previousInkLineCount = frame.inkLineCount;
+    this.previousColumns = terminalColumns;
+    this.previousRows = terminalRows;
     if (patches.length === 0) {
       invokeWriteCallback(encodingOrCallback, callback);
       return true;
@@ -174,8 +196,14 @@ function renderFrameDiff(
   next: string[],
   terminalRows: number
 ): string {
+  const safeTerminalRows = normalizeTerminalDimension(terminalRows);
   let output = previous ? '' : CURSOR_HOME;
-  const rowCount = Math.max(previous?.length ?? 0, next.length);
+  // 绝不能把光标定位到终端底部之外；多数终端会因此滚屏，导致逻辑帧
+  // 与物理帧永久失步，表现为重复行、消失的 header 和重复 Composer。
+  const rowCount = Math.min(
+    safeTerminalRows,
+    Math.max(previous?.length ?? 0, next.length)
+  );
   for (let index = 0; index < rowCount; index += 1) {
     const before = previous?.[index];
     const after = next[index] ?? '';
@@ -190,9 +218,26 @@ function renderFrameDiff(
   }
 
   if (output.length > 0) {
-    output += cursorTo(Math.max(1, terminalRows));
+    output += cursorTo(safeTerminalRows);
   }
   return output;
+}
+
+function renderFullFrame(next: string[], terminalRows: number): string {
+  const safeTerminalRows = normalizeTerminalDimension(terminalRows);
+  let output = CURSOR_HOME;
+  for (let index = 0; index < safeTerminalRows; index += 1) {
+    const line = next[index] ?? '';
+    output += cursorTo(index + 1);
+    output += line.length > 0
+      ? line + RESET_STYLE + ERASE_TO_LINE_END
+      : ERASE_LINE;
+  }
+  return output + cursorTo(safeTerminalRows);
+}
+
+function normalizeTerminalDimension(value: number | undefined): number {
+  return Math.max(1, Math.floor(value ?? 1));
 }
 
 function cursorTo(row: number): string {

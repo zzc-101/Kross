@@ -1,6 +1,7 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { initI18n } from '@kross/core';
 
 import * as approvalPanelModule from './ApprovalPanel';
 import { ApprovalPanel } from './ApprovalPanel';
@@ -10,6 +11,8 @@ import { ToolCallCard } from './ToolCallCard';
 import { WelcomeHome } from './WelcomeHome';
 
 describe('panel borders', () => {
+  afterEach(() => initI18n('zh'));
+
   it('aligns the approval panel right border on every framed row', () => {
     const { lastFrame } = render(
       <ApprovalPanel
@@ -49,6 +52,29 @@ describe('panel borders', () => {
     expect(defaultSelection('write')).toBe('approve');
     expect(defaultSelection('execute')).toBe('reject');
     expect(defaultSelection('network')).toBe('reject');
+  });
+
+  it('localizes approval labels in English mode', () => {
+    initI18n('en');
+    const { lastFrame } = render(
+      <ApprovalPanel
+        approval={{
+          runId: 'run-en',
+          toolCallId: 'call-en',
+          toolName: 'Bash',
+          risk: 'execute',
+          reason: 'command execution requires approval',
+          inputPreview: 'npm test'
+        }}
+        selection="reject"
+      />
+    );
+
+    expect(lastFrame()).toContain('Tool  Bash');
+    expect(lastFrame()).toContain('Risk  Command execution');
+    expect(lastFrame()).toContain('Allow once');
+    expect(lastFrame()).toContain('Reject');
+    expect(lastFrame()).not.toContain('工具');
   });
 
   it('shows a check mark when a tool call completes', () => {

@@ -1,6 +1,5 @@
-import React, { useMemo } from 'react';
-import { Box, Text } from 'ink';
-import TextInput from 'ink-text-input';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Box, Text, useInput } from 'ink';
 
 import { t, type AgentMode, type PermissionMode } from '@kross/core';
 
@@ -77,7 +76,7 @@ export function Composer({
         <Box paddingX={1} flexGrow={1}>
           <Text bold>{symbols.prompt} </Text>
           <Box flexGrow={1}>
-            <TextInput
+            <ComposerTextInput
               value={value}
               onChange={onChange}
               onSubmit={onSubmit}
@@ -93,6 +92,100 @@ export function Composer({
         <Text color={theme.border}>{bottomRight}</Text>
       </Box>
     </Box>
+  );
+}
+
+function ComposerTextInput({
+  value,
+  onChange,
+  onSubmit,
+  placeholder
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (value: string) => void;
+  placeholder: string;
+}) {
+  const [cursorOffset, setCursorOffset] = useState(value.length);
+
+  useEffect(() => {
+    setCursorOffset((current) => Math.min(current, value.length));
+  }, [value]);
+
+  useInput((input, key) => {
+    // Ink 会把同一次按键分发给所有 useInput 监听器。全局 ctrl 快捷键
+    // 已由 useAppKeyboard 处理，这里必须忽略，否则 ctrl+p 会把 p 写进输入框。
+    if (shouldIgnoreComposerInput(key)) {
+      return;
+    }
+
+    if (key.return) {
+      onSubmit(value);
+      return;
+    }
+
+    if (key.leftArrow) {
+      setCursorOffset((current) => Math.max(0, current - 1));
+      return;
+    }
+
+    if (key.rightArrow) {
+      setCursorOffset((current) => Math.min(value.length, current + 1));
+      return;
+    }
+
+    if (key.backspace || key.delete) {
+      if (cursorOffset === 0) {
+        return;
+      }
+      onChange(
+        value.slice(0, cursorOffset - 1) + value.slice(cursorOffset)
+      );
+      setCursorOffset((current) => Math.max(0, current - 1));
+      return;
+    }
+
+    if (input.length === 0) {
+      return;
+    }
+
+    onChange(value.slice(0, cursorOffset) + input + value.slice(cursorOffset));
+    setCursorOffset((current) => current + input.length);
+  });
+
+  if (value.length === 0) {
+    return (
+      <Text>
+        <Text inverse>{placeholder[0] ?? ' '}</Text>
+        <Text dimColor>{placeholder.slice(1)}</Text>
+      </Text>
+    );
+  }
+
+  return (
+    <Text>
+      {value.slice(0, cursorOffset)}
+      <Text inverse>{value[cursorOffset] ?? ' '}</Text>
+      {value.slice(cursorOffset + 1)}
+    </Text>
+  );
+}
+
+export function shouldIgnoreComposerInput(key: {
+  ctrl?: boolean;
+  meta?: boolean;
+  escape?: boolean;
+  tab?: boolean;
+  upArrow?: boolean;
+  downArrow?: boolean;
+}): boolean {
+  return Boolean(
+    key.ctrl ||
+      key.meta ||
+      key.escape ||
+      key.tab ||
+      key.upArrow ||
+      key.downArrow
   );
 }
 
@@ -156,9 +249,7 @@ function truncateLabel(label: string, maxWidth: number): string {
 export function HelpHint() {
   return (
     <Box marginTop={0}>
-      <Text dimColor>
-        /help · /mode 切换模式 · ctrl+p 模型 · shift+tab 权限 · ctrl+o 思考过程
-      </Text>
+      <Text dimColor>{t('composer.helpHint')}</Text>
     </Box>
   );
 }

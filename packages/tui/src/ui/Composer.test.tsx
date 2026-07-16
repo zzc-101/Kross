@@ -6,11 +6,18 @@ import {
   COMPOSER_BOTTOM_GAP,
   COMPOSER_FOOTER_HEIGHT,
   COMPOSER_HEIGHT,
-  Composer
+  Composer,
+  shouldIgnoreComposerInput
 } from './Composer';
 import { displayWidth } from './markdownParse';
 
 describe('Composer', () => {
+  it('ignores global control shortcuts instead of inserting their letters', () => {
+    expect(shouldIgnoreComposerInput({ ctrl: true })).toBe(true);
+    expect(shouldIgnoreComposerInput({ meta: true })).toBe(true);
+    expect(shouldIgnoreComposerInput({})).toBe(false);
+  });
+
   it('reserves three footer rows below the visible input frame', () => {
     expect(COMPOSER_BOTTOM_GAP).toBe(3);
     expect(COMPOSER_FOOTER_HEIGHT).toBe(

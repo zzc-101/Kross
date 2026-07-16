@@ -35,6 +35,8 @@ export const zhCatalog = {
   // composer
   'composer.noModel': '未配置模型',
   'composer.placeholder': '描述任务，输入 / 查看命令',
+  'composer.helpHint':
+    '/help · /mode 切换模式 · ctrl+p 模型 · shift+tab 权限 · ctrl+o 思考过程',
 
   // header
   'header.queue': '队列：{count}',
@@ -87,6 +89,9 @@ export const zhCatalog = {
   'slash.category.settings': '设置',
   'slash.category.contextual': '当前操作',
   'slash.suggest.title': '命令',
+  'slash.suggest.hotkeys': '↑↓ 选择 · Enter 执行 · Esc 关闭',
+  'slash.suggest.more': '还有 {count} 项，继续输入筛选',
+  'slash.compact.usage': '/compact [额外压缩要求]',
 
   // approval
   'approval.read.title': '允许读取工作区？',
@@ -102,6 +107,11 @@ export const zhCatalog = {
   'approval.default.title': '允许这次工具调用？',
   'approval.input': '输入',
   'approval.reason': '该操作需要你的确认',
+  'approval.toolLabel': '工具',
+  'approval.riskLabel': '风险',
+  'approval.reasonLabel': '说明',
+  'approval.approveOnce': '允许一次',
+  'approval.reject': '拒绝',
   'approval.hotkeys': ' ←/→ 切换 · Enter 确认 · a/r 快捷键',
 
   // tool cards
@@ -134,6 +144,9 @@ export const zhCatalog = {
   'scroll.both': '↑ 历史  ·  ↓ 底部',
   'scroll.up': '↑ 历史',
   'scroll.down': '↓ 回底部',
+  'scroll.olderOmitted': '↑ 更早消息已省略',
+
+  'common.tip': '提示',
 
   // model settings
   'settings.title': '模型与思考强度',
@@ -142,6 +155,7 @@ export const zhCatalog = {
   'settings.noModels': '暂无可用模型，请先配置环境变量',
   'settings.unconfigured': '{example} · {provider} (未配置)',
   'settings.noEffort': '未选择思考强度',
+  'settings.current': '当前',
   'settings.effortOnly': '思考强度 → {effort}',
   'settings.missingKey': '{name} 未配置密钥（{envs}）',
   'settings.applied': '已应用 {label}',
@@ -285,6 +299,8 @@ export const enCatalog: Record<MessageKey, string> = {
 
   'composer.noModel': 'No model',
   'composer.placeholder': 'Describe a task, type / for commands',
+  'composer.helpHint':
+    '/help · /mode switch mode · ctrl+p model · shift+tab permissions · ctrl+o thinking',
 
   'header.queue': 'Queue: {count}',
   'header.todo.empty': 'Todo · —',
@@ -334,6 +350,9 @@ export const enCatalog: Record<MessageKey, string> = {
   'slash.category.settings': 'Settings',
   'slash.category.contextual': 'Contextual',
   'slash.suggest.title': 'Commands',
+  'slash.suggest.hotkeys': '↑↓ select · Enter run · Esc close',
+  'slash.suggest.more': '{count} more — keep typing to filter',
+  'slash.compact.usage': '/compact [extra compaction instructions]',
 
   'approval.read.title': 'Allow reading the workspace?',
   'approval.read.risk': 'Read-only',
@@ -348,6 +367,11 @@ export const enCatalog: Record<MessageKey, string> = {
   'approval.default.title': 'Allow this tool call?',
   'approval.input': 'Input',
   'approval.reason': 'This action needs your confirmation',
+  'approval.toolLabel': 'Tool',
+  'approval.riskLabel': 'Risk',
+  'approval.reasonLabel': 'Reason',
+  'approval.approveOnce': 'Allow once',
+  'approval.reject': 'Reject',
   'approval.hotkeys': ' ←/→ switch · Enter confirm · a/r shortcuts',
 
   'tool.status.failed': 'failed',
@@ -377,6 +401,9 @@ export const enCatalog: Record<MessageKey, string> = {
   'scroll.both': '↑ history  ·  ↓ bottom',
   'scroll.up': '↑ history',
   'scroll.down': '↓ bottom',
+  'scroll.olderOmitted': '↑ Earlier messages omitted',
+
+  'common.tip': 'Tip',
 
   'settings.title': 'Model & thinking effort',
   'settings.effort': 'Effort',
@@ -384,6 +411,7 @@ export const enCatalog: Record<MessageKey, string> = {
   'settings.noModels': 'No models available — configure env vars first',
   'settings.unconfigured': '{example} · {provider} (not configured)',
   'settings.noEffort': 'No thinking effort selected',
+  'settings.current': 'current',
   'settings.effortOnly': 'Effort → {effort}',
   'settings.missingKey': '{name} has no credentials ({envs})',
   'settings.applied': 'Applied {label}',

@@ -37,6 +37,7 @@ export interface WelcomeHomeProps {
   selectedSessionIndex?: number;
   tip?: string;
   width?: number;
+  compact?: boolean;
 }
 
 function defaultWelcomeActions(): WelcomeAction[] {
@@ -63,7 +64,8 @@ export function WelcomeHome({
   recentSessions = [],
   selectedSessionIndex,
   tip,
-  width = 72
+  width = 72,
+  compact = false
 }: WelcomeHomeProps) {
   const resolvedHeadline = headline ?? t('welcome.headline');
   const resolvedSubtitle = subtitle ?? t('welcome.subtitle');
@@ -72,7 +74,11 @@ export function WelcomeHome({
   const layout = resolveWelcomeLayout(width);
   const cardWidth = layout.cardWidth;
   // 最近会话区比品牌展示更重要；有历史时压缩为单行 Logo，避免 24 行终端裁剪。
-  const brandMode = recentSessions.length > 0 ? 'compact' : layout.brandMode;
+  const visibleRecentSessions = compact
+    ? recentSessions.slice(0, 2)
+    : recentSessions;
+  const brandMode =
+    compact || recentSessions.length > 0 ? 'compact' : layout.brandMode;
 
   return (
     <Box flexDirection="column" alignItems="center" width={width}>
@@ -106,7 +112,7 @@ export function WelcomeHome({
             {resolvedHeadline}
           </Text>
         </Box>
-        <Text dimColor>{resolvedSubtitle}</Text>
+        {!compact ? <Text dimColor>{resolvedSubtitle}</Text> : null}
 
         {modelLabel ? (
           <Box marginTop={0}>
@@ -121,7 +127,7 @@ export function WelcomeHome({
           </Box>
         ) : null}
 
-        {recentSessions.length > 0 ? (
+        {visibleRecentSessions.length > 0 ? (
           <Box marginTop={1} flexDirection="column">
             <Box justifyContent="space-between">
               <Text dimColor>{t('welcome.recentTitle')}</Text>
@@ -136,7 +142,7 @@ export function WelcomeHome({
                   : t('welcome.selectedHint')}
               </Text>
             </Box>
-            {recentSessions.map((session, index) => (
+            {visibleRecentSessions.map((session, index) => (
               <Box key={session.id}>
                 <Text
                   color={
@@ -156,18 +162,18 @@ export function WelcomeHome({
                 <Text dimColor> {formatSessionTime(session.updatedAt)}</Text>
               </Box>
             ))}
-            {selectedSessionIndex === undefined ? (
+            {!compact && selectedSessionIndex === undefined ? (
               <Box marginLeft={2}>
                 <Text dimColor>{t('welcome.hintIdle')}</Text>
               </Box>
-            ) : (
+            ) : !compact ? (
               <Box marginLeft={2}>
                 <Text color={theme.accent} bold>
                   {t('welcome.hintResume')}
                 </Text>
                 <Text dimColor>{t('welcome.hintCancel')}</Text>
               </Box>
-            )}
+            ) : null}
           </Box>
         ) : null}
 
@@ -181,7 +187,7 @@ export function WelcomeHome({
         </Box>
       </Box>
 
-      {resolvedTip ? (
+      {resolvedTip && !compact ? (
         <Box marginTop={1} width={cardWidth}>
           <Text dimColor>
             {t('welcome.tipPrefix')}
@@ -208,7 +214,7 @@ export function resolveWelcomeLayout(width: number): {
   cardWidth: number;
   brandMode: 'wordmark' | 'compact';
 } {
-  const availableWidth = Math.max(36, Math.floor(width));
+  const availableWidth = Math.max(12, Math.floor(width));
   const cardWidth = Math.min(availableWidth, 88);
   return {
     cardWidth,

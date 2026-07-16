@@ -75,21 +75,26 @@ export function HeaderBar({
     : [];
   const todoTone = todoHeaderTone(todoSnapshot);
   const hasTodos = (todoSnapshot?.todos.length ?? 0) > 0;
+  const showTodo = hasTodos || columns === undefined || columns >= 60;
 
   return (
     <Box flexDirection="column" width="100%" flexShrink={0}>
       <Box justifyContent="space-between" width="100%">
-        <Text dimColor>{locationLabel}</Text>
-        <Box>
+        <Box flexShrink={1} minWidth={1} overflowX="hidden">
+          <Text dimColor wrap="truncate-end">{locationLabel}</Text>
+        </Box>
+        <Box flexShrink={0}>
           {contextUsageLabel ? (
             <Text color={usageColor}>{contextUsageLabel}</Text>
           ) : null}
           {/* Todo 芯片：有任务时可点展开（由 App 订阅点击区域） */}
-          <StatusChip
-            label={hasTodos ? todoLabel : t('header.todo.empty')}
-            color={todoTone}
-            dim={!todoTone}
-          />
+          {showTodo ? (
+            <StatusChip
+              label={hasTodos ? todoLabel : t('header.todo.empty')}
+              color={todoTone}
+              dim={!todoTone}
+            />
+          ) : null}
           {queueLength > 0 ? (
             <StatusChip
               label={t('header.queue', { count: queueLength })}
