@@ -189,7 +189,12 @@ export function handleCommand(
       append(
         'system',
         t('cmd.modeSwitched', {
-          mode: normalized === 'conductor' ? t('mode.conductor') : normalized
+          mode:
+            normalized === 'conductor'
+              ? t('mode.conductor')
+              : normalized === 'plan'
+                ? t('mode.plan')
+                : t('mode.auto')
         })
       );
     } else {

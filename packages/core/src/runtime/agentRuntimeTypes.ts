@@ -67,15 +67,28 @@ export interface AgentRunInput {
   };
 }
 
-/** In-memory plan held between /approve and execution (process lifetime). */
+/** Conductor plan held between /approve and execution (process lifetime). */
 export interface PendingConductorExecution {
+  kind: 'conductor';
   goal: string;
-  mode: Exclude<AgentMode, 'auto'>;
+  mode: 'conductor';
   plan: ConductorPlan;
   impactMap: ImpactMap;
   projectId: string;
   registrySourcePath?: string;
 }
+
+/** Plan-mode plan held between /approve and development tool loop. */
+export interface PendingPlanExecution {
+  kind: 'plan';
+  goal: string;
+  mode: 'plan';
+  planText: string;
+}
+
+export type PendingModeExecution =
+  | PendingConductorExecution
+  | PendingPlanExecution;
 
 export interface ResolveToolApprovalInput {
   runId: string;
@@ -90,7 +103,7 @@ export interface ContextInspectionInput {
 }
 
 export interface ContextInspection extends ContextSnapshot {
-  mode: Exclude<AgentMode, 'auto'>;
+  mode: AgentMode;
 }
 
 export type AgentRuntimeEvent = TraceEvent;

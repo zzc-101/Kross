@@ -211,7 +211,7 @@ describe('App', () => {
       expect(view.lastFrame()).not.toContain('随时可以开始');
 
       const context = runtime.inspectContext({
-        requestedMode: 'normal',
+        requestedMode: 'auto',
         currentUserInput: '继续'
       });
       const contextText = context.messages.map((message) => message.content).join('\n');
@@ -380,18 +380,18 @@ describe('App', () => {
       await waitUntil(() => api !== undefined);
       await api?.submit('先产生 token 占用');
       await waitUntil(() => view.lastFrame()?.includes('带 usage 的回复') === true);
-      expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBeGreaterThan(
+      expect(runtime.getContextUsage({ requestedMode: 'auto' }).usedTokens).toBeGreaterThan(
         0
       );
-      expect(runtime.getContextUsage({ requestedMode: 'normal' }).lastUsageTokens).toBe(
+      expect(runtime.getContextUsage({ requestedMode: 'auto' }).lastUsageTokens).toBe(
         37
       );
 
       await api?.resumeSession(target.id);
       await waitUntil(() => view.lastFrame()?.includes('恢复后回复') === true);
       expect(llmClient.lastUsage).toBeUndefined();
-      expect(runtime.getContextUsage({ requestedMode: 'normal' }).lastUsageTokens).toBeUndefined();
-      expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBeGreaterThan(
+      expect(runtime.getContextUsage({ requestedMode: 'auto' }).lastUsageTokens).toBeUndefined();
+      expect(runtime.getContextUsage({ requestedMode: 'auto' }).usedTokens).toBeGreaterThan(
         0
       );
     } finally {
@@ -443,7 +443,7 @@ describe('App', () => {
       );
 
       const restored = runtime.inspectContext({
-        requestedMode: 'normal',
+        requestedMode: 'auto',
         currentUserInput: '继续'
       });
       expect(restored.messages.map((message) => message.content).join('\n')).toContain(
@@ -662,7 +662,7 @@ describe('App', () => {
     await waitUntil(() => submit !== undefined);
     await submit?.('/mode');
 
-    expect(lastFrame()).toContain('用法：/mode auto|normal|conductor');
+    expect(lastFrame()).toContain('用法：/mode auto|plan|conductor');
     expect(lastFrame()).not.toContain('最小规划闭环');
   });
 

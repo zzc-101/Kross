@@ -53,7 +53,7 @@ export const PLANNER_SYSTEM_PROMPT =
 
 interface PendingToolSession {
   runId: string;
-  mode: Exclude<AgentMode, 'auto'>;
+  mode: AgentMode;
   originalUserInput: string;
   call: LlmToolCall;
   remainingCalls: LlmToolCall[];
@@ -306,7 +306,7 @@ export class RuntimeToolLoop {
 
   async executeToolBatch(input: {
     runId: string;
-    mode: Exclude<AgentMode, 'auto'>;
+    mode: AgentMode;
     originalUserInput: string;
     calls: LlmToolCall[];
     tools: ToolMetadata[];
@@ -435,7 +435,7 @@ export class RuntimeToolLoop {
 
   async createMaxToolIterationsResult(
     runId: string,
-    mode: Exclude<AgentMode, 'auto'>,
+    mode: AgentMode,
     message: string
   ): Promise<AgentResult> {
     return this.options.attachChangedFiles(

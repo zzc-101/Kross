@@ -17,7 +17,7 @@ describe('traceSummary', () => {
   it('summarizes status, tools, flags and failures', () => {
     const events = [
       event('run-1', 'run.started', { input: '看看当前目录有哪些文件夹' }, 't1'),
-      event('run-1', 'mode.detected', { mode: 'normal' }, 't2'),
+      event('run-1', 'mode.detected', { mode: 'auto' }, 't2'),
       event('run-1', 'context.built', { estimatedChars: 1200, includedSources: [1, 2] }, 't3'),
       event(
         'run-1',
@@ -48,7 +48,7 @@ describe('traceSummary', () => {
         'run.completed',
         {
           status: 'completed',
-          mode: 'normal',
+          mode: 'auto',
           summary: '列出了几个目录'
         },
         't8'
@@ -59,7 +59,7 @@ describe('traceSummary', () => {
     expect(summary).toMatchObject({
       runId: 'run-1',
       status: 'completed',
-      mode: 'normal',
+      mode: 'auto',
       inputPreview: '看看当前目录有哪些文件夹',
       summaryPreview: '列出了几个目录',
       tools: expect.arrayContaining(['Bash', 'Write']),
@@ -98,7 +98,7 @@ describe('traceSummary', () => {
         runId: 'run-a',
         eventCount: 3,
         status: 'completed',
-        mode: 'normal',
+        mode: 'auto',
         inputPreview: 'hello',
         tools: ['Read'],
         toolStats: {
@@ -133,7 +133,7 @@ describe('traceSummary', () => {
       event(
         'run-3',
         'run.completed',
-        { status: 'completed', mode: 'normal', summary: 'finished' },
+        { status: 'completed', mode: 'auto', summary: 'finished' },
         't2'
       ),
       event('run-3', 'run.awaiting_approval', {}, 't3')

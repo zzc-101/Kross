@@ -63,7 +63,7 @@ export interface SessionContextState {
 
 export interface BuildContextInput {
   systemPrompt: string;
-  mode: Exclude<AgentMode, 'auto'>;
+  mode: AgentMode;
   tools?: ToolMetadata[];
 }
 

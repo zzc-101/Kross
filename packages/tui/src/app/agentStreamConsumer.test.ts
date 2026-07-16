@@ -68,7 +68,7 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
           type: 'result',
           result: {
             runId: 'r1',
-            mode: 'normal',
+            mode: 'auto',
             status: 'completed',
             summary: '答案',
             report: {
@@ -108,7 +108,7 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
           type: 'result',
           result: {
             runId: 'r2',
-            mode: 'normal',
+            mode: 'auto',
             status: 'completed',
             summary: 'done',
             report: {
@@ -142,7 +142,7 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
           type: 'result',
           result: {
             runId: 'r3',
-            mode: 'normal',
+            mode: 'auto',
             status: 'completed',
             summary: '直接答',
             report: {

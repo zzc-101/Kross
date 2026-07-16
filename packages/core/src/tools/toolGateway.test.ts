@@ -56,14 +56,14 @@ describe('ToolGateway', () => {
       execute: async () => ({ content: 'ok' })
     });
 
-    expect(gateway.listTools({ mode: 'normal' })).toEqual([
+    expect(gateway.listTools({ mode: 'auto' })).toEqual([
       expect.objectContaining({
         name: 'fs.read',
         category: 'filesystem',
         parameters: expect.objectContaining({ type: 'object' })
       })
     ]);
-    expect(gateway.listTools({ mode: 'normal' })).not.toEqual(
+    expect(gateway.listTools({ mode: 'auto' })).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'shell.exec' })])
     );
     expect(gateway.listTools({ mode: 'conductor' })).toEqual(

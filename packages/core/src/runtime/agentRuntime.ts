@@ -58,6 +58,8 @@ import type {
   ContextInspection,
   ContextInspectionInput,
   PendingConductorExecution,
+  PendingModeExecution,
+  PendingPlanExecution,
   ResolveToolApprovalInput
 } from './agentRuntimeTypes';
 import {
@@ -100,8 +102,10 @@ export class AgentRuntime extends EventEmitter {
   private readonly inspection: RuntimeInspection;
   private readonly toolLoop: RuntimeToolLoop;
   private permissionMode: PermissionMode = 'default';
-  /** Held between conductor plan gate and /approve execution. */
-  private pendingConductor: PendingConductorExecution | undefined;
+  /** Held between plan/conductor gate and /approve execution. */
+  private pendingModeExecution:
+    | import('./agentRuntimeTypes').PendingModeExecution
+    | undefined;
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
@@ -139,13 +143,23 @@ export class AgentRuntime extends EventEmitter {
     this.syncProjectRegistrySource();
   }
 
-  /** Last conductor plan awaiting /approve (if any). */
+  /** Last plan/conductor execution awaiting /approve (if any). */
+  getPendingModeExecution(): PendingModeExecution | undefined {
+    return this.pendingModeExecution;
+  }
+
+  /** @deprecated use getPendingModeExecution */
   getPendingConductorPlan(): PendingConductorExecution | undefined {
-    return this.pendingConductor;
+    const pending = this.pendingModeExecution;
+    return pending?.kind === 'conductor' ? pending : undefined;
+  }
+
+  clearPendingModeExecution(): void {
+    this.pendingModeExecution = undefined;
   }
 
   clearPendingConductorPlan(): void {
-    this.pendingConductor = undefined;
+    this.clearPendingModeExecution();
   }
 
   getWorkspaceRoots(): WorkspaceRoots | undefined {
@@ -239,7 +253,7 @@ export class AgentRuntime extends EventEmitter {
   }
 
   async compactNow(
-    input: ContextInspectionInput = { requestedMode: 'normal' },
+    input: ContextInspectionInput = { requestedMode: 'auto' },
     instructions?: string,
     signal?: AbortSignal
   ): Promise<ContextMaintenanceResult> {
@@ -437,8 +451,29 @@ export class AgentRuntime extends EventEmitter {
       await this.record(runId, 'mode.detected', { ...detection });
       throwIfAborted(input.signal);
 
-      if (detection.mode === 'normal' && this.options.llmClient) {
-        yield* this.runNormalModeWithToolLoop(input, detection.mode, runId);
+      if (detection.mode === 'auto' && this.options.llmClient) {
+        yield* this.runAgentToolLoop(input, detection.mode, runId);
+        return;
+      }
+
+      if (detection.mode === 'plan') {
+        if (input.approvals?.plan === true && this.pendingModeExecution?.kind === 'plan') {
+          const pending = this.pendingModeExecution;
+          this.pendingModeExecution = undefined;
+          if (this.options.llmClient) {
+            yield* this.runAgentToolLoop(input, 'plan', runId, {
+              planText: pending.planText
+            });
+            return;
+          }
+        }
+        const result = await this.runPlanMode(
+          input,
+          detection.mode,
+          runId,
+          detection.reason
+        );
+        yield { type: 'result', result };
         return;
       }
 
@@ -474,13 +509,26 @@ export class AgentRuntime extends EventEmitter {
     }
   }
 
-  private async *runNormalModeWithToolLoop(
+  private async *runAgentToolLoop(
     input: AgentRunInput,
-    mode: Exclude<AgentMode, 'auto'>,
-    runId: string
+    mode: AgentMode,
+    runId: string,
+    options: { planText?: string } = {}
   ): AsyncIterable<AgentRunStreamEvent> {
     throwIfAborted(input.signal);
     this.sessionContext.beginTurn(input.input);
+    if (options.planText?.trim()) {
+      this.sessionContext.addSource({
+        id: 'approved-plan',
+        kind: 'user',
+        title: 'Approved plan',
+        content: options.planText.trim(),
+        priority: 96,
+        pinned: true
+      });
+    } else {
+      this.sessionContext.removeSource('approved-plan');
+    }
     const { buildContextInput, tools } = this.buildPlannerContext(mode);
     const prepared = await this.sessionContext.prepareRequest(
       buildContextInput,
@@ -569,20 +617,172 @@ export class AgentRuntime extends EventEmitter {
   }
 
   /**
+   * Plan mode: produce an implementation plan → /approve → full tool-loop develop.
+   */
+  private async runPlanMode(
+    input: AgentRunInput,
+    mode: AgentMode,
+    runId: string,
+    reason: string | undefined
+  ): Promise<AgentResult> {
+    throwIfAborted(input.signal);
+
+    if (
+      input.approvals?.plan === true &&
+      this.pendingModeExecution?.kind === 'plan'
+    ) {
+      // Should be handled in executeRun streaming path; fallback if called directly.
+      const pending = this.pendingModeExecution;
+      this.pendingModeExecution = undefined;
+      if (!this.options.llmClient) {
+        return this.finishRunWithoutLlm(input, mode, runId, reason);
+      }
+      let result: AgentResult | undefined;
+      for await (const event of this.runAgentToolLoop(input, 'plan', runId, {
+        planText: pending.planText
+      })) {
+        if (event.type === 'result') {
+          result = event.result;
+        }
+      }
+      if (!result) {
+        throw new Error(`Plan execution finished without result: ${runId}`);
+      }
+      return result;
+    }
+
+    const planText = await this.buildPlanModeText(input.input, input.signal);
+    await this.record(runId, 'plan.created', {
+      mode: 'plan',
+      goal: input.input,
+      planText
+    });
+    await this.record(runId, 'approval.required', {
+      scope: 'plan-mode',
+      reason
+    });
+
+    const summary = [
+      '【Plan 模式 · 等待确认】',
+      '',
+      planText,
+      '',
+      '输入 /approve 按该计划开始开发，或 /reject 取消。'
+    ].join('\n');
+
+    this.pendingModeExecution = {
+      kind: 'plan',
+      goal: input.input,
+      mode: 'plan',
+      planText
+    };
+
+    if (input.approvals?.plan === true) {
+      this.pendingModeExecution = undefined;
+      if (!this.options.llmClient) {
+        return this.finishRunWithoutLlm(input, mode, runId, reason);
+      }
+      let result: AgentResult | undefined;
+      for await (const event of this.runAgentToolLoop(input, 'plan', runId, {
+        planText
+      })) {
+        if (event.type === 'result') {
+          result = event.result;
+        }
+      }
+      if (!result) {
+        throw new Error(`Plan execution finished without result: ${runId}`);
+      }
+      return result;
+    }
+
+    const cancelled = await this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId,
+        mode: 'plan',
+        status: 'cancelled',
+        cancellationReason: 'approval-gate',
+        summary,
+        report: {
+          changedFiles: [],
+          evidence: ['plan-first：确认前不改文件'],
+          risks: []
+        }
+      })
+    );
+    await this.record(runId, 'run.completed', { ...cancelled });
+    this.finishTurnWithAssistant(input.input, cancelled.summary);
+    return cancelled;
+  }
+
+  private async buildPlanModeText(
+    goal: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const client = this.options.llmClient;
+    if (!client) {
+      return [
+        `目标：${goal}`,
+        '',
+        '建议步骤：',
+        '1. 阅读相关代码与测试，确认现状',
+        '2. 列出拟修改文件与接口影响',
+        '3. 按最小可验证增量实现',
+        '4. 跑相关测试并自检'
+      ].join('\n');
+    }
+    throwIfAborted(signal);
+    try {
+      const response = await client.complete({
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是资深工程师。只输出可执行的开发计划（中文），包含：目标、步骤、涉及文件/模块、风险与验证方式。不要调用工具，不要改代码。'
+          },
+          { role: 'user', content: goal }
+        ],
+        metadata: { purpose: 'plan-mode' }
+      });
+      const text = response.text?.trim();
+      if (text) {
+        return text;
+      }
+    } catch {
+      // fall through to template
+    }
+    return [
+      `目标：${goal}`,
+      '',
+      '（模型未返回计划正文，使用默认模板）',
+      '1. 探索相关代码',
+      '2. 实现变更',
+      '3. 验证测试'
+    ].join('\n');
+  }
+
+  /**
    * Conductor (指挥家): plan-first → approval gate → sequential subagents.
    * Impact prefers session workspace roots (/add-dir); falls back to projects.json.
    */
   private async runConductor(
     input: AgentRunInput,
-    mode: Exclude<AgentMode, 'auto'>,
+    mode: AgentMode,
     runId: string,
     conductorReason: string | undefined
   ): Promise<AgentResult> {
     throwIfAborted(input.signal);
     this.syncProjectRegistrySource();
 
-    if (input.approvals?.plan === true && this.pendingConductor) {
-      return this.executeConductorPlan(runId, this.pendingConductor, input.signal);
+    if (
+      input.approvals?.plan === true &&
+      this.pendingModeExecution?.kind === 'conductor'
+    ) {
+      return this.executeConductorPlan(
+        runId,
+        this.pendingModeExecution,
+        input.signal
+      );
     }
 
     return this.planConductor(input, mode, runId, conductorReason);
@@ -590,7 +790,7 @@ export class AgentRuntime extends EventEmitter {
 
   private async planConductor(
     input: AgentRunInput,
-    mode: Exclude<AgentMode, 'auto'>,
+    mode: AgentMode,
     runId: string,
     conductorReason: string | undefined
   ): Promise<AgentResult> {
@@ -636,9 +836,10 @@ export class AgentRuntime extends EventEmitter {
       registrySource: registrySourcePath
     });
 
-    this.pendingConductor = {
+    this.pendingModeExecution = {
+      kind: 'conductor',
       goal: input.input,
-      mode,
+      mode: 'conductor',
       plan,
       impactMap: impact,
       projectId,
@@ -646,7 +847,11 @@ export class AgentRuntime extends EventEmitter {
     };
 
     if (input.approvals?.plan === true) {
-      return this.executeConductorPlan(runId, this.pendingConductor, input.signal);
+      return this.executeConductorPlan(
+        runId,
+        this.pendingModeExecution,
+        input.signal
+      );
     }
 
     const cancelled = await this.attachChangedFiles(
@@ -777,7 +982,7 @@ export class AgentRuntime extends EventEmitter {
         })
       );
       await this.record(runId, 'run.completed', { ...failed });
-      this.pendingConductor = undefined;
+      this.pendingModeExecution = undefined;
       this.finishTurnWithAssistant(goal, failed.summary);
       return failed;
     }
@@ -872,14 +1077,14 @@ export class AgentRuntime extends EventEmitter {
       repos: outcomes.map((o) => ({ repoId: o.repoId, status: o.status }))
     });
     await this.record(runId, 'run.completed', { ...result });
-    this.pendingConductor = undefined;
+    this.pendingModeExecution = undefined;
     this.finishTurnWithAssistant(goal, result.summary);
     return result;
   }
 
   private async finishRunWithoutLlm(
     input: AgentRunInput,
-    mode: Exclude<AgentMode, 'auto'>,
+    mode: AgentMode,
     runId: string,
     _conductorReason: string | undefined
   ): Promise<AgentResult> {
@@ -910,10 +1115,10 @@ export class AgentRuntime extends EventEmitter {
     this.sessionContext.commitTurn();
   }
 
-  private buildPlannerContext(mode: Exclude<AgentMode, 'auto'>): {
+  private buildPlannerContext(mode: AgentMode): {
     buildContextInput: {
       systemPrompt: string;
-      mode: Exclude<AgentMode, 'auto'>;
+      mode: AgentMode;
       tools: ToolMetadata[];
     };
     tools: ToolMetadata[];
@@ -956,10 +1161,10 @@ export class AgentRuntime extends EventEmitter {
   }
 
   private resolveContextBuildInput(input: ContextInspectionInput): {
-    mode: Exclude<AgentMode, 'auto'>;
+    mode: AgentMode;
     buildContextInput: {
       systemPrompt: string;
-      mode: Exclude<AgentMode, 'auto'>;
+      mode: AgentMode;
       tools: ToolMetadata[];
     };
   } {
@@ -970,7 +1175,7 @@ export class AgentRuntime extends EventEmitter {
               requestedMode: input.requestedMode,
               input: input.currentUserInput ?? ''
             }).mode
-          : 'normal'
+          : 'auto'
         : input.requestedMode;
     this.syncTodoContextSource();
     const tools = this.toolGateway?.listTools({ mode }) ?? [];
@@ -1031,7 +1236,7 @@ export class AgentRuntime extends EventEmitter {
 
   private async completeInterruptedRun(input: {
     runId: string;
-    mode: Exclude<AgentMode, 'auto'>;
+    mode: AgentMode;
     reason: string;
     stage: CancellationStage | 'startup';
   }): Promise<AgentResult> {

@@ -46,7 +46,7 @@ describe('AgentRuntime', () => {
       requestedMode: 'auto'
     });
 
-    expect(result.mode).toBe('normal');
+    expect(result.mode).toBe('auto');
     expect(result.status).toBe('failed');
     expect(result.summary).toContain('未配置模型');
     expect(traceStore.events.map((event) => event.type)).toEqual([
@@ -90,7 +90,7 @@ describe('AgentRuntime', () => {
 
     const running = runtime.run({
       input: '分析这个仓库',
-      requestedMode: 'normal',
+      requestedMode: 'auto',
       signal: controller.signal
     });
     await llmClient.started;
@@ -158,7 +158,7 @@ describe('AgentRuntime', () => {
 
     const running = runtime.run({
       input: '读取慢资源',
-      requestedMode: 'normal',
+      requestedMode: 'auto',
       signal: controller.signal
     });
     await toolStarted;
@@ -320,7 +320,7 @@ describe('AgentRuntime', () => {
     expect(traceStore.events.map((event) => event.type)).toContain(
       'llm.planner.completed'
     );
-    const usage = runtime.getContextUsage({ requestedMode: 'normal' });
+    const usage = runtime.getContextUsage({ requestedMode: 'auto' });
     expect(usage).toMatchObject({
       usedTokens: expect.any(Number),
       maxTokens: 480_000,
@@ -340,9 +340,9 @@ describe('AgentRuntime', () => {
 
     await runtime.run({
       input: '先产生 usage',
-      requestedMode: 'normal'
+      requestedMode: 'auto'
     });
-    expect(runtime.getContextUsage({ requestedMode: 'normal' }).usedTokens).toBeGreaterThan(
+    expect(runtime.getContextUsage({ requestedMode: 'auto' }).usedTokens).toBeGreaterThan(
       0
     );
 
@@ -352,7 +352,7 @@ describe('AgentRuntime', () => {
     ]);
 
     expect(llmClient.lastUsage).toBeUndefined();
-    const usage = runtime.getContextUsage({ requestedMode: 'normal' });
+    const usage = runtime.getContextUsage({ requestedMode: 'auto' });
     expect(usage).toMatchObject({
       usedTokens: expect.any(Number),
       maxTokens: 480_000,
@@ -360,7 +360,7 @@ describe('AgentRuntime', () => {
       label: expect.stringMatching(/\/480K$/)
     });
     expect(usage.usedTokens).toBeGreaterThan(0);
-    const context = runtime.inspectContext({ requestedMode: 'normal' });
+    const context = runtime.inspectContext({ requestedMode: 'auto' });
     expect(context.messages.map((message) => message.content).join('\n')).toContain(
       '旧会话用户'
     );
@@ -462,7 +462,7 @@ describe('AgentRuntime', () => {
 
     for await (const event of runtime.runStreaming({
       input: '读文件',
-      requestedMode: 'normal'
+      requestedMode: 'auto'
     })) {
       events.push(event);
     }
@@ -731,7 +731,7 @@ describe('AgentRuntime', () => {
 
     const result = await runtime.run({
       input: '一直读',
-      requestedMode: 'normal'
+      requestedMode: 'auto'
     });
 
     // 触顶不再 failed，而是软着陆为 completed 总结
@@ -986,7 +986,7 @@ describe('AgentRuntime', () => {
 
     const first = await runtime.run({
       input: '写 README',
-      requestedMode: 'normal'
+      requestedMode: 'auto'
     });
     expect(first.status).toBe('approval-required');
 
@@ -1229,7 +1229,7 @@ describe('AgentRuntime', () => {
 
     for await (const event of runtime.runStreaming({
       input: '一直读',
-      requestedMode: 'normal'
+      requestedMode: 'auto'
     })) {
       events.push(event);
     }
@@ -1314,7 +1314,7 @@ describe('AgentRuntime', () => {
     });
 
     expect(llmClient.requests).toHaveLength(beforeInspectCalls);
-    expect(snapshot.mode).toBe('normal');
+    expect(snapshot.mode).toBe('auto');
     expect(snapshot.report.sections.history).toBeGreaterThan(0);
     expect(snapshot.report.sections.tools).toBeGreaterThan(0);
     expect(snapshot.report.contributors).toEqual(
@@ -1335,14 +1335,14 @@ describe('AgentRuntime', () => {
 
     await runtime.run({
       input: '修复登录 bug',
-      requestedMode: 'normal'
+      requestedMode: 'auto'
     });
 
     const listed = await runtime.listTraces({ limit: 5 });
     expect(listed[0]).toMatchObject({
       runId: 'run-trace-1',
       status: 'completed',
-      mode: 'normal',
+      mode: 'auto',
       inputPreview: '修复登录 bug'
     });
 
@@ -1394,7 +1394,7 @@ describe('AgentRuntime', () => {
 
     const result = await runtime.run({
       input: '写个文件',
-      requestedMode: 'normal'
+      requestedMode: 'auto'
     });
 
     expect(result.report.changedFiles).toEqual(['src/demo.ts']);

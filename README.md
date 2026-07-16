@@ -6,8 +6,10 @@
 
 - 交互式 TUI 入口，启动后像 Claude Code 一样输入自然语言任务。
 - 全屏 TUI 为 Ink 预留安全行，避免高频更新触发整屏 `clearTerminal`；触摸板滚动采用单层帧合并，消息视口复用稳定 paint layout，流式文本按帧批量更新。
-- `auto` / `normal` / `conductor` 三种模式（UI i18n：中文「指挥家」/ 英文 Conductor）。
-- 普通模式：本地工具环。指挥家：plan-first → `/approve` → 按目标扇出子代理。
+- `auto` / `plan` / `conductor` 三种模式（UI i18n：自动 / 计划 / 指挥家）。
+- **auto**（默认）：普通 agent 工具环；可按输入自动切到 plan 或 conductor。
+- **plan**：先产出计划 → `/approve` → 再进入开发工具环。
+- **conductor**：指挥家多目标编排（plan-first → 按 root 扇出子代理）。
 - 多目录：`/add-dir` `/dirs` `/remove-dir`（与 mode 正交）；可选 `projects.json` 作模板。
 - JSONL trace store，用于后续任务回放和 agent 迭代分析。
 - 工作区级会话持久化：完整可见消息以 append-only JSONL 保存，SQLite 仅维护可重建的最近会话索引；启动页可选择历史会话，`/resume` 打开选择器，`/resume <sessionId>` 直接恢复。
@@ -282,8 +284,9 @@ packages/tui
 
 | 能力 | 命令 / 模式 | 说明 |
 |---|---|---|
-| 普通 agent | `/mode normal` | 默认工具环 |
-| 指挥家编排 | `/mode conductor` | 先计划、确认后再扇出子代理 |
+| 自动 agent | `/mode auto` | 默认工具环，可自动切 plan/conductor |
+| 计划优先 | `/mode plan` | 先计划、确认后再开发 |
+| 指挥家编排 | `/mode conductor` | 先计划、确认后按目录扇出子代理 |
 | 加目录 | `/add-dir /path/to/repo` | 会话级 allowlist + Task `repoId` |
 | 列目录 | `/dirs` | 主 cwd + 已 add 的目录 |
 | 移目录 | `/remove-dir <id\|path>` | 不能移除 primary |

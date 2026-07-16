@@ -63,10 +63,10 @@ describe('domain schemas', () => {
     expect(result.risks).toHaveLength(1);
   });
 
-  it('parses a final agent result for normal mode', () => {
+  it('parses a final agent result for auto mode', () => {
     const result = agentResultSchema.parse({
       runId: 'run-1',
-      mode: 'normal',
+      mode: 'auto',
       status: 'completed',
       summary: '任务完成',
       report: {
@@ -76,7 +76,7 @@ describe('domain schemas', () => {
       }
     });
 
-    expect(result.mode).toBe('normal');
+    expect(result.mode).toBe('auto');
     expect(result.report.evidence).toEqual(['trace 已保存']);
   });
 });

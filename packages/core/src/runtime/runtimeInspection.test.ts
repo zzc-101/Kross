@@ -8,11 +8,11 @@ describe('RuntimeInspection', () => {
   it('formats trace lists and rejects unsafe run ids', async () => {
     const traceStore = new MemoryTraceStore([
       event('run-1', 'run.started', { input: 'inspect workspace' }, 'e1'),
-      event('run-1', 'mode.detected', { mode: 'normal' }, 'e2'),
+      event('run-1', 'mode.detected', { mode: 'auto' }, 'e2'),
       event(
         'run-1',
         'run.completed',
-        { status: 'completed', mode: 'normal', summary: 'done' },
+        { status: 'completed', mode: 'auto', summary: 'done' },
         'e3'
       )
     ]);

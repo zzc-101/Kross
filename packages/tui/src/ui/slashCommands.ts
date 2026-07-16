@@ -38,7 +38,7 @@ export function listSlashCommands(): SlashCommand[] {
     {
       name: '/mode',
       description: t('slash.mode.desc'),
-      usage: '/mode auto|normal|conductor',
+      usage: '/mode auto|plan|conductor',
       category: 'common'
     },
     {

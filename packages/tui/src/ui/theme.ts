@@ -127,8 +127,8 @@ export function formatModeLabel(mode: string): string {
   switch (mode) {
     case 'auto':
       return t('mode.auto');
-    case 'normal':
-      return t('mode.normal');
+    case 'plan':
+      return t('mode.plan');
     case 'conductor':
       return t('mode.conductor');
     default:

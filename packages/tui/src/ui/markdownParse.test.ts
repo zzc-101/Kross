@@ -73,10 +73,10 @@ describe('parseMarkdown', () => {
   });
 
   it('does not treat pipe-separated prose as a table', () => {
-    const lines = parseMarkdown('用法：/mode auto|normal|conductor');
+    const lines = parseMarkdown('用法：/mode auto|plan|conductor');
     expect(lines.every((line) => line.kind !== 'table')).toBe(true);
     expect(lines[0]?.spans.map((s) => s.text).join('')).toContain(
-      '用法：/mode auto|normal|conductor'
+      '用法：/mode auto|plan|conductor'
     );
   });
 });

@@ -182,10 +182,17 @@ export function useAgentRun({
       return settleInterruptedUi();
     }
 
-    if (result.mode === 'conductor' && result.status === 'cancelled') {
+    if (
+      result.status === 'cancelled' &&
+      result.cancellationReason === 'approval-gate' &&
+      (result.mode === 'conductor' || result.mode === 'plan')
+    ) {
       setStatus('waiting-approval');
-      setPendingConductorPlan({ prompt, mode: options.requestedMode ?? mode });
-      append('system', t('app.conductorPaused'));
+      setPendingConductorPlan({ prompt, mode: result.mode });
+      append(
+        'system',
+        result.mode === 'plan' ? t('app.planPaused') : t('app.conductorPaused')
+      );
       return 'paused';
     }
 

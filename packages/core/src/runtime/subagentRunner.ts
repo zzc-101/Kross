@@ -305,7 +305,7 @@ async function runSubagentToolLoop(input: {
   input.sessionContext.beginTurn(input.prompt);
   const buildContextInput = {
     systemPrompt: SUBAGENT_SYSTEM_PROMPT,
-    mode: 'normal' as const,
+    mode: 'auto' as const,
     tools: input.tools
   };
 

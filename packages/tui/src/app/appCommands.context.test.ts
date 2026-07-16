@@ -6,7 +6,7 @@ import { formatCompactResult, formatContextInspection } from './appCommands';
 
 function sampleSnapshot(): ContextInspection {
   return {
-    mode: 'normal',
+    mode: 'auto',
     messages: [],
     includedSources: ['session-todos'],
     droppedSources: ['repo-map'],

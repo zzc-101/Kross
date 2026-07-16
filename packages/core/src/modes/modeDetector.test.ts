@@ -1,25 +1,26 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectMode } from './modeDetector';
+import { detectMode, normalizeAgentMode } from './modeDetector';
 
 describe('detectMode', () => {
-  it('keeps explicit normal mode', () => {
+  it('keeps explicit auto mode as agent default', () => {
     const result = detectMode({
-      requestedMode: 'normal',
-      input: '给登录接口补测试'
+      requestedMode: 'auto',
+      input: '帮我给当前模块补一个单元测试'
     });
 
-    expect(result.mode).toBe('normal');
+    expect(result.mode).toBe('auto');
     expect(result.requiresApproval).toBe(false);
   });
 
-  it('keeps explicit conductor mode', () => {
+  it('keeps explicit plan and conductor modes', () => {
     expect(
-      detectMode({
-        requestedMode: 'conductor',
-        input: '解释一下这个工具'
-      }).mode
+      detectMode({ requestedMode: 'plan', input: '随便' }).mode
+    ).toBe('plan');
+    expect(
+      detectMode({ requestedMode: 'conductor', input: '随便' }).mode
     ).toBe('conductor');
+    expect(normalizeAgentMode('normal')).toBeUndefined();
   });
 
   it('auto-detects front/back linkage as conductor', () => {
@@ -32,12 +33,13 @@ describe('detectMode', () => {
     expect(result.requiresApproval).toBe(true);
   });
 
-  it('falls back to normal mode for local implementation requests', () => {
+  it('auto-detects plan-first phrasing as plan', () => {
     const result = detectMode({
       requestedMode: 'auto',
-      input: '帮我给当前模块补一个单元测试'
+      input: '先规划再改登录流程，方案确认后再动手'
     });
 
-    expect(result.mode).toBe('normal');
+    expect(result.mode).toBe('plan');
+    expect(result.requiresApproval).toBe(true);
   });
 });

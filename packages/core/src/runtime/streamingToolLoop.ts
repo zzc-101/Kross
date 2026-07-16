@@ -55,7 +55,7 @@ export type CancellationStage =
 
 export interface StreamingToolLoopParams {
   runId: string;
-  mode: Exclude<AgentMode, 'auto'>;
+  mode: AgentMode;
   /** 本轮 run 的用户原始输入；审批挂起/续跑时沿用同一值 */
   originalUserInput: string;
   sessionContext: SessionContext;
@@ -85,7 +85,7 @@ export interface StreamingToolLoopDeps {
   ): Promise<void>;
   executeToolBatch(input: {
     runId: string;
-    mode: Exclude<AgentMode, 'auto'>;
+    mode: AgentMode;
     originalUserInput: string;
     calls: LlmToolCall[];
     tools: ToolMetadata[];
@@ -365,7 +365,7 @@ export async function* runStreamingToolLoop(
 /** 缺 LLM 时审批续跑路径的快速失败结果 */
 export function createMissingLlmAfterApprovalResult(
   runId: string,
-  mode: Exclude<AgentMode, 'auto'>
+  mode: AgentMode
 ): AgentResult {
   return agentResultSchema.parse({
     runId,

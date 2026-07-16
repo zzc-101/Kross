@@ -78,7 +78,7 @@ describe('JsonlTraceStore', () => {
     await store.append({
       ...event('run-new', 'run.completed', {
         status: 'completed',
-        mode: 'normal',
+        mode: 'auto',
         summary: 'done'
       }),
       id: 'run-new-done',

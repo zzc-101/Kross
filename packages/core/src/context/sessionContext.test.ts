@@ -19,7 +19,7 @@ describe('SessionContext', () => {
 
     const prepared = await ctx.prepareRequest({
       systemPrompt: '你是 Kross',
-      mode: 'normal',
+      mode: 'auto',
       tools: [
         {
           name: 'Read',
@@ -45,11 +45,11 @@ describe('SessionContext', () => {
     const before = ctx.getAllMaintenance().length;
     const snap1 = ctx.snapshot({
       systemPrompt: 'sys',
-      mode: 'normal'
+      mode: 'auto'
     });
     const snap2 = ctx.snapshot({
       systemPrompt: 'sys',
-      mode: 'normal'
+      mode: 'auto'
     });
     expect(ctx.getAllMaintenance().length).toBe(before);
     expect(snap1.estimatedTokens).toBe(snap2.estimatedTokens);
@@ -75,7 +75,7 @@ describe('SessionContext', () => {
 
     const snap = ctx.snapshot({
       systemPrompt: 'sys',
-      mode: 'normal'
+      mode: 'auto'
     });
     expect(snap.includedSources).toContain('session-todos');
     expect(snap.droppedSources).toContain('low');
@@ -135,7 +135,7 @@ describe('SessionContext', () => {
     ctx.setLlmClient(summarizingClient('new', calls));
     const result = await ctx.compactNow({
       systemPrompt: 'sys',
-      mode: 'normal'
+      mode: 'auto'
     });
 
     expect(result.compacted).toBe(true);
@@ -196,7 +196,7 @@ describe('SessionContext', () => {
       original.appendAssistant(`answer ${index}`);
       original.commitTurn();
     }
-    await original.compactNow({ systemPrompt: 'sys', mode: 'normal' });
+    await original.compactNow({ systemPrompt: 'sys', mode: 'auto' });
 
     const restored = new SessionContext();
     expect(restored.restoreState(original.exportState())).toBe(true);
@@ -226,7 +226,7 @@ describe('SessionContext', () => {
     ctx.setLlmClient(summarizingClient('new-runtime', calls));
 
     await ctx.compactNow(
-      { systemPrompt: 'sys', mode: 'normal' },
+      { systemPrompt: 'sys', mode: 'auto' },
       '保留精确路径'
     );
     expect(calls).toEqual(['dedicated']);

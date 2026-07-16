@@ -28,7 +28,7 @@ function makeGateway(): ToolGateway {
 describe('builtin tools integration', () => {
   it('registers core builtin tools (Task/Todo require extra wiring)', () => {
     const gateway = makeGateway();
-    const names = gateway.listTools({ mode: 'normal' }).map((t) => t.name);
+    const names = gateway.listTools({ mode: 'auto' }).map((t) => t.name);
     const coreOnly = [...builtinToolNames].filter(
       (name) => name !== 'Task' && name !== 'TodoWrite' && name !== 'TodoRead'
     );
@@ -46,7 +46,7 @@ describe('builtin tools integration', () => {
     })) {
       gateway.register(tool);
     }
-    const names = gateway.listTools({ mode: 'normal' }).map((t) => t.name);
+    const names = gateway.listTools({ mode: 'auto' }).map((t) => t.name);
     expect(names).toContain('Task');
     expect(names).toContain('TodoWrite');
     expect(names).toContain('TodoRead');

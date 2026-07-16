@@ -6,13 +6,14 @@ export interface ModeDetectionInput {
 }
 
 export interface ModeDetectionResult {
-  mode: Exclude<AgentMode, 'auto'>;
+  /** Resolved mode for this turn (auto stays auto when no switch). */
+  mode: AgentMode;
   reason: string;
   requiresApproval: boolean;
   signals: string[];
 }
 
-/** Signals that auto-route into conductor (orchestration) mode. */
+/** Signals that auto-route into conductor (multi-target orchestration). */
 const conductorSignals = [
   '前后端',
   '前端',
@@ -29,9 +30,23 @@ const conductorSignals = [
   'conductor'
 ];
 
+/** Signals that auto-route into plan-first mode. */
+const planSignals = [
+  '先规划',
+  '先做计划',
+  '先写方案',
+  'plan first',
+  'plan-first',
+  'plan mode',
+  '规划再',
+  '方案确认',
+  '先 plan',
+  '先plan'
+];
+
 export function normalizeAgentMode(value: string): AgentMode | undefined {
   const trimmed = value.trim().toLowerCase();
-  if (trimmed === 'auto' || trimmed === 'normal' || trimmed === 'conductor') {
+  if (trimmed === 'auto' || trimmed === 'plan' || trimmed === 'conductor') {
     return trimmed;
   }
   return undefined;
@@ -45,38 +60,51 @@ export function detectMode(input: ModeDetectionInput): ModeDetectionResult {
     return {
       mode: requested,
       reason: `用户显式选择 ${requested} 模式`,
-      requiresApproval: requested === 'conductor',
+      requiresApproval: requested === 'plan' || requested === 'conductor',
       signals: []
     };
   }
 
-  const normalized = input.input.toLowerCase();
-  const signals = conductorSignals.filter((signal) =>
-    normalized.includes(signal.toLowerCase())
-  );
+  const text = input.input;
+  const lower = text.toLowerCase();
 
+  const conductorHits = conductorSignals.filter((signal) =>
+    lower.includes(signal.toLowerCase())
+  );
   const hasConductorIntent =
-    signals.includes('跨仓库') ||
-    signals.includes('跨系统') ||
-    signals.includes('指挥家') ||
-    signals.includes('conductor') ||
-    (signals.includes('前端') && signals.includes('后端')) ||
-    signals.includes('前后端') ||
-    (signals.includes('管理端') && signals.includes('联动'));
+    conductorHits.includes('跨仓库') ||
+    conductorHits.includes('跨系统') ||
+    conductorHits.includes('指挥家') ||
+    conductorHits.includes('conductor') ||
+    (conductorHits.includes('前端') && conductorHits.includes('后端')) ||
+    conductorHits.includes('前后端') ||
+    (conductorHits.includes('管理端') && conductorHits.includes('联动'));
 
   if (hasConductorIntent) {
     return {
       mode: 'conductor',
-      reason: `检测到需要编排的信号：${signals.join('、')}`,
+      reason: `auto 检测到编排信号：${conductorHits.join('、')}`,
       requiresApproval: true,
-      signals
+      signals: conductorHits
+    };
+  }
+
+  const planHits = planSignals.filter((signal) =>
+    lower.includes(signal.toLowerCase())
+  );
+  if (planHits.length > 0) {
+    return {
+      mode: 'plan',
+      reason: `auto 检测到计划优先信号：${planHits.join('、')}`,
+      requiresApproval: true,
+      signals: planHits
     };
   }
 
   return {
-    mode: 'normal',
-    reason: '未检测到编排信号，使用普通 agent 模式',
+    mode: 'auto',
+    reason: 'auto 默认 agent 工具环（未切换到 plan/conductor）',
     requiresApproval: false,
-    signals
+    signals: []
   };
 }
