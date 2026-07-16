@@ -29,4 +29,14 @@ describe('formatToolInputPreview', () => {
       '$ npm test'
     );
   });
+
+  it('formats ProcessStart without exposing argument values', () => {
+    const preview = formatToolInputPreview('ProcessStart', {
+      command: 'curl --header="Bearer secret" https://example.test/private'
+    });
+    expect(preview).toContain('$ curl --header');
+    expect(preview).toMatch(/\d+ args?/);
+    expect(preview).not.toContain('Bearer secret');
+    expect(preview).not.toContain('/private');
+  });
 });

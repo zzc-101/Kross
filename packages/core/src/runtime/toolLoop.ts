@@ -511,7 +511,10 @@ export class RuntimeToolLoop {
     await this.options.record(session.runId, 'tool_call.rejected', {
       toolName: session.call.name,
       toolCallId: session.call.id,
-      input: session.call.input
+      input: this.options.toolGateway!.formatInputForTrace(
+        session.call.name,
+        session.call.input
+      )
     });
 
     return {

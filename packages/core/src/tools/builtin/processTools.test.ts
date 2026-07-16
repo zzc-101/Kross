@@ -39,11 +39,12 @@ describe('managed process tools', () => {
     ]);
 
     const secret = 'super-secret-env-value';
-    await gateway.call({
+    const commandSecret = 'super-secret-command-value';
+    const started = await gateway.call({
       runId: 'run-process',
       name: 'ProcessStart',
       input: {
-        command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify("process.stdin.on('data', () => {})")}`,
+        command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(`process.env.INLINE_SECRET='${commandSecret}'; process.stdin.on('data', () => {})`)}`,
         env: { PROCESS_SECRET: secret }
       }
     });
@@ -60,9 +61,12 @@ describe('managed process tools', () => {
 
     const trace = JSON.stringify(traceStore.events);
     expect(trace).not.toContain(secret);
+    expect(trace).not.toContain(commandSecret);
     expect(trace).not.toContain('private-stdin-value');
     expect(trace).toContain('PROCESS_SECRET');
     expect(trace).toContain('textBytes');
+    expect(trace).toContain('commandPreview');
+    expect(started.content).not.toContain(commandSecret);
   });
 });
 

@@ -1,7 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
 import { resolveExistingPathWithinWorkspace } from '../tools/builtin/paths';
+import { formatProcessCommandPreview } from './processCommandPreview';
 
 export type ManagedProcessStatus = 'running' | 'exited' | 'killed';
 
@@ -43,7 +44,12 @@ export interface ProcessManagerOptions {
   termGraceMs?: number;
   now?: () => Date;
   createProcessId?: () => string;
+  /** Tests may override platform-specific process-tree behavior. */
+  platform?: NodeJS.Platform;
+  killWindowsProcessTree?: (pid: number) => Promise<void>;
 }
+
+type SessionScope = string | typeof BOOTSTRAP_SESSION_SCOPE;
 
 interface StreamBuffer {
   data: Buffer;
@@ -65,12 +71,16 @@ interface ManagedHandle {
   signal?: NodeJS.Signals;
   stdout: StreamBuffer;
   stderr: StreamBuffer;
+  sessionScope: SessionScope;
+  terminationRequested: boolean;
 }
 
 const DEFAULT_MAX_BUFFER_BYTES = 1024 * 1024;
 const DEFAULT_MAX_POLL_BYTES = 64 * 1024;
 const DEFAULT_RETENTION_MS = 10 * 60 * 1000;
 const DEFAULT_TERM_GRACE_MS = 1000;
+/** Explicit non-persisted scope used before a TUI session is selected. */
+const BOOTSTRAP_SESSION_SCOPE = Symbol('bootstrap-process-session');
 
 /** Session-scoped owner for background child processes and bounded output. */
 export class ProcessManager {
@@ -81,7 +91,11 @@ export class ProcessManager {
   private readonly termGraceMs: number;
   private readonly now: () => Date;
   private readonly createProcessId: () => string;
+  private readonly platform: NodeJS.Platform;
+  private readonly killWindowsProcessTree: (pid: number) => Promise<void>;
+  private activeSessionScope: SessionScope = BOOTSTRAP_SESSION_SCOPE;
   private closing = false;
+  private closePromise?: Promise<void>;
 
   constructor(
     readonly workspaceRoot: string,
@@ -94,11 +108,20 @@ export class ProcessManager {
     this.now = options.now ?? (() => new Date());
     this.createProcessId =
       options.createProcessId ?? (() => `process-${randomUUID()}`);
+    this.platform = options.platform ?? process.platform;
+    this.killWindowsProcessTree =
+      options.killWindowsProcessTree ?? runWindowsTaskkill;
+  }
+
+  /** Select the persisted agent session allowed to access process handles. */
+  setSessionScope(sessionId?: string): void {
+    this.activeSessionScope = sessionId?.trim() || BOOTSTRAP_SESSION_SCOPE;
   }
 
   async start(input: ProcessStartInput): Promise<ManagedProcessSummary> {
     if (this.closing) throw new Error('Process manager is closing');
     if (input.signal?.aborted) throw abortError(input.signal);
+    const sessionScope = this.activeSessionScope;
     const command = input.command.trim();
     if (!command) throw new Error('Process command must not be empty');
     const cwd = await resolveExistingPathWithinWorkspace(
@@ -111,20 +134,22 @@ export class ProcessManager {
       cwd,
       env,
       shell: true,
-      detached: process.platform !== 'win32',
+      detached: this.platform !== 'win32',
       stdio: [stdinMode === 'pipe' ? 'pipe' : 'ignore', 'pipe', 'pipe']
     });
     const processId = this.createProcessId();
     const handle: ManagedHandle = {
       processId,
-      command: preview(command, 240),
+      command: formatProcessCommandPreview(command),
       cwd,
       child,
       stdinMode,
       status: 'running',
       startedAt: this.now().toISOString(),
       stdout: emptyBuffer(),
-      stderr: emptyBuffer()
+      stderr: emptyBuffer(),
+      sessionScope,
+      terminationRequested: false
     };
     this.handles.set(processId, handle);
     child.stdout?.on('data', (chunk: Buffer | string) => {
@@ -135,7 +160,7 @@ export class ProcessManager {
     });
     child.once('close', (code, signal) => {
       if (handle.status === 'running') {
-        handle.status = signal ? 'killed' : 'exited';
+        handle.status = handle.terminationRequested || signal ? 'killed' : 'exited';
       }
       handle.exitCode = code ?? undefined;
       handle.signal = signal ?? undefined;
@@ -148,7 +173,7 @@ export class ProcessManager {
       await waitForSpawn(child, input.signal);
     } catch (error) {
       this.handles.delete(processId);
-      signalChild(child, 'SIGKILL');
+      signalChild(child, 'SIGKILL', this.platform);
       throw error;
     }
     return summarize(handle);
@@ -201,42 +226,77 @@ export class ProcessManager {
 
   list(): ManagedProcessSummary[] {
     this.gc();
-    return [...this.handles.values()].map(summarize);
+    return [...this.handles.values()]
+      .filter((handle) => handle.sessionScope === this.activeSessionScope)
+      .map(summarize);
   }
 
   async close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
     if (this.closing) return;
     this.closing = true;
-    await Promise.all(
+    const attempt = Promise.all(
       [...this.handles.values()]
         .filter((handle) => handle.status === 'running')
         .map((handle) => this.terminate(handle))
-    );
+    ).then(() => undefined);
+    this.closePromise = attempt.catch((error) => {
+      // A timed-out cleanup remains retryable instead of becoming a fake close.
+      this.closing = false;
+      this.closePromise = undefined;
+      throw error;
+    });
+    return this.closePromise;
   }
 
   private async terminate(handle: ManagedHandle): Promise<void> {
     if (handle.status !== 'running') return;
+    handle.terminationRequested = true;
     const closed = waitForClose(handle.child);
+    if (this.platform === 'win32' && handle.child.pid) {
+      let treeKillFailed = false;
+      try {
+        await this.killWindowsProcessTree(handle.child.pid);
+      } catch {
+        treeKillFailed = true;
+      }
+      let didClose = await settlesWithin(closed, Math.max(250, this.termGraceMs));
+      if (treeKillFailed || !didClose) {
+        // taskkill can be unavailable in constrained shells; retain a fallback.
+        signalChild(handle.child, 'SIGKILL', this.platform);
+        didClose = await settlesWithin(closed, Math.max(250, this.termGraceMs));
+      }
+      if (!didClose) {
+        handle.terminationRequested = false;
+        throw new Error(`Managed process did not terminate: ${handle.processId}`);
+      }
+      return;
+    }
     const termStartedAt = Date.now();
-    signalChild(handle.child, 'SIGTERM');
+    signalChild(handle.child, 'SIGTERM', this.platform);
     const shellClosed = await settlesWithin(closed, this.termGraceMs);
     if (
       shellClosed &&
-      process.platform !== 'win32' &&
-      isProcessGroupAlive(handle.child)
+      isProcessGroupAlive(handle.child, this.platform)
     ) {
       const remainingGrace = this.termGraceMs - (Date.now() - termStartedAt);
       if (remainingGrace > 0) await delay(remainingGrace);
     }
-    if (!shellClosed || isProcessGroupAlive(handle.child)) {
-      signalChild(handle.child, 'SIGKILL');
-      await settlesWithin(closed, Math.max(250, this.termGraceMs));
+    if (!shellClosed || isProcessGroupAlive(handle.child, this.platform)) {
+      signalChild(handle.child, 'SIGKILL', this.platform);
+      const didClose = await settlesWithin(closed, Math.max(250, this.termGraceMs));
+      if (!didClose) {
+        handle.terminationRequested = false;
+        throw new Error(`Managed process did not terminate: ${handle.processId}`);
+      }
     }
   }
 
   private requireHandle(processId: string): ManagedHandle {
     const handle = this.handles.get(processId);
-    if (!handle) throw new Error(`Unknown managed process: ${processId}`);
+    if (!handle || handle.sessionScope !== this.activeSessionScope) {
+      throw new Error(`Unknown managed process: ${processId}`);
+    }
     return handle;
   }
 
@@ -340,9 +400,13 @@ function waitForClose(child: ChildProcess): Promise<void> {
   return new Promise((resolve) => child.once('close', () => resolve()));
 }
 
-function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
+function signalChild(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+  platform: NodeJS.Platform
+): void {
   try {
-    if (process.platform !== 'win32' && child.pid) {
+    if (platform !== 'win32' && child.pid) {
       process.kill(-child.pid, signal);
     } else {
       child.kill(signal);
@@ -353,8 +417,11 @@ function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
-function isProcessGroupAlive(child: ChildProcess): boolean {
-  if (process.platform === 'win32' || !child.pid) {
+function isProcessGroupAlive(
+  child: ChildProcess,
+  platform: NodeJS.Platform
+): boolean {
+  if (platform === 'win32' || !child.pid) {
     return child.exitCode === null && child.signalCode === null;
   }
   try {
@@ -388,6 +455,17 @@ function positive(value: number | undefined, fallback: number): number {
     : fallback;
 }
 
-function preview(value: string, limit: number): string {
-  return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
+function runWindowsTaskkill(pid: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'taskkill',
+      buildWindowsTaskkillArgs(pid),
+      { windowsHide: true },
+      (error) => (error ? reject(error) : resolve())
+    );
+  });
+}
+
+export function buildWindowsTaskkillArgs(pid: number): string[] {
+  return ['/PID', String(pid), '/T', '/F'];
 }

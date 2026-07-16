@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { formatProcessCommandPreview } from '../../process/processCommandPreview';
 import type { ProcessManager } from '../../process/processManager';
 import type { ToolDefinition } from '../toolGateway';
 
@@ -34,7 +35,8 @@ export function createProcessTools(manager: ProcessManager): ToolDefinition[] {
     redactInputForTrace: (input) => {
       const value = input as { command: string; cwd?: string; env?: Record<string, string>; stdin?: string };
       return {
-        command: value.command,
+        commandPreview: formatProcessCommandPreview(value.command),
+        commandLength: value.command.length,
         cwd: value.cwd,
         stdin: value.stdin,
         envKeys: value.env ? Object.keys(value.env) : []

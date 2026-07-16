@@ -17,6 +17,7 @@ import type {
 } from '../llm/types';
 import { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
+import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { z } from 'zod';
 
 /** Adapt complete()-style fakes for run() which now drains the streaming tool loop. */
@@ -283,6 +284,53 @@ describe('AgentRuntime', () => {
     );
     expect(traceStore.events.map((e) => e.type)).toContain(
       'conductor.review.completed'
+    );
+  });
+
+  it('returns a resumable cancellation when an approved conductor plan is missing a workspace root', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const workspaceRoot = '/tmp/primary-ws';
+    const runtime = new AgentRuntime({
+      traceStore,
+      workspaceRoot,
+      workspaceRoots: new WorkspaceRoots(workspaceRoot)
+    });
+    runtime.restoreWorkState({
+      version: 1,
+      todos: [],
+      sessionMode: 'conductor',
+      pendingModeExecution: {
+        kind: 'conductor',
+        goal: '修改 API',
+        mode: 'conductor',
+        plan: {
+          goal: '修改 API',
+          tasks: [
+            {
+              id: 'api-task',
+              title: '修改 API',
+              prompt: '完成 API 修改',
+              repoId: 'api'
+            }
+          ]
+        }
+      }
+    });
+
+    const result = await runtime.run({
+      input: '修改 API',
+      requestedMode: 'conductor',
+      approvals: { plan: true }
+    });
+
+    expect(result).toMatchObject({
+      status: 'cancelled',
+      cancellationReason: 'missing-workspace-root'
+    });
+    expect(result.summary).toContain('不存在的 workspace root');
+    expect(runtime.getPendingModeExecution()).toBeDefined();
+    expect(traceStore.events.map((event) => event.type)).toContain(
+      'run.completed'
     );
   });
 
@@ -808,6 +856,10 @@ describe('AgentRuntime', () => {
       description: '写文件',
       risk: 'write',
       inputSchema: z.object({ path: z.string(), content: z.string() }),
+      redactInputForTrace: (input) => {
+        const value = input as { path: string; content: string };
+        return { path: value.path, contentBytes: Buffer.byteLength(value.content) };
+      },
       execute: async () => ({ content: 'should not run' })
     });
     const runtime = new AgentRuntime({
@@ -841,6 +893,14 @@ describe('AgentRuntime', () => {
     expect(traceStore.events.map((event) => event.type)).toContain(
       'tool_call.rejected'
     );
+    const rejection = traceStore.events.find(
+      (event) => event.type === 'tool_call.rejected'
+    );
+    expect(rejection?.payload.input).toEqual({
+      path: 'README.md',
+      contentBytes: 5
+    });
+    expect(JSON.stringify(rejection)).not.toContain('hello');
   });
 
   it('pauses for approval when a risky tool call appears in later iterations', async () => {

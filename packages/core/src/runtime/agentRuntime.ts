@@ -224,6 +224,11 @@ export class AgentRuntime extends EventEmitter {
     return this.options.processManager?.list() ?? [];
   }
 
+  /** Bind managed process visibility and control to the active persisted session. */
+  setManagedProcessSession(sessionId?: string): void {
+    this.options.processManager?.setSessionScope(sessionId);
+  }
+
   getPermissionMode(): PermissionMode {
     return this.sessionServices.getPermissionMode();
   }

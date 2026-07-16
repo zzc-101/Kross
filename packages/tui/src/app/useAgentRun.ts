@@ -184,7 +184,8 @@ export function useAgentRun({
 
     if (
       result.status === 'cancelled' &&
-      result.cancellationReason === 'approval-gate' &&
+      (result.cancellationReason === 'approval-gate' ||
+        result.cancellationReason === 'missing-workspace-root') &&
       (result.mode === 'conductor' || result.mode === 'plan')
     ) {
       setStatus('waiting-approval');
@@ -438,6 +439,7 @@ export function useAgentRun({
     }
 
     if (pendingConductorPlan) {
+      agentRuntime.clearPendingModeExecution();
       setPendingConductorPlan(undefined);
       setStatus('ready');
       append('system', t('app.conductorCancelled'));

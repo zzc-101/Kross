@@ -91,8 +91,11 @@ export class MutationService {
     if (selected.length === 0) {
       throw new Error(target ? `No reversible mutation found: ${target}` : 'No reversible mutations');
     }
-    const ordered = [...selected].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    this.assertCanUndo(target);
+    // `select` preserves journal order. Reversing that order is both simpler and
+    // safer than sorting timestamps, which are allowed to collide within a
+    // millisecond.
+    const ordered = [...selected].reverse();
+    this.assertTransactionsCanUndo(selected);
 
     const restored: string[] = [];
     for (const transaction of ordered) {
@@ -107,11 +110,13 @@ export class MutationService {
   }
 
   assertCanUndo(target?: string): void {
+    this.assertTransactionsCanUndo(this.select(target));
+  }
+
+  private assertTransactionsCanUndo(transactions: MutationRecord[]): void {
     const conflicts: string[] = [];
-    for (const transaction of this.select(target)) {
-      for (const post of transaction.post) {
-        if (this.captureRoot(post.path).hash !== post.hash) conflicts.push(post.path);
-      }
+    for (const expected of composeFinalRoots(transactions)) {
+      if (this.captureRoot(expected.path).hash !== expected.hash) conflicts.push(expected.path);
     }
     if (conflicts.length > 0) throw new MutationConflictError([...new Set(conflicts)]);
   }
@@ -253,6 +258,83 @@ function hashEntries(entries: MutationEntrySnapshot[]): string {
 
 function sameRoots(a: MutationRootSnapshot[], b: MutationRootSnapshot[]): boolean {
   return a.length === b.length && a.every((item, index) => item.path === b[index]?.path && item.hash === b[index]?.hash);
+}
+
+/**
+ * Compose the state left by a sequence of transactions.
+ *
+ * Comparing every transaction's post hash is incorrect when a run writes the
+ * same path more than once: only the last write can match the live workspace.
+ * A simple "last snapshot per exact path" map is also insufficient because
+ * roots may overlap (for example `src` followed by `src/index.ts`). Replaying
+ * the snapshots into an entry map gives us one expected final snapshot for
+ * each non-overlapping top-level root while retaining unaffected siblings.
+ */
+function composeFinalRoots(transactions: MutationRecord[]): MutationRootSnapshot[] {
+  const rootPaths = transactions.flatMap((transaction) =>
+    transaction.post.map((root) => root.path)
+  );
+  const topLevelRoots = [...new Set(rootPaths)].filter(
+    (candidate) =>
+      !rootPaths.some(
+        (other) => other !== candidate && isPathWithin(candidate, other)
+      )
+  );
+  const entries = new Map<string, MutationEntrySnapshot>();
+
+  for (const transaction of transactions) {
+    for (const root of transaction.post) {
+      for (const path of entries.keys()) {
+        if (isPathWithin(path, root.path)) entries.delete(path);
+      }
+      for (const entry of root.entries) entries.set(entry.path, entry);
+    }
+  }
+
+  return topLevelRoots.map((path) => {
+    const rootEntries = orderSnapshotEntries(
+      [...entries.values()].filter((entry) => isPathWithin(entry.path, path)),
+      path
+    );
+    return { path, entries: rootEntries, hash: hashEntries(rootEntries) };
+  });
+}
+
+function orderSnapshotEntries(
+  entries: MutationEntrySnapshot[],
+  rootPath: string
+): MutationEntrySnapshot[] {
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+  const children = new Map<string, string[]>();
+  for (const entry of entries) {
+    if (entry.path === rootPath) continue;
+    const parent = snapshotParent(entry.path);
+    const siblings = children.get(parent) ?? [];
+    siblings.push(entry.path);
+    children.set(parent, siblings);
+  }
+  for (const siblings of children.values()) siblings.sort();
+
+  const ordered: MutationEntrySnapshot[] = [];
+  const visit = (path: string): void => {
+    const entry = byPath.get(path);
+    if (!entry) return;
+    ordered.push(entry);
+    if (entry.kind === 'directory') {
+      for (const child of children.get(path) ?? []) visit(child);
+    }
+  };
+  visit(rootPath);
+  return ordered;
+}
+
+function snapshotParent(path: string): string {
+  const index = path.lastIndexOf('/');
+  return index < 0 ? '.' : path.slice(0, index);
+}
+
+function isPathWithin(path: string, root: string): boolean {
+  return root === '.' || path === root || path.startsWith(`${root}/`);
 }
 
 function sha(content: Buffer): string {

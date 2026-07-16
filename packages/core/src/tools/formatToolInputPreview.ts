@@ -3,6 +3,8 @@
  * Edit/Write 突出 path 与变更片段，避免整文件 JSON 糊屏。
  */
 
+import { formatProcessCommandPreview } from '../process/processCommandPreview';
+
 const DEFAULT_MAX = 500;
 
 export function formatToolInputPreview(
@@ -44,7 +46,15 @@ export function formatToolInputPreview(
     return truncate(`${from} → ${to}`, maxChars);
   }
 
-  if ((name === 'Bash' || name === 'ProcessStart') && typeof record.command === 'string') {
+  if (name === 'ProcessStart' && typeof record.commandPreview === 'string') {
+    return truncate(record.commandPreview, maxChars);
+  }
+
+  if (name === 'ProcessStart' && typeof record.command === 'string') {
+    return truncate(formatProcessCommandPreview(record.command, maxChars), maxChars);
+  }
+
+  if (name === 'Bash' && typeof record.command === 'string') {
     return truncate(`$ ${record.command}`, maxChars);
   }
 

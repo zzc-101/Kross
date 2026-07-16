@@ -129,11 +129,13 @@ export function useAppSession({
 
   const ensureActiveSession = useCallback((): string | undefined => {
     if (activeSessionIdRef.current || !sessionStore) {
+      agentRuntime.setManagedProcessSession(activeSessionIdRef.current);
       return activeSessionIdRef.current;
     }
     try {
       const created = sessionStore.createSession(cwd);
       activeSessionIdRef.current = created.id;
+      agentRuntime.setManagedProcessSession(created.id);
       setRecentSessions((current) => [
         created,
         ...current.filter((session) => session.id !== created.id)
@@ -145,7 +147,7 @@ export function useAppSession({
       setSessionNotice(formatSessionError('session.createFailed', error));
       return undefined;
     }
-  }, [cwd, sessionStore]);
+  }, [agentRuntime, cwd, sessionStore]);
 
   const persistMessage = useCallback((message: ChatMessage) => {
     const sessionId = activeSessionIdRef.current;
@@ -291,6 +293,7 @@ export function useAppSession({
 
     flushCurrentSessionBeforeSwitch();
     activeSessionIdRef.current = undefined;
+    agentRuntime.setManagedProcessSession(undefined);
     nextMessageIdRef.current = 1;
     toolMessageIdsRef.current.clear();
     queueRef.current.length = 0;
@@ -390,6 +393,7 @@ export function useAppSession({
       const restoredMessages = restored.messages.map(fromStoredSessionMessage);
       // 先锁定目标 sessionId，再 setMessages，防止 debounce 用错目标。
       activeSessionIdRef.current = restored.summary.id;
+      agentRuntime.setManagedProcessSession(restored.summary.id);
       nextMessageIdRef.current =
         Math.max(0, ...restoredMessages.map((message) => message.id)) + 1;
       toolMessageIdsRef.current.clear();

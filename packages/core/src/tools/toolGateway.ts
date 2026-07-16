@@ -151,6 +151,16 @@ export class ToolGateway {
     return this.approvalPolicy;
   }
 
+  /** Return the same validated, secret-safe input representation used by trace events. */
+  formatInputForTrace(name: string, input: unknown): unknown {
+    const definition = this.tools.get(name);
+    if (!definition) throw new ToolNotFoundError(name);
+    const parsedInput = parseInput(definition, input);
+    return definition.redactInputForTrace
+      ? definition.redactInputForTrace(parsedInput)
+      : parsedInput;
+  }
+
   register<TInput>(definition: ToolDefinition<TInput>): void {
     if (this.tools.has(definition.name)) {
       throw new Error(`Tool already registered: ${definition.name}`);

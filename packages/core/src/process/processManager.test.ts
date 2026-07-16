@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { ProcessManager } from './processManager';
+import { buildWindowsTaskkillArgs, ProcessManager } from './processManager';
 
 let root = '';
 let manager: ProcessManager | undefined;
@@ -120,6 +120,83 @@ describe('ProcessManager', () => {
     });
     const result = await pollUntilDone(manager, started.processId);
     expect(result.stdout).toBe(await realpath(childDir));
+  });
+
+  it('isolates handles by persistent session while close still owns all scopes', async () => {
+    let sequence = 0;
+    manager = new ProcessManager(root, {
+      createProcessId: () => `process-session-${sequence++}`
+    });
+    manager.setSessionScope('session-a');
+    const first = await manager.start({
+      command: nodeCommand('setInterval(() => {}, 1000)')
+    });
+
+    manager.setSessionScope('session-b');
+    expect(manager.list()).toEqual([]);
+    expect(() => manager!.poll(first.processId)).toThrow(/Unknown managed process/);
+    await expect(manager.write(first.processId, 'x')).rejects.toThrow(
+      /Unknown managed process/
+    );
+    await expect(manager.kill(first.processId)).rejects.toThrow(
+      /Unknown managed process/
+    );
+
+    const second = await manager.start({
+      command: nodeCommand('setInterval(() => {}, 1000)')
+    });
+    expect(manager.list().map((item) => item.processId)).toEqual([second.processId]);
+
+    manager.setSessionScope('session-a');
+    expect(manager.list().map((item) => item.processId)).toEqual([first.processId]);
+    await manager.close();
+    expect(manager.poll(first.processId).status).toBe('killed');
+  });
+
+  it('uses taskkill tree and force flags for Windows descendants', async () => {
+    expect(buildWindowsTaskkillArgs(1234)).toEqual([
+      '/PID',
+      '1234',
+      '/T',
+      '/F'
+    ]);
+    const killedPids: number[] = [];
+    manager = new ProcessManager(root, {
+      platform: 'win32',
+      termGraceMs: 20,
+      killWindowsProcessTree: async (pid) => {
+        killedPids.push(pid);
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // The short-lived shell may already be gone.
+        }
+      }
+    });
+    const started = await manager.start({
+      command: nodeCommand('setTimeout(() => {}, 50)')
+    });
+    const killed = await manager.kill(started.processId);
+    expect(killedPids).toHaveLength(1);
+    expect(killedPids[0]).toBeGreaterThan(0);
+    expect(killed.status).toBe('killed');
+    expect(killed.completedAt).toBeTruthy();
+  });
+
+  it('falls back when Windows tree cleanup is unavailable', async () => {
+    manager = new ProcessManager(root, {
+      platform: 'win32',
+      termGraceMs: 20,
+      killWindowsProcessTree: async () => {
+        throw new Error('taskkill unavailable');
+      }
+    });
+    const started = await manager.start({
+      command: nodeCommand('setTimeout(() => {}, 50)')
+    });
+    const killed = await manager.kill(started.processId);
+    expect(killed.status).toBe('killed');
+    expect(killed.completedAt).toBeTruthy();
   });
 });
 

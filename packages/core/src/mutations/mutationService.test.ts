@@ -54,6 +54,88 @@ describe('MutationService', () => {
     expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('external');
   });
 
+  it('undoes repeated writes to the same path within one run', async () => {
+    const { workspace, krossHome } = setup();
+    writeFileSync(join(workspace, 'a.txt'), 'before');
+    const service = new MutationService(workspace, krossHome);
+
+    await service.record({
+      runId: 'run-repeated',
+      toolName: 'Edit',
+      paths: ['a.txt'],
+      action: async () => writeFileSync(join(workspace, 'a.txt'), 'first')
+    });
+    await service.record({
+      runId: 'run-repeated',
+      toolName: 'Edit',
+      paths: ['a.txt'],
+      action: async () => writeFileSync(join(workspace, 'a.txt'), 'second')
+    });
+    const transactionIds = service.listActive().map((item) => item.transactionId);
+
+    const result = service.undo('run-repeated');
+
+    expect(result.transactions).toEqual([...transactionIds].reverse());
+    expect(result.files).toEqual(['a.txt']);
+    expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('before');
+  });
+
+  it('composes overlapping parent and child post snapshots before undo', async () => {
+    const { workspace, krossHome } = setup();
+    mkdirSync(join(workspace, 'src'));
+    mkdirSync(join(workspace, 'src', 'a'));
+    writeFileSync(join(workspace, 'src', 'a', 'nested.txt'), 'before');
+    // This sibling intentionally sorts before "a/" by raw full-path order.
+    // It guards the snapshot's directory-walk ordering when roots are composed.
+    writeFileSync(join(workspace, 'src', 'a.txt'), 'unchanged');
+    const service = new MutationService(workspace, krossHome);
+
+    await service.record({
+      runId: 'run-overlap',
+      toolName: 'Edit',
+      paths: ['src'],
+      action: async () => writeFileSync(join(workspace, 'src', 'a', 'nested.txt'), 'first')
+    });
+    await service.record({
+      runId: 'run-overlap',
+      toolName: 'Edit',
+      paths: ['src/a/nested.txt'],
+      action: async () => writeFileSync(join(workspace, 'src', 'a', 'nested.txt'), 'second')
+    });
+
+    expect(() => service.assertCanUndo('run-overlap')).not.toThrow();
+    service.undo('run-overlap');
+
+    expect(readFileSync(join(workspace, 'src', 'a', 'nested.txt'), 'utf8')).toBe('before');
+    expect(readFileSync(join(workspace, 'src', 'a.txt'), 'utf8')).toBe('unchanged');
+  });
+
+  it('still detects an external edit under an earlier overlapping parent root', async () => {
+    const { workspace, krossHome } = setup();
+    mkdirSync(join(workspace, 'src'));
+    writeFileSync(join(workspace, 'src', 'a.txt'), 'before');
+    writeFileSync(join(workspace, 'src', 'sibling.txt'), 'unchanged');
+    const service = new MutationService(workspace, krossHome);
+
+    await service.record({
+      runId: 'run-overlap',
+      toolName: 'Edit',
+      paths: ['src'],
+      action: async () => writeFileSync(join(workspace, 'src', 'a.txt'), 'first')
+    });
+    await service.record({
+      runId: 'run-overlap',
+      toolName: 'Edit',
+      paths: ['src/a.txt'],
+      action: async () => writeFileSync(join(workspace, 'src', 'a.txt'), 'second')
+    });
+    writeFileSync(join(workspace, 'src', 'sibling.txt'), 'external');
+
+    expect(() => service.undo('run-overlap')).toThrow(MutationConflictError);
+    expect(readFileSync(join(workspace, 'src', 'a.txt'), 'utf8')).toBe('second');
+    expect(readFileSync(join(workspace, 'src', 'sibling.txt'), 'utf8')).toBe('external');
+  });
+
   it('rolls back the workspace when the mutation action fails', async () => {
     const { workspace, krossHome } = setup();
     writeFileSync(join(workspace, 'a.txt'), 'before');
