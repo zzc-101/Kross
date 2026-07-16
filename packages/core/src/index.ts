@@ -47,3 +47,4 @@ export * from './workspace/projectRegistry';
 export * from './workspace/workspaceDiff';
 export * from './workspace/workspaceRoots';
 export * from './runtime/conductorOrchestration';
+export * from './host/createAgentHost';
