@@ -46,7 +46,9 @@ describe('terminal frame output', () => {
     expect(target.writes[0]).toContain('\x1b[2;1H');
     expect(target.writes[0]).toContain('new body');
     expect(target.writes[0]).not.toContain('header');
+    expect(target.writes[0]).not.toContain(ansiEscapes.clearTerminal);
     expect(target.writes[0]).not.toContain(ansiEscapes.eraseLines(4));
+    expect(target.writes[0]).not.toContain(ansiEscapes.eraseLines(target.rows));
   });
 
   it('keeps the logical previous frame when Ink prefixes clearTerminal', () => {
