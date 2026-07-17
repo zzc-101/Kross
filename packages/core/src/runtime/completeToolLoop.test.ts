@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { createSessionContext } from '../context/sessionContext';
 import type { LlmClient, LlmRequest, LlmResponse, LlmStreamChunk } from '../llm/types';
+import { renderPrompt } from '../prompts';
 import {
   ToolGateway,
   type ToolDefinition,
@@ -156,8 +157,7 @@ describe('runCompleteToolLoop', () => {
     expect(soft?.tools).toBeUndefined();
     expect(soft?.metadata?.purpose).toBe('subagent-soft-land');
     const softUser = soft?.messages.filter((m) => m.role === 'user').at(-1);
-    expect(softUser?.content).toContain('Tool iteration limit reached');
-    expect(softUser?.content).toContain('Do not call tools');
+    expect(softUser?.content).toBe(renderPrompt('subagent.softLand.user'));
   });
 
   it('stops on repeated identical tool signatures (stall)', async () => {
@@ -186,7 +186,7 @@ describe('runCompleteToolLoop', () => {
       }
     });
 
-    expect(summary).toMatch(/repeated|stopped|progress/i);
+    expect(summary).toBe(renderPrompt('subagent.summary.stalled'));
     expect(llm.requests.length).toBe(3);
     expect(stalled).toHaveLength(1);
     expect(stalled[0]?.iteration).toBe(3);

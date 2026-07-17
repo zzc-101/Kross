@@ -25,6 +25,7 @@ import type { ThinkingEffort } from '../llm/thinkingEffort';
 import type { LlmClient } from '../llm/types';
 import { detectMode } from '../modes/modeDetector';
 import { resolveModeTurn } from '../modes/modePolicy';
+import { renderAgentExecutionPrompt } from '../prompts';
 import {
   ToolGateway,
   type ToolMetadata
@@ -61,7 +62,6 @@ import { ModeFlows } from './modeFlows';
 import { SessionServices } from './sessionServices';
 import {
   DEFAULT_MAX_TOOL_ITERATIONS,
-  PLANNER_SYSTEM_PROMPT,
   RuntimeToolLoop
 } from './toolLoop';
 import type { CancellationStage } from './streamingToolLoop';
@@ -705,7 +705,10 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.syncSessionModeSource();
     return {
       buildContextInput: {
-        systemPrompt: `${PLANNER_SYSTEM_PROMPT}\n会话 Mode：${this.sessionServices.getSessionMode()}；本轮策略：${mode}。`,
+        systemPrompt: renderAgentExecutionPrompt({
+          sessionMode: this.sessionServices.getSessionMode(),
+          mode
+        }),
         mode,
         tools
       },
@@ -761,7 +764,10 @@ export class AgentRuntime extends EventEmitter {
     return {
       mode,
       buildContextInput: {
-        systemPrompt: PLANNER_SYSTEM_PROMPT,
+        systemPrompt: renderAgentExecutionPrompt({
+          sessionMode: this.sessionServices.getSessionMode(),
+          mode
+        }),
         mode,
         tools
       }

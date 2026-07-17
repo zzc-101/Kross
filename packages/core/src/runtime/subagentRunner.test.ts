@@ -6,8 +6,9 @@ import { describe, expect, it } from 'vitest';
 
 import type { TraceEvent } from '../domain';
 import type { LlmClient, LlmRequest, LlmResponse, LlmStreamChunk } from '../llm/types';
+import { renderPrompt } from '../prompts';
 import type { TraceStore } from '../trace/traceStore';
-import { ToolGateway } from '../tools/toolGateway';
+import { ToolGateway, ToolPermissionError } from '../tools/toolGateway';
 import { createTaskTool } from '../tools/builtin/task';
 import {
   createExploreTools,
@@ -155,7 +156,19 @@ describe('runSubagent', () => {
       expect(types).toContain('subagent.completed');
       // Dedicated path uses SUBAGENT system prompt, not planner shell.
       const system = llm.requests[0]?.messages.find((m) => m.role === 'system');
-      expect(system?.content).toContain('focused subagent');
+      expect(system?.content).toContain(renderPrompt('subagent.execution'));
+      expect(system?.content).toContain(
+        renderPrompt('subagent.execution.mode.explore')
+      );
+      expect(system?.content).not.toContain(
+        renderPrompt('subagent.execution.mode.general')
+      );
+      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).not.toContain(
+        'Edit'
+      );
+      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).not.toContain(
+        'Write'
+      );
       expect(system?.content).not.toContain('规划器');
       // Child should not see parent history — only the task prompt as user turn.
       const userMessages = llm.requests.flatMap((request) =>
@@ -203,6 +216,7 @@ describe('runSubagent', () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-gen-'));
     try {
       const traceStore = new InMemoryTraceStore();
+      const llm = new ScriptedLlmClient('ok');
       const outcome = await runSubagent(
         {
           prompt: 'quick look',
@@ -213,12 +227,21 @@ describe('runSubagent', () => {
         {
           workspaceRoot: workspace,
           traceStore,
-          llmClient: new ScriptedLlmClient('ok'),
+          llmClient: llm,
           maxToolIterations: 3
         }
       );
       expect(outcome.mode).toBe('general');
       expect(outcome.modeForcedToExplore).toBe(false);
+      const system = llm.requests[0]?.messages.find((m) => m.role === 'system');
+      expect(system?.content).toContain(
+        renderPrompt('subagent.execution.mode.general')
+      );
+      expect(system?.content).not.toContain(
+        renderPrompt('subagent.execution.mode.explore')
+      );
+      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).toContain('Edit');
+      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).toContain('Write');
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -309,7 +332,9 @@ describe('runSubagent stall guard', () => {
 
       // 第 1 轮执行工具，第 2 轮相同签名计数 1，第 3 轮计数 2 → 收束
       expect(llm.calls).toBeLessThanOrEqual(4);
-      expect(outcome.result.summary).toMatch(/repeated|stopped|progress/i);
+      expect(outcome.result.summary).toBe(
+        renderPrompt('subagent.summary.stalled')
+      );
       expect(traceStore.events.map((e) => e.type)).toContain(
         'llm.subagent.stalled'
       );
@@ -458,6 +483,71 @@ describe('runSubagent abort', () => {
 });
 
 describe('Task tool', () => {
+  it('requires write approval for general mode while explore remains read-only', async () => {
+    const requests: string[] = [];
+    const gateway = new ToolGateway();
+    gateway.register(
+      createTaskTool({
+        run: async (request) => {
+          requests.push(request.mode ?? 'explore');
+          return {
+            subRunId: `sub-${requests.length}`,
+            mode: request.mode ?? 'explore',
+            modeForcedToExplore: false,
+            result: {
+              status: 'completed',
+              summary: 'done',
+              changedFiles: [],
+              diffSummary: [],
+              commandsRun: [],
+              evidence: [],
+              risks: [],
+              needsReview: []
+            }
+          };
+        }
+      })
+    );
+
+    await expect(
+      gateway.call({
+        runId: 'explore',
+        name: 'Task',
+        input: { description: 'scan', prompt: 'inspect only' }
+      })
+    ).resolves.toMatchObject({ status: 'completed' });
+
+    await expect(
+      gateway.call({
+        runId: 'general',
+        name: 'Task',
+        input: {
+          description: 'edit',
+          prompt: 'make a change',
+          mode: 'general'
+        }
+      })
+    ).rejects.toMatchObject({
+      name: 'ToolPermissionError',
+      risk: 'write'
+    } satisfies Partial<ToolPermissionError>);
+    expect(requests).toEqual(['explore']);
+
+    await expect(
+      gateway.call({
+        runId: 'general-approved',
+        name: 'Task',
+        input: {
+          description: 'edit',
+          prompt: 'make a change',
+          mode: 'general'
+        },
+        approved: true
+      })
+    ).resolves.toMatchObject({ status: 'completed' });
+    expect(requests).toEqual(['explore', 'general']);
+  });
+
   it('registers as a gateway tool and returns subagent summary', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-task-tool-'));
     try {

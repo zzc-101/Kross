@@ -16,6 +16,7 @@ import type {
   LlmMessage,
   LlmToolCall
 } from '../llm/types';
+import { renderAgentExecutionPrompt, renderPrompt } from '../prompts';
 import { formatToolInputPreview } from '../tools/formatToolInputPreview';
 import {
   ToolPermissionError,
@@ -49,15 +50,6 @@ export {
   DEFAULT_MAX_TOOL_ITERATIONS,
   formatMaxIterationsNotice
 } from './streamingToolLoop';
-
-export const PLANNER_SYSTEM_PROMPT = [
-  '你是本地 agent 的执行助手。Mode 是会话策略（auto/plan/conductor），不是输出管线。',
-  '需要工具时只能使用可用工具清单中的工具，不要编造工具。',
-  '当用户要求切换模式（如「切到指挥家」「用 plan 模式」「回到 auto」）时，必须调用 SetMode 工具，',
-  '不要声称自己无法切换 Mode。切换从下一轮用户消息生效；当前轮用一句话确认即可。',
-  'Mode 含义：auto=默认 agent；plan=先计划后开发；conductor=高级模型拆任务+worker 执行+验收。',
-  '多目录工作区用 /add-dir（用户命令），不要用 SetMode。'
-].join('');
 
 interface PendingToolSession {
   runId: string;
@@ -216,7 +208,7 @@ export class RuntimeToolLoop {
     }
 
     const buildContextInput = {
-      systemPrompt: PLANNER_SYSTEM_PROMPT,
+      systemPrompt: renderAgentExecutionPrompt({ mode: session.mode }),
       mode: session.mode,
       tools: session.tools
     };
@@ -666,13 +658,9 @@ function softLandUserMessage(
 ): LlmMessage {
   return {
     role: 'user',
-    content: [
-      `【系统】工具调用已达上限 ${maxIterations} 轮（当前尝试第 ${iteration} 轮）。`,
-      '请停止调用任何工具，用简洁中文总结：',
-      '1. 已完成的工作与关键发现',
-      '2. 尚未完成的事项',
-      '3. 建议用户下一步怎么做',
-      '不要再发起 tool_calls。'
-    ].join('\n')
+    content: renderPrompt('agent.softLand.user', {
+      maxIterations,
+      iteration
+    })
   };
 }

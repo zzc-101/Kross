@@ -7,13 +7,8 @@ import {
   type AgentMode,
   type AgentResult
 } from '../domain';
-import {
-  CONDUCTOR_PLAN_SYSTEM_PROMPT,
-  CONDUCTOR_REVIEW_SYSTEM_PROMPT,
-  PLAN_BODY_SYSTEM_PROMPT,
-  PLAN_INTENT_SYSTEM_PROMPT
-} from '../modes/modePolicy';
 import type { PendingConductorExecution } from '../modes/pendingExecution';
+import { renderModePhasePrompt, renderPrompt } from '../prompts';
 import {
   formatConductorReviewSummary,
   formatConductorTaskPlanSummary,
@@ -71,7 +66,7 @@ export class ModeFlows {
 
     let planBody = '';
     for await (const event of this.streamPlainAssistantText({
-      systemPrompt: PLAN_BODY_SYSTEM_PROMPT,
+      systemPrompt: renderModePhasePrompt('plan.body', 'plan'),
       userText: input.input,
       signal: input.signal,
       purpose: 'plan-body'
@@ -115,7 +110,7 @@ export class ModeFlows {
     try {
       const response = await client.complete({
         messages: [
-          { role: 'system', content: PLAN_INTENT_SYSTEM_PROMPT },
+          { role: 'system', content: renderPrompt('plan.intent') },
           { role: 'user', content: userInput }
         ],
         maxTokens: 80,
@@ -285,10 +280,13 @@ export class ModeFlows {
     try {
       const response = await client.complete({
         messages: [
-          { role: 'system', content: CONDUCTOR_PLAN_SYSTEM_PROMPT },
+          {
+            role: 'system',
+            content: renderModePhasePrompt('conductor.plan', 'conductor')
+          },
           {
             role: 'user',
-            content: `目标：\n${goal}\n\n当前工作区 roots：\n${rootsHint}`
+            content: renderPrompt('conductor.plan.user', { goal, rootsHint })
           }
         ],
         metadata: { purpose: 'conductor-plan', internal: true }
@@ -459,8 +457,8 @@ export class ModeFlows {
     let reviewText = '';
     if (seniorClient) {
       for await (const event of this.streamPlainAssistantText({
-        systemPrompt: CONDUCTOR_REVIEW_SYSTEM_PROMPT,
-        userText: `总目标：\n${goal}\n\nWorker 结果：\n${digest}`,
+        systemPrompt: renderModePhasePrompt('conductor.review', 'conductor'),
+        userText: renderPrompt('conductor.review.user', { goal, digest }),
         signal,
         purpose: 'conductor-review'
       })) {

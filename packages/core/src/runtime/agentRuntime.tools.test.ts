@@ -245,6 +245,11 @@ describe('AgentRuntime tool loops and approvals', () => {
       expect(resumed.status).toBe('completed');
       expect(resumed.summary).toBe('写入完成');
       expect(llmClient.requests).toHaveLength(2);
+      expect(
+        llmClient.requests[1]?.messages.find(
+          (message) => message.role === 'system'
+        )?.content
+      ).toContain('Auto 模式：');
       expect(traceStore.events.map((event) => event.type)).toEqual(
         expect.arrayContaining([
           'tool_call.approval_required',

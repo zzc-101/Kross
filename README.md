@@ -155,6 +155,7 @@ flowchart LR
 - [安全模型](docs/security.md)
 - [故障排查](docs/troubleshooting.md)
 - [技术概览](docs/technical-overview.md)
+- [Harness 优化路线图](docs/harness-roadmap.md)
 - [发布指南](docs/releasing.md)
 - [参与贡献](CONTRIBUTING.md)
 - [漏洞报告](SECURITY.md)

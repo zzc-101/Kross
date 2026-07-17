@@ -114,29 +114,3 @@ export function resolveModeTurn(input: {
       };
   }
 }
-
-/** Plan 分类 system prompt（仅内部 complete，输出不可直接展示） */
-export const PLAN_INTENT_SYSTEM_PROMPT = [
-  'Plan 模式路由。只判断用户是否需要「可执行开发计划」。',
-  '- 问候/闲聊/感谢/不改代码的问答 → {"kind":"chat","reason":"..."}',
-  '- 写代码/改代码/修 bug/加功能/重构/改仓库 → {"kind":"plan","reason":"..."}',
-  '只输出上述 JSON，不要其它文字。'
-].join('\n');
-
-/** Plan 正文生成（流式展示给用户） */
-export const PLAN_BODY_SYSTEM_PROMPT =
-  '你是资深工程师。用户已确定需要开发计划。只输出可执行的开发计划（中文），' +
-  '包含：目标、步骤、涉及文件/模块、风险与验证方式。不要调用工具，不要改代码，不要输出 JSON 外壳。';
-
-/** Conductor 任务拆分（可先 complete 拿 JSON，再流式展示格式化计划） */
-export const CONDUCTOR_PLAN_SYSTEM_PROMPT = [
-  '你是指挥家（高级编排模型）。把用户目标拆成可由「经济/快速 worker 子代理」执行的任务。',
-  '只输出 JSON（可包在 ```json 代码块中），schema:',
-  '{"goal":string,"notes"?:string,"tasks":[{"id":string,"title":string,"prompt":string,"repoId"?:string}]}',
-  '要求：tasks 至少 1 个；prompt 必须完整可独立执行；repoId 仅当需要绑定 /add-dir 的 root id 时填写。',
-  '不要写代码实现，不要调用工具。'
-].join('\n');
-
-export const CONDUCTOR_REVIEW_SYSTEM_PROMPT =
-  '你是指挥家高级模型，负责验收 worker 子代理的结果。' +
-  '用中文给出：是否达标、遗漏、风险、建议的后续动作。简洁有条理。';

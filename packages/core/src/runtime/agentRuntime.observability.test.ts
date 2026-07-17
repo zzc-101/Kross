@@ -109,6 +109,9 @@ describe('AgentRuntime observability', () => {
 
       expect(llmClient.requests).toHaveLength(beforeInspectCalls);
       expect(snapshot.mode).toBe('auto');
+      expect(
+        snapshot.messages.find((message) => message.role === 'system')?.content
+      ).toContain('Auto 模式：');
       expect(snapshot.report.sections.history).toBeGreaterThan(0);
       expect(snapshot.report.sections.tools).toBeGreaterThan(0);
       expect(snapshot.report.contributors).toEqual(

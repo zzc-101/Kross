@@ -2,6 +2,7 @@ import { throwIfAborted } from '../abort';
 import type { SessionContext } from '../context/sessionContext';
 import type { AgentMode } from '../domain';
 import type { LlmClient } from '../llm/types';
+import { renderPrompt } from '../prompts';
 import type { ToolGateway, ToolMetadata } from '../tools/toolGateway';
 import {
   executeSequentialToolCalls,
@@ -42,12 +43,6 @@ export interface CompleteToolLoopParams {
     signaturePreview: string;
   }) => Promise<void>;
 }
-
-const DEFAULT_EMPTY_SUMMARY = 'Subagent finished without a text summary.';
-const DEFAULT_STALL_SUMMARY =
-  'Subagent stopped: repeated the same tool calls without progress.';
-const SOFT_LAND_USER_MESSAGE =
-  'Tool iteration limit reached. Summarize findings and remaining work for the parent agent. Do not call tools.';
 
 /**
  * Non-streaming complete()-based tool loop (subagent path).
@@ -126,7 +121,7 @@ export async function runCompleteToolLoop(
         params.sessionContext.appendAssistant(lastText);
       }
       params.sessionContext.commitTurn();
-      return lastText || DEFAULT_EMPTY_SUMMARY;
+      return lastText || renderPrompt('subagent.summary.empty');
     }
 
     const signature = toolCallsSignature(toolCalls);
@@ -142,7 +137,7 @@ export async function runCompleteToolLoop(
         iteration,
         signaturePreview: signature.slice(0, 240)
       });
-      const stallSummary = lastText || DEFAULT_STALL_SUMMARY;
+      const stallSummary = lastText || renderPrompt('subagent.summary.stalled');
       params.sessionContext.appendAssistant(stallSummary);
       params.sessionContext.commitTurn();
       return stallSummary;
@@ -179,7 +174,7 @@ export async function runCompleteToolLoop(
       ...prepared.messages,
       {
         role: 'user',
-        content: SOFT_LAND_USER_MESSAGE
+        content: renderPrompt('subagent.softLand.user')
       }
     ],
     temperature,

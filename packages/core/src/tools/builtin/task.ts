@@ -32,7 +32,7 @@ const taskInputSchema = z.object({
     .min(1, 'description (short title) is required')
     .max(TITLE_MAX),
   prompt: z.string().min(1),
-  /** Optional label; tool allowlist is always read+edit (no Bash/Delete/Move). */
+  /** Explore is read-only by policy; general may use read+edit tools. */
   mode: z.enum(['explore', 'general']).optional(),
   /**
    * Optional project-registry repo id. Subagent tools bind to that repo's path
@@ -59,10 +59,12 @@ export function createTaskTool(
       '派生子代理在独立上下文中完成聚焦任务并返回摘要。' +
       '调用时必须同时提供 description（极短标题，用于 UI 单行展示）与 prompt（完整任务说明）。' +
       '可选 repoId：在跨仓项目中指定 project registry 中的仓库 id，子代理将绑定该仓库路径。' +
-      '子代理可用 Read/Glob/Grep/Rg/List/Stat/Git* 与 Edit/Write；' +
+      '子代理基础可用 Read/Glob/Grep/Rg/List/Stat/Git*；' +
+      'mode=explore 时只读调查，mode=general 时额外允许 Edit/Write 完成任务范围内的修改；' +
       '不可用 Bash/Delete/Move/Task 等高危工具，子代理内无需用户审批。' +
       '子代理不能再派生子代理。',
     risk: 'read',
+    resolveRisk: (input) => (input.mode === 'general' ? 'write' : 'read'),
     category: 'agent',
     timeoutMs: 300_000,
     retry: false,
@@ -84,7 +86,8 @@ export function createTaskTool(
         mode: {
           type: 'string',
           enum: ['explore', 'general'],
-          description: '可选标签；工具集相同（read+edit，无高危工具）'
+          description:
+            '可选，默认 explore。explore=只读调查；general=可使用允许的编辑工具完成修改。两者均无 Bash/Delete/Move/Task。'
         },
         repoId: {
           type: 'string',

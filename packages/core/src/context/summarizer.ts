@@ -1,5 +1,6 @@
 import type { LlmClient, LlmMessage } from '../llm/types';
 import { isOperationAborted, throwIfAborted } from '../abort';
+import { renderPrompt } from '../prompts';
 import type { ThreadEntry } from './conversationThread';
 import { formatCompactionContent } from './conversationThread';
 
@@ -108,15 +109,18 @@ export class LlmSummarizer implements Summarizer {
     const messages: LlmMessage[] = [
       {
         role: 'system',
-        content:
-          '你是上下文压缩助手。请生成一份可独立替代早期对话的滚动摘要。保留：用户目标与偏好、已执行操作、涉及文件/工具、关键结论、未完成事项、失败尝试和重要精确值。不得编造，也不要把旧摘要与新内容简单并排堆叠。'
+        content: renderPrompt('context.compaction.system')
       },
       {
         role: 'user',
         content: [
-          prior ? `已有滚动摘要（请吸收并更新）：\n${prior}` : '',
-          `本次新增的早期对话：\n${transcript}`,
-          instructions ? `额外压缩要求：\n${instructions}` : ''
+          prior
+            ? renderPrompt('context.compaction.previous', { summary: prior })
+            : '',
+          renderPrompt('context.compaction.turns', { transcript }),
+          instructions
+            ? renderPrompt('context.compaction.instructions', { instructions })
+            : ''
         ]
           .filter(Boolean)
           .join('\n\n')

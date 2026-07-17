@@ -18,6 +18,7 @@ import { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { z } from 'zod';
+import { initI18n, setLocale } from '../i18n';
 import {
   streamFromComplete,
   getStoredConversation,
@@ -43,6 +44,33 @@ import {
 } from './agentRuntime.testSupport';
 
 describe('AgentRuntime lifecycle and context', () => {
+  it('rebuilds the system prompt from the current locale for each run', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new FakeLlmClient('done');
+    const runtime = new AgentRuntime({ traceStore, llmClient });
+
+    try {
+      initI18n('zh');
+      await runtime.run({ input: 'first', requestedMode: 'auto' });
+      const firstSystem = llmClient.requests[0]?.messages.find(
+        (message) => message.role === 'system'
+      );
+      expect(firstSystem?.content).toContain('你是 Kross');
+      expect(firstSystem?.content).toContain('Auto 模式：');
+
+      setLocale('en');
+      await runtime.run({ input: 'second', requestedMode: 'auto' });
+      const secondSystem = llmClient.requests[1]?.messages.find(
+        (message) => message.role === 'system'
+      );
+      expect(secondSystem?.content).toContain('You are Kross');
+      expect(secondSystem?.content).toContain('Auto mode:');
+      expect(secondSystem?.content).toContain('Session mode: auto');
+    } finally {
+      initI18n('zh');
+    }
+  });
+
   it('runs a normal task and records trace events', async () => {
       const traceStore = new InMemoryTraceStore();
       const runtime = new AgentRuntime({ traceStore });

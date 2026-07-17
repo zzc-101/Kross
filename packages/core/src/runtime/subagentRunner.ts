@@ -11,6 +11,7 @@ import { createSubagentTools } from '../tools/builtin/exploreTools';
 import { createReadSkillTool } from '../tools/builtin/readSkill';
 import { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationService } from '../mutations/mutationService';
+import { renderSubagentExecutionPrompt } from '../prompts';
 import {
   ToolGateway,
   type ToolMetadata
@@ -62,17 +63,6 @@ export interface SubagentRunDeps {
   personalSkillsDir?: string;
   getMutationService?: (workspaceRoot: string) => MutationService;
 }
-
-export const SUBAGENT_SYSTEM_PROMPT = [
-  'You are a focused subagent of Kross.',
-  'Complete the assigned task using only the available tools.',
-  'Allowed tools: Read, ReadSkill, Glob, Grep, Rg, List, Stat, GitStatus/Diff/Log, Edit, Write, ApplyPatch.',
-  'Prefer Rg (ripgrep) over Grep/Glob for search and file listing when available.',
-  'Not available: Bash, Delete, Move, Task, network/MCP, or other high-risk tools.',
-  'No user approval is required — use tools freely within the allowlist.',
-  'Do not invent tool names. Prefer concrete file paths and a clear final summary:',
-  'what you found or changed, key paths, risks, and suggested next steps for the parent agent.'
-].join(' ');
 
 /**
  * 子代理独立 SessionContext（减半预算）+ 同一套治理流水线。
@@ -181,10 +171,14 @@ export async function runSubagent(
     };
   }
 
-  const toolDefs = [
+  const availableToolDefs = [
     ...createSubagentTools(workspaceRoot, deps.getMutationService?.(workspaceRoot)),
     createReadSkillTool(skillRegistry)
   ];
+  const toolDefs =
+    mode === 'explore'
+      ? availableToolDefs.filter((tool) => tool.risk === 'read')
+      : availableToolDefs;
   const childGateway = new ToolGateway({
     traceStore: deps.traceStore,
     defaultTimeoutMs: 120_000,
@@ -237,7 +231,7 @@ export async function runSubagent(
     const summary = await runCompleteToolLoop({
       runId: subRunId,
       prompt,
-      systemPrompt: SUBAGENT_SYSTEM_PROMPT,
+      systemPrompt: renderSubagentExecutionPrompt({ mode }),
       mode: 'auto',
       llmClient,
       gateway: childGateway,

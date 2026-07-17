@@ -57,6 +57,8 @@ export interface ToolHandlerResult {
 
 export interface ToolDefinition<TInput = unknown> extends ToolMetadata {
   inputSchema: z.ZodType<TInput>;
+  /** Override the static metadata risk after input validation. */
+  resolveRisk?(input: TInput): ToolRisk;
   /** Return a secret-safe representation used only for trace/approval UI. */
   redactInputForTrace?: (input: unknown) => unknown;
   timeoutMs?: number;
@@ -188,16 +190,17 @@ export class ToolGateway {
     }
 
     const parsedInput = parseInput(definition, input.input);
+    const risk = definition.resolveRisk?.(parsedInput) ?? definition.risk;
     const traceInput = definition.redactInputForTrace
       ? definition.redactInputForTrace(parsedInput)
       : parsedInput;
     const approval = this.approvalPolicy({
-      tool: toMetadata(definition),
+      tool: toMetadata(definition, risk),
       input: parsedInput
     });
     const callMeta = {
       toolName: input.name,
-      risk: definition.risk,
+      risk,
       ...(input.callId ? { callId: input.callId } : {})
     };
 
@@ -208,7 +211,7 @@ export class ToolGateway {
       });
       throw new ToolPermissionError(
         input.name,
-        definition.risk,
+        risk,
         approval.reason,
         'deny'
       );
@@ -221,7 +224,7 @@ export class ToolGateway {
       });
       throw new ToolPermissionError(
         input.name,
-        definition.risk,
+        risk,
         approval.reason,
         'ask'
       );
@@ -462,12 +465,15 @@ function defaultApprovalPolicy(context: ToolApprovalPolicyContext): ToolApproval
     : { action: 'ask', reason: `${context.tool.risk} tool requires approval` };
 }
 
-function toMetadata(definition: ToolDefinition): ToolMetadata {
-  const { name, description, risk, category, parameters } = definition;
+function toMetadata(
+  definition: ToolDefinition,
+  resolvedRisk: ToolRisk = definition.risk
+): ToolMetadata {
+  const { name, description, category, parameters } = definition;
   return {
     name,
     description,
-    risk,
+    risk: resolvedRisk,
     category,
     parameters
   };
