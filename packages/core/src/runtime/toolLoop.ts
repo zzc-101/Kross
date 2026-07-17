@@ -255,6 +255,19 @@ export class RuntimeToolLoop {
           this.options.commitTurn();
           return landed;
         },
+        onStalled: async ({ summary }) => {
+          const stalled = await this.createStalledToolLoopResult(
+            session.runId,
+            session.mode,
+            summary
+          );
+          await this.options.record(session.runId, 'run.completed', {
+            ...stalled
+          });
+          this.options.appendAssistantForCancel(stalled.summary);
+          this.options.commitTurn();
+          return stalled;
+        },
         onFailure: async (message) => {
           const failed = await this.options.attachChangedFiles(
             agentResultSchema.parse({
@@ -448,6 +461,28 @@ export class RuntimeToolLoop {
           changedFiles: [],
           evidence: ['工具调用循环达到上限，已停止继续执行工具并尝试收尾'],
           risks: ['部分计划可能未执行完，可继续对话推进']
+        }
+      })
+    );
+  }
+
+  async createStalledToolLoopResult(
+    runId: string,
+    mode: AgentMode,
+    summary: string
+  ): Promise<AgentResult> {
+    return this.options.attachChangedFiles(
+      agentResultSchema.parse({
+        runId,
+        mode,
+        status: 'failed',
+        summary: summary || renderPrompt('agent.stall.summary'),
+        report: {
+          changedFiles: [],
+          evidence: [
+            '主 Agent 在 Harness 恢复提示后仍重复相同工具调用，且工具结果没有变化'
+          ],
+          risks: ['任务尚未完成，需要调整策略后继续']
         }
       })
     );

@@ -160,7 +160,7 @@ describe('runCompleteToolLoop', () => {
     expect(softUser?.content).toBe(renderPrompt('subagent.softLand.user'));
   });
 
-  it('stops on repeated identical tool signatures (stall)', async () => {
+  it('offers one recovery before stopping an unchanged tool loop', async () => {
     const { gateway, tools } = createGatewayWithNoop();
     // same signature three turns → stall on third (count >= 2)
     const sameCall = { id: 'c-same', name: 'Noop', input: { note: 'loop' } };
@@ -171,6 +171,7 @@ describe('runCompleteToolLoop', () => {
     ]);
     const sessionContext = createSessionContext({ client: llm });
     const stalled: Array<{ iteration: number; signaturePreview: string }> = [];
+    const recoveries: Array<{ iteration: number; signaturePreview: string }> = [];
 
     const summary = await runCompleteToolLoop({
       runId: 'complete-stall',
@@ -181,15 +182,69 @@ describe('runCompleteToolLoop', () => {
       tools,
       sessionContext,
       maxIterations: 20,
+      onStallRecovery: async (info) => {
+        recoveries.push(info);
+      },
       onStalled: async (info) => {
         stalled.push(info);
       }
     });
 
     expect(summary).toBe(renderPrompt('subagent.summary.stalled'));
-    expect(llm.requests.length).toBe(3);
+    expect(llm.requests.length).toBe(4);
+    expect(recoveries).toHaveLength(1);
+    expect(recoveries[0]?.iteration).toBe(3);
+    expect(
+      llm.requests[3]?.messages.find((message) => message.role === 'system')
+        ?.content
+    ).toContain(renderPrompt('agent.stall.recovery'));
     expect(stalled).toHaveLength(1);
-    expect(stalled[0]?.iteration).toBe(3);
+    expect(stalled[0]?.iteration).toBe(4);
     expect(stalled[0]?.signaturePreview).toContain('Noop');
+  });
+
+  it('continues normally when the model changes strategy after recovery', async () => {
+    const { gateway, tools } = createGatewayWithNoop();
+    const llm = new SequenceLlmClient([
+      toolCallResponse([{ id: 'c1', name: 'Noop', input: { note: 'loop' } }]),
+      toolCallResponse([{ id: 'c2', name: 'Noop', input: { note: 'loop' } }]),
+      toolCallResponse([{ id: 'c3', name: 'Noop', input: { note: 'loop' } }]),
+      toolCallResponse([
+        { id: 'c4', name: 'Noop', input: { note: 'different strategy' } }
+      ]),
+      textResponse('Recovered and completed.')
+    ]);
+    const sessionContext = createSessionContext({ client: llm });
+    let recoveries = 0;
+    let stalls = 0;
+
+    const summary = await runCompleteToolLoop({
+      runId: 'complete-recovered',
+      prompt: 'recover from a loop',
+      systemPrompt: 'You are a test subagent.',
+      llmClient: llm,
+      gateway,
+      tools,
+      sessionContext,
+      maxIterations: 10,
+      onStallRecovery: async () => {
+        recoveries += 1;
+      },
+      onStalled: async () => {
+        stalls += 1;
+      }
+    });
+
+    expect(summary).toBe('Recovered and completed.');
+    expect(recoveries).toBe(1);
+    expect(stalls).toBe(0);
+    expect(
+      llm.requests[3]?.messages.find((message) => message.role === 'system')
+        ?.content
+    ).toContain(renderPrompt('agent.stall.recovery'));
+    expect(
+      llm.requests[4]?.messages.find((message) => message.role === 'system')
+        ?.content
+    ).not.toContain(renderPrompt('agent.stall.recovery'));
   });
 });

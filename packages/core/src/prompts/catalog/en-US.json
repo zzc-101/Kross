@@ -89,6 +89,12 @@
     "3. Recommended next steps for the user",
     "Do not emit any more tool_calls."
   ],
+  "agent.stall.recovery": [
+    "[Harness recovery instruction] You have repeatedly issued the same tool calls and the tool results have not changed. Do not mechanically repeat the same calls.",
+    "Recheck the current assumption and existing evidence, then use different parameters, an independent evidence source, or a smaller verification step. If this is intentional polling, continue only when you can state the expected progress and stopping condition.",
+    "If no viable new strategy remains within authority, stop calling tools and report the unfinished work, blocking evidence, and smallest next step honestly."
+  ],
+  "agent.stall.summary": "The task is not complete: after one recovery attempt, the main agent still repeated the same tool calls with unchanged results. The tool loop was stopped; inspect the blocking evidence and continue with a changed strategy.",
   "plan.intent": [
     "Route the current Plan mode request. Only decide whether the user needs an executable development plan.",
     "- Greetings, casual conversation, thanks, or questions that do not change code → {\"kind\":\"chat\",\"reason\":\"...\"}",

@@ -632,6 +632,27 @@ export class AgentRuntime extends EventEmitter {
           this.sessionContext.commitTurn();
           return landed;
         },
+        onStalled: async ({ summary }) => {
+          this.sessionContext.appendAssistant(summary);
+          const stalled = await this.attachChangedFiles(
+            agentResultSchema.parse({
+              runId,
+              mode,
+              status: 'failed',
+              summary,
+              report: {
+                changedFiles: [],
+                evidence: [
+                  '主 Agent 在 Harness 恢复提示后仍重复相同工具调用，且工具结果没有变化'
+                ],
+                risks: ['任务尚未完成，需要调整策略后继续']
+              }
+            })
+          );
+          await this.record(runId, 'run.completed', { ...stalled });
+          this.sessionContext.commitTurn();
+          return stalled;
+        },
         onFailure: async (message) => {
           const failed = await this.attachChangedFiles(
             agentResultSchema.parse({

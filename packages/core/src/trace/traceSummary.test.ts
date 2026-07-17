@@ -143,6 +143,46 @@ describe('traceSummary', () => {
     expect(summary?.flags).toContain('awaiting-tool-approval');
   });
 
+  it('surfaces tool-loop stall detection, recovery, and final stop', () => {
+    const events = [
+      event('run-stall', 'run.started', { input: 'repeat' }, 't1'),
+      event(
+        'run-stall',
+        'llm.tool_loop.stall_detected',
+        { signaturePreview: 'Read', repeatedCount: 2 },
+        't2'
+      ),
+      event(
+        'run-stall',
+        'llm.tool_loop.stall_recovery',
+        { signaturePreview: 'Read', repeatedCount: 2 },
+        't3'
+      ),
+      event(
+        'run-stall',
+        'llm.tool_loop.stalled',
+        { signaturePreview: 'Read', repeatedCount: 3 },
+        't4'
+      )
+    ];
+
+    const summary = summarizeTraceEvents('run-stall', events);
+    expect(summary?.flags).toEqual(
+      expect.arrayContaining(['stall-detected', 'stall-recovery', 'stalled'])
+    );
+    expect(summary?.failureMessage).toContain('without progress');
+
+    const detail = buildTraceDetail('run-stall', events);
+    expect(detail?.highlights.map((item) => item.type)).toEqual(
+      expect.arrayContaining([
+        'llm.tool_loop.stall_detected',
+        'llm.tool_loop.stall_recovery',
+        'llm.tool_loop.stalled'
+      ])
+    );
+    expect(formatTraceDetail(detail!)).toContain('stopped after recovery');
+  });
+
   it('counts pre-start approval as tool activity in total', () => {
     const events = [
       event('run-4', 'run.started', { input: 'bash' }, 't1'),

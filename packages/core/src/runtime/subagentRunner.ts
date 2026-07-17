@@ -228,6 +228,7 @@ export async function runSubagent(
   }
 
   try {
+    let stalled = false;
     const summary = await runCompleteToolLoop({
       runId: subRunId,
       prompt,
@@ -256,11 +257,38 @@ export async function runSubagent(
           toolCallCount
         });
       },
-      onStalled: async ({ iteration, signaturePreview }) => {
+      onStallRecovery: async ({
+        iteration,
+        signaturePreview,
+        fingerprint,
+        repeatedCount
+      }) => {
+        await appendTrace(
+          deps.traceStore,
+          subRunId,
+          'llm.subagent.stall_recovery',
+          {
+            ...lifecycleExtras,
+            iteration,
+            signaturePreview,
+            fingerprint,
+            repeatedCount
+          }
+        );
+      },
+      onStalled: async ({
+        iteration,
+        signaturePreview,
+        fingerprint,
+        repeatedCount
+      }) => {
+        stalled = true;
         await appendTrace(deps.traceStore, subRunId, 'llm.subagent.stalled', {
           ...lifecycleExtras,
           iteration,
-          signaturePreview
+          signaturePreview,
+          fingerprint,
+          repeatedCount
         });
       }
     });
@@ -274,19 +302,21 @@ export async function runSubagent(
     }
 
     const result = subagentResultSchema.parse({
-      status: 'completed',
+      status: stalled ? 'needs-review' : 'completed',
       summary,
       changedFiles,
       diffSummary: [],
       commandsRun: [],
       evidence: [
-        '子代理已完成独立工具环',
+        stalled
+          ? '子代理在一次恢复提示后仍重复相同工具调用，且结果没有变化'
+          : '子代理已完成独立工具环',
         ...(changedFiles.length > 0
           ? [`修改文件 ${changedFiles.length} 个`]
           : [])
       ],
-      risks: [],
-      needsReview: []
+      risks: stalled ? ['分配给子代理的任务可能尚未完成'] : [],
+      needsReview: stalled ? ['父 Agent 需要检查阻塞证据并调整策略'] : []
     });
 
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.completed', {

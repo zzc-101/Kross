@@ -19,10 +19,24 @@ export function toLlmTools(
 /** Stable JSON for signature comparison; falls back to String on throw. */
 export function stableJson(value: unknown): string {
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(normalizeJson(value)) ?? String(value);
   } catch {
     return String(value);
   }
+}
+
+function normalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeJson);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, normalizeJson(child)])
+    );
+  }
+  return value;
 }
 
 /** Signature of a tool-call batch for stall detection (name+input, order-sensitive). */

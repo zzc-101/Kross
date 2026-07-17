@@ -6,9 +6,9 @@ import { renderPrompt } from '../prompts';
 import type { ToolGateway, ToolMetadata } from '../tools/toolGateway';
 import {
   executeSequentialToolCalls,
-  toLlmTools,
-  toolCallsSignature
+  toLlmTools
 } from './toolLoopShared';
+import { ToolLoopStallDetector } from './toolLoopStallDetector';
 
 export interface CompleteToolLoopParams {
   runId: string;
@@ -41,6 +41,14 @@ export interface CompleteToolLoopParams {
   onStalled?: (info: {
     iteration: number;
     signaturePreview: string;
+    fingerprint: string;
+    repeatedCount: number;
+  }) => Promise<void>;
+  onStallRecovery?: (info: {
+    iteration: number;
+    signaturePreview: string;
+    fingerprint: string;
+    repeatedCount: number;
   }) => Promise<void>;
 }
 
@@ -50,8 +58,8 @@ export interface CompleteToolLoopParams {
  *
  * Semantics (parity with historical runSubagentToolLoop):
  * - beginTurn → prepareRequest → complete @ temperature 0.2
- * - stall when the same tool signature repeats twice in a row after first match
- *   (repeatedSignatureCount >= 2 → third consecutive identical batch)
+ * - recover once when the same tool batch and results repeat without progress
+ * - stall if the unchanged observation repeats again after recovery
  * - soft-land user message when max iterations exhausted
  */
 export async function runCompleteToolLoop(
@@ -75,9 +83,8 @@ export async function runCompleteToolLoop(
 
   let iteration = 1;
   let lastText = '';
-  /** 连续「相同工具签名」次数；用于打断模型空转死循环 */
-  let repeatedSignatureCount = 0;
-  let lastToolSignature = '';
+  let stallRecoveryPending = false;
+  const stallDetector = new ToolLoopStallDetector();
 
   while (iteration <= params.maxIterations) {
     throwIfAborted(params.signal);
@@ -86,9 +93,15 @@ export async function runCompleteToolLoop(
     await params.onTurn?.({ iteration });
 
     const prepared = await params.sessionContext.prepareRequest(
-      buildContextInput,
+      stallRecoveryPending
+        ? {
+            ...buildContextInput,
+            systemPrompt: `${buildContextInput.systemPrompt}\n${renderPrompt('agent.stall.recovery')}`
+          }
+        : buildContextInput,
       params.signal
     );
+    stallRecoveryPending = false;
     throwIfAborted(params.signal);
     const response = await params.llmClient.complete({
       messages: prepared.messages,
@@ -124,25 +137,6 @@ export async function runCompleteToolLoop(
       return lastText || renderPrompt('subagent.summary.empty');
     }
 
-    const signature = toolCallsSignature(toolCalls);
-    if (signature === lastToolSignature) {
-      repeatedSignatureCount += 1;
-    } else {
-      repeatedSignatureCount = 0;
-      lastToolSignature = signature;
-    }
-    // 同一组工具调用连打 3 轮 → 视为空转，强制收束
-    if (repeatedSignatureCount >= 2) {
-      await params.onStalled?.({
-        iteration,
-        signaturePreview: signature.slice(0, 240)
-      });
-      const stallSummary = lastText || renderPrompt('subagent.summary.stalled');
-      params.sessionContext.appendAssistant(stallSummary);
-      params.sessionContext.commitTurn();
-      return stallSummary;
-    }
-
     params.sessionContext.appendAssistant(response.text ?? '', toolCalls);
     const toolMessages = await executeSequentialToolCalls({
       runId: params.runId,
@@ -160,6 +154,17 @@ export async function runCompleteToolLoop(
           iteration
         });
       }
+    }
+    const stall = stallDetector.observe({ calls: toolCalls, results: toolMessages });
+    if (stall.state === 'recover') {
+      await params.onStallRecovery?.({ iteration, ...stall });
+      stallRecoveryPending = true;
+    } else if (stall.state === 'stalled') {
+      await params.onStalled?.({ iteration, ...stall });
+      const stallSummary = renderPrompt('subagent.summary.stalled');
+      params.sessionContext.appendAssistant(stallSummary);
+      params.sessionContext.commitTurn();
+      return stallSummary;
     }
     iteration += 1;
   }

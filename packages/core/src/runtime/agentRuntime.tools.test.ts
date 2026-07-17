@@ -17,6 +17,7 @@ import type {
 import { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
+import { renderPrompt } from '../prompts';
 import { z } from 'zod';
 import {
   streamFromComplete,
@@ -705,6 +706,125 @@ describe('AgentRuntime tool loops and approvals', () => {
           'llm.tool_loop.max_iterations',
           'llm.soft_land.completed'
         ])
+      );
+    });
+
+  it('recovers once and then stops a main-agent loop with unchanged results', async () => {
+      const traceStore = new InMemoryTraceStore();
+      const llmClient = new LoopingStreamingToolClient();
+      const toolGateway = new ToolGateway({ traceStore });
+      toolGateway.register({
+        name: 'fs.read',
+        description: '读文件',
+        risk: 'read',
+        inputSchema: z.object({ path: z.string() }),
+        execute: async () => ({ content: 'unchanged file content' })
+      });
+      const runtime = new AgentRuntime({
+        traceStore,
+        llmClient,
+        toolGateway,
+        maxToolIterations: 20
+      });
+
+      const result = await runtime.run({
+        input: '一直重复读取同一个文件',
+        requestedMode: 'auto'
+      });
+
+      expect(result).toMatchObject({
+        status: 'failed',
+        summary: renderPrompt('agent.stall.summary'),
+        report: {
+          evidence: expect.arrayContaining([
+            expect.stringContaining('Harness 恢复提示')
+          ]),
+          risks: expect.arrayContaining([expect.stringContaining('尚未完成')])
+        }
+      });
+      expect(llmClient.streamRequests).toHaveLength(4);
+      expect(
+        llmClient.streamRequests[3]?.messages.find(
+          (message) => message.role === 'system'
+        )?.content
+      ).toContain(renderPrompt('agent.stall.recovery'));
+      const eventTypes = traceStore.events.map((event) => event.type);
+      expect(eventTypes).toEqual(
+        expect.arrayContaining([
+          'llm.tool_loop.stall_detected',
+          'llm.tool_loop.stall_recovery',
+          'llm.tool_loop.stalled'
+        ])
+      );
+      expect(eventTypes).not.toContain('llm.tool_loop.max_iterations');
+      const stalled = traceStore.events.find(
+        (event) => event.type === 'llm.tool_loop.stalled'
+      );
+      expect(stalled?.payload).toMatchObject({
+        repeatedCount: 3,
+        signaturePreview: 'fs.read',
+        recoveryAttempted: true
+      });
+      expect(stalled?.payload.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+      expect(JSON.stringify(stalled?.payload)).not.toContain('README.md');
+    });
+
+  it('does not stall intentional polling when the tool result changes', async () => {
+      class ProgressingPollClient implements LlmClient {
+        readonly provider = 'openai' as const;
+        calls = 0;
+
+        async complete(): Promise<LlmResponse> {
+          throw new Error('complete should not be used');
+        }
+
+        async *stream(): AsyncIterable<LlmStreamChunk> {
+          this.calls += 1;
+          if (this.calls <= 4) {
+            yield {
+              type: 'tool-call',
+              call: {
+                id: `poll-${this.calls}`,
+                name: 'job.status',
+                input: { jobId: 'job-1' }
+              }
+            };
+          } else {
+            yield { type: 'text-delta', text: '后台任务已完成' };
+          }
+          yield { type: 'done' };
+        }
+      }
+
+      const traceStore = new InMemoryTraceStore();
+      const llmClient = new ProgressingPollClient();
+      const toolGateway = new ToolGateway({ traceStore });
+      let status = 0;
+      toolGateway.register({
+        name: 'job.status',
+        description: '查询后台任务',
+        risk: 'read',
+        inputSchema: z.object({ jobId: z.string() }),
+        execute: async () => ({ content: `progress=${++status}` })
+      });
+      const runtime = new AgentRuntime({
+        traceStore,
+        llmClient,
+        toolGateway,
+        maxToolIterations: 20
+      });
+
+      const result = await runtime.run({
+        input: '等待后台任务完成',
+        requestedMode: 'auto'
+      });
+
+      expect(result).toMatchObject({
+        status: 'completed',
+        summary: '后台任务已完成'
+      });
+      expect(traceStore.events.map((event) => event.type)).not.toContain(
+        'llm.tool_loop.stall_detected'
       );
     });
 });

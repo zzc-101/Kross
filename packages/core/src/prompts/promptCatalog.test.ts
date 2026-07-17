@@ -149,6 +149,12 @@ describe('prompt catalog', () => {
     expect(en).toContain('after the last relevant mutation');
     expect(zh).toContain('不要在没有新信息或策略变化时机械重复');
     expect(en).toContain('Do not mechanically repeat');
+    expect(renderPrompt('agent.stall.recovery', {}, 'zh')).toContain(
+      '工具结果没有变化'
+    );
+    expect(renderPrompt('agent.stall.recovery', {}, 'en')).toContain(
+      'tool results have not changed'
+    );
   });
 
   it('rejects missing prompt parameters', () => {

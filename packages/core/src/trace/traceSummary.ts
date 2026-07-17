@@ -140,6 +140,19 @@ export function summarizeTraceEvents(
         flags.add('max-iterations');
         break;
       }
+      case 'llm.tool_loop.stall_detected': {
+        flags.add('stall-detected');
+        break;
+      }
+      case 'llm.tool_loop.stall_recovery': {
+        flags.add('stall-recovery');
+        break;
+      }
+      case 'llm.tool_loop.stalled': {
+        flags.add('stalled');
+        failureMessage = 'tool loop repeated without progress';
+        break;
+      }
       case 'context.built': {
         flags.add('context-built');
         break;
@@ -357,6 +370,9 @@ function isHighlightType(type: string): boolean {
     type === 'tool_call.denied' ||
     type === 'tool_call.rejected' ||
     type === 'llm.tool_loop.max_iterations' ||
+    type === 'llm.tool_loop.stall_detected' ||
+    type === 'llm.tool_loop.stall_recovery' ||
+    type === 'llm.tool_loop.stalled' ||
     type === 'llm.planner.failed' ||
     type === 'approval.required' ||
     type === 'run.awaiting_approval' ||
@@ -384,6 +400,12 @@ function highlightDetail(event: TraceEvent): string {
       }`;
     case 'llm.tool_loop.max_iterations':
       return 'tool loop hit max iterations';
+    case 'llm.tool_loop.stall_detected':
+      return `${asString(event.payload.signaturePreview) ?? 'tool batch'} — repeated without progress`;
+    case 'llm.tool_loop.stall_recovery':
+      return `${asString(event.payload.signaturePreview) ?? 'tool batch'} — recovery requested`;
+    case 'llm.tool_loop.stalled':
+      return `${asString(event.payload.signaturePreview) ?? 'tool batch'} — stopped after recovery`;
     case 'llm.planner.failed':
       return asString(event.payload.message) ?? 'planner failed';
     case 'approval.required':

@@ -430,6 +430,7 @@ export class StreamingToolCallingLlmClient implements LlmClient {
 
 export class LoopingStreamingToolClient implements LlmClient {
   readonly provider = 'openai' as const;
+  readonly streamRequests: LlmRequest[] = [];
   private count = 0;
 
   async complete(): Promise<LlmResponse> {
@@ -437,6 +438,9 @@ export class LoopingStreamingToolClient implements LlmClient {
   }
 
   async *stream(request?: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    if (request) {
+      this.streamRequests.push(request);
+    }
     if (!request?.tools || request.tools.length === 0) {
       yield { type: 'text-delta', text: '收尾：工具轮次已满，已停止继续读文件' };
       yield { type: 'done' };

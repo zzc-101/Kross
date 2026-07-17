@@ -330,13 +330,18 @@ describe('runSubagent stall guard', () => {
         }
       );
 
-      // 第 1 轮执行工具，第 2 轮相同签名计数 1，第 3 轮计数 2 → 收束
-      expect(llm.calls).toBeLessThanOrEqual(4);
+      // 第 3 轮触发一次恢复提示，第 4 轮仍无进展后收束。
+      expect(llm.calls).toBe(4);
+      expect(outcome.result.status).toBe('needs-review');
+      expect(outcome.result.risks).toContain('分配给子代理的任务可能尚未完成');
       expect(outcome.result.summary).toBe(
         renderPrompt('subagent.summary.stalled')
       );
       expect(traceStore.events.map((e) => e.type)).toContain(
         'llm.subagent.stalled'
+      );
+      expect(traceStore.events.map((e) => e.type)).toContain(
+        'llm.subagent.stall_recovery'
       );
     } finally {
       rmSync(workspace, { recursive: true, force: true });

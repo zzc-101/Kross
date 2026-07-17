@@ -9,6 +9,8 @@ import type { LlmClient, LlmMessage, LlmToolCall } from '../llm/types';
 import type { ToolGateway, ToolMetadata } from '../tools/toolGateway';
 import type { AgentRunStreamEvent } from './agentRuntimeTypes';
 import type { LlmToolDefinition } from '../llm/types';
+import { renderPrompt } from '../prompts';
+import { ToolLoopStallDetector } from './toolLoopStallDetector';
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
 
@@ -33,6 +35,11 @@ export interface StreamingToolLoopHandlers {
     fullThinking: string;
   }): Promise<AgentResult>;
   onSoftLand(input: {
+    summary: string;
+    fullText: string;
+    fullThinking: string;
+  }): Promise<AgentResult>;
+  onStalled(input: {
     summary: string;
     fullText: string;
     fullThinking: string;
@@ -134,6 +141,8 @@ export async function* runStreamingToolLoop(
   let fullText = '';
   let fullThinking = '';
   let stage: CancellationStage = 'context';
+  let stallRecoveryPending = false;
+  const stallDetector = new ToolLoopStallDetector();
 
   try {
     while (true) {
@@ -141,9 +150,15 @@ export async function* runStreamingToolLoop(
       throwIfAborted(params.signal);
       sessionContext.setIteration(iteration);
       const prepared = await sessionContext.prepareRequest(
-        buildContextInput,
+        stallRecoveryPending
+          ? {
+              ...buildContextInput,
+              systemPrompt: `${buildContextInput.systemPrompt}\n${renderPrompt('agent.stall.recovery')}`
+            }
+          : buildContextInput,
         params.signal
       );
+      stallRecoveryPending = false;
       throwIfAborted(params.signal);
       const messages = prepared.messages;
       if (deps.onContextMaintained && prepared.maintenance.length > 0) {
@@ -309,6 +324,49 @@ export async function* runStreamingToolLoop(
           pendingApproval: approval.pendingApproval
         });
         yield { type: 'result', result: approval };
+        return;
+      }
+
+      const stall = stallDetector.observe({
+        calls: toolCalls,
+        results: completedTools
+      });
+      if (stall.state === 'recover') {
+        const payload = {
+          iteration,
+          repeatedCount: stall.repeatedCount,
+          fingerprint: stall.fingerprint,
+          signaturePreview: stall.signaturePreview
+        };
+        await deps.record(
+          params.runId,
+          'llm.tool_loop.stall_detected',
+          payload
+        );
+        await deps.record(
+          params.runId,
+          'llm.tool_loop.stall_recovery',
+          payload
+        );
+        stallRecoveryPending = true;
+      } else if (stall.state === 'stalled') {
+        const summary = renderPrompt('agent.stall.summary');
+        await deps.record(params.runId, 'llm.tool_loop.stalled', {
+          iteration,
+          repeatedCount: stall.repeatedCount,
+          fingerprint: stall.fingerprint,
+          signaturePreview: stall.signaturePreview,
+          recoveryAttempted: true
+        });
+        yield { type: 'turn-start', iteration: iteration + 1 };
+        yield { type: 'text-delta', text: summary };
+        fullText = fullText.length > 0 ? `${fullText}\n\n${summary}` : summary;
+        const landed = await params.handlers.onStalled({
+          summary,
+          fullText,
+          fullThinking
+        });
+        yield { type: 'result', result: landed };
         return;
       }
 
