@@ -46,7 +46,7 @@ describe('fullscreen output', () => {
     await waitFor(() => api !== undefined);
     stdout.writes.length = 0;
     api?.setInput('触摸板滚动测试');
-    await delay(80);
+    await waitFor(() => stdout.writes.length > 0);
 
     expect(stdout.writes.length).toBeGreaterThan(0);
     expect(
