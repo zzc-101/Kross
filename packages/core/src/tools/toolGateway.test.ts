@@ -86,7 +86,8 @@ describe('ToolGateway', () => {
     const result = await gateway.call({
       runId: 'run-1',
       name: 'math.add',
-      input: { a: 1, b: 2 }
+      input: { a: 1, b: 2 },
+      iteration: 4
     });
 
     expect(result).toMatchObject({
@@ -96,6 +97,10 @@ describe('ToolGateway', () => {
     expect(traceStore.events.map((event) => event.type)).toEqual([
       'tool_call.started',
       'tool_call.completed'
+    ]);
+    expect(traceStore.events.map((event) => event.payload.iteration)).toEqual([
+      4,
+      4
     ]);
   });
 

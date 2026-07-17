@@ -195,6 +195,10 @@ describe('AgentRuntime observability', () => {
       });
 
       expect(result.report.changedFiles).toEqual(['src/demo.ts']);
+      expect(result.report.verification).toMatchObject({
+        status: 'not-run',
+        commands: []
+      });
 
       const completed = (await traceStore.readRun('run-diff-1')).find(
         (event) => event.type === 'run.completed'
@@ -214,4 +218,310 @@ describe('AgentRuntime observability', () => {
       const unsafe = await runtime.formatDiffCommand('../escape');
       expect(unsafe).toContain('无效 runId');
     });
+
+  it('derives a passed verification report from Bash trace evidence', async () => {
+      class VerificationLlmClient implements LlmClient {
+        readonly provider = 'openai' as const;
+        requests: LlmRequest[] = [];
+
+        async complete(request: LlmRequest): Promise<LlmResponse> {
+          this.requests.push(request);
+          return this.requests.length === 1
+            ? {
+                provider: this.provider,
+                model: 'fake',
+                text: '',
+                raw: {},
+                toolCalls: [
+                  {
+                    id: 'verify-1',
+                    name: 'Bash',
+                    input: { command: 'npm test -- --run focused.test.ts' }
+                  }
+                ]
+              }
+            : {
+                provider: this.provider,
+                model: 'fake',
+                text: '验证完成',
+                raw: {}
+              };
+        }
+
+        async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+          yield* streamFromComplete(await this.complete(request));
+        }
+      }
+
+      const traceStore = new InMemoryTraceStore();
+      const llmClient = new VerificationLlmClient();
+      const toolGateway = new ToolGateway({ traceStore });
+      toolGateway.register({
+        name: 'Bash',
+        description: 'run command',
+        risk: 'execute',
+        inputSchema: z.object({ command: z.string() }),
+        execute: async () => ({
+          content: '1 test passed',
+          summary: 'exit=0, 1 line',
+          data: { exitCode: 0 }
+        })
+      });
+      const runtime = new AgentRuntime({
+        traceStore,
+        llmClient,
+        toolGateway,
+        createRunId: () => 'run-verification-report'
+      });
+      runtime.setPermissionMode('auto');
+
+      const result = await runtime.run({
+        input: '运行测试',
+        requestedMode: 'auto'
+      });
+
+      expect(result.report.verification).toMatchObject({
+        status: 'passed',
+        commands: ['npm test']
+      });
+      expect(result.report.verification.evidence[0]).toContain('exit=0');
+      expect(result.report.verification.evidence[0]).toContain('iteration=1');
+      const completed = traceStore.events.find(
+        (event) => event.type === 'run.completed'
+      );
+      expect(completed?.payload).toMatchObject({
+        report: {
+          verification: {
+            status: 'passed',
+            commands: ['npm test']
+          }
+        }
+      });
+    });
+
+  it('does not let final model text override a failed verification command', async () => {
+      let requests = 0;
+      const llmClient: LlmClient = {
+        provider: 'openai',
+        async complete(): Promise<LlmResponse> {
+          requests += 1;
+          return requests === 1
+            ? {
+                provider: 'openai',
+                model: 'fake',
+                text: '',
+                raw: {},
+                toolCalls: [
+                  {
+                    id: 'verify-failed',
+                    name: 'Bash',
+                    input: { command: 'npm run typecheck' }
+                  }
+                ]
+              }
+            : {
+                provider: 'openai',
+                model: 'fake',
+                text: '所有检查都通过了',
+                raw: {}
+              };
+        },
+        async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+          yield* streamFromComplete(await this.complete(request));
+        }
+      };
+      const traceStore = new InMemoryTraceStore();
+      const toolGateway = new ToolGateway({ traceStore });
+      toolGateway.register({
+        name: 'Bash',
+        description: 'run command',
+        risk: 'execute',
+        inputSchema: z.object({ command: z.string() }),
+        execute: async () => ({
+          content: 'Type error',
+          summary: 'exit=2, 1 line',
+          data: { exitCode: 2 }
+        })
+      });
+      const runtime = new AgentRuntime({ traceStore, llmClient, toolGateway });
+      runtime.setPermissionMode('auto');
+
+      const result = await runtime.run({
+        input: '检查类型',
+        requestedMode: 'auto'
+      });
+
+      expect(result.summary).toBe('所有检查都通过了');
+      expect(result.report.verification).toMatchObject({
+        status: 'failed',
+        commands: ['npm run typecheck'],
+        reason: expect.stringContaining('verification command failed')
+      });
+      expect(result.report.verification.evidence[0]).toContain('exit=2');
+    });
+
+  it('asks once for post-mutation verification before allowing an unverified close', async () => {
+    const llmClient = new ScriptedVerificationGateClient([
+      toolResponse('write-1', 'Write', {
+        path: 'src/gate.ts',
+        content: 'export const gate = true;'
+      }),
+      textResponse('已经完成'),
+      textResponse('当前环境无法运行验证')
+    ]);
+    const traceStore = new InMemoryTraceStore();
+    const toolGateway = createVerificationGateGateway(traceStore);
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway,
+      createRunId: () => 'run-verification-followup'
+    });
+    runtime.setPermissionMode('auto');
+
+    const result = await runtime.run({
+      input: '修改 gate 实现',
+      requestedMode: 'auto'
+    });
+
+    expect(llmClient.requests).toHaveLength(3);
+    expect(
+      llmClient.requests[2]?.messages.find((message) => message.role === 'system')
+        ?.content
+    ).toContain('Harness 验证指令');
+    expect(result).toMatchObject({
+      status: 'completed',
+      summary: '当前环境无法运行验证',
+      report: {
+        verification: { status: 'not-run' },
+        risks: expect.arrayContaining([
+          expect.stringContaining('没有可信的验证通过证据')
+        ])
+      }
+    });
+    expect(
+      traceStore.events.filter(
+        (event) => event.type === 'run.verification.followup'
+      )
+    ).toHaveLength(1);
+    expect(
+      traceStore.events.filter(
+        (event) => event.type === 'run.verification.exhausted'
+      )
+    ).toHaveLength(1);
+  });
+
+  it('completes normally when the follow-up runs a passing check after mutation', async () => {
+    const llmClient = new ScriptedVerificationGateClient([
+      toolResponse('write-1', 'Write', {
+        path: 'src/gate.ts',
+        content: 'export const gate = true;'
+      }),
+      textResponse('已经完成'),
+      toolResponse('test-1', 'Bash', { command: 'npm test' }),
+      textResponse('修改与验证均已完成')
+    ]);
+    const traceStore = new InMemoryTraceStore();
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway: createVerificationGateGateway(traceStore)
+    });
+    runtime.setPermissionMode('auto');
+
+    const result = await runtime.run({
+      input: '修改并验证 gate 实现',
+      requestedMode: 'auto'
+    });
+
+    expect(llmClient.requests).toHaveLength(4);
+    expect(result.report.verification).toMatchObject({
+      status: 'passed',
+      commands: ['npm test']
+    });
+    expect(result.report.risks).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('未验证风险')])
+    );
+  });
+
+  it('reports an explicitly requested but unavailable check as not-run', async () => {
+    const traceStore = new InMemoryTraceStore();
+    const llmClient = new FakeLlmClient('当前没有可用的命令工具');
+    const runtime = new AgentRuntime({
+      traceStore,
+      llmClient,
+      toolGateway: new ToolGateway({ traceStore })
+    });
+
+    const result = await runtime.run({
+      input: '请运行 `npm test`',
+      requestedMode: 'auto'
+    });
+
+    expect(llmClient.requests).toHaveLength(2);
+    expect(result.report.verification).toMatchObject({
+      status: 'not-run',
+      reason: expect.stringContaining('npm test')
+    });
+    expect(result.report.risks).toEqual(
+      expect.arrayContaining([expect.stringContaining('npm test')])
+    );
+  });
 });
+
+class ScriptedVerificationGateClient implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly requests: LlmRequest[] = [];
+
+  constructor(private readonly responses: LlmResponse[]) {}
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request);
+    return this.responses[this.requests.length - 1] ?? textResponse('结束');
+  }
+
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    yield* streamFromComplete(await this.complete(request));
+  }
+}
+
+function toolResponse(
+  id: string,
+  name: string,
+  input: Record<string, unknown>
+): LlmResponse {
+  return {
+    provider: 'openai',
+    model: 'fake',
+    text: '',
+    raw: {},
+    toolCalls: [{ id, name, input }]
+  };
+}
+
+function textResponse(text: string): LlmResponse {
+  return { provider: 'openai', model: 'fake', text, raw: {} };
+}
+
+function createVerificationGateGateway(traceStore: TraceStore): ToolGateway {
+  const gateway = new ToolGateway({ traceStore });
+  gateway.register({
+    name: 'Write',
+    description: 'write file',
+    risk: 'write',
+    inputSchema: z.object({ path: z.string(), content: z.string() }),
+    execute: async () => ({ content: 'written', summary: 'wrote 20 bytes' })
+  });
+  gateway.register({
+    name: 'Bash',
+    description: 'run command',
+    risk: 'execute',
+    inputSchema: z.object({ command: z.string() }),
+    execute: async () => ({
+      content: 'tests passed',
+      summary: 'exit=0, 1 line',
+      data: { exitCode: 0 }
+    })
+  });
+  return gateway;
+}

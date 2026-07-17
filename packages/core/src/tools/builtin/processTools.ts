@@ -2,6 +2,10 @@ import { z } from 'zod';
 
 import { formatProcessCommandPreview } from '../../process/processCommandPreview';
 import type { ProcessManager } from '../../process/processManager';
+import {
+  fingerprintCommand,
+  identifyVerificationCommand
+} from '../../verification/verificationCommand';
 import type { ToolDefinition } from '../toolGateway';
 
 const processIdSchema = z.string().min(1);
@@ -34,8 +38,12 @@ export function createProcessTools(manager: ProcessManager): ToolDefinition[] {
     },
     redactInputForTrace: (input) => {
       const value = input as { command: string; cwd?: string; env?: Record<string, string>; stdin?: string };
+      const verification = identifyVerificationCommand(value.command);
       return {
         commandPreview: formatProcessCommandPreview(value.command),
+        commandFingerprint: fingerprintCommand(value.command),
+        verificationCommand: verification?.label,
+        verificationKinds: verification?.kinds,
         commandLength: value.command.length,
         cwd: value.cwd,
         stdin: value.stdin,

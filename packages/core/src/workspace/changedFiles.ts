@@ -1,7 +1,13 @@
 import type { TraceEvent } from '../domain';
 
 /** 会改写工作区文件的内置工具。 */
-const MUTATING_FILE_TOOLS = new Set(['Write', 'Edit', 'Delete', 'Move']);
+const MUTATING_FILE_TOOLS = new Set([
+  'Write',
+  'Edit',
+  'Delete',
+  'Move',
+  'ApplyPatch'
+]);
 
 export interface TouchedFile {
   path: string;
@@ -89,6 +95,29 @@ export function extractChangedFilesFromEvents(events: TraceEvent[]): string[] {
   return extractTouchedFilesFromEvents(events).map((item) => item.path);
 }
 
+/** 返回最后一次已完成文件修改在 trace 中的位置；没有修改时返回 -1。 */
+export function findLastFileMutationIndex(events: TraceEvent[]): number {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (isCompletedFileMutationEvent(events[index]!)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/** 仅把确认完成且实际产生变更的文件工具事件视为 mutation。 */
+export function isCompletedFileMutationEvent(event: TraceEvent): boolean {
+  if (event.type !== 'tool_call.completed') {
+    return false;
+  }
+  const toolName = asString(event.payload.toolName);
+  return Boolean(
+    toolName &&
+      MUTATING_FILE_TOOLS.has(toolName) &&
+      didMutate(toolName, event.payload)
+  );
+}
+
 function didMutate(toolName: string, payload: Record<string, unknown>): boolean {
   const data = payload.data;
   if (data && typeof data === 'object' && !Array.isArray(data)) {
@@ -147,8 +176,15 @@ function extractPathsFromInput(input: unknown): string[] {
   if (typeof record.to === 'string' && record.to.trim().length > 0) {
     paths.push(record.to.trim());
   }
+  if (Array.isArray(record.files)) {
+    for (const path of record.files) {
+      if (typeof path === 'string' && path.trim().length > 0) {
+        paths.push(path.trim());
+      }
+    }
+  }
 
-  return paths;
+  return [...new Set(paths)];
 }
 
 function asString(value: unknown): string | undefined {

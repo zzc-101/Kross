@@ -74,7 +74,12 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
             report: {
               changedFiles: [],
               evidence: [],
-              risks: []
+              risks: [],
+              verification: {
+                status: 'not-needed',
+                commands: [],
+                evidence: []
+              }
             }
           }
         }
@@ -114,7 +119,12 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
             report: {
               changedFiles: [],
               evidence: [],
-              risks: []
+              risks: [],
+              verification: {
+                status: 'not-needed',
+                commands: [],
+                evidence: []
+              }
             }
           }
         }
@@ -148,7 +158,12 @@ describe('consumeAgentStream thinking (Claude Code style)', () => {
             report: {
               changedFiles: [],
               evidence: [],
-              risks: []
+              risks: [],
+              verification: {
+                status: 'not-needed',
+                commands: [],
+                evidence: []
+              }
             }
           }
         }

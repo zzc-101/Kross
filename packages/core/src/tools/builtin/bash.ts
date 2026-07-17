@@ -8,6 +8,11 @@ import type {
   ToolHandlerResult
 } from '../toolGateway';
 import { TIMEOUT_ONLY_RETRY_POLICY } from '../toolRetry';
+import { formatProcessCommandPreview } from '../../process/processCommandPreview';
+import {
+  fingerprintCommand,
+  identifyVerificationCommand
+} from '../../verification/verificationCommand';
 import { resolveExistingPathWithinWorkspace } from './paths';
 
 const MAX_OUTPUT_CHARS = 200_000;
@@ -79,6 +84,18 @@ export function createBashTool(workspaceRoot: string): ToolDefinition<BashInput>
       required: ['command'],
       additionalProperties: false
     },
+    redactInputForTrace: (input) => {
+      const value = input as BashInput;
+      const verification = identifyVerificationCommand(value.command);
+      return {
+        commandPreview: formatProcessCommandPreview(value.command),
+        commandFingerprint: fingerprintCommand(value.command),
+        verificationCommand: verification?.label,
+        verificationKinds: verification?.kinds,
+        cwd: value.cwd,
+        timeoutMs: value.timeoutMs
+      };
+    },
     execute: async (
       context: ToolExecutionContext<BashInput>
     ): Promise<ToolHandlerResult> => {
@@ -105,7 +122,8 @@ export function createBashTool(workspaceRoot: string): ToolDefinition<BashInput>
 
       return {
         content,
-        summary: `exit=${code}, ${lineCount} 行输出`
+        summary: `exit=${code}, ${lineCount} 行输出`,
+        data: { exitCode: code }
       };
     }
   };

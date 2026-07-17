@@ -100,6 +100,17 @@ export function summarizeTraceEvents(
         status = asString(event.payload.status) ?? 'completed';
         mode = asString(event.payload.mode) ?? mode;
         summaryPreview = previewText(asString(event.payload.summary), 120);
+        const report = asRecord(event.payload.report);
+        const verification = asRecord(report?.verification);
+        const verificationStatus = asString(verification?.status);
+        if (verificationStatus) {
+          flags.add(`verification-${verificationStatus}`);
+          if (verificationStatus === 'failed') {
+            failureMessage =
+              asString(verification?.reason) ??
+              'verification command failed';
+          }
+        }
         break;
       }
       case 'review.completed': {
@@ -434,6 +445,12 @@ function highlightDetail(event: TraceEvent): string {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function asNumber(value: unknown): number | undefined {

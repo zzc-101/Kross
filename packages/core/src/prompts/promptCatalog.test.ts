@@ -155,6 +155,20 @@ describe('prompt catalog', () => {
     expect(renderPrompt('agent.stall.recovery', {}, 'en')).toContain(
       'tool results have not changed'
     );
+    expect(
+      renderPrompt(
+        'agent.verification.followup',
+        { status: 'not-run', reason: 'missing test' },
+        'zh'
+      )
+    ).toContain('最后一次工作区修改之后');
+    expect(
+      renderPrompt(
+        'agent.verification.followup',
+        { status: 'failed', reason: 'test failed' },
+        'en'
+      )
+    ).toContain('Current verification status: failed');
   });
 
   it('rejects missing prompt parameters', () => {

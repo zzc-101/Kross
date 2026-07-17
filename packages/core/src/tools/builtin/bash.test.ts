@@ -31,6 +31,21 @@ describe('Bash', () => {
     const result = await run({ command: 'echo hello' });
     expect(result.content).toContain('hello');
     expect(result.summary).toContain('exit=0');
+    expect(result.data).toEqual({ exitCode: 0 });
+  });
+
+  it('redacts command arguments while retaining verification identity', () => {
+    const tool = createBashTool(root);
+    const redacted = tool.redactInputForTrace?.({
+      command: 'npm test -- --token super-secret-value',
+      cwd: 'src'
+    });
+    expect(redacted).toMatchObject({
+      verificationCommand: 'npm test',
+      cwd: 'src',
+      commandFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/)
+    });
+    expect(JSON.stringify(redacted)).not.toContain('super-secret-value');
   });
 
   it('runs inside the workspace root by default', async () => {

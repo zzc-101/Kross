@@ -183,6 +183,34 @@ describe('traceSummary', () => {
     expect(formatTraceDetail(detail!)).toContain('stopped after recovery');
   });
 
+  it('surfaces the structured verification status from run.completed', () => {
+    const events = [
+      event('run-verify', 'run.started', { input: 'test it' }, 't1'),
+      event(
+        'run-verify',
+        'run.completed',
+        {
+          status: 'completed',
+          mode: 'auto',
+          summary: 'done',
+          report: {
+            verification: {
+              status: 'failed',
+              commands: ['npm test'],
+              evidence: ['npm test: failed (exit=1)'],
+              reason: 'At least one latest verification command failed.'
+            }
+          }
+        },
+        't2'
+      )
+    ];
+
+    const summary = summarizeTraceEvents('run-verify', events);
+    expect(summary?.flags).toContain('verification-failed');
+    expect(summary?.failureMessage).toContain('verification command failed');
+  });
+
   it('counts pre-start approval as tool activity in total', () => {
     const events = [
       event('run-4', 'run.started', { input: 'bash' }, 't1'),

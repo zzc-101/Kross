@@ -37,6 +37,11 @@ import {
   type TraceEventListener
 } from '../trace/observableTraceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
+import {
+  assessVerificationGate,
+  identifyRequestedVerificationCommand,
+  type KnownVerificationCommand
+} from '../verification';
 import type { ProjectInstructionsSnapshot } from '../workspace/projectInstructions';
 import type { SkillsSnapshot } from '../skills/skillDiscovery';
 import type { MutationRecord } from '../mutations/mutationJournal';
@@ -121,6 +126,8 @@ export class AgentRuntime extends EventEmitter {
       maxToolIterations: options.maxToolIterations,
       record: (runId, type, payload) => this.record(runId, type, payload),
       attachChangedFiles: (result) => this.attachChangedFiles(result),
+      assessVerificationGate: (runId, originalUserInput) =>
+        this.assessRunVerificationGate(runId, originalUserInput),
       commitTurn: () => this.sessionContext.commitTurn(),
       abortTurn: (reason) => this.sessionContext.abortTurn(reason),
       interruptTurn: (reason) => this.sessionContext.interruptTurn(reason),
@@ -818,26 +825,91 @@ export class AgentRuntime extends EventEmitter {
 
   private async attachChangedFiles(result: AgentResult): Promise<AgentResult> {
     let events: TraceEvent[] = [];
+    let traceReadable = true;
     try {
       events = await this.options.traceStore.readRun(result.runId);
     } catch {
-      return result;
+      // A missing/corrupt trace must not make verification appear successful.
+      traceReadable = false;
     }
-    const changedFiles = extractChangedFilesFromEvents(events);
+    const changedFiles = [
+      ...new Set([
+        ...result.report.changedFiles,
+        ...extractChangedFilesFromEvents(events)
+      ])
+    ].sort();
+    const requestedCommand = identifyRequestedVerificationCommand(
+      extractRunInput(events) ?? ''
+    );
+    const verification = traceReadable
+      ? assessVerificationGate(events, {
+          changedFiles,
+          knownCommands: configuredVerificationCommands(this.options),
+          requestedCommand
+        }).report
+      : {
+          status: 'not-run' as const,
+          commands: [],
+          evidence: [],
+          reason:
+            'Verification evidence could not be collected because the run trace was unavailable.'
+        };
+    const risks = [...result.report.risks];
     if (
-      changedFiles.length === result.report.changedFiles.length &&
-      changedFiles.every((path, index) => path === result.report.changedFiles[index])
+      result.status === 'completed' &&
+      (changedFiles.length > 0 || requestedCommand) &&
+      verification.status !== 'passed'
     ) {
-      return result;
+      risks.push(
+        verification.status === 'failed'
+          ? '最后一次工作区修改后的验证仍然失败；当前结果不能视为已验证完成'
+          : requestedCommand && changedFiles.length === 0
+            ? `用户明确要求的验证命令（${requestedCommand.label}）没有获得通过证据`
+            : '最后一次工作区修改后没有可信的验证通过证据；改动仍存在未验证风险'
+      );
     }
 
     return agentResultSchema.parse({
       ...result,
       report: {
         ...result.report,
-        changedFiles
+        changedFiles,
+        verification,
+        risks: [...new Set(risks)]
       }
     });
+  }
+
+  private async assessRunVerificationGate(
+    runId: string,
+    originalUserInput: string
+  ) {
+    try {
+      const events = await this.options.traceStore.readRun(runId);
+      const changedFiles = extractChangedFilesFromEvents(events);
+      return assessVerificationGate(events, {
+        changedFiles,
+        knownCommands: configuredVerificationCommands(this.options),
+        requestedCommand:
+          identifyRequestedVerificationCommand(originalUserInput)
+      });
+    } catch {
+      // Trace 不可读时不能安全地断言发生过修改，也不能让完成门无限追问。
+      return {
+        required: false,
+        satisfied: true,
+        report: {
+          status: 'not-run' as const,
+          commands: [],
+          evidence: [],
+          reason: 'Run trace was unavailable, so verification could not be assessed.'
+        },
+        reason: 'Run trace was unavailable, so verification could not be assessed.',
+        lastMutationIndex: -1,
+        requiredKinds: [],
+        observedKinds: []
+      };
+    }
   }
 
   private async completeInterruptedRun(input: {
@@ -913,4 +985,28 @@ export class AgentRuntime extends EventEmitter {
     await this.options.traceStore.append(event);
     this.emit('event', event);
   }
+}
+
+function configuredVerificationCommands(
+  options: AgentRuntimeOptions
+): KnownVerificationCommand[] {
+  const commands: KnownVerificationCommand[] = [];
+  for (const [projectId, project] of Object.entries(
+    options.projectRegistry?.projects ?? {}
+  )) {
+    for (const repo of project.repos) {
+      if (!repo.testCommand) continue;
+      commands.push({
+        command: repo.testCommand,
+        label: `project test (${projectId}/${repo.id})`
+      });
+    }
+  }
+  return commands;
+}
+
+function extractRunInput(events: TraceEvent[]): string | undefined {
+  const started = events.find((event) => event.type === 'run.started');
+  const input = started?.payload.input;
+  return typeof input === 'string' ? input : undefined;
 }

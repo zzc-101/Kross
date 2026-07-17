@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { TraceEvent } from '../domain';
 import {
   extractChangedFilesFromEvents,
-  extractTouchedFilesFromEvents
+  extractTouchedFilesFromEvents,
+  findLastFileMutationIndex
 } from './changedFiles';
 
 describe('changedFiles', () => {
@@ -66,6 +67,43 @@ describe('changedFiles', () => {
       }
     ];
     expect(extractChangedFilesFromEvents(events)).toEqual(['legacy.ts']);
+  });
+
+  it('extracts ApplyPatch files from completed data and locates the last mutation', () => {
+    const events: TraceEvent[] = [
+      started('Write', { path: 'src/first.ts' }, 'write-1'),
+      completed('Write', 'wrote 1 bytes', 'write-1'),
+      started('ApplyPatch', { patch: 'redacted' }, 'patch-1'),
+      {
+        ...completed('ApplyPatch', '2 files patched', 'patch-1'),
+        payload: {
+          toolName: 'ApplyPatch',
+          callId: 'patch-1',
+          summary: '2 files patched',
+          data: { files: ['src/a.ts', 'src/b.ts'], updated: 2 }
+        }
+      }
+    ];
+
+    expect(extractChangedFilesFromEvents(events)).toEqual([
+      'src/a.ts',
+      'src/b.ts',
+      'src/first.ts'
+    ]);
+    expect(findLastFileMutationIndex(events)).toBe(3);
+  });
+
+  it('does not count failed or no-op file calls as mutations', () => {
+    const events: TraceEvent[] = [
+      started('Edit', { path: 'src/a.ts' }, 'edit-1'),
+      completed('Edit', 'no change', 'edit-1'),
+      {
+        ...completed('Write', 'failed', 'write-1'),
+        type: 'tool_call.failed'
+      }
+    ];
+
+    expect(findLastFileMutationIndex(events)).toBe(-1);
   });
 });
 

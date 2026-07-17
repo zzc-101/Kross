@@ -90,9 +90,24 @@ export const taskNodeSchema: z.ZodType<TaskNode, z.ZodTypeDef, TaskNodeInput> = 
 export const agentReportSchema = z.object({
   changedFiles: z.array(z.string()),
   evidence: z.array(z.string()),
-  risks: z.array(z.string())
+  risks: z.array(z.string()),
+  verification: z
+    .object({
+      status: z.enum(['passed', 'failed', 'not-run', 'not-needed']),
+      commands: z.array(z.string()),
+      evidence: z.array(z.string()),
+      reason: z.string().optional()
+    })
+    .default({
+      status: 'not-run',
+      commands: [],
+      evidence: [],
+      reason: 'Verification evidence was not collected for this result.'
+    })
 });
 export type AgentReport = z.infer<typeof agentReportSchema>;
+export type VerificationReport = AgentReport['verification'];
+export type VerificationStatus = VerificationReport['status'];
 
 export const pendingToolApprovalSchema = z.object({
   runId: z.string().min(1),

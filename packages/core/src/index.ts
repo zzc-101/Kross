@@ -53,6 +53,7 @@ export * from './trace/sessionTraceStore';
 export * from './trace/traceSummary';
 export * from './trace/observableTraceStore';
 export * from './workspace/changedFiles';
+export * from './verification';
 export * from './workspace/projectRegistry';
 export * from './workspace/projectInstructions';
 export * from './workspace/workspaceDiff';

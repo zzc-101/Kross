@@ -40,6 +40,7 @@ import {
   type ToolBatchOutcome
 } from './streamingToolLoop';
 import { toLlmTools } from './toolLoopShared';
+import type { VerificationGateAssessment } from '../verification';
 
 export { toLlmTools } from './toolLoopShared';
 
@@ -59,6 +60,7 @@ interface PendingToolSession {
   remainingCalls: LlmToolCall[];
   tools: ToolMetadata[];
   iteration: number;
+  verificationFollowupCount: number;
 }
 
 export interface RuntimeToolLoopOptions {
@@ -72,6 +74,10 @@ export interface RuntimeToolLoopOptions {
     payload: Record<string, unknown>
   ): Promise<void>;
   attachChangedFiles(result: AgentResult): Promise<AgentResult>;
+  assessVerificationGate(
+    runId: string,
+    originalUserInput: string
+  ): Promise<VerificationGateAssessment>;
   commitTurn(): void;
   abortTurn(reason: string): void;
   interruptTurn(reason: string): void;
@@ -178,6 +184,7 @@ export class RuntimeToolLoop {
       calls: session.remainingCalls,
       tools: session.tools,
       iteration: session.iteration,
+      verificationFollowupCount: session.verificationFollowupCount,
       signal: input.signal
     });
     this.appendToolMessages(
@@ -223,6 +230,7 @@ export class RuntimeToolLoop {
       startIteration: session.iteration,
       firstStreamPurpose: 'planner-tool-followup',
       streamMetadata: { approvalResolved: input.approved },
+      verificationFollowupCount: session.verificationFollowupCount,
       signal: input.signal,
       handlers: {
         onSuccess: async ({ fullText, fullThinking }) => {
@@ -324,6 +332,7 @@ export class RuntimeToolLoop {
     calls: LlmToolCall[];
     tools: ToolMetadata[];
     iteration: number;
+    verificationFollowupCount?: number;
     signal?: AbortSignal;
   }): Promise<ToolBatchOutcome> {
     const toolMessages: LlmMessage[] = [];
@@ -348,6 +357,7 @@ export class RuntimeToolLoop {
           name: call.name,
           input: call.input,
           callId: call.id,
+          iteration: input.iteration,
           returnErrors: true,
           signal: input.signal
         });
@@ -371,7 +381,8 @@ export class RuntimeToolLoop {
             call,
             remainingCalls: queue,
             tools: input.tools,
-            iteration: input.iteration
+            iteration: input.iteration,
+            verificationFollowupCount: input.verificationFollowupCount ?? 0
           };
           return {
             kind: 'approval',
@@ -501,6 +512,8 @@ export class RuntimeToolLoop {
       executeToolBatch: (input) => this.executeToolBatch(input),
       streamSoftLand: (input) => this.streamSoftLand(input),
       attachChangedFiles: (result) => this.options.attachChangedFiles(result),
+      assessVerificationGate: (runId, originalUserInput) =>
+        this.options.assessVerificationGate(runId, originalUserInput),
       toLlmTools,
       onContextMaintained: this.options.onContextMaintained,
       onInterrupted: (runId) => {
@@ -518,6 +531,7 @@ export class RuntimeToolLoop {
       name: session.call.name,
       input: session.call.input,
       callId: session.call.id,
+      iteration: session.iteration,
       approved: true,
       returnErrors: true,
       signal

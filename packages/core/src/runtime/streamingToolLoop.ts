@@ -11,8 +11,10 @@ import type { AgentRunStreamEvent } from './agentRuntimeTypes';
 import type { LlmToolDefinition } from '../llm/types';
 import { renderPrompt } from '../prompts';
 import { ToolLoopStallDetector } from './toolLoopStallDetector';
+import type { VerificationGateAssessment } from '../verification';
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
+export const MAX_VERIFICATION_FOLLOWUPS = 1;
 
 const SOFT_LAND_FALLBACK =
   '已达到工具调用轮次上限。请查看上文工具结果；如需继续，请再发一条指令推进剩余工作。';
@@ -75,6 +77,8 @@ export interface StreamingToolLoopParams {
   firstIterationMetadata?: Record<string, unknown>;
   /** 合并到每一轮 stream metadata */
   streamMetadata?: Record<string, unknown>;
+  /** 审批暂停/续跑时保留已使用的确定性验证追问次数。 */
+  verificationFollowupCount?: number;
   handlers: StreamingToolLoopHandlers;
   signal?: AbortSignal;
   /** llm.planner.failed 的替代事件名（审批续跑路径不写 planner.failed） */
@@ -97,6 +101,7 @@ export interface StreamingToolLoopDeps {
     calls: LlmToolCall[];
     tools: ToolMetadata[];
     iteration: number;
+    verificationFollowupCount: number;
     signal?: AbortSignal;
   }): Promise<ToolBatchOutcome>;
   streamSoftLand(input: {
@@ -107,6 +112,10 @@ export interface StreamingToolLoopDeps {
     signal?: AbortSignal;
   }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>>;
   attachChangedFiles(result: AgentResult): Promise<AgentResult>;
+  assessVerificationGate(
+    runId: string,
+    originalUserInput: string
+  ): Promise<VerificationGateAssessment>;
   toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined;
   onContextMaintained?(
     runId: string,
@@ -142,6 +151,10 @@ export async function* runStreamingToolLoop(
   let fullThinking = '';
   let stage: CancellationStage = 'context';
   let stallRecoveryPending = false;
+  let verificationFollowupCount = params.verificationFollowupCount ?? 0;
+  let verificationFollowup:
+    | Pick<VerificationGateAssessment, 'report' | 'reason'>
+    | undefined;
   const stallDetector = new ToolLoopStallDetector();
 
   try {
@@ -149,16 +162,29 @@ export async function* runStreamingToolLoop(
       stage = 'context';
       throwIfAborted(params.signal);
       sessionContext.setIteration(iteration);
+      const overlays: string[] = [];
+      if (stallRecoveryPending) {
+        overlays.push(renderPrompt('agent.stall.recovery'));
+      }
+      if (verificationFollowup) {
+        overlays.push(
+          renderPrompt('agent.verification.followup', {
+            status: verificationFollowup.report.status,
+            reason: verificationFollowup.reason
+          })
+        );
+      }
       const prepared = await sessionContext.prepareRequest(
-        stallRecoveryPending
+        overlays.length > 0
           ? {
               ...buildContextInput,
-              systemPrompt: `${buildContextInput.systemPrompt}\n${renderPrompt('agent.stall.recovery')}`
+              systemPrompt: `${buildContextInput.systemPrompt}\n${overlays.join('\n')}`
             }
           : buildContextInput,
         params.signal
       );
       stallRecoveryPending = false;
+      verificationFollowup = undefined;
       throwIfAborted(params.signal);
       const messages = prepared.messages;
       if (deps.onContextMaintained && prepared.maintenance.length > 0) {
@@ -274,6 +300,41 @@ export async function* runStreamingToolLoop(
         if (turnText.trim().length > 0) {
           sessionContext.appendAssistant(turnText);
         }
+        if (deps.toolGateway) {
+          const assessment = await deps.assessVerificationGate(
+            params.runId,
+            params.originalUserInput
+          );
+          if (!assessment.satisfied) {
+            if (verificationFollowupCount < MAX_VERIFICATION_FOLLOWUPS) {
+              verificationFollowupCount += 1;
+              verificationFollowup = assessment;
+              await deps.record(params.runId, 'run.verification.followup', {
+                iteration,
+                attempt: verificationFollowupCount,
+                maxAttempts: MAX_VERIFICATION_FOLLOWUPS,
+                status: assessment.report.status,
+                reason: assessment.reason,
+                lastMutationIndex: assessment.lastMutationIndex,
+                requiredKinds: assessment.requiredKinds,
+                observedKinds: assessment.observedKinds
+              });
+              // 丢弃模型过早的“完成”摘要；它已进入会话，但不能成为最终结果。
+              fullText = '';
+              iteration += 1;
+              continue;
+            }
+            await deps.record(params.runId, 'run.verification.exhausted', {
+              iteration,
+              attempts: verificationFollowupCount,
+              status: assessment.report.status,
+              reason: assessment.reason,
+              lastMutationIndex: assessment.lastMutationIndex,
+              requiredKinds: assessment.requiredKinds,
+              observedKinds: assessment.observedKinds
+            });
+          }
+        }
         break;
       }
 
@@ -299,6 +360,7 @@ export async function* runStreamingToolLoop(
         calls: toolCalls,
         tools: params.tools,
         iteration,
+        verificationFollowupCount,
         signal: params.signal
       });
 

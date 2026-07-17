@@ -80,6 +80,8 @@ export interface ToolCallInput {
   input: unknown;
   /** 与模型 tool_call id 对齐，便于 UI/trace 关联 started/completed。 */
   callId?: string;
+  /** Current agent tool-loop iteration, when available. */
+  iteration?: number;
   approved?: boolean;
   returnErrors?: boolean;
   /** 当前 agent run 的取消信号，会与工具超时信号合并。 */
@@ -201,7 +203,8 @@ export class ToolGateway {
     const callMeta = {
       toolName: input.name,
       risk,
-      ...(input.callId ? { callId: input.callId } : {})
+      ...(input.callId ? { callId: input.callId } : {}),
+      ...(input.iteration !== undefined ? { iteration: input.iteration } : {})
     };
 
     if (approval.action === 'deny') {

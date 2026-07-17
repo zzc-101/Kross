@@ -66,6 +66,7 @@ describe('managed process tools', () => {
     expect(trace).toContain('PROCESS_SECRET');
     expect(trace).toContain('textBytes');
     expect(trace).toContain('commandPreview');
+    expect(trace).toContain('commandFingerprint');
     expect(started.content).not.toContain(commandSecret);
   });
 });

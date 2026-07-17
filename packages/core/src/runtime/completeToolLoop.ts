@@ -142,6 +142,7 @@ export async function runCompleteToolLoop(
       runId: params.runId,
       gateway: params.gateway,
       calls: toolCalls,
+      iteration,
       signal: params.signal
     });
     throwIfAborted(params.signal);

@@ -49,6 +49,7 @@ export async function executeSequentialToolCalls(input: {
   runId: string;
   gateway: ToolGateway;
   calls: LlmToolCall[];
+  iteration?: number;
   signal?: AbortSignal;
 }): Promise<LlmMessage[]> {
   const out: LlmMessage[] = [];
@@ -59,6 +60,7 @@ export async function executeSequentialToolCalls(input: {
       name: call.name,
       input: call.input,
       callId: call.id,
+      iteration: input.iteration,
       returnErrors: true,
       signal: input.signal
     });

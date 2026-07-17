@@ -95,6 +95,11 @@
     "If no viable new strategy remains within authority, stop calling tools and report the unfinished work, blocking evidence, and smallest next step honestly."
   ],
   "agent.stall.summary": "The task is not complete: after one recovery attempt, the main agent still repeated the same tool calls with unchanged results. The tool loop was stopped; inspect the blocking evidence and continue with a changed strategy.",
+  "agent.verification.followup": [
+    "[Harness verification instruction] You are about to finish, but there is no trustworthy verification result after the last workspace mutation. Current verification status: {status}. Reason: {reason}",
+    "Continue the current task and run the smallest effective checks proportional to the change risk. Code changes require at least relevant tests, type checking, or a build check; build, CLI, protocol, or cross-module changes should also include build/package smoke validation.",
+    "If a check fails, fix it within the authorized scope and verify again after the final mutation. If verification is objectively unavailable, do not claim success; stop calling tools and explicitly report what did not run, the concrete blocker, and the remaining risk."
+  ],
   "plan.intent": [
     "Route the current Plan mode request. Only decide whether the user needs an executable development plan.",
     "- Greetings, casual conversation, thanks, or questions that do not change code → {\"kind\":\"chat\",\"reason\":\"...\"}",
