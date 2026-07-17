@@ -175,7 +175,7 @@ describe('panel borders', () => {
         // 顶/底边框仍可验证卡片的 88 列上限。
         expect(Math.max(...widths)).toBe(expectedWidth);
       }
-      expect(lastFrame()).toContain('__ __  ____');
+      expect(lastFrame()).toContain('__ __   ____');
       expect(lastFrame()).toContain('v0.1.0');
       expect(lastFrame()).not.toContain('╱──K─╲');
     }

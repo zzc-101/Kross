@@ -40,7 +40,7 @@ describe('App shell and sessions', () => {
   it('renders a Claude Code style full-width chat shell', () => {
       const { lastFrame } = render(<App />);
 
-      expect(lastFrame()).toContain('__ __  ____');
+      expect(lastFrame()).toContain('__ __   ____');
       // 新会话首页只保留三个主动作和一个上下文提示
       expect(lastFrame()).toContain('随时可以开始');
       expect(lastFrame()).toContain('输入内容开始新会话');
@@ -61,7 +61,7 @@ describe('App shell and sessions', () => {
 
   it('accepts fullscreen prop without breaking non-TTY test render', () => {
       const { lastFrame } = render(<App fullscreen />);
-      expect(lastFrame()).toContain('__ __  ____');
+      expect(lastFrame()).toContain('__ __   ____');
       expect(lastFrame()).toContain('❯');
       expect(lastFrame()).toContain('随时可以开始');
     });
@@ -209,7 +209,7 @@ describe('App shell and sessions', () => {
 
       try {
         await waitUntil(() => api !== undefined);
-        expect(view.lastFrame()).toContain('KROSS');
+        expect(view.lastFrame()).toContain('__ __   ____');
         expect(view.lastFrame()).toContain('最近会话');
         expect(view.lastFrame()).toContain('恢复这个产品会话');
         expect(view.lastFrame()).toContain('↑↓ 选择');

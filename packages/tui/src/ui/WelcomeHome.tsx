@@ -7,10 +7,11 @@ import { isAbsolute, relative, sep } from 'node:path';
 import { theme } from './theme';
 
 export const ASCII_WORDMARK = [
-  '   __ __  ____   ____   ____   ____',
-  '  / //_/ / __ \\ / __ \\ / __/  / __/',
-  ' / ,<   / /_/ // /_/ /_\\ \\   _\\ \\',
-  '/_/|_| /_____/ \\____//___/  /___/'
+  '    __ __   ____    ____    ______   ______',
+  '   / //_/  / __ \\  / __ \\  / ___/  / ___/',
+  '  / ,<    / /_/ / / / / /  \\__ \\   \\__ \\',
+  ' / /| |  / _, _/ / /_/ /  ___/ /  ___/ /',
+  '/_/ |_| /_/ |_|  \\____/  /____/  /____/'
 ] as const;
 
 const ASCII_WORDMARK_WIDTH = Math.max(
@@ -75,12 +76,11 @@ export function WelcomeHome({
   const resolvedActions = actions ?? defaultWelcomeActions();
   const layout = resolveWelcomeLayout(width);
   const cardWidth = layout.cardWidth;
-  // 最近会话区比品牌展示更重要；有历史时压缩为单行 Logo，避免 24 行终端裁剪。
+  // 小终端压缩最近会话与品牌；正常尺寸即使有历史也保留完整品牌展示。
   const visibleRecentSessions = compact
     ? recentSessions.slice(0, 2)
     : recentSessions;
-  const brandMode =
-    compact || recentSessions.length > 0 ? 'compact' : layout.brandMode;
+  const brandMode = compact ? 'compact' : layout.brandMode;
 
   return (
     <Box flexDirection="column" alignItems="center" width={width}>
@@ -93,11 +93,9 @@ export function WelcomeHome({
       >
         <Box flexDirection="column" alignItems="center" width="100%">
           {brandMode === 'wordmark' ? (
-            ASCII_WORDMARK.map((line) => (
-              <Text key={line} color={theme.brandMuted}>
-                {line}
-              </Text>
-            ))
+            <Text bold color={theme.brand}>
+              {ASCII_WORDMARK.join('\n')}
+            </Text>
           ) : (
             <Text bold color={theme.brand}>
               KROSS

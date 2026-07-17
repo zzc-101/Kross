@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
+import React from 'react';
+import { render } from 'ink-testing-library';
 
 import { formatLocationLabel } from './HeaderBar';
 import { formatStatusLabel, theme } from './theme';
@@ -95,17 +97,51 @@ describe('responsive welcome layout', () => {
     });
   });
 
-  it('defines the approved four-line ASCII-only wordmark', () => {
+  it('defines the approved five-line ASCII-only wordmark', () => {
     const wordmark = (welcomeHomeModule as any).ASCII_WORDMARK;
     expect(wordmark).toEqual([
-      '   __ __  ____   ____   ____   ____',
-      '  / //_/ / __ \\ / __ \\ / __/  / __/',
-      ' / ,<   / /_/ // /_/ /_\\ \\   _\\ \\',
-      '/_/|_| /_____/ \\____//___/  /___/'
+      '    __ __   ____    ____    ______   ______',
+      '   / //_/  / __ \\  / __ \\  / ___/  / ___/',
+      '  / ,<    / /_/ / / / / /  \\__ \\   \\__ \\',
+      ' / /| |  / _, _/ / /_/ /  ___/ /  ___/ /',
+      '/_/ |_| /_/ |_|  \\____/  /____/  /____/'
     ]);
     expect(wordmark.every((line: string) => /^[\x20-\x7e]+$/.test(line))).toBe(
       true
     );
-    expect(Math.max(...wordmark.map((line: string) => line.length))).toBe(35);
+    expect(Math.max(...wordmark.map((line: string) => line.length))).toBe(43);
+  });
+
+  it('keeps the full wordmark when recent sessions exist in a normal terminal', () => {
+    const { lastFrame } = render(
+      React.createElement(welcomeHomeModule.WelcomeHome, {
+        width: 80,
+        recentSessions: [
+          {
+            id: 'session-1',
+            title: '继续完善品牌首页',
+            updatedAt: '2026-07-17T10:08:00.000Z'
+          }
+        ]
+      })
+    );
+
+    expect(lastFrame()).toContain('__ __   ____');
+    expect(lastFrame()).toContain('继续完善品牌首页');
+  });
+
+  it('renders the slanted wordmark as one aligned multiline block', () => {
+    const { lastFrame } = render(
+      React.createElement(welcomeHomeModule.WelcomeHome, { width: 80 })
+    );
+    const lines = (lastFrame() ?? '').split('\n');
+    const topLine = lines.find((line) => line.includes('__ __   ____'));
+    const bottomLine = lines.find((line) => line.includes('/_/ |_|'));
+
+    expect(topLine).toBeDefined();
+    expect(bottomLine).toBeDefined();
+    expect(topLine!.indexOf('__ __')).toBe(
+      bottomLine!.indexOf('/_/ |_|') + 4
+    );
   });
 });
