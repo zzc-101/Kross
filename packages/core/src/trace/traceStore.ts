@@ -77,8 +77,24 @@ export class JsonlTraceStore implements TraceStore {
       const withTime = await Promise.all(
         runIds.map(async (runId) => {
           try {
-            const info = await stat(this.eventsPath(runId));
-            return { runId, timestamp: info.mtimeMs };
+            const [info, events] = await Promise.all([
+              stat(this.eventsPath(runId)),
+              this.readRun(runId)
+            ]);
+            const eventTimestamp = events.reduce<number | undefined>(
+              (latest, event) => {
+                const timestamp = Date.parse(event.timestamp);
+                return latest === undefined || timestamp > latest
+                  ? timestamp
+                  : latest;
+              },
+              undefined
+            );
+            return {
+              runId,
+              timestamp: eventTimestamp ?? info.mtimeMs,
+              mtime: info.mtimeMs
+            };
           } catch {
             // 缺 events 或 stat 失败：跳过，不拖垮整表
             return null;
@@ -87,9 +103,17 @@ export class JsonlTraceStore implements TraceStore {
       );
 
       return withTime
-        .filter((item): item is { runId: string; timestamp: number } => item !== null)
+        .filter(
+          (
+            item
+          ): item is { runId: string; timestamp: number; mtime: number } =>
+            item !== null
+        )
         .sort((left, right) => {
           if (left.timestamp === right.timestamp) {
+            if (left.mtime !== right.mtime) {
+              return right.mtime - left.mtime;
+            }
             return right.runId.localeCompare(left.runId);
           }
           return right.timestamp - left.timestamp;

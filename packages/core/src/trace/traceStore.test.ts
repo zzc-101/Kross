@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -84,6 +84,14 @@ describe('JsonlTraceStore', () => {
       id: 'run-new-done',
       timestamp: '2026-07-06T07:00:02.000Z'
     });
+
+    // Filesystems and CI runners may give rapid writes the same mtime. The
+    // trace event timestamps must still define deterministic activity order.
+    const sameMtime = new Date('2026-07-06T08:00:00.000Z');
+    await Promise.all([
+      utimes(join(rootDir, 'run-old', 'events.jsonl'), sameMtime, sameMtime),
+      utimes(join(rootDir, 'run-new', 'events.jsonl'), sameMtime, sameMtime)
+    ]);
 
     await expect(store.listRunIds()).resolves.toEqual(['run-new', 'run-old']);
 

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { homedir, tmpdir } from 'node:os';
+import { join, resolve, sep } from 'node:path';
 
 import { formatLocationLabel } from './HeaderBar';
 import { formatStatusLabel, theme } from './theme';
@@ -8,19 +10,29 @@ const { formatCwdLabel, formatSessionTime } = welcomeHomeModule;
 
 describe('formatCwdLabel', () => {
   it('rewrites home directory to ~', () => {
-    expect(formatCwdLabel('/Users/zc/MyProject/agent', '/Users/zc')).toBe(
-      '~/MyProject/agent'
+    const home = homedir();
+    expect(formatCwdLabel(join(home, 'MyProject', 'agent'), home)).toBe(
+      `~${sep}MyProject${sep}agent`
     );
   });
 
   it('keeps absolute paths outside home', () => {
-    expect(formatCwdLabel('/tmp/work', '/Users/zc')).toBe('/tmp/work');
+    const home = homedir();
+    const cwd = resolve(home, '..', 'outside-home', 'work');
+    expect(formatCwdLabel(cwd, home)).toBe(cwd);
+  });
+
+  it('does not treat a sibling path with a shared prefix as home', () => {
+    const home = join(tmpdir(), 'user');
+    const sibling = join(tmpdir(), 'user-backup', 'project');
+    expect(formatCwdLabel(sibling, home)).toBe(sibling);
   });
 });
 
 describe('formatSessionTime', () => {
   it('formats a compact local timestamp and tolerates invalid input', () => {
-    expect(formatSessionTime('2026-07-14T10:08:00+08:00')).toBe('07-14 10:08');
+    const localTime = new Date(2026, 6, 14, 10, 8);
+    expect(formatSessionTime(localTime.toISOString())).toBe('07-14 10:08');
     expect(formatSessionTime('invalid')).toBe('');
   });
 });

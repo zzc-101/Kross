@@ -1,6 +1,8 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { t } from '@kross/core';
+import { homedir } from 'node:os';
+import { isAbsolute, relative, sep } from 'node:path';
 
 import { theme } from './theme';
 
@@ -223,9 +225,17 @@ export function resolveWelcomeLayout(width: number): {
   };
 }
 
-export function formatCwdLabel(cwd: string, home = process.env.HOME): string {
-  if (home && cwd.startsWith(home)) {
-    return `~${cwd.slice(home.length)}` || '~';
+export function formatCwdLabel(cwd: string, home = homedir()): string {
+  const relativePath = relative(home, cwd);
+  if (relativePath === '') {
+    return '~';
   }
-  return cwd;
+  if (
+    relativePath === '..' ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    return cwd;
+  }
+  return `~${sep}${relativePath}`;
 }

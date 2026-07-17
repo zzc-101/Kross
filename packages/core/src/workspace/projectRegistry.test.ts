@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { rmSync } from 'node:fs';
@@ -102,9 +102,9 @@ describe('projectRegistry', () => {
       },
       '/cwd'
     );
-    expect(roots).toContain('/cwd');
-    expect(roots).toContain('/repos/a');
-    expect(roots).toContain('/repos/b');
+    expect(roots).toContain(resolve('/cwd'));
+    expect(roots).toContain(resolve('/repos/a'));
+    expect(roots).toContain(resolve('/repos/b'));
   });
 
   it('formats prompt text', () => {

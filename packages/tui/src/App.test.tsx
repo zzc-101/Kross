@@ -2,8 +2,8 @@ import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
 
 import { App, type AppTestApi } from './App';
 import {
@@ -132,10 +132,12 @@ describe('App', () => {
 
   it('leaves home screen after the first user message', async () => {
     let submit: ((value: string) => Promise<void>) | undefined;
+    const workspace = join(homedir(), 'MyProject', 'agent');
+    const cwdLabel = `~${sep}MyProject${sep}agent`;
     const { lastFrame } = render(
       <App
         branch="main"
-        cwd="/Users/zc/MyProject/agent"
+        cwd={workspace}
         onReady={(api) => (submit = api.submit)}
       />
     );
@@ -143,9 +145,9 @@ describe('App', () => {
     await waitUntil(() => submit !== undefined);
     expect(lastFrame()).toContain('随时可以开始');
     expect(lastFrame()).toContain('main');
-    expect(lastFrame()).toContain('~/MyProject/agent');
+    expect(lastFrame()).toContain(cwdLabel);
     // 路径只出现在顶栏，欢迎卡片内不再重复
-    expect(lastFrame()?.split('~/MyProject/agent').length).toBe(2);
+    expect(lastFrame()?.split(cwdLabel).length).toBe(2);
 
     await submit?.('hello task');
     await waitUntil(() => lastFrame()?.includes('hello task') === true);
@@ -154,7 +156,7 @@ describe('App', () => {
     expect(lastFrame()).toContain('权限：默认');
     // 进入对话后仍显示 branch/cwd，而不是 projectName=local
     expect(lastFrame()).toContain('main');
-    expect(lastFrame()).toContain('~/MyProject/agent');
+    expect(lastFrame()).toContain(cwdLabel);
     expect(lastFrame()).not.toContain('Kross · local');
   });
 

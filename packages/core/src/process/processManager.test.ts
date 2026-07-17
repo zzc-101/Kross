@@ -73,7 +73,9 @@ describe('ProcessManager', () => {
     const descendantPid = await readDescendantPid(manager, first.processId);
     const killed = await manager.kill(first.processId);
     expect(killed.status).toBe('killed');
-    expect(killed.signal).toBeTruthy();
+    if (process.platform !== 'win32') {
+      expect(killed.signal).toBeTruthy();
+    }
     await expectProcessGone(descendantPid);
 
     const second = await manager.start({ command: nodeCommand('setInterval(() => {}, 1000)') });
@@ -119,7 +121,8 @@ describe('ProcessManager', () => {
       cwd: 'child'
     });
     const result = await pollUntilDone(manager, started.processId);
-    expect(result.stdout).toBe(await realpath(childDir));
+    // Windows shells may expose the cwd through its equivalent 8.3 short path.
+    expect(await realpath(result.stdout)).toBe(await realpath(childDir));
   });
 
   it('isolates handles by persistent session while close still owns all scopes', async () => {
