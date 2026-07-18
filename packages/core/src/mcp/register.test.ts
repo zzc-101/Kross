@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { ToolGateway } from '../tools/toolGateway';
-import { connectAndRegisterMcpTools } from './register';
+import { connectAndRegisterMcpTools, formatMcpToolResult } from './register';
 
 const fixtureServer = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -14,6 +14,23 @@ const fixtureServer = join(
 );
 
 describe('connectAndRegisterMcpTools', () => {
+  it('marks MCP isError results as failed with recovery metadata', () => {
+    const result = formatMcpToolResult({
+      isError: true,
+      content: [{ type: 'text', text: 'invalid remote input' }]
+    });
+    expect(result).toMatchObject({
+      status: 'failed',
+      data: {
+        error: {
+          source: 'mcp',
+          category: 'protocol',
+          retryable: false
+        }
+      }
+    });
+  });
+
   it('connects a stdio MCP server and registers tools on the gateway', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-reg-'));
     try {

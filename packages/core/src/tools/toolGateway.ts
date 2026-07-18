@@ -8,6 +8,7 @@ import {
 } from '../abort';
 import type { TraceEvent } from '../domain';
 import type { TraceStore } from '../trace/traceStore';
+import { classifyRuntimeError } from '../errors/runtimeError';
 import {
   errorMessage,
   formatToolFailureObservation,
@@ -49,7 +50,7 @@ export interface ToolResult {
 }
 
 export interface ToolHandlerResult {
-  status?: 'completed';
+  status?: 'completed' | 'failed';
   content: string;
   summary?: string;
   data?: unknown;
@@ -97,6 +98,11 @@ export interface ToolCallInput {
 export interface ToolApprovalDecision {
   action: ToolApprovalAction;
   reason?: string;
+}
+
+export interface ToolCallInspection {
+  tool: ToolMetadata;
+  approval: ToolApprovalDecision;
 }
 
 export interface ToolApprovalPolicyContext<TInput = unknown> {
@@ -182,6 +188,19 @@ export class ToolGateway {
       category,
       parameters
     }));
+  }
+
+  /** Validate an input and resolve dynamic risk/approval without executing it. */
+  inspectCall(name: string, input: unknown): ToolCallInspection {
+    const definition = this.tools.get(name);
+    if (!definition) throw new ToolNotFoundError(name);
+    const parsedInput = parseInput(definition, input);
+    const risk = definition.resolveRisk?.(parsedInput) ?? definition.risk;
+    const tool = toMetadata(definition, risk);
+    return {
+      tool,
+      approval: this.approvalPolicy({ tool, input: parsedInput })
+    };
   }
 
   async call(input: ToolCallInput): Promise<ToolResult> {
@@ -274,19 +293,38 @@ export class ToolGateway {
             : attemptMeta;
         const result: ToolResult = {
           ...rawResult,
-          status: 'completed',
+          status: rawResult.status ?? 'completed',
           summary: summarizeResult(definition, rawResult, this.maxSummaryChars),
           data: mergedData
         };
-        await this.record(input.runId, 'tool_call.completed', {
-          ...callMeta,
-          status: result.status,
-          contentPreview: result.content.slice(0, this.maxContentPreviewChars),
-          summary: result.summary,
-          durationMs: this.now().getTime() - startedAt,
-          ...attemptMeta,
-          data: result.data
-        });
+        const structuredFailure =
+          result.status === 'failed'
+            ? classifyRuntimeError(
+                new Error(result.summary),
+                definition.category?.startsWith('mcp:') ? 'mcp' : 'tool'
+              )
+            : undefined;
+        if (structuredFailure) {
+          result.content = `${result.content}\n\nRecovery: ${structuredFailure.recovery}`;
+          result.data = {
+            ...(asRecord(result.data) ?? { value: result.data }),
+            error: structuredFailure
+          };
+        }
+        await this.record(
+          input.runId,
+          result.status === 'failed' ? 'tool_call.failed' : 'tool_call.completed',
+          {
+            ...callMeta,
+            status: result.status,
+            contentPreview: result.content.slice(0, this.maxContentPreviewChars),
+            summary: result.summary,
+            durationMs: this.now().getTime() - startedAt,
+            ...attemptMeta,
+            data: result.data,
+            ...(structuredFailure ?? {})
+          }
+        );
         return result;
       } catch (error) {
         if (isOperationAborted(error, input.signal)) {
@@ -305,6 +343,10 @@ export class ToolGateway {
 
         lastError = error;
         const message = errorMessage(error);
+        const classification = classifyRuntimeError(
+          error,
+          definition.category?.startsWith('mcp:') ? 'mcp' : 'tool'
+        );
         failures.push({ attempt, message });
 
         const canRetry =
@@ -345,9 +387,12 @@ export class ToolGateway {
         });
         const failed: ToolResult = {
           status: 'failed',
-          content: observation.content,
+          content: `${observation.content}\n\nRecovery: ${classification.recovery}`,
           summary: observation.summary,
-          data: observation.data
+          data: {
+            ...observation.data,
+            error: classification
+          }
         };
         await this.record(input.runId, 'tool_call.failed', {
           ...callMeta,
@@ -358,7 +403,8 @@ export class ToolGateway {
           attempts: failures.length,
           maxAttempts: retryPolicy.maxAttempts,
           retried: failures.length > 1,
-          data: failed.data
+          data: failed.data,
+          ...classification
         });
         if (input.returnErrors === true) {
           return failed;

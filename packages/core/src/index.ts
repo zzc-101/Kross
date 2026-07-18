@@ -13,6 +13,7 @@ export * from './mutations/mutationService';
 export * from './process/processManager';
 export * from './prompts';
 export * from './domain';
+export * from './errors/runtimeError';
 export * from './llm/anthropicProtocolClient';
 export * from './llm/createLlmClient';
 export * from './llm/llmProviders';
@@ -36,6 +37,7 @@ export { SessionServices, type SessionServicesOptions } from './runtime/sessionS
 export * from './runtime/subagentRunner';
 export * from './runtime/toolLoop';
 export * from './runtime/runPhase';
+export * from './runtime/runCheckpoint';
 export * from './session/sessionStore';
 export * from './session/sessionWorkState';
 export * from './skills/skillDiscovery';

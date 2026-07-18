@@ -39,9 +39,17 @@ import {
   type StreamingToolLoopParams,
   type ToolBatchOutcome
 } from './streamingToolLoop';
-import { toLlmTools } from './toolLoopShared';
+import {
+  DEFAULT_MAX_PARALLEL_READ_TOOLS,
+  isIndependentRead,
+  toLlmTools
+} from './toolLoopShared';
 import type { VerificationGateAssessment } from '../verification';
-import type { RunPhase } from './runPhase';
+import { classifyToolCallPhase, type RunPhase } from './runPhase';
+import {
+  cloneRunCheckpoint,
+  type RunCheckpointV1
+} from './runCheckpoint';
 
 export { toLlmTools } from './toolLoopShared';
 
@@ -62,6 +70,7 @@ interface PendingToolSession {
   tools: ToolMetadata[];
   iteration: number;
   verificationFollowupCount: number;
+  completedCallIds: string[];
 }
 
 export interface RuntimeToolLoopOptions {
@@ -104,16 +113,125 @@ export interface RuntimeToolLoopOptions {
     runId: string,
     maintenance: import('../context/contextGovernor').ContextMaintenanceResult[]
   ): Promise<void>;
+  onCheckpointChanged?(): void;
+  now?: () => Date;
 }
 
 export class RuntimeToolLoop {
   private readonly pendingToolSessions = new Map<string, PendingToolSession>();
+  private activeCheckpoint: RunCheckpointV1 | undefined;
 
   constructor(private readonly options: RuntimeToolLoopOptions) {}
 
   setLlmClient(client: LlmClient | undefined): void {
     this.options.llmClient = client;
     this.options.sessionContext.setLlmClient(client);
+  }
+
+  exportRunCheckpoint(): RunCheckpointV1 | undefined {
+    return this.activeCheckpoint
+      ? cloneRunCheckpoint(this.activeCheckpoint)
+      : undefined;
+  }
+
+  restoreRunCheckpoint(checkpoint?: RunCheckpointV1): boolean {
+    this.pendingToolSessions.clear();
+    this.activeCheckpoint = checkpoint
+      ? cloneRunCheckpoint(checkpoint)
+      : undefined;
+    if (!checkpoint) return true;
+    if (checkpoint.status === 'running') {
+      // An arbitrary in-flight LLM/tool boundary is not safe to replay. The
+      // restored open turn follows the normal interrupted-turn cleanup path.
+      this.activeCheckpoint = undefined;
+      return true;
+    }
+    if (
+      !checkpoint.pendingCall ||
+      !checkpoint.pendingApproval ||
+      !this.options.toolGateway
+    ) {
+      this.activeCheckpoint = undefined;
+      return false;
+    }
+    const openTurnId = this.options.sessionContext.getThread().getOpenTurnId();
+    const entries = openTurnId
+      ? this.options.sessionContext.getThread().getEntriesForTurn(openTurnId)
+      : [];
+    const requestedCallIds = new Set(
+      entries.flatMap((entry) =>
+        entry.message.role === 'assistant'
+          ? (entry.message.toolCalls ?? []).map((call) => call.id)
+          : []
+      )
+    );
+    const completedCallIds = new Set(
+      entries.flatMap((entry) =>
+        entry.message.role === 'tool' ? [entry.message.toolCallId] : []
+      )
+    );
+    if (
+      !openTurnId ||
+      !requestedCallIds.has(checkpoint.pendingCall.id) ||
+      completedCallIds.has(checkpoint.pendingCall.id) ||
+      checkpoint.completedCallIds.some((callId) => !completedCallIds.has(callId))
+    ) {
+      this.activeCheckpoint = undefined;
+      return false;
+    }
+    const tools = this.options.toolGateway.listTools({ mode: checkpoint.mode });
+    if (!tools.some((tool) => tool.name === checkpoint.pendingCall!.name)) {
+      this.activeCheckpoint = undefined;
+      return false;
+    }
+    try {
+      const inspection = this.options.toolGateway.inspectCall(
+        checkpoint.pendingCall.name,
+        checkpoint.pendingCall.input
+      );
+      if (
+        inspection.tool.risk !== checkpoint.pendingApproval.risk ||
+        inspection.approval.action !== 'ask'
+      ) {
+        this.activeCheckpoint = undefined;
+        return false;
+      }
+    } catch {
+      this.activeCheckpoint = undefined;
+      return false;
+    }
+    this.pendingToolSessions.set(checkpoint.runId, {
+      runId: checkpoint.runId,
+      mode: checkpoint.mode,
+      originalUserInput: checkpoint.originalUserInput,
+      call: toLlmToolCall(checkpoint.pendingCall),
+      remainingCalls: checkpoint.remainingCalls.map(toLlmToolCall),
+      tools,
+      iteration: checkpoint.iteration,
+      verificationFollowupCount: checkpoint.verificationFollowupCount,
+      completedCallIds: checkpoint.completedCallIds
+    });
+    return true;
+  }
+
+  getPendingToolApproval(): PendingToolApproval | undefined {
+    return this.activeCheckpoint?.status === 'awaiting-approval'
+      ? this.activeCheckpoint.pendingApproval
+      : undefined;
+  }
+
+  clearRunCheckpoint(runId?: string): void {
+    if (!this.activeCheckpoint || (runId && this.activeCheckpoint.runId !== runId)) {
+      return;
+    }
+    this.activeCheckpoint = undefined;
+    this.options.onCheckpointChanged?.();
+  }
+
+  notifyCheckpointSynchronized(runId: string): void {
+    if (this.activeCheckpoint?.runId === runId) {
+      this.options.onCheckpointChanged?.();
+    }
   }
 
   /**
@@ -146,6 +264,7 @@ export class RuntimeToolLoop {
       return undefined;
     }
     this.pendingToolSessions.delete(runId);
+    this.clearRunCheckpoint(runId);
     return this.finishPendingApprovalCancellation(
       session,
       reason,
@@ -176,6 +295,16 @@ export class RuntimeToolLoop {
       throw new Error(`No pending tool approval for run: ${input.runId}`);
     }
     this.pendingToolSessions.delete(input.runId);
+    this.updateCheckpoint({
+      ...this.activeCheckpoint!,
+      status: 'running',
+      phase: classifyToolCallPhase(
+        session.call,
+        session.tools.find((tool) => tool.name === session.call.name)
+      ).phase,
+      pendingCall: undefined,
+      pendingApproval: undefined
+    });
 
     try {
       throwIfAborted(input.signal);
@@ -191,7 +320,9 @@ export class RuntimeToolLoop {
         content: toolMessage.content,
         iteration: session.iteration
       });
+      this.recordCompletedCall(session, toolMessage.toolCallId);
     }
+    this.notifyCheckpointSynchronized(session.runId);
 
     const batch = await this.executeToolBatch({
       runId: session.runId,
@@ -209,6 +340,7 @@ export class RuntimeToolLoop {
         : batch.completedToolMessages,
       session.iteration
     );
+    this.notifyCheckpointSynchronized(session.runId);
     throwIfAborted(input.signal);
     if (batch.kind === 'approval') {
       const approval = await this.options.attachChangedFiles(batch.result);
@@ -220,6 +352,7 @@ export class RuntimeToolLoop {
     }
 
     if (!this.options.llmClient) {
+      this.clearRunCheckpoint(session.runId);
       const failed = await this.options.attachChangedFiles(
         createMissingLlmAfterApprovalResult(session.runId, session.mode)
       );
@@ -250,6 +383,7 @@ export class RuntimeToolLoop {
       signal: input.signal,
       handlers: {
         onSuccess: async ({ fullText, fullThinking }) => {
+          this.clearRunCheckpoint(session.runId);
           const result = await this.options.attachChangedFiles(
             agentResultSchema.parse({
               runId: session.runId,
@@ -269,6 +403,7 @@ export class RuntimeToolLoop {
           return result;
         },
         onSoftLand: async ({ summary }) => {
+          this.clearRunCheckpoint(session.runId);
           const landed = await this.createMaxToolIterationsResult(
             session.runId,
             session.mode,
@@ -280,6 +415,7 @@ export class RuntimeToolLoop {
           return landed;
         },
         onStalled: async ({ summary }) => {
+          this.clearRunCheckpoint(session.runId);
           const stalled = await this.createStalledToolLoopResult(
             session.runId,
             session.mode,
@@ -292,7 +428,8 @@ export class RuntimeToolLoop {
           this.options.commitTurn();
           return stalled;
         },
-        onFailure: async (message) => {
+        onFailure: async (message, classification) => {
+          this.clearRunCheckpoint(session.runId);
           const failed = await this.options.attachChangedFiles(
             agentResultSchema.parse({
               runId: session.runId,
@@ -301,8 +438,11 @@ export class RuntimeToolLoop {
               summary: `工具审批后续请求失败：${message}`,
               report: {
                 changedFiles: [],
-                evidence: [`LLM 请求失败: ${message}`],
-                risks: ['请检查模型配置或网络连通性']
+                evidence: [
+                  `LLM 请求失败: ${message}`,
+                  `错误分类: ${classification.source}/${classification.category}; retryable=${classification.retryable}`
+                ],
+                risks: [classification.recovery]
               }
             })
           );
@@ -353,6 +493,39 @@ export class RuntimeToolLoop {
   }): Promise<ToolBatchOutcome> {
     const toolMessages: LlmMessage[] = [];
     const queue = [...input.calls];
+    const completedCallIds = [
+      ...(this.activeCheckpoint?.runId === input.runId
+        ? this.activeCheckpoint.completedCallIds
+        : [])
+    ];
+    this.updateCheckpoint({
+      version: 1,
+      runId: input.runId,
+      mode: input.mode,
+      originalUserInput: input.originalUserInput,
+      status: 'running',
+      phase: input.calls[0]
+        ? classifyToolCallPhase(
+            input.calls[0],
+            input.tools.find((tool) => tool.name === input.calls[0]!.name)
+          ).phase
+        : 'inspect',
+      iteration: input.iteration,
+      verificationFollowupCount: input.verificationFollowupCount ?? 0,
+      verificationState:
+        (input.verificationFollowupCount ?? 0) > 0
+          ? 'pending'
+          : input.calls[0] &&
+              classifyToolCallPhase(
+                input.calls[0],
+                input.tools.find((tool) => tool.name === input.calls[0]!.name)
+              ).phase === 'verify'
+            ? 'in-progress'
+            : 'unknown',
+      completedCallIds,
+      remainingCalls: queue,
+      updatedAt: this.now().toISOString()
+    }, false);
 
     while (queue.length > 0) {
       if (input.signal?.aborted) {
@@ -364,6 +537,92 @@ export class RuntimeToolLoop {
       const call = queue.shift();
       if (!call) {
         break;
+      }
+
+      const firstMetadata = input.tools.find((tool) => tool.name === call.name);
+      if (isIndependentRead(firstMetadata)) {
+        const parallelCalls = [call];
+        while (
+          parallelCalls.length < DEFAULT_MAX_PARALLEL_READ_TOOLS &&
+          queue.length > 0
+        ) {
+          const candidate = queue[0]!;
+          const metadata = input.tools.find(
+            (tool) => tool.name === candidate.name
+          );
+          if (!isIndependentRead(metadata)) break;
+          const inspection = this.options.toolGateway!.inspectCall(
+            candidate.name,
+            candidate.input
+          );
+          if (
+            inspection.tool.risk !== 'read' ||
+            inspection.approval.action !== 'allow'
+          ) {
+            break;
+          }
+          parallelCalls.push(queue.shift()!);
+        }
+        const firstInspection = this.options.toolGateway!.inspectCall(
+          call.name,
+          call.input
+        );
+        if (
+          firstInspection.tool.risk === 'read' &&
+          firstInspection.approval.action === 'allow'
+        ) {
+          try {
+            await Promise.all(
+              parallelCalls.map((parallelCall) =>
+                this.options.observeToolCall({
+                  runId: input.runId,
+                  call: parallelCall,
+                  tools: input.tools,
+                  iteration: input.iteration
+                })
+              )
+            );
+            const results = await Promise.all(
+              parallelCalls.map((parallelCall) =>
+                this.options.toolGateway!.call({
+                  runId: input.runId,
+                  name: parallelCall.name,
+                  input: parallelCall.input,
+                  callId: parallelCall.id,
+                  iteration: input.iteration,
+                  returnErrors: true,
+                  signal: input.signal
+                })
+              )
+            );
+            for (let index = 0; index < parallelCalls.length; index += 1) {
+              const parallelCall = parallelCalls[index]!;
+              const result = results[index]!;
+              toolMessages.push({
+                role: 'tool',
+                toolCallId: parallelCall.id,
+                name: parallelCall.name,
+                content: result.content
+              });
+              completedCallIds.push(parallelCall.id);
+              await this.options.completeVerificationObservation(input.runId);
+            }
+            this.updateCheckpoint({
+              ...this.activeCheckpoint!,
+              completedCallIds: [...new Set(completedCallIds)],
+              remainingCalls: queue,
+              updatedAt: this.now().toISOString()
+            }, false);
+            continue;
+          } catch (error) {
+            if (isOperationAborted(error, input.signal)) {
+              throw new ToolBatchAbortedError(error, toolMessages);
+            }
+            throw error;
+          }
+        }
+        // The first call needs policy handling; put speculative peers back.
+        queue.unshift(...parallelCalls.slice(1));
       }
 
       let result: ToolResult;
@@ -393,6 +652,16 @@ export class RuntimeToolLoop {
               name: call.name,
               content: deniedContent
             });
+            completedCallIds.push(call.id);
+            this.updateCheckpoint(
+              {
+                ...this.activeCheckpoint!,
+                completedCallIds: [...new Set(completedCallIds)],
+                remainingCalls: queue,
+                updatedAt: this.now().toISOString()
+              },
+              false
+            );
             await this.options.completeVerificationObservation(input.runId, {
               force: true,
               reason: `Tool ${call.name} was denied by policy.`
@@ -408,7 +677,8 @@ export class RuntimeToolLoop {
             remainingCalls: queue,
             tools: input.tools,
             iteration: input.iteration,
-            verificationFollowupCount: input.verificationFollowupCount ?? 0
+            verificationFollowupCount: input.verificationFollowupCount ?? 0,
+            completedCallIds: [...new Set(completedCallIds)]
           };
           return {
             kind: 'approval',
@@ -428,6 +698,13 @@ export class RuntimeToolLoop {
         name: call.name,
         content: result.content
       });
+      completedCallIds.push(call.id);
+      this.updateCheckpoint({
+        ...this.activeCheckpoint!,
+        completedCallIds: [...new Set(completedCallIds)],
+        remainingCalls: queue,
+        updatedAt: this.now().toISOString()
+      }, false);
       await this.options.completeVerificationObservation(input.runId);
     }
 
@@ -547,7 +824,9 @@ export class RuntimeToolLoop {
       onContextMaintained: this.options.onContextMaintained,
       onInterrupted: (runId) => {
         this.pendingToolSessions.delete(runId);
-      }
+      },
+      onToolMessagesAppended: (runId) =>
+        this.notifyCheckpointSynchronized(runId)
     };
   }
 
@@ -604,14 +883,11 @@ export class RuntimeToolLoop {
     session: PendingToolSession,
     error: ToolPermissionError
   ): Promise<AgentResult> {
-    const metadata = session.tools?.find(
-      (tool) => tool.name === session.call.name
-    );
     const pendingApproval: PendingToolApproval = {
       runId: session.runId,
       toolCallId: session.call.id,
       toolName: session.call.name,
-      risk: metadata?.risk ?? error.risk,
+      risk: error.risk,
       reason: error.reason,
       inputPreview: formatToolInputPreview(
         session.call.name,
@@ -620,6 +896,33 @@ export class RuntimeToolLoop {
       )
     };
     this.pendingToolSessions.set(session.runId, session);
+    this.updateCheckpoint({
+      version: 1,
+      runId: session.runId,
+      mode: session.mode,
+      originalUserInput: session.originalUserInput,
+      status: 'awaiting-approval',
+      phase: classifyToolCallPhase(
+        session.call,
+        session.tools.find((tool) => tool.name === session.call.name)
+      ).phase,
+      iteration: session.iteration,
+      verificationFollowupCount: session.verificationFollowupCount,
+      verificationState:
+        classifyToolCallPhase(
+          session.call,
+          session.tools.find((tool) => tool.name === session.call.name)
+        ).phase === 'verify'
+          ? 'in-progress'
+          : session.verificationFollowupCount > 0
+            ? 'pending'
+            : 'unknown',
+      completedCallIds: session.completedCallIds,
+      pendingCall: session.call,
+      remainingCalls: session.remainingCalls,
+      pendingApproval,
+      updatedAt: this.now().toISOString()
+    }, false);
 
     return this.options.attachChangedFiles(
       agentResultSchema.parse({
@@ -677,6 +980,7 @@ export class RuntimeToolLoop {
       stage
     });
     await this.options.record(session.runId, 'run.completed', { ...cancelled });
+    this.clearRunCheckpoint(session.runId);
     return cancelled;
   }
 
@@ -731,8 +1035,44 @@ export class RuntimeToolLoop {
     });
     this.options.appendAssistantForCancel(cancelled.summary);
     this.options.commitTurn();
+    this.clearRunCheckpoint(session.runId);
     return cancelled;
   }
+
+  private updateCheckpoint(
+    checkpoint: RunCheckpointV1,
+    notify = true
+  ): void {
+    this.activeCheckpoint = cloneRunCheckpoint({
+      ...checkpoint,
+      updatedAt: this.now().toISOString()
+    });
+    if (notify) this.options.onCheckpointChanged?.();
+  }
+
+  private recordCompletedCall(session: PendingToolSession, callId: string): void {
+    if (!session.completedCallIds.includes(callId)) {
+      session.completedCallIds.push(callId);
+    }
+    if (this.activeCheckpoint?.runId === session.runId) {
+      this.updateCheckpoint({
+        ...this.activeCheckpoint,
+        completedCallIds: [...session.completedCallIds]
+      }, false);
+    }
+  }
+
+  private now(): Date {
+    return this.options.now?.() ?? new Date();
+  }
+}
+
+function toLlmToolCall(call: {
+  id: string;
+  name: string;
+  input?: unknown;
+}): LlmToolCall {
+  return { id: call.id, name: call.name, input: call.input };
 }
 
 function softLandUserMessage(

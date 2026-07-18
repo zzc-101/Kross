@@ -47,7 +47,10 @@ import type { ProjectInstructionsSnapshot } from '../workspace/projectInstructio
 import type { SkillsSnapshot } from '../skills/skillDiscovery';
 import type { MutationRecord } from '../mutations/mutationJournal';
 import type { UndoResult } from '../mutations/mutationService';
-import type { SessionWorkStateV1 } from '../session/sessionWorkState';
+import {
+  isSessionWorkState,
+  type SessionWorkStateV1
+} from '../session/sessionWorkState';
 import type { ManagedProcessSummary } from '../process/processManager';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { ListRunsOptions } from '../trace/traceStore';
@@ -148,7 +151,9 @@ export class AgentRuntime extends EventEmitter {
         this.sessionContext.appendAssistant(summary),
       syncTodoContext: () => this.sessionServices.syncTodoContextSource(),
       onContextMaintained: (runId, maintenance) =>
-        this.recordContextMaintenanceEvents(runId, maintenance)
+        this.recordContextMaintenanceEvents(runId, maintenance),
+      onCheckpointChanged: () => this.emit('work-state.changed'),
+      now: this.now
     });
     this.modelSession = new ModelSession(this.options, (client) => {
       this.toolLoop.setLlmClient(client);
@@ -298,18 +303,41 @@ export class AgentRuntime extends EventEmitter {
     return this.sessionContext.exportState();
   }
 
-  restoreContextState(state: SessionContextState): boolean {
+  restoreContextState(
+    state: SessionContextState,
+    options: { preserveOpenTurn?: boolean } = {}
+  ): boolean {
     this.modelSession.getLlmClient()?.clearLastUsage?.();
     this.sessionContext.resetCalibration();
-    return this.sessionContext.restoreState(state);
+    return this.sessionContext.restoreState(state, options);
   }
 
   exportWorkState(): SessionWorkStateV1 {
-    return this.sessionServices.exportWorkState();
+    return {
+      ...this.sessionServices.exportWorkState(),
+      runCheckpoint: this.toolLoop.exportRunCheckpoint()
+    };
   }
 
   restoreWorkState(state: SessionWorkStateV1): boolean {
-    return this.sessionServices.restoreWorkState(state);
+    if (!isSessionWorkState(state)) return false;
+    const checkpointRestored = this.toolLoop.restoreRunCheckpoint(
+      state.runCheckpoint
+    );
+    if (
+      !checkpointRestored &&
+      this.sessionContext.getThread().getOpenTurnId()
+    ) {
+      this.sessionContext.interruptTurn(
+        '恢复 checkpoint 失败；待执行工具调用未被重放'
+      );
+    }
+    const workStateRestored = this.sessionServices.restoreWorkState(state);
+    return checkpointRestored && workStateRestored;
+  }
+
+  getPendingToolApproval(): import('../domain').PendingToolApproval | undefined {
+    return this.toolLoop.getPendingToolApproval();
   }
 
   getLastContextMaintenance(): ContextMaintenanceResult | undefined {
@@ -614,6 +642,7 @@ export class AgentRuntime extends EventEmitter {
       signal: input.signal,
       handlers: {
         onSuccess: async ({ fullText }) => {
+          this.toolLoop.clearRunCheckpoint(runId);
           const result = await this.attachChangedFiles(
             agentResultSchema.parse({
               runId,
@@ -632,6 +661,7 @@ export class AgentRuntime extends EventEmitter {
           return result;
         },
         onSoftLand: async ({ summary }) => {
+          this.toolLoop.clearRunCheckpoint(runId);
           this.sessionContext.appendAssistant(summary);
           const landed = await this.attachChangedFiles(
             agentResultSchema.parse({
@@ -653,6 +683,7 @@ export class AgentRuntime extends EventEmitter {
           return landed;
         },
         onStalled: async ({ summary }) => {
+          this.toolLoop.clearRunCheckpoint(runId);
           this.sessionContext.appendAssistant(summary);
           const stalled = await this.attachChangedFiles(
             agentResultSchema.parse({
@@ -673,7 +704,8 @@ export class AgentRuntime extends EventEmitter {
           this.sessionContext.commitTurn();
           return stalled;
         },
-        onFailure: async (message) => {
+        onFailure: async (message, classification) => {
+          this.toolLoop.clearRunCheckpoint(runId);
           const failed = await this.attachChangedFiles(
             agentResultSchema.parse({
               runId,
@@ -682,8 +714,11 @@ export class AgentRuntime extends EventEmitter {
               summary: `模型请求失败：${message}`,
               report: {
                 changedFiles: [],
-                evidence: [`LLM 请求失败: ${message}`],
-                risks: ['请检查模型名称、baseUrl、鉴权方式或网络连通性']
+                evidence: [
+                  `LLM 请求失败: ${message}`,
+                  `错误分类: ${classification.source}/${classification.category}; retryable=${classification.retryable}`
+                ],
+                risks: [classification.recovery]
               }
             })
           );
@@ -692,7 +727,9 @@ export class AgentRuntime extends EventEmitter {
           return failed;
         },
         onCancelled: async ({ reason, stage }) =>
-          this.completeInterruptedRun({ runId, mode, reason, stage })
+          this.completeInterruptedRun({ runId, mode, reason, stage }).finally(() =>
+            this.toolLoop.clearRunCheckpoint(runId)
+          )
       }
     });
   }

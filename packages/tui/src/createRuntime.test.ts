@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   bootstrapRuntimeTooling,
@@ -12,8 +15,18 @@ describe('createRuntime re-export', () => {
     expect(typeof createRuntimeOptionsFromEnv).toBe('function');
     expect(typeof bootstrapRuntimeTooling).toBe('function');
 
-    const options = createRuntimeOptionsFromEnv('/tmp/local-agent', {});
-    expect(options.traceStore).toBeDefined();
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-tui-runtime-'));
+    try {
+      const options = createRuntimeOptionsFromEnv(
+        '/tmp/local-agent',
+        {},
+        undefined,
+        { homeDir }
+      );
+      expect(options.traceStore).toBeDefined();
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
 
     // type-only smoke: aliases remain importable
     const _opts: CreateRuntimeConfigOptions = {};

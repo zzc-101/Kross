@@ -205,8 +205,17 @@ export function formatMcpToolResult(result: McpCallToolResult): ToolHandlerResul
   const content = formatMcpContent(result);
   if (result.isError) {
     return {
+      status: 'failed',
       content,
-      summary: truncate(`MCP error: ${content}`, 200)
+      summary: truncate(`MCP error: ${content}`, 200),
+      data: {
+        error: {
+          source: 'mcp',
+          category: 'protocol',
+          retryable: false,
+          recovery: '检查 MCP 服务返回和工具参数后再试。'
+        }
+      }
     };
   }
   return {

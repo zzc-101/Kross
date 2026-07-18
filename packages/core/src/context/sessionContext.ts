@@ -321,11 +321,14 @@ export class SessionContext {
     };
   }
 
-  restoreState(state: SessionContextState): boolean {
+  restoreState(
+    state: SessionContextState,
+    options: { preserveOpenTurn?: boolean } = {}
+  ): boolean {
     if (!isSessionContextState(state)) {
       return false;
     }
-    const restored = this.thread.restoreState(state.thread);
+    const restored = this.thread.restoreState(state.thread, options);
     if (restored) {
       this.lastMaintenance = (state.maintenance ?? []).map((item) => ({ ...item }));
     }

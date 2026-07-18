@@ -371,7 +371,10 @@ export class ConversationThread {
    * 恢复治理后的真实线程，而不是从 UI 文本重新推导。
    * 崩溃时仍 open 的 turn 会转为 aborted，并移除没有 tool result 的悬空 tool call。
    */
-  restoreState(state: ConversationThreadState): boolean {
+  restoreState(
+    state: ConversationThreadState,
+    options: { preserveOpenTurn?: boolean } = {}
+  ): boolean {
     if (!isConversationThreadState(state)) {
       return false;
     }
@@ -383,7 +386,10 @@ export class ConversationThread {
       turnIdMap.set(turn.id, restoredId);
       this.turns.set(restoredId, {
         id: restoredId,
-        status: turn.status === 'open' ? 'aborted' : turn.status
+        status:
+          turn.status === 'open' && !options.preserveOpenTurn
+            ? 'aborted'
+            : turn.status
       });
     }
 
@@ -406,10 +412,14 @@ export class ConversationThread {
       entry.elided = saved.elided;
       entry.originalTokens = saved.originalTokens;
     }
-    for (const turnId of restoredOpenTurnIds) {
-      removeUnmatchedToolCalls(this.entries, turnId, this.estimator);
+    if (options.preserveOpenTurn && restoredOpenTurnIds.length === 1) {
+      this.openTurnId = restoredOpenTurnIds[0];
+    } else {
+      for (const turnId of restoredOpenTurnIds) {
+        removeUnmatchedToolCalls(this.entries, turnId, this.estimator);
+      }
     }
-    if (restoredOpenTurnIds.length > 0) {
+    if (restoredOpenTurnIds.length > 0 && !options.preserveOpenTurn) {
       this.addNotice(
         '上次会话在未完成轮次中断；悬空工具调用已取消，请重新确认后续操作。'
       );

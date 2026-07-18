@@ -9,7 +9,7 @@ import {
   type VerificationReport
 } from '@kross/core';
 
-import type { ChatMessage } from '../ui';
+import { defaultApprovalSelection, type ChatMessage } from '../ui';
 import {
   formatSessionError,
   fromStoredSessionMessage,
@@ -43,6 +43,9 @@ export interface UseAppSessionOptions {
   setPendingToolApproval: React.Dispatch<
     React.SetStateAction<PendingToolApproval | undefined>
   >;
+  setApprovalSelection: React.Dispatch<
+    React.SetStateAction<'approve' | 'reject'>
+  >;
   setPendingConductorPlan: React.Dispatch<
     React.SetStateAction<{ prompt: string; mode: import('@kross/core').AgentMode } | undefined>
   >;
@@ -75,6 +78,7 @@ export function useAppSession({
   processingRef,
   pendingToolApproval,
   setPendingToolApproval,
+  setApprovalSelection,
   setPendingConductorPlan,
   setMode,
   setAwaitingReply,
@@ -206,13 +210,11 @@ export function useAppSession({
   const flushSession = useCallback(() => {
     // 先把尚未进入 React state 的流式增量合并到 latestMessagesRef，再同步落盘。
     flushMessageUpdates();
-    void agentRuntime.cancelPendingApprovals('process exit').catch(() => undefined);
     syncVisibleMessages(false);
   }, [agentRuntime, flushMessageUpdates, syncVisibleMessages]);
 
   const requestExit = useCallback(() => {
-    // 退出前尽量取消挂起审批，避免后台 Task/工具继续跑
-    void agentRuntime.cancelPendingApprovals('process exit').catch(() => undefined);
+    // 等待审批的调用尚未执行；保留 checkpoint，供下次安全恢复。
     flushSession();
     onExitRequest?.();
   }, [agentRuntime, flushSession, onExitRequest]);
@@ -239,15 +241,11 @@ export function useAppSession({
 
   useEffect(() => {
     return agentRuntime.onWorkStateChanged(() => {
-      const sessionId = activeSessionIdRef.current;
-      if (!sessionStore || !sessionId) return;
-      try {
-        sessionStore.upsertWorkState(sessionId, agentRuntime.exportWorkState());
-      } catch (error) {
-        setSessionNotice(formatSessionError('session.saveFailed', error));
-      }
+      // Checkpoint 与 open turn 必须形成同一轮持久化快照，避免只保存
+      // “已完成调用 id”却丢失对应 assistant/tool 上下文。
+      syncVisibleMessages();
     });
-  }, [agentRuntime, sessionStore]);
+  }, [agentRuntime, syncVisibleMessages]);
 
   useEffect(() => {
     return () => {
@@ -420,10 +418,14 @@ export function useAppSession({
           conversation.push({ role: 'assistant', content: message.text });
         }
       }
-      const restoredContext = restored.contextState
-        ? agentRuntime.restoreContextState(restored.contextState)
+      const shouldPreserveOpenTurn =
+        restored.workState?.runCheckpoint?.status === 'awaiting-approval';
+      let restoredContext = restored.contextState
+        ? agentRuntime.restoreContextState(restored.contextState, {
+            preserveOpenTurn: shouldPreserveOpenTurn
+          })
         : false;
-      const restoredInterruptedTurn =
+      let restoredInterruptedTurn =
         restoredContext && restored.contextState?.thread.openTurnId !== undefined;
       const maintenance = restoredContext
         ? undefined
@@ -433,8 +435,26 @@ export function useAppSession({
         todos: [],
         sessionMode: 'auto' as const
       };
-      agentRuntime.restoreWorkState(workState);
+      const restoredWorkState = agentRuntime.restoreWorkState(workState);
+      if (
+        restoredContext &&
+        shouldPreserveOpenTurn &&
+        !restoredWorkState &&
+        restored.contextState
+      ) {
+        // Corrupt/stale approval evidence must not leave an unusable open turn.
+        restoredContext = agentRuntime.restoreContextState(restored.contextState);
+        restoredInterruptedTurn = restoredContext;
+      }
       setMode(workState.sessionMode);
+      const restoredToolApproval = agentRuntime.getPendingToolApproval();
+      setPendingToolApproval(restoredToolApproval);
+      if (restoredToolApproval) {
+        setApprovalSelection(
+          defaultApprovalSelection(restoredToolApproval.risk)
+        );
+        setStatus('approval-required');
+      }
       const pending = agentRuntime.getPendingModeExecution();
       setPendingConductorPlan(
         pending ? { prompt: pending.goal, mode: pending.mode } : undefined
@@ -469,7 +489,7 @@ export function useAppSession({
           }
         ]);
       }
-      if (restoredInterruptedTurn) {
+      if (restoredInterruptedTurn && !restoredToolApproval) {
         setMessages((current) => [
           ...current,
           {
@@ -510,6 +530,7 @@ export function useAppSession({
     setMode,
     setPendingConductorPlan,
     setPendingToolApproval,
+    setApprovalSelection,
     setQueueLength,
     setStatus,
     setStreamingMessageId,

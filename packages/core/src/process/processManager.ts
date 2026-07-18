@@ -35,6 +35,11 @@ export interface ProcessPollResult extends ManagedProcessSummary {
   stderr: string;
   cursor: ProcessCursor;
   truncated: { stdout: boolean; stderr: boolean };
+  progress: {
+    state: 'changed' | 'unchanged' | 'terminal';
+    unchangedPolls: number;
+    recommendedDelayMs: number;
+  };
 }
 
 export interface ProcessManagerOptions {
@@ -47,6 +52,7 @@ export interface ProcessManagerOptions {
   /** Tests may override platform-specific process-tree behavior. */
   platform?: NodeJS.Platform;
   killWindowsProcessTree?: (pid: number) => Promise<void>;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 type SessionScope = string | typeof BOOTSTRAP_SESSION_SCOPE;
@@ -73,6 +79,9 @@ interface ManagedHandle {
   stderr: StreamBuffer;
   sessionScope: SessionScope;
   terminationRequested: boolean;
+  lastPollFingerprint?: string;
+  unchangedPolls: number;
+  nextPollAtMs: number;
 }
 
 const DEFAULT_MAX_BUFFER_BYTES = 1024 * 1024;
@@ -93,6 +102,7 @@ export class ProcessManager {
   private readonly createProcessId: () => string;
   private readonly platform: NodeJS.Platform;
   private readonly killWindowsProcessTree: (pid: number) => Promise<void>;
+  private readonly sleep: (ms: number) => Promise<void>;
   private activeSessionScope: SessionScope = BOOTSTRAP_SESSION_SCOPE;
   private closing = false;
   private closePromise?: Promise<void>;
@@ -111,6 +121,7 @@ export class ProcessManager {
     this.platform = options.platform ?? process.platform;
     this.killWindowsProcessTree =
       options.killWindowsProcessTree ?? runWindowsTaskkill;
+    this.sleep = options.sleep ?? delay;
   }
 
   /** Select the persisted agent session allowed to access process handles. */
@@ -149,7 +160,9 @@ export class ProcessManager {
       stdout: emptyBuffer(),
       stderr: emptyBuffer(),
       sessionScope,
-      terminationRequested: false
+      terminationRequested: false,
+      unchangedPolls: 0,
+      nextPollAtMs: 0
     };
     this.handles.set(processId, handle);
     child.stdout?.on('data', (chunk: Buffer | string) => {
@@ -190,13 +203,44 @@ export class ProcessManager {
     const stdout = readBuffer(handle.stdout, cursor.stdout ?? 0, budget);
     budget -= stdout.bytes;
     const stderr = readBuffer(handle.stderr, cursor.stderr ?? 0, budget);
+    const fingerprint = `${handle.status}:${handle.stdout.end}:${handle.stderr.end}`;
+    const terminal = handle.status !== 'running';
+    const changed = handle.lastPollFingerprint !== fingerprint;
+    handle.unchangedPolls = terminal || changed ? 0 : handle.unchangedPolls + 1;
+    handle.lastPollFingerprint = fingerprint;
+    const recommendedDelayMs =
+      terminal || changed
+        ? 0
+        : Math.min(4_000, 250 * 2 ** Math.max(0, handle.unchangedPolls - 1));
+    handle.nextPollAtMs = this.now().getTime() + recommendedDelayMs;
     return {
       ...summarize(handle),
       stdout: stdout.text,
       stderr: stderr.text,
       cursor: { stdout: stdout.cursor, stderr: stderr.cursor },
-      truncated: { stdout: stdout.truncated, stderr: stderr.truncated }
+      truncated: { stdout: stdout.truncated, stderr: stderr.truncated },
+      progress: {
+        state: terminal ? 'terminal' : changed ? 'changed' : 'unchanged',
+        unchangedPolls: handle.unchangedPolls,
+        recommendedDelayMs
+      }
     };
+  }
+
+  /** Poll with adaptive backoff after repeated observations without progress. */
+  async pollWithProgress(
+    processId: string,
+    cursor: Partial<ProcessCursor> = {},
+    maxBytes = this.maxPollBytes,
+    signal?: AbortSignal
+  ): Promise<ProcessPollResult> {
+    const handle = this.requireHandle(processId);
+    const waitMs = Math.max(0, handle.nextPollAtMs - this.now().getTime());
+    if (waitMs > 0) {
+      await sleepWithAbort(this.sleep, waitMs, signal);
+    }
+    if (signal?.aborted) throw abortError(signal);
+    return this.poll(processId, cursor, maxBytes);
   }
 
   async write(processId: string, text = '', eof = false): Promise<ManagedProcessSummary> {
@@ -441,6 +485,28 @@ async function settlesWithin(promise: Promise<void>, timeoutMs: number): Promise
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sleepWithAbort(
+  sleep: (ms: number) => Promise<void>,
+  ms: number,
+  signal?: AbortSignal
+): Promise<void> {
+  if (!signal) {
+    await sleep(ms);
+    return;
+  }
+  if (signal.aborted) throw abortError(signal);
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<void>((_, reject) => {
+    onAbort = () => reject(abortError(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    await Promise.race([sleep(ms), aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
 }
 
 function abortError(signal?: AbortSignal): Error {

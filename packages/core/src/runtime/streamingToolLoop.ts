@@ -13,6 +13,10 @@ import { renderPrompt } from '../prompts';
 import { ToolLoopStallDetector } from './toolLoopStallDetector';
 import type { VerificationGateAssessment } from '../verification';
 import type { RunPhase } from './runPhase';
+import {
+  classifyRuntimeError,
+  type RuntimeErrorClassification
+} from '../errors/runtimeError';
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
 export const MAX_VERIFICATION_FOLLOWUPS = 1;
@@ -47,7 +51,10 @@ export interface StreamingToolLoopHandlers {
     fullText: string;
     fullThinking: string;
   }): Promise<AgentResult>;
-  onFailure(message: string): Promise<AgentResult>;
+  onFailure(
+    message: string,
+    classification: RuntimeErrorClassification
+  ): Promise<AgentResult>;
   onCancelled(input: {
     reason: string;
     stage: CancellationStage;
@@ -128,6 +135,7 @@ export interface StreamingToolLoopDeps {
     maintenance: import('../context/contextGovernor').ContextMaintenanceResult[]
   ): Promise<void>;
   onInterrupted?(runId: string): void;
+  onToolMessagesAppended?(runId: string): void;
 }
 
 /** 保留批量工具中已完成的 observation，供取消收口时写回 Thread。 */
@@ -388,6 +396,7 @@ export async function* runStreamingToolLoop(
           });
         }
       }
+      deps.onToolMessagesAppended?.(params.runId);
       throwIfAborted(params.signal);
 
       if (batch.kind === 'approval') {
@@ -475,8 +484,15 @@ export async function* runStreamingToolLoop(
     }
     const message = error instanceof Error ? error.message : String(error);
     const failureEventType = params.failureEventType ?? 'llm.planner.failed';
-    await deps.record(params.runId, failureEventType, { message });
-    const failed = await params.handlers.onFailure(message);
+    const classification = classifyRuntimeError(
+      error,
+      stage === 'tool' ? 'tool' : 'model'
+    );
+    await deps.record(params.runId, failureEventType, {
+      message,
+      ...classification
+    });
+    const failed = await params.handlers.onFailure(message, classification);
     yield { type: 'result', result: failed };
     return;
   }

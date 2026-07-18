@@ -96,6 +96,39 @@ describe('ProcessManager', () => {
     await manager.kill(started.processId);
   });
 
+  it('backs off repeated async polls when a running process makes no progress', async () => {
+    let clock = 0;
+    const waits: number[] = [];
+    manager = new ProcessManager(root, {
+      now: () => new Date(clock),
+      sleep: async (ms) => {
+        waits.push(ms);
+        clock += ms;
+      }
+    });
+    const started = await manager.start({
+      command: nodeCommand('setInterval(() => {}, 1000)')
+    });
+    const first = manager.poll(started.processId);
+    const unchanged = manager.poll(started.processId, first.cursor);
+    expect(unchanged.progress).toEqual({
+      state: 'unchanged',
+      unchangedPolls: 1,
+      recommendedDelayMs: 250
+    });
+
+    const backedOff = await manager.pollWithProgress(
+      started.processId,
+      unchanged.cursor
+    );
+    expect(waits).toEqual([250]);
+    expect(backedOff.progress).toMatchObject({
+      state: 'unchanged',
+      unchangedPolls: 2,
+      recommendedDelayMs: 500
+    });
+  });
+
   it('rejects workspace escapes and unknown process ids', async () => {
     manager = new ProcessManager(root);
     const outside = await mkdtemp(join(tmpdir(), 'kross-process-outside-'));

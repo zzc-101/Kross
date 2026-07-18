@@ -263,6 +263,7 @@ export function App({
     processingRef,
     pendingToolApproval,
     setPendingToolApproval,
+    setApprovalSelection,
     setPendingConductorPlan,
     setMode,
     setAwaitingReply,

@@ -4,6 +4,10 @@ import { agentModeSchema, type AgentMode } from '../domain';
 import { conductorTaskPlanSchema } from '../modes/conductorPlan';
 import type { PendingModeExecution } from '../modes/pendingExecution';
 import { TODO_STATUSES, type TodoItem } from '../todo/todoStore';
+import {
+  runCheckpointSchema,
+  type RunCheckpointV1
+} from '../runtime/runCheckpoint';
 
 const todoItemSchema = z.object({
   id: z.string().min(1),
@@ -30,7 +34,8 @@ export const sessionWorkStateSchema = z.object({
   version: z.literal(1),
   todos: z.array(todoItemSchema).max(500),
   pendingModeExecution: pendingModeExecutionSchema.optional(),
-  sessionMode: agentModeSchema
+  sessionMode: agentModeSchema,
+  runCheckpoint: runCheckpointSchema.optional()
 });
 
 export interface SessionWorkStateV1 {
@@ -38,6 +43,7 @@ export interface SessionWorkStateV1 {
   todos: TodoItem[];
   pendingModeExecution?: PendingModeExecution;
   sessionMode: AgentMode;
+  runCheckpoint?: RunCheckpointV1;
 }
 
 export function isSessionWorkState(value: unknown): value is SessionWorkStateV1 {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,20 @@ import { join } from 'node:path';
 import { OpenAiProtocolClient } from '../llm/openAiProtocolClient';
 import { PiAiLlmClient } from '../llm/piAiLlmClient';
 import { bootstrapRuntimeTooling, createRuntimeOptionsFromEnv } from './createAgentHost';
+
+const managedHomes: string[] = [];
+
+afterEach(() => {
+  for (const homeDir of managedHomes.splice(0)) {
+    rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+function createManagedHome(): string {
+  const homeDir = mkdtempSync(join(tmpdir(), 'kross-host-managed-home-'));
+  managedHomes.push(homeDir);
+  return homeDir;
+}
 
 describe('createRuntimeOptionsFromEnv', () => {
   it('host close terminates all active managed processes', async () => {
@@ -27,11 +41,16 @@ describe('createRuntimeOptionsFromEnv', () => {
   });
 
   it('wires trace store and optional OpenAI-compatible LLM client', () => {
-    const options = createRuntimeOptionsFromEnv('/tmp/local-agent', {
-      AGENT_LLM_PROVIDER: 'openai',
-      OPENAI_API_KEY: 'key',
-      OPENAI_MODEL: 'gpt-test'
-    });
+    const options = createRuntimeOptionsFromEnv(
+      '/tmp/local-agent',
+      {
+        AGENT_LLM_PROVIDER: 'openai',
+        OPENAI_API_KEY: 'key',
+        OPENAI_MODEL: 'gpt-test'
+      },
+      undefined,
+      { homeDir: createManagedHome() }
+    );
 
     expect(options.traceStore).toBeDefined();
     expect(options.llmClient).toBeInstanceOf(PiAiLlmClient);
@@ -55,19 +74,31 @@ describe('createRuntimeOptionsFromEnv', () => {
   });
 
   it('parses AGENT_MAX_TOOL_ITERATIONS when valid', () => {
-    const withValue = createRuntimeOptionsFromEnv('/tmp/local-agent', {
-      AGENT_MAX_TOOL_ITERATIONS: '40'
-    });
+    const homeDir = createManagedHome();
+    const withValue = createRuntimeOptionsFromEnv(
+      '/tmp/local-agent',
+      { AGENT_MAX_TOOL_ITERATIONS: '40' },
+      undefined,
+      { homeDir }
+    );
     expect(withValue.maxToolIterations).toBe(40);
 
-    const invalid = createRuntimeOptionsFromEnv('/tmp/local-agent', {
-      AGENT_MAX_TOOL_ITERATIONS: '0'
-    });
+    const invalid = createRuntimeOptionsFromEnv(
+      '/tmp/local-agent',
+      { AGENT_MAX_TOOL_ITERATIONS: '0' },
+      undefined,
+      { homeDir }
+    );
     expect(invalid.maxToolIterations).toBeUndefined();
   });
 
   it('reuses injected tooling gateway when provided', () => {
-    const first = createRuntimeOptionsFromEnv('/tmp/local-agent', {});
+    const first = createRuntimeOptionsFromEnv(
+      '/tmp/local-agent',
+      {},
+      undefined,
+      { homeDir: createManagedHome() }
+    );
     expect(first.toolGateway).toBeDefined();
     expect(first.todoStore).toBeDefined();
     expect(first.runSubagent).toBeDefined();
@@ -76,7 +107,7 @@ describe('createRuntimeOptionsFromEnv', () => {
       '/tmp/local-agent',
       {},
       undefined,
-      {},
+      { homeDir: createManagedHome() },
       {
         toolGateway: first.toolGateway!,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test reuses opaque store instance
@@ -97,7 +128,12 @@ describe('createRuntimeOptionsFromEnv', () => {
   });
 
   it('registers TodoWrite and TodoRead on the gateway', () => {
-    const options = createRuntimeOptionsFromEnv('/tmp/local-agent', {});
+    const options = createRuntimeOptionsFromEnv(
+      '/tmp/local-agent',
+      {},
+      undefined,
+      { homeDir: createManagedHome() }
+    );
     const names = options.toolGateway?.listTools().map((tool) => tool.name) ?? [];
     expect(names).toContain('TodoWrite');
     expect(names).toContain('TodoRead');

@@ -68,7 +68,7 @@ export function createProcessTools(manager: ProcessManager): ToolDefinition[] {
 
   const poll: ToolDefinition = {
     name: 'ProcessPoll',
-    description: '按 cursor 增量读取 managed process 的 bounded stdout/stderr 与退出状态。',
+    description: '按 cursor 增量读取 managed process 的 bounded stdout/stderr 与退出状态；连续无进展时 Harness 自动退避轮询。',
     risk: 'read',
     category: 'process',
     retry: false,
@@ -77,9 +77,14 @@ export function createProcessTools(manager: ProcessManager): ToolDefinition[] {
       cursor: z.object({ stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }).optional(),
       maxBytes: z.number().int().positive().max(64 * 1024).optional()
     }),
-    execute: async ({ input }) => {
+    execute: async ({ input, signal }) => {
       const value = input as { processId: string; cursor?: { stdout?: number; stderr?: number }; maxBytes?: number };
-      const result = manager.poll(value.processId, value.cursor, value.maxBytes);
+      const result = await manager.pollWithProgress(
+        value.processId,
+        value.cursor,
+        value.maxBytes,
+        signal
+      );
       const output = [
         result.stdout ? `stdout:\n${result.stdout}` : '',
         result.stderr ? `stderr:\n${result.stderr}` : ''
@@ -91,7 +96,8 @@ export function createProcessTools(manager: ProcessManager): ToolDefinition[] {
           cursor: result.cursor,
           truncated: result.truncated,
           exitCode: result.exitCode,
-          signal: result.signal
+          signal: result.signal,
+          progress: result.progress
         })}`,
         summary: `${result.processId} ${result.status}`,
         data: {
@@ -100,7 +106,8 @@ export function createProcessTools(manager: ProcessManager): ToolDefinition[] {
           cursor: result.cursor,
           truncated: result.truncated,
           exitCode: result.exitCode,
-          signal: result.signal
+          signal: result.signal,
+          progress: result.progress
         }
       };
     }

@@ -44,32 +44,87 @@ export function toolCallsSignature(calls: LlmToolCall[]): string {
   return calls.map((call) => `${call.name}:${stableJson(call.input)}`).join('|');
 }
 
-/** Execute tool calls sequentially via gateway (returnErrors: true). */
-export async function executeSequentialToolCalls(input: {
+export const DEFAULT_MAX_PARALLEL_READ_TOOLS = 4;
+
+/**
+ * Execute independent, pre-approved read calls concurrently while preserving
+ * result order. Write/execute/network/MCP/process calls remain ordered.
+ */
+export async function executeScheduledToolCalls(input: {
   runId: string;
   gateway: ToolGateway;
   calls: LlmToolCall[];
+  tools?: ToolMetadata[];
   iteration?: number;
   signal?: AbortSignal;
+  maxParallelReads?: number;
 }): Promise<LlmMessage[]> {
   const out: LlmMessage[] = [];
-  for (const call of input.calls) {
+  const queue = [...input.calls];
+  const metadata = new Map(
+    (input.tools ?? input.gateway.listTools()).map((tool) => [tool.name, tool])
+  );
+  const maxParallelReads = Math.max(
+    1,
+    input.maxParallelReads ?? DEFAULT_MAX_PARALLEL_READ_TOOLS
+  );
+
+  while (queue.length > 0) {
     throwIfAborted(input.signal);
-    const result = await input.gateway.call({
-      runId: input.runId,
-      name: call.name,
-      input: call.input,
-      callId: call.id,
-      iteration: input.iteration,
-      returnErrors: true,
-      signal: input.signal
-    });
-    out.push({
-      role: 'tool',
-      toolCallId: call.id,
-      name: call.name,
-      content: result.content
-    });
+    const first = queue[0]!;
+    const parallel: LlmToolCall[] = [];
+    while (parallel.length < maxParallelReads && queue.length > 0) {
+      const candidate = queue[0]!;
+      const tool = metadata.get(candidate.name);
+      if (!isIndependentRead(tool)) break;
+      const inspection = input.gateway.inspectCall(
+        candidate.name,
+        candidate.input
+      );
+      if (
+        inspection.approval.action !== 'allow' ||
+        inspection.tool.risk !== 'read'
+      ) {
+        break;
+      }
+      parallel.push(queue.shift()!);
+    }
+    const batch = parallel.length > 0 ? parallel : [queue.shift() ?? first];
+    const results = await Promise.all(
+      batch.map((call) =>
+        input.gateway.call({
+          runId: input.runId,
+          name: call.name,
+          input: call.input,
+          callId: call.id,
+          iteration: input.iteration,
+          returnErrors: true,
+          signal: input.signal
+        })
+      )
+    );
+    for (let index = 0; index < batch.length; index += 1) {
+      const call = batch[index]!;
+      const result = results[index]!;
+      out.push({
+        role: 'tool',
+        toolCallId: call.id,
+        name: call.name,
+        content: result.content
+      });
+    }
   }
   return out;
+}
+
+/** Backward-compatible name; scheduling is now risk-aware. */
+export const executeSequentialToolCalls = executeScheduledToolCalls;
+
+export function isIndependentRead(tool?: ToolMetadata): boolean {
+  return Boolean(
+    tool &&
+    tool.risk === 'read' &&
+    !tool.category?.startsWith('mcp:') &&
+    tool.category !== 'process'
+  );
 }

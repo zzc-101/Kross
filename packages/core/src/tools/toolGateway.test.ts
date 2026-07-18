@@ -342,9 +342,10 @@ describe('ToolGateway', () => {
     expect(boomCalls).toBe(1);
     expect(failed).toMatchObject({
       status: 'failed',
-      content: 'Tool enoent-like failed: not found',
       data: { attempts: 1, retried: false }
     });
+    expect(failed.content).toContain('Tool enoent-like failed: not found');
+    expect(failed.content).toContain('Recovery:');
   });
 
   it('respects call-level retry: false', async () => {
