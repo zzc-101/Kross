@@ -4,11 +4,13 @@
  */
 
 import {
+  conductorTaskSchema,
   conductorTaskPlanSchema,
   type ConductorTask,
   type ConductorTaskPlan
 } from '../modes/conductorPlan';
 import type { VerificationReport } from '../domain';
+import { requiresVerificationForFiles } from '../verification';
 
 export {
   conductorTaskSchema,
@@ -28,6 +30,20 @@ export interface ConductorTaskOutcome {
   risks: string[];
   needsReview: string[];
   verification: VerificationReport;
+  attempts?: number;
+  recovery?: 'retry' | 'replan';
+  executionIncomplete?: boolean;
+  retrySafe?: boolean;
+}
+
+export interface ConductorValidationOutcome {
+  repoId?: string;
+  status: string;
+  summary: string;
+  changedFiles: string[];
+  verification: VerificationReport;
+  evidence: string[];
+  risks: string[];
 }
 
 export function formatConductorTaskPlanSummary(plan: ConductorTaskPlan): string {
@@ -42,6 +58,9 @@ export function formatConductorTaskPlanSummary(plan: ConductorTaskPlan): string 
       (task, i) =>
         `${i + 1}. [${task.id}] ${task.title}` +
         (task.repoId ? `  · root=${task.repoId}` : '') +
+        ((task.dependsOn?.length ?? 0) > 0
+          ? `  · depends=${(task.dependsOn ?? []).join(',')}`
+          : '') +
         `\n   ${task.prompt.slice(0, 200)}${task.prompt.length > 200 ? '…' : ''}`
     ),
     '',
@@ -71,6 +90,9 @@ export function formatConductorReviewSummary(input: {
         (o.verification.commands.length > 0
           ? ` · ${o.verification.commands.join(', ')}`
           : ''),
+      o.attempts && o.attempts > 1
+        ? `执行：${o.attempts} 次${o.recovery ? ` · ${o.recovery}` : ''}`
+        : undefined,
       o.risks.length > 0 ? `风险：${o.risks.join('；')}` : undefined,
       ''
     ]),
@@ -81,12 +103,19 @@ export function formatConductorReviewSummary(input: {
 }
 
 export function aggregateConductorVerification(
-  outcomes: ConductorTaskOutcome[]
+  outcomes: ConductorTaskOutcome[],
+  validations: ConductorValidationOutcome[] = []
 ): VerificationReport {
+  const validationByRoot = new Map(
+    validations.map((validation) => [validation.repoId ?? '__primary__', validation])
+  );
   const relevant = outcomes.filter(
     (outcome) =>
-      outcome.changedFiles.length > 0 ||
-      outcome.verification.status !== 'not-needed'
+      requiresVerificationForFiles(outcome.changedFiles) ||
+      outcome.verification.status === 'passed' ||
+      outcome.verification.status === 'failed' ||
+      (outcome.changedFiles.length === 0 &&
+        outcome.verification.status === 'not-run')
   );
   if (relevant.length === 0) {
     return {
@@ -98,23 +127,42 @@ export function aggregateConductorVerification(
   }
 
   const commands = [
-    ...new Set(relevant.flatMap((outcome) => outcome.verification.commands))
+    ...new Set([
+      ...relevant.flatMap((outcome) => outcome.verification.commands),
+      ...validations.flatMap((validation) => validation.verification.commands)
+    ])
   ];
-  const evidence = relevant.flatMap((outcome) =>
-    outcome.verification.evidence.map(
-      (item) => `${outcome.taskId}: ${item}`
+  const evidence = [
+    ...relevant.flatMap((outcome) =>
+      outcome.verification.evidence.map(
+        (item) => `${outcome.taskId}: ${item}`
+      )
+    ),
+    ...validations.flatMap((validation) =>
+      validation.verification.evidence.map(
+        (item) => `validation(${validation.repoId ?? 'primary'}): ${item}`
+      )
     )
-  );
-  const hasFailed = relevant.some(
-    (outcome) => outcome.verification.status === 'failed'
+  ];
+  const effectiveVerification = relevant.map((outcome) => {
+    if (!requiresVerificationForFiles(outcome.changedFiles)) {
+      return outcome.verification;
+    }
+    const validation = validationByRoot.get(outcome.repoId ?? '__primary__');
+    return validation?.verification.status === 'passed'
+      ? validation.verification
+      : validation?.verification ?? outcome.verification;
+  });
+  const hasFailed = effectiveVerification.some(
+    (verification) => verification.status === 'failed'
   );
   const hasUnverifiedMutation = relevant.some(
-    (outcome) =>
-      outcome.changedFiles.length > 0 &&
-      outcome.verification.status !== 'passed'
+    (outcome, index) =>
+      requiresVerificationForFiles(outcome.changedFiles) &&
+      effectiveVerification[index]?.status !== 'passed'
   );
-  const hasNotRun = relevant.some(
-    (outcome) => outcome.verification.status === 'not-run'
+  const hasNotRun = effectiveVerification.some(
+    (verification) => verification.status === 'not-run'
   );
 
   if (hasFailed) {
@@ -134,6 +182,31 @@ export function aggregateConductorVerification(
     };
   }
   return { status: 'passed', commands, evidence };
+}
+
+export function parseReplannedConductorTask(
+  original: ConductorTask,
+  text: string
+): ConductorTask | undefined {
+  const trimmed = text.trim();
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
+  try {
+    const raw = JSON.parse((fenced?.[1] ?? trimmed).trim()) as unknown;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const prompt = 'prompt' in raw ? (raw as { prompt?: unknown }).prompt : undefined;
+    const title = 'title' in raw ? (raw as { title?: unknown }).title : undefined;
+    if (typeof prompt !== 'string' || !prompt.trim()) return undefined;
+    return conductorTaskSchema.parse({
+      ...original,
+      title:
+        typeof title === 'string' && title.trim()
+          ? title.trim().slice(0, 120)
+          : original.title,
+      prompt: prompt.trim()
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 export function parseConductorReviewVerdict(
@@ -168,7 +241,8 @@ export function buildDefaultConductorTasks(goal: string): ConductorTask[] {
         '实现任务。',
         `总体目标：${goal}`,
         '在工作区内完成最小必要改动；完成后列出变更文件与风险。'
-      ].join('\n')
+      ].join('\n'),
+      dependsOn: ['explore']
     }
   ];
 }

@@ -5,8 +5,7 @@ import {
 import {
   agentResultSchema,
   type AgentMode,
-  type AgentResult,
-  type VerificationReport
+  type AgentResult
 } from '../domain';
 import type { PendingConductorExecution } from '../modes/pendingExecution';
 import { renderModePhasePrompt, renderPrompt } from '../prompts';
@@ -17,8 +16,18 @@ import {
   parseConductorReviewVerdict,
   parseConductorTaskPlanFromText,
   type ConductorTaskOutcome,
-  type ConductorTaskPlan
+  type ConductorTaskPlan,
+  type ConductorValidationOutcome
 } from './conductorOrchestration';
+import {
+  buildConductorValidationTargets,
+  CONDUCTOR_MAX_CONCURRENCY,
+  executeConductorValidation,
+  executeConductorWorker,
+  failedWorkerOutcome,
+  type ValidationExecutionCompletion,
+  type WorkerExecutionCompletion
+} from './conductorExecution';
 import type {
   AgentRunInput,
   AgentRunStreamEvent,
@@ -26,6 +35,7 @@ import type {
 } from './agentRuntimeTypes';
 import type { ModelSession } from './modelSession';
 import type { SessionServices } from './sessionServices';
+import { requiresVerificationForFiles } from '../verification';
 
 export interface ModeFlowsDeps {
   options: AgentRuntimeOptions;
@@ -378,85 +388,190 @@ export class ModeFlows {
     }
 
     const roots = this.deps.options.workspaceRoots;
-    const taskOutcomes: ConductorTaskOutcome[] = [];
-    const allChanged: string[] = [];
-    const allEvidence: string[] = [];
-    const allRisks: string[] = [];
+    const taskOutcomesById = new Map<string, ConductorTaskOutcome>();
+    const pendingTasks = new Map(plan.tasks.map((task) => [task.id, task]));
+    const runningTasks = new Map<
+      string,
+      Promise<WorkerExecutionCompletion>
+    >();
 
-    for (const task of plan.tasks) {
+    while (pendingTasks.size > 0 || runningTasks.size > 0) {
       throwIfAborted(signal);
-      yield {
-        type: 'text-delta',
-        text: `\n\n▸ Worker 执行任务 [${task.id}] ${task.title}…\n`
-      };
-      const workspaceRoot = task.repoId
-        ? roots?.resolveById(task.repoId)
-        : undefined;
-      try {
-        const outcome = await runSubagent({
-          prompt: task.prompt,
-          title: task.title.slice(0, 48),
-          mode: 'general',
-          parentRunId: runId,
-          parentDepth: 0,
-          signal,
-          repoId: task.repoId,
-          workspaceRoot,
-          preferWorkerModel: true
+      for (const task of [...pendingTasks.values()]) {
+        const dependencies = task.dependsOn ?? [];
+        const failedDependency = dependencies.find((dependency) => {
+          const outcome = taskOutcomesById.get(dependency);
+          return outcome !== undefined && !dependencyOutcomeSucceeded(outcome);
         });
-        const result = outcome.result;
-        taskOutcomes.push({
+        if (!failedDependency) continue;
+        const message = `依赖任务 ${failedDependency} 未成功，已跳过 ${task.id}`;
+        const blocked = failedWorkerOutcome(task, message);
+        taskOutcomesById.set(task.id, blocked);
+        pendingTasks.delete(task.id);
+        await this.deps.record(runId, 'conductor.worker.blocked', {
           taskId: task.id,
-          title: task.title,
-          repoId: task.repoId,
-          status: result.status,
-          summary: result.summary,
-          changedFiles: result.changedFiles,
-          evidence: result.evidence,
-          risks: result.risks,
-          needsReview: result.needsReview,
-          verification: result.verification
+          dependency: failedDependency,
+          reason: message
         });
+        yield { type: 'text-delta', text: `\n▸ ${message}\n` };
+      }
+
+      while (runningTasks.size < CONDUCTOR_MAX_CONCURRENCY) {
+        const task = [...pendingTasks.values()].find((candidate) =>
+          (candidate.dependsOn ?? []).every((dependency) =>
+            taskOutcomesById.has(dependency)
+          )
+        );
+        if (!task) break;
+        pendingTasks.delete(task.id);
         yield {
           type: 'text-delta',
-          text: `  → ${result.status}: ${result.summary.slice(0, 300)}\n`
+          text: `\n\n▸ Worker 执行任务 [${task.id}] ${task.title}…\n`
         };
-        for (const file of result.changedFiles) {
-          allChanged.push(`${task.id}:${file}`);
-        }
-        allEvidence.push(
-          `${task.id}: ${result.status} · verification=${result.verification.status} — ${result.summary.slice(0, 200)}`
+        const workspaceRoot = task.repoId
+          ? roots?.resolveById(task.repoId)
+          : undefined;
+        runningTasks.set(
+          task.id,
+          executeConductorWorker({
+            task,
+            goal,
+            runId,
+            signal,
+            workspaceRoot,
+            runSubagent,
+            seniorClient,
+            record: this.deps.record
+          })
         );
-        allRisks.push(...result.risks.map((risk) => `${task.id}: ${risk}`));
-      } catch (error) {
-        if (isOperationAborted(error, signal)) {
-          throw error;
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        taskOutcomes.push({
-          taskId: task.id,
-          title: task.title,
-          repoId: task.repoId,
-          status: 'failed',
-          summary: message,
-          changedFiles: [],
-          evidence: [],
-          risks: [message],
-          needsReview: ['Worker execution failed before producing a result.'],
-          verification: failedWorkerVerification(message)
-        });
-        yield { type: 'text-delta', text: `  → failed: ${message}\n` };
-        allEvidence.push(`${task.id}: failed — ${message}`);
-        allRisks.push(`${task.id}: ${message}`);
       }
+
+      if (runningTasks.size === 0) {
+        for (const task of pendingTasks.values()) {
+          taskOutcomesById.set(
+            task.id,
+            failedWorkerOutcome(task, '任务依赖图无法继续调度')
+          );
+        }
+        pendingTasks.clear();
+        break;
+      }
+
+      const completed = await Promise.race(runningTasks.values());
+      runningTasks.delete(completed.task.id);
+      if (completed.abortError) {
+        await Promise.allSettled(runningTasks.values());
+        throw completed.abortError;
+      }
+      taskOutcomesById.set(completed.task.id, completed.outcome);
+      yield {
+        type: 'text-delta',
+        text: `  → ${completed.outcome.status}: ${completed.outcome.summary.slice(0, 300)}\n`
+      };
+    }
+
+    const taskOutcomes = plan.tasks.map(
+      (task) =>
+        taskOutcomesById.get(task.id) ??
+        failedWorkerOutcome(task, '任务未产生执行结果')
+    );
+    const allChanged = taskOutcomes.flatMap((outcome) =>
+      outcome.changedFiles.map((file) => `${outcome.taskId}:${file}`)
+    );
+    const allEvidence = taskOutcomes.map(
+      (outcome) =>
+        `${outcome.taskId}: ${outcome.status} · attempts=${outcome.attempts ?? 1} · verification=${outcome.verification.status} — ${outcome.summary.slice(0, 200)}`
+    );
+    const allRisks = taskOutcomes.flatMap((outcome) =>
+      outcome.risks.map((risk) => `${outcome.taskId}: ${risk}`)
+    );
+
+    const validationTargets = buildConductorValidationTargets(taskOutcomes);
+    const validationOutcomes: ConductorValidationOutcome[] = [];
+    if (validationTargets.length > 0) {
+      await this.deps.record(runId, 'conductor.validation.started', {
+        roots: validationTargets.map((target) => target.repoId ?? 'primary')
+      });
+      for (const target of validationTargets) {
+        yield {
+          type: 'text-delta',
+          text: `\n▸ Validation worker 验证最终工作树 [${target.repoId ?? 'primary'}]…\n`
+        };
+      }
+      const settledValidations: ValidationExecutionCompletion[] = [];
+      for (
+        let index = 0;
+        index < validationTargets.length;
+        index += CONDUCTOR_MAX_CONCURRENCY
+      ) {
+        const batch = validationTargets.slice(
+          index,
+          index + CONDUCTOR_MAX_CONCURRENCY
+        );
+        settledValidations.push(
+          ...(await Promise.all(
+            batch.map((target) =>
+              executeConductorValidation({
+                target,
+                goal,
+                runId,
+                signal,
+                workspaceRoot: target.repoId
+                  ? roots?.resolveById(target.repoId)
+                  : this.deps.options.workspaceRoot,
+                runSubagent
+              })
+            )
+          ))
+        );
+      }
+      for (const validation of settledValidations) {
+        if (validation.abortError) throw validation.abortError;
+        validationOutcomes.push(validation.outcome);
+        allEvidence.push(
+          `validation(${validation.outcome.repoId ?? 'primary'}): ${validation.outcome.verification.status} — ${validation.outcome.summary.slice(0, 200)}`
+        );
+        allRisks.push(
+          ...validation.outcome.risks.map(
+            (risk) => `validation(${validation.outcome.repoId ?? 'primary'}): ${risk}`
+          )
+        );
+        yield {
+          type: 'text-delta',
+          text: `  → validation ${validation.outcome.verification.status}: ${validation.outcome.summary.slice(0, 240)}\n`
+        };
+        await this.deps.record(runId, 'conductor.validation.evidence', {
+          root: validation.outcome.repoId ?? 'primary',
+          status: validation.outcome.status,
+          verification: validation.outcome.verification,
+          evidence: validation.outcome.evidence
+        });
+      }
+      await this.deps.record(runId, 'conductor.validation.completed', {
+        roots: validationOutcomes.map(
+          (validation) => validation.repoId ?? 'primary'
+        ),
+        statuses: validationOutcomes.map(
+          (validation) => validation.verification.status
+        )
+      });
     }
 
     yield { type: 'text-delta', text: '\n### 高级模型验收\n\n' };
-    const digest = taskOutcomes
+    const workerDigest = taskOutcomes
       .map(
         (outcome) =>
           `### ${outcome.taskId} ${outcome.title} [${outcome.status}]\n${outcome.summary}\nfiles=${outcome.changedFiles.join(', ') || '—'}\nverification=${outcome.verification.status}\ncommands=${outcome.verification.commands.join(', ') || '—'}\nevidence=${outcome.evidence.join('; ') || '—'}\nneedsReview=${outcome.needsReview.join('; ') || '—'}\nrisks=${outcome.risks.join('; ') || '—'}`
       )
+      .join('\n\n');
+    const validationDigest = validationOutcomes
+      .map(
+        (validation) =>
+          `### validation ${validation.repoId ?? 'primary'} [${validation.status}]\n${validation.summary}\nverification=${validation.verification.status}\ncommands=${validation.verification.commands.join(', ') || '—'}\nevidence=${validation.verification.evidence.join('; ') || '—'}\nrisks=${validation.risks.join('; ') || '—'}`
+      )
+      .join('\n\n');
+    const digest = [workerDigest, validationDigest]
+      .filter((section) => section.length > 0)
       .join('\n\n');
 
     let reviewText = '';
@@ -611,12 +726,24 @@ export class ModeFlows {
       reviewerRejected
     });
     const summary = formatConductorReviewSummary({ goal, taskOutcomes, reviewText });
+    const workerVerification = aggregateConductorVerification(
+      taskOutcomes,
+      validationOutcomes
+    );
+    const verificationRequired = taskOutcomes.some((outcome) =>
+      requiresVerificationForFiles(outcome.changedFiles)
+    );
     const anyFailed =
       reviewerIncomplete ||
       reviewerRejected ||
-      taskOutcomes.some((outcome) => outcome.status === 'failed');
+      (verificationRequired && workerVerification.status !== 'passed') ||
+      validationOutcomes.some(
+        (validation) => validation.status !== 'completed'
+      ) ||
+      taskOutcomes.some(
+        (outcome) => outcome.status === 'failed' || outcome.executionIncomplete
+      );
     const currentSenior = this.deps.modelSession.getLlmClient();
-    const workerVerification = aggregateConductorVerification(taskOutcomes);
     const attached = await this.deps.attachChangedFiles(
       agentResultSchema.parse({
         runId,
@@ -662,15 +789,6 @@ export class ModeFlows {
   }
 }
 
-function failedWorkerVerification(message: string): VerificationReport {
-  return {
-    status: 'not-run',
-    commands: [],
-    evidence: [],
-    reason: `Worker failed before verification completed: ${message}`
-  };
-}
-
 function buildConductorReviewTargets(
   outcomes: ConductorTaskOutcome[]
 ): Array<{ repoId?: string; changedFiles: string[] }> {
@@ -696,6 +814,17 @@ function buildConductorReviewTargets(
     repoId: target.repoId,
     changedFiles: [...target.changedFiles].sort()
   }));
+}
+
+function dependencyOutcomeSucceeded(outcome: ConductorTaskOutcome): boolean {
+  return (
+    (outcome.status === 'completed' &&
+      outcome.verification.status !== 'failed') ||
+    (outcome.status === 'needs-review' &&
+      outcome.executionIncomplete !== true &&
+      outcome.verification.status !== 'failed' &&
+      outcome.changedFiles.length > 0)
+  );
 }
 
 /** No-model fallback for deciding whether plan mode should chat or plan. */

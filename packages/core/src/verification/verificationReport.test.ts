@@ -59,6 +59,36 @@ describe('collectVerificationReport', () => {
     expect(report.evidence[0]).toContain('2026-07-18T00:00:01.000Z');
   });
 
+  it('collects validation-worker Verify evidence', () => {
+    const report = collectVerificationReport(
+      [
+        event('tool_call.started', {
+          toolName: 'Verify',
+          callId: 'verify-1',
+          input: {
+            commandFingerprint: fingerprintCommand('npm test'),
+            verificationCommand: 'npm test'
+          }
+        }),
+        event(
+          'tool_call.completed',
+          {
+            toolName: 'Verify',
+            callId: 'verify-1',
+            data: { exitCode: 0 }
+          },
+          1
+        )
+      ],
+      { changedFiles: ['src/a.ts'] }
+    );
+
+    expect(report).toMatchObject({
+      status: 'passed',
+      commands: ['npm test']
+    });
+  });
+
   it('keeps failures for different checks but allows a rerun of the same check to pass', () => {
     const events = [
       ...bashOutcome('test-1', 'npm test', 1, 0),

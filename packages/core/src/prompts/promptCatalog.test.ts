@@ -102,6 +102,12 @@ describe('prompt catalog', () => {
     expect(review).toContain('GitStatus');
     expect(review).toContain('staged GitDiff');
     expect(review).toContain('Do not modify files');
+    expect(renderPrompt('conductor.validation', {}, 'en')).toContain(
+      'independent validation worker'
+    );
+    expect(renderPrompt('conductor.replan', {}, 'en')).toContain(
+      'recovery task'
+    );
   });
 
   it('composes shared rules with distinct subagent mode overlays', () => {

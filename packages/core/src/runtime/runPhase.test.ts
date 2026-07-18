@@ -38,6 +38,9 @@ describe('runPhase', () => {
   it('maps lifecycle events to observable phases', () => {
     expect(phaseForLifecycleEvent('plan.created')).toBe('plan');
     expect(phaseForLifecycleEvent('conductor.execution.started')).toBe('act');
+    expect(phaseForLifecycleEvent('conductor.validation.started')).toBe(
+      'verify'
+    );
     expect(phaseForLifecycleEvent('conductor.review.started')).toBe('review');
     expect(phaseForLifecycleEvent('review.completed')).toBe('review');
     expect(phaseForLifecycleEvent('run.completed')).toBeUndefined();

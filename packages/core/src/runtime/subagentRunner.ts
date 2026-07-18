@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { basename, resolve } from 'node:path';
 
 import {
@@ -12,6 +13,7 @@ import {
 import { createSessionContext } from '../context/sessionContext';
 import type { LlmClient } from '../llm/types';
 import { createSubagentTools } from '../tools/builtin/exploreTools';
+import { createVerifyTool } from '../tools/builtin/verify';
 import { createReadSkillTool } from '../tools/builtin/readSkill';
 import { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationService } from '../mutations/mutationService';
@@ -22,7 +24,11 @@ import {
 } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
-import { collectVerificationReport } from '../verification';
+import {
+  assessVerificationGate,
+  collectVerificationReport,
+  requiresVerificationForFiles
+} from '../verification';
 import {
   formatProjectInstructionSource,
   loadProjectInstructions
@@ -93,7 +99,7 @@ export async function runSubagent(
 
   const subRunId =
     deps.createRunId?.() ??
-    `sub-${sanitizeRunIdPart(request.parentRunId)}-${Date.now().toString(36)}`;
+    `sub-${sanitizeRunIdPart(request.parentRunId)}-${randomUUID()}`;
 
   const lifecycleExtras = {
     isSubagent: true,
@@ -188,7 +194,12 @@ export async function runSubagent(
     createReadSkillTool(skillRegistry)
   ];
   const toolDefs =
-    mode === 'explore'
+    request.role === 'validator'
+      ? [
+          ...availableToolDefs.filter((tool) => tool.risk === 'read'),
+          createVerifyTool(workspaceRoot)
+        ]
+      : mode === 'explore'
       ? availableToolDefs.filter((tool) => tool.risk === 'read')
       : availableToolDefs;
   const childGateway = new ToolGateway({
@@ -340,14 +351,34 @@ export async function runSubagent(
             ? event.payload.summary
             : 'GitDiff completed'
         );
-      verification = collectVerificationReport(events, { changedFiles });
+      const verificationFiles =
+        request.role === 'validator'
+          ? request.verificationChangedFiles ?? []
+          : changedFiles;
+      verification = collectVerificationReport(events, {
+        changedFiles: verificationFiles
+      });
+      if (request.role === 'validator') {
+        const assessment = assessVerificationGate(events, {
+          changedFiles: verificationFiles
+        });
+        if (!assessment.satisfied && verification.status === 'passed') {
+          verification = {
+            ...verification,
+            status: 'not-run',
+            reason: assessment.reason
+          };
+        }
+      }
     } catch {
       // A missing trace must never become implicit verification success.
     }
 
     const verificationNeedsReview =
       verification.status === 'failed' ||
-      (changedFiles.length > 0 && verification.status !== 'passed');
+      (request.role === 'validator' && verification.status !== 'passed') ||
+      (requiresVerificationForFiles(changedFiles) &&
+        verification.status !== 'passed');
     const resultStatus =
       stalled || verificationNeedsReview ? 'needs-review' : 'completed';
 

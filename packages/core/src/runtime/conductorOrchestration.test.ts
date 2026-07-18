@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   aggregateConductorVerification,
   parseConductorReviewVerdict,
+  parseReplannedConductorTask,
+  type ConductorValidationOutcome,
   type ConductorTaskOutcome
 } from './conductorOrchestration';
 
@@ -35,6 +37,36 @@ describe('aggregateConductorVerification', () => {
       ]).status
     ).toBe('not-needed');
   });
+
+  it('does not require command evidence for documentation-only changes', () => {
+    expect(
+      aggregateConductorVerification([
+        outcome('docs', ['docs/guide.md'], 'not-run', [])
+      ]).status
+    ).toBe('not-needed');
+  });
+
+  it('uses independent validation evidence for an unverified worker change', () => {
+    const validation: ConductorValidationOutcome = {
+      status: 'completed',
+      summary: 'tests passed',
+      changedFiles: ['src/a.ts'],
+      verification: {
+        status: 'passed',
+        commands: ['npm test'],
+        evidence: ['npm test: exit=0']
+      },
+      evidence: [],
+      risks: []
+    };
+
+    expect(
+      aggregateConductorVerification(
+        [outcome('implemented', ['src/a.ts'], 'not-run', [])],
+        [validation]
+      )
+    ).toMatchObject({ status: 'passed', commands: ['npm test'] });
+  });
 });
 
 describe('parseConductorReviewVerdict', () => {
@@ -51,6 +83,38 @@ describe('parseConductorReviewVerdict', () => {
 
   it('does not infer acceptance from natural language', () => {
     expect(parseConductorReviewVerdict('looks good to me')).toBeUndefined();
+  });
+});
+
+describe('parseReplannedConductorTask', () => {
+  it('preserves task scope while replacing title and prompt', () => {
+    expect(
+      parseReplannedConductorTask(
+        {
+          id: 'api',
+          title: 'old',
+          prompt: 'old prompt',
+          repoId: 'api-root',
+          dependsOn: ['inspect']
+        },
+        '```json\n{"title":"smaller","prompt":"new prompt"}\n```'
+      )
+    ).toEqual({
+      id: 'api',
+      title: 'smaller',
+      prompt: 'new prompt',
+      repoId: 'api-root',
+      dependsOn: ['inspect']
+    });
+  });
+
+  it('rejects malformed recovery output', () => {
+    expect(
+      parseReplannedConductorTask(
+        { id: 'a', title: 'a', prompt: 'a' },
+        'not-json'
+      )
+    ).toBeUndefined();
   });
 });
 

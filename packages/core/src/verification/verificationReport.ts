@@ -19,7 +19,7 @@ export interface CollectVerificationReportOptions {
 }
 
 interface CommandStart extends VerificationCommandIdentity {
-  toolName: 'Bash' | 'ProcessStart';
+  toolName: 'Bash' | 'ProcessStart' | 'Verify';
   callId?: string;
   iteration?: number;
   timestamp: string;
@@ -86,7 +86,11 @@ export function collectVerificationReport(
     }
 
     const toolName = asString(event.payload.toolName);
-    if (toolName === 'Bash' || toolName === 'ProcessStart') {
+    if (
+      toolName === 'Bash' ||
+      toolName === 'ProcessStart' ||
+      toolName === 'Verify'
+    ) {
       const start = takeStart(event, toolName, startedByCallId, startedQueues);
       if (!start) continue;
       if (toolName === 'ProcessStart' && event.type === 'tool_call.completed') {
@@ -275,7 +279,13 @@ function commandStartFromEvent(
   knownByFingerprint: Map<string, string>
 ): CommandStart | undefined {
   const toolName = asString(event.payload.toolName);
-  if (toolName !== 'Bash' && toolName !== 'ProcessStart') return undefined;
+  if (
+    toolName !== 'Bash' &&
+    toolName !== 'ProcessStart' &&
+    toolName !== 'Verify'
+  ) {
+    return undefined;
+  }
   const input = asRecord(event.payload.input);
   const rawCommand = asString(input?.command);
   const fingerprint =
@@ -304,7 +314,7 @@ function commandStartFromEvent(
 
 function takeStart(
   event: TraceEvent,
-  toolName: 'Bash' | 'ProcessStart',
+  toolName: 'Bash' | 'ProcessStart' | 'Verify',
   byCallId: Map<string, CommandStart>,
   queues: Map<string, CommandStart[]>
 ): CommandStart | undefined {
@@ -379,7 +389,7 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function isDocumentationFile(path: string): boolean {
+export function isDocumentationFile(path: string): boolean {
   const normalized = path.replaceAll('\\', '/').toLowerCase();
   return (
     normalized.startsWith('docs/') ||
@@ -388,6 +398,10 @@ function isDocumentationFile(path: string): boolean {
     ) ||
     /\.(md|mdx|rst|adoc|txt)$/.test(normalized)
   );
+}
+
+export function requiresVerificationForFiles(changedFiles: string[]): boolean {
+  return changedFiles.length > 0 && !changedFiles.every(isDocumentationFile);
 }
 
 function requiredVerificationKinds(changedFiles: string[]): VerificationKind[] {

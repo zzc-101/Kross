@@ -76,6 +76,9 @@ export function phaseForLifecycleEvent(type: string): RunPhase | undefined {
   if (type === 'conductor.execution.started') {
     return 'act';
   }
+  if (type === 'conductor.validation.started') {
+    return 'verify';
+  }
   if (
     type === 'conductor.review.started' ||
     type === 'conductor.review.completed' ||

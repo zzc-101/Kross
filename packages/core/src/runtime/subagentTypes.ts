@@ -22,9 +22,11 @@ export interface SubagentRunRequest {
    */
   preferWorkerModel?: boolean;
   /** Internal orchestration role; Task calls always use the default worker role. */
-  role?: 'worker' | 'reviewer';
+  role?: 'worker' | 'reviewer' | 'validator';
   /** Internal system-prompt override for specialized read-only reviewers. */
   systemPrompt?: string;
+  /** Final workspace files whose verification the validator must establish. */
+  verificationChangedFiles?: string[];
 }
 
 export interface SubagentRunOutcome {

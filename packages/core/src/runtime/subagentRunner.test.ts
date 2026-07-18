@@ -191,6 +191,35 @@ describe('runSubagent', () => {
     }
   });
 
+  it('assigns unique run ids to concurrently spawned subagents', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-ids-'));
+    try {
+      const outcomes = await Promise.all(
+        Array.from({ length: 6 }, (_, index) =>
+          runSubagent(
+            {
+              prompt: `inspect ${index}`,
+              mode: 'explore',
+              parentRunId: 'same-parent'
+            },
+            {
+              workspaceRoot: workspace,
+              llmClient: new ScriptedLlmClient(`done ${index}`),
+              traceStore: new InMemoryTraceStore(),
+              maxToolIterations: 2
+            }
+          )
+        )
+      );
+
+      const ids = outcomes.map((outcome) => outcome.subRunId);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids.every((id) => id.startsWith('sub-same-parent-'))).toBe(true);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('rejects nested subagent depth', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-depth-'));
     try {
@@ -448,6 +477,91 @@ describe('runSubagent', () => {
       expect(llm.requests[0]?.tools?.map((tool) => tool.name)).not.toContain(
         'Write'
       );
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('runs a validation worker with Verify but without mutation tools', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-validator-'));
+    try {
+      writeFileSync(
+        join(workspace, 'package.json'),
+        JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } })
+      );
+
+      class ValidatorClient implements LlmClient {
+        readonly provider = 'openai' as const;
+        calls = 0;
+        readonly requests: LlmRequest[] = [];
+
+        async complete(request: LlmRequest): Promise<LlmResponse> {
+          this.requests.push(request);
+          this.calls += 1;
+          return this.calls === 1
+            ? {
+                provider: this.provider,
+                model: 'worker',
+                text: '',
+                raw: {},
+                toolCalls: [
+                  {
+                    id: 'verify-1',
+                    name: 'Verify',
+                    input: { command: 'npm test' }
+                  }
+                ]
+              }
+            : {
+                provider: this.provider,
+                model: 'worker',
+                text: 'independent validation passed',
+                raw: {}
+              };
+        }
+
+        async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+          const response = await this.complete(request);
+          for (const call of response.toolCalls ?? []) {
+            yield { type: 'tool-call', call };
+          }
+          if (response.text) yield { type: 'text-delta', text: response.text };
+          yield { type: 'done' };
+        }
+      }
+
+      const llm = new ValidatorClient();
+      const outcome = await runSubagent(
+        {
+          prompt: 'validate final change',
+          mode: 'explore',
+          role: 'validator',
+          systemPrompt: 'VALIDATION ONLY',
+          verificationChangedFiles: ['src/a.ts'],
+          parentRunId: 'parent-validator'
+        },
+        {
+          workspaceRoot: workspace,
+          llmClient: llm,
+          traceStore: new InMemoryTraceStore(),
+          maxToolIterations: 4
+        }
+      );
+
+      expect(outcome.result).toMatchObject({
+        status: 'completed',
+        changedFiles: [],
+        toolsUsed: ['Verify'],
+        verification: {
+          status: 'passed',
+          commands: ['npm test']
+        }
+      });
+      const tools = llm.requests[0]?.tools?.map((tool) => tool.name) ?? [];
+      expect(tools).toContain('Verify');
+      expect(tools).not.toContain('Write');
+      expect(tools).not.toContain('Edit');
+      expect(tools).not.toContain('Bash');
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

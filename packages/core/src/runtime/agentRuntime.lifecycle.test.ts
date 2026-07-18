@@ -276,11 +276,39 @@ describe('AgentRuntime lifecycle and context', () => {
       const traceStore = new InMemoryTraceStore();
       const workers: string[] = [];
       const reviewers: string[] = [];
+      const validators: string[] = [];
       const runtime = new AgentRuntime({
         traceStore,
         llmClient: new FakeLlmClient('not-json'),
         workspaceRoot: '/tmp/ws',
         runSubagent: async (request) => {
+          if (request.role === 'validator') {
+            validators.push(request.title ?? 'validator');
+            expect(request.mode).toBe('explore');
+            expect(request.systemPrompt).toContain('validation worker');
+            expect(request.verificationChangedFiles?.length).toBeGreaterThan(0);
+            return {
+              subRunId: `validation-${validators.length}`,
+              mode: 'explore' as const,
+              modeForcedToExplore: false,
+              result: {
+                status: 'completed' as const,
+                summary: 'independent checks passed',
+                changedFiles: [],
+                diffSummary: [],
+                commandsRun: ['npm test'],
+                toolsUsed: ['Read', 'Verify'],
+                verification: {
+                  status: 'passed' as const,
+                  commands: ['npm test'],
+                  evidence: ['npm test: passed (exit=0)']
+                },
+                evidence: ['validation complete'],
+                risks: [],
+                needsReview: []
+              }
+            };
+          }
           if (request.role === 'reviewer') {
             reviewers.push(request.title ?? 'reviewer');
             expect(request.preferWorkerModel).toBe(false);
@@ -356,15 +384,19 @@ describe('AgentRuntime lifecycle and context', () => {
 
       expect(result.status).toBe('completed');
       expect(workers.length).toBeGreaterThan(0);
+      expect(validators).toHaveLength(1);
       expect(reviewers).toHaveLength(1);
       expect(result.summary).toContain('指挥家执行完成');
       expect(result.summary).toContain('真实 diff 已检查');
-      expect(result.report.verification.status).toBe('not-run');
+      expect(result.report.verification.status).toBe('passed');
       expect(traceStore.events.map((e) => e.type)).toContain(
         'conductor.execution.started'
       );
       expect(traceStore.events.map((e) => e.type)).toContain(
         'conductor.review.evidence'
+      );
+      expect(traceStore.events.map((e) => e.type)).toContain(
+        'conductor.validation.evidence'
       );
       expect(traceStore.events.map((e) => e.type)).toContain(
         'conductor.review.completed'

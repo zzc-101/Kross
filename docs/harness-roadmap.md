@@ -15,6 +15,9 @@
 - P0-5 运行阶段与 TUI 反馈：已完成（2026-07-18）。
 - P1-1 Worker 结构化验证证据：已完成（2026-07-18）。
 - P1-2 Reviewer 最终 diff 验收：已完成（2026-07-18）。
+- P1-3 独立 validation worker：已完成（2026-07-18）。
+- P1-4 任务依赖与受控并发：已完成（2026-07-18）。
+- P1-5 Worker 有限重试与重新规划：已完成（2026-07-18）。
 
 ## 当前基线
 
@@ -292,7 +295,7 @@ TUI 第一阶段只做轻量展示：
 
 ### Conductor 验收升级
 
-状态：P1-1、P1-2 已完成（2026-07-18）；独立 validation worker、依赖并发和失败重试待实施。
+状态：P1-1 至 P1-5 已完成（2026-07-18）。
 
 - worker 必须返回结构化验证证据。
 - reviewer 能读取最终 diff，并可使用受限只读工具。
@@ -309,6 +312,17 @@ TUI 第一阶段只做轻量展示：
 - reviewer 必须提供成功调用 `GitStatus`、未暂存 `GitDiff` 和已暂存 `GitDiff` 的 trace 证据；跳过工具、缩小 diff 范围、工具失败、stall 或缺少高级模型时，Conductor 以失败和结构化风险收口。
 - reviewer 最后一行必须返回结构化 `VERDICT: PASS|NEEDS_WORK`；缺少 verdict 或任一 root 返回 `NEEDS_WORK` 时，Conductor 不得标记完成。
 - reviewer 不能获得 `Edit`、`Write`、`ApplyPatch`、Bash、Task、MCP 或网络工具，不会在验收阶段修改工作区。
+
+#### P1-3/P1-4/P1-5 实现状态（2026-07-18）
+
+- 对存在代码变更但 worker 缺少通过证据的 workspace root，Conductor 会派生独立 validation worker；它使用隔离上下文，只获得读取工具和专用 `Verify` 工具。
+- `Verify` 不启动 shell，只执行单条可识别的 test、typecheck、build 或 lint 命令，并拒绝管道、重定向、命令拼接、变量展开和非验证命令；退出码直接进入 Verification Report。
+- validation worker 会按最终变更文件评估验证覆盖，高风险 CLI、包配置或跨包变更仍需满足 test + build；validator stall、失败或证据不足都会阻止 Conductor 成功收口。
+- Conductor task schema 增加 `dependsOn`，并拒绝重复 id、未知依赖、自依赖和依赖环；无依赖任务最多 3 个并发，依赖任务只有在所有前置执行完成且没有已知失败后才启动，单纯等待独立验证不会误阻断后续实现。
+- 前置任务失败或未完成时，下游任务会被结构化标记为 blocked，不会带着错误前提继续修改工作区。
+- worker 仅在结构化结果确认“没有变更”时最多自动执行 2 次；直接抛异常时无法证明 mutation 状态，因此 fail-closed，不自动重试。
+- 两次安全重试仍失败后，高级模型最多生成 1 个保持原 root、权限和目标范围的缩小恢复任务；恢复任务不会改变依赖图，也不会无限循环。
+- 新增 `conductor.worker.attempt.*`、`conductor.worker.retry`、`conductor.worker.replan.*`、`conductor.validation.*` trace，TUI 阶段可从 act 切换到 verify 再进入 review。
 
 ### Run Checkpoint 与恢复
 
