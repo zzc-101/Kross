@@ -205,7 +205,39 @@ describe('panel borders', () => {
       />
     );
 
-    expect(borderWidths(lastFrame())).toEqual([72, 72, 72, 72, 72, 72]);
+    expect(new Set(borderWidths(lastFrame()))).toEqual(new Set([72]));
+    expect(lastFrame()).toContain('模型');
+    expect(lastFrame()).toContain('思考强度');
+    expect(lastFrame()).toContain('high');
+  });
+
+  it('shows the selected public model notice inside the settings panel', () => {
+    const { lastFrame } = render(
+      <ModelSettingsPanel
+        width={72}
+        state={{
+          section: 'model',
+          effortIndex: 0,
+          modelIndex: 0,
+          efforts: [{ id: 'high', label: 'high' }],
+          models: [
+            {
+              id: 'public::public-hy3',
+              provider: 'anthropic',
+              model: 'tencent/Hy3',
+              label: 'Hy3 Public · 公益·第三方 · 256K',
+              configured: true,
+              current: false,
+              publicModelId: 'public-hy3',
+              notice: '来源于硅基流动hy3试用，7月21日到期'
+            }
+          ]
+        }}
+      />
+    );
+
+    expect(lastFrame()).toContain('说明：来源于硅基流动hy3试用，7月21日到期');
+    expect(new Set(borderWidths(lastFrame()))).toEqual(new Set([72]));
   });
 });
 

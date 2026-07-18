@@ -142,6 +142,17 @@ describe('SessionContext', () => {
     expect(calls).toEqual(['new']);
   });
 
+  it('resizes context policy when the runtime model changes', () => {
+    const ctx = new SessionContext({ contextWindow: 256_000 });
+    ctx.setLlmClient({
+      ...summarizingClient('large', []),
+      contextWindow: 1_000_000
+    });
+
+    expect(ctx.getPolicy().contextWindow).toBe(1_000_000);
+    expect(ctx.getPolicy().inputBudget).toBeGreaterThan(900_000);
+  });
+
   it('re-estimates existing thread entries after usage calibration', () => {
     resetThreadCounters();
     const ctx = new SessionContext();

@@ -11,7 +11,8 @@ import {
   loadKrossConfig,
   mergeLlmConfigPatch,
   saveImportedAgentConfig,
-  updateKrossLlmConfig
+  updateKrossLlmConfig,
+  updateKrossPublicModelConfig
 } from './configImport';
 
 describe('config import', () => {
@@ -423,6 +424,31 @@ describe('config import', () => {
         provider: 'anthropic',
         authToken: 'secret-token',
         model: 'claude-a'
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('persists a public model reference without copying its shared token', () => {
+    const homeDir = createTempHome();
+    try {
+      const result = updateKrossPublicModelConfig('public-hy3', 'high', {
+        homeDir
+      });
+      const serialized = readFileSync(result.configPath, 'utf8');
+
+      expect(result.config.llm).toEqual({
+        provider: 'anthropic',
+        model: 'tencent/Hy3',
+        publicModelId: 'public-hy3',
+        thinkingEffort: 'high'
+      });
+      expect(serialized).not.toContain('authToken');
+      expect(createLlmClientFromKrossConfig(result.config)).toMatchObject({
+        provider: 'anthropic',
+        model: 'tencent/Hy3',
+        publicModelId: 'public-hy3'
       });
     } finally {
       rmSync(homeDir, { recursive: true, force: true });

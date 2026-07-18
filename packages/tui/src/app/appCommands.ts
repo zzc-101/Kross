@@ -1,11 +1,11 @@
 import {
   formatCompactCount,
+  formatUnavailableFreeModels,
   getLocale,
   getLlmProviderDefinition,
   handleModelCommand,
   isAppLocale,
   isPermissionMode,
-  loadKrossConfig,
   setLocale,
   t,
   updateKrossLocale,
@@ -70,6 +70,11 @@ export function handleCommand(
     return true;
   }
 
+  if (value === '/free') {
+    append('agent', formatUnavailableFreeModels(), { expanded: true });
+    return true;
+  }
+
   if (value === '/lang' || value.startsWith('/lang ')) {
     const argument =
       value === '/lang' ? '' : value.slice('/lang'.length).trim().toLowerCase();
@@ -99,13 +104,7 @@ export function handleCommand(
   if (value === '/model' || value.startsWith('/model ')) {
     const argument =
       value === '/model' ? undefined : value.slice('/model'.length).trim();
-    const saved = loadKrossConfig()?.llm;
-    const result = handleModelCommand(
-      argument,
-      runtime.getLlmClient(),
-      process.env,
-      saved
-    );
+    const result = handleModelCommand(argument, runtime.getLlmClient());
 
     if (result.kind === 'set-model') {
       persistModelPreference(
@@ -113,19 +112,6 @@ export function handleCommand(
         result.model,
         runtime.getThinkingEffort()
       );
-    }
-
-    if (result.kind === 'set-effort') {
-      persistModelPreference(result.provider, result.model, result.effort);
-    }
-
-    if (result.kind === 'replace-client') {
-      const effort = runtime.getThinkingEffort();
-      if (result.client.setThinkingEffort) {
-        result.client.setThinkingEffort(effort);
-      }
-      runtime.setLlmClient(result.client);
-      persistModelPreference(result.provider, result.model, effort);
     }
 
     append('agent', result.text, { expanded: true });

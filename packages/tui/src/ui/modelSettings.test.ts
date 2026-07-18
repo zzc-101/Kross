@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AgentRuntime,
+  createLlmClientForPublicModel,
   type LlmClient,
   type TraceEvent,
   type TraceStore
@@ -34,12 +35,81 @@ describe('modelSettings', () => {
 
     expect(options[index]?.current).toBe(true);
     expect(options.some((item) => item.provider === 'deepseek')).toBe(true);
-    expect(
-      options.some((item) => item.provider === 'anthropic' && !item.configured)
-    ).toBe(true);
+    expect(options.every((item) => item.configured)).toBe(true);
   });
 
-  it('moves selection within section and skips unconfigured models', () => {
+  it('does not expand the provider catalog from a key alone', () => {
+    const { options } = buildModelOptions(undefined, {
+      OPENAI_API_KEY: 'k'
+    });
+
+    expect(options.some((item) => item.provider === 'openai')).toBe(false);
+    expect(options.some((item) => item.model === 'gpt-5.6-sol')).toBe(false);
+    expect(options.every((item) => item.publicModelId)).toBe(true);
+  });
+
+  it('always includes repository-managed public models', () => {
+    const { options } = buildModelOptions(undefined, {});
+
+    expect(options).toHaveLength(1);
+    expect(options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          publicModelId: 'public-hy3',
+          provider: 'anthropic',
+          model: 'tencent/Hy3',
+          notice: '来源于硅基流动hy3试用，7月21日到期',
+          configured: true
+        })
+      ])
+    );
+  });
+
+  it('does not treat a public model token as provider-wide credentials', () => {
+    const client = createLlmClientForPublicModel('public-hy3');
+    const { options } = buildModelOptions(client, {}, {
+      provider: 'anthropic',
+      model: 'tencent/Hy3',
+      publicModelId: 'public-hy3'
+    });
+
+    expect(options.every((item) => item.publicModelId)).toBe(true);
+    expect(options.some((item) => item.model.startsWith('claude-'))).toBe(false);
+  });
+
+  it('keeps a local model separate from a public model with the same id', () => {
+    const client = new StubClient('anthropic', 'tencent/Hy3');
+    const { options, index } = buildModelOptions(client, {});
+
+    expect(
+      options.filter((item) => item.model === 'tencent/Hy3')
+    ).toHaveLength(2);
+    expect(options[index]).toMatchObject({
+      current: true,
+      model: 'tencent/Hy3'
+    });
+    expect(options[index]?.publicModelId).toBeUndefined();
+    expect(options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          current: false,
+          publicModelId: 'public-hy3',
+          model: 'tencent/Hy3'
+        })
+      ])
+    );
+  });
+
+  it('opens with model selection focused first', () => {
+    const state = createModelSettingsState(
+      runtimeWith(new StubClient('openai', 'gpt-a')),
+      {}
+    );
+
+    expect(state.section).toBe('model');
+  });
+
+  it('moves selection within configured models', () => {
     let state = createModelSettingsState(
       runtimeWith(new StubClient('openai', 'gpt-a')),
       {
@@ -54,6 +124,52 @@ describe('modelSettings', () => {
     state = moveSettingsSelection(state, 'down');
     expect(state.models[state.modelIndex]?.configured).toBe(true);
     expect(state.modelIndex).not.toBe(first);
+  });
+
+  it('applies a public model without local provider credentials', () => {
+    const runtime = runtimeWith(new StubClient('openai', 'gpt-a'));
+    const state = createModelSettingsState(runtime, {});
+    const publicIndex = state.models.findIndex(
+      (item) => item.publicModelId === 'public-hy3'
+    );
+    const result = applyModelSettings(runtime, {
+      ...state,
+      section: 'model',
+      modelIndex: publicIndex
+    });
+
+    expect(result).toMatchObject({ ok: true, publicModelId: 'public-hy3' });
+    expect(runtime.getLlmClient()).toMatchObject({
+      provider: 'anthropic',
+      model: 'tencent/Hy3',
+      publicModelId: 'public-hy3'
+    });
+  });
+
+  it('can switch from a public model to a separate local model with the same id', () => {
+    const runtime = runtimeWith(createLlmClientForPublicModel('public-hy3'));
+    const state = createModelSettingsState(runtime, {
+      ANTHROPIC_AUTH_TOKEN: 'local-token',
+      ANTHROPIC_MODEL: 'tencent/Hy3'
+    });
+    const localIndex = state.models.findIndex(
+      (item) => item.model === 'tencent/Hy3' && !item.publicModelId
+    );
+    const result = applyModelSettings(
+      runtime,
+      { ...state, modelIndex: localIndex },
+      {
+        ANTHROPIC_AUTH_TOKEN: 'local-token',
+        ANTHROPIC_MODEL: 'tencent/Hy3'
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(runtime.getLlmClient()).toMatchObject({
+      provider: 'anthropic',
+      model: 'tencent/Hy3'
+    });
+    expect(runtime.getLlmClient()?.publicModelId).toBeUndefined();
   });
 
   it('applies thinking effort without changing model', () => {
@@ -98,7 +214,7 @@ class MemoryTraceStore implements TraceStore {
 
 class StubClient implements LlmClient {
   constructor(
-    readonly provider: 'openai',
+    readonly provider: 'openai' | 'anthropic',
     public model: string,
     public thinkingEffort: import('@kross/core').ThinkingEffort = 'medium'
   ) {}

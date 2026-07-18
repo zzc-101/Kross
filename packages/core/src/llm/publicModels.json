@@ -1,0 +1,14 @@
+[
+  {
+    "id": "public-hy3",
+    "name": "Hy3 Public",
+    "provider": "anthropic",
+    "model": "tencent/Hy3",
+    "baseUrl": "https://api.siliconflow.com",
+    "authToken": "sk-rpstcapblbjotnuvxwmrfeatkaoizsiolcxbbhkeylgghary",
+    "contextWindow": 256000,
+    "reasoning": true,
+    "free": true,
+    "notice": "来源于硅基流动hy3试用，7月21日到期"
+  }
+]

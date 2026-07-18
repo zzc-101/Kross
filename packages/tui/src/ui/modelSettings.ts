@@ -1,9 +1,13 @@
 import {
   createLlmClientForProvider,
+  createLlmClientForPublicModel,
+  formatCompactCount,
   formatModelEffortLabel,
   getLlmProviderDefinition,
   isUsableLlmConfig,
+  getPublicModel,
   listProvidersFromEnv,
+  listPublicModels,
   loadKrossConfig,
   t,
   THINKING_EFFORT_LEVELS,
@@ -26,9 +30,11 @@ export interface ModelOption {
   provider: LlmProvider;
   model: string;
   label: string;
-  /** Provider has env credentials. */
+  /** Model has a usable credential source (local, saved, or public catalog). */
   configured: boolean;
   current: boolean;
+  publicModelId?: string;
+  notice?: string;
 }
 
 export interface ModelSettingsState {
@@ -54,9 +60,8 @@ export function buildEffortOptions(
 }
 
 /**
- * Build selectable model rows: current first, then each configured provider.
- * Unconfigured providers appear dimmed and are not selectable targets for apply
- * (filtered out of the actionable list unless current).
+ * Build selectable model rows: current first, repository-managed public models,
+ * then models backed by configured provider credentials.
  */
 export function buildModelOptions(
   client: LlmClient | undefined,
@@ -67,17 +72,49 @@ export function buildModelOptions(
   const currentModel = client?.model?.trim() || '';
   const rows: ModelOption[] = [];
   const seen = new Set<string>();
+  // Public and locally configured models remain distinct even when they share
+  // the same provider/model pair. Only an explicit public model id identifies
+  // the current client as repository-managed public access.
+  const currentPublic = getPublicModel(client?.publicModelId);
 
   if (currentProvider && currentModel) {
-    const key = `${currentProvider}::${currentModel}`;
+    const key = currentPublic
+      ? `public::${currentPublic.id}`
+      : `${currentProvider}::${currentModel}`;
     seen.add(key);
     rows.push({
       id: key,
       provider: currentProvider,
       model: currentModel,
-      label: `${currentModel}`,
+      label: currentPublic
+        ? `${currentPublic.name} · ${t('settings.public')}`
+        : `${currentModel}`,
       configured: true,
-      current: true
+      current: true,
+      ...(currentPublic
+        ? {
+            publicModelId: currentPublic.id,
+            notice: currentPublic.notice
+          }
+        : {})
+    });
+  }
+
+  for (const definition of listPublicModels()) {
+    const key = `public::${definition.id}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    rows.push({
+      id: key,
+      provider: definition.provider,
+      model: definition.model,
+      label: `${definition.name} · ${t('settings.public')} · ${formatCompactCount(definition.contextWindow ?? 256_000)}`,
+      configured: true,
+      current: false,
+      publicModelId: definition.id,
+      notice: definition.notice
     });
   }
 
@@ -102,7 +139,7 @@ export function buildModelOptions(
   }
 
   // kross-saved provider (import) when env lacks keys
-  if (saved && isUsableLlmConfig(saved)) {
+  if (saved && !saved.publicModelId && isUsableLlmConfig(saved)) {
     const key = `${saved.provider}::${saved.model}`;
     if (!seen.has(key)) {
       seen.add(key);
@@ -115,28 +152,6 @@ export function buildModelOptions(
         current: false
       });
     }
-  }
-
-  for (const row of listProvidersFromEnv(env)) {
-    const savedCovers =
-      saved && isUsableLlmConfig(saved) && saved.provider === row.provider;
-    if (row.configured || savedCovers) {
-      continue;
-    }
-    const def = getLlmProviderDefinition(row.provider);
-    const model = row.model ?? def.exampleModel;
-    const key = `${row.provider}::${model}::unconfigured`;
-    rows.push({
-      id: key,
-      provider: row.provider,
-      model,
-      label: t('settings.unconfigured', {
-        example: def.exampleModel,
-        provider: row.provider
-      }),
-      configured: false,
-      current: false
-    });
   }
 
   let index = rows.findIndex((item) => item.current);
@@ -159,7 +174,7 @@ export function createModelSettingsState(
     saved ?? loadKrossConfig()?.llm
   );
   return {
-    section: 'effort',
+    section: 'model',
     effortIndex: effort.index,
     modelIndex: models.index,
     efforts: effort.options,
@@ -216,7 +231,7 @@ export function switchSettingsSection(
 }
 
 export type ApplySettingsResult =
-  | { ok: true; label: string; summary: string }
+  | { ok: true; label: string; summary: string; publicModelId?: string }
   | { ok: false; message: string };
 
 /**
@@ -264,13 +279,23 @@ export function applyModelSettings(
 
   try {
     const current = runtime.getLlmClient();
-    if (
+    if (modelOpt.publicModelId) {
+      const client = createLlmClientForPublicModel(modelOpt.publicModelId, {
+        thinkingEffort: effort
+      });
+      runtime.setLlmClient(client);
+    } else if (
       current &&
+      !current.publicModelId &&
       current.provider === modelOpt.provider &&
       current.model === modelOpt.model
     ) {
       runtime.setThinkingEffort(effort);
-    } else if (current && current.provider === modelOpt.provider) {
+    } else if (
+      current &&
+      !current.publicModelId &&
+      current.provider === modelOpt.provider
+    ) {
       runtime.setModel(modelOpt.model);
       runtime.setThinkingEffort(effort);
     } else {
@@ -285,11 +310,17 @@ export function applyModelSettings(
       runtime.setLlmClient(client);
     }
 
-    const applied = formatModelEffortLabel(modelOpt.model, effort);
+    const publicName = modelOpt.publicModelId
+      ? getPublicModel(modelOpt.publicModelId)?.name
+      : undefined;
+    const applied = formatModelEffortLabel(publicName ?? modelOpt.model, effort);
     return {
       ok: true,
       label: applied,
-      summary: t('settings.applied', { label: applied })
+      summary: t('settings.applied', { label: applied }),
+      ...(modelOpt.publicModelId
+        ? { publicModelId: modelOpt.publicModelId }
+        : {})
     };
   } catch (error) {
     return {

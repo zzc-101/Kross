@@ -8,10 +8,8 @@ import {
 } from './llmProviders';
 import { OpenAiProtocolClient } from './openAiProtocolClient';
 import { PiAiLlmClient } from './piAiLlmClient';
-import {
-  isUsableLlmConfig,
-  resolveProviderCredentials
-} from './resolveCredentials';
+import { getPublicModel } from './publicModels';
+import { resolveProviderCredentials } from './resolveCredentials';
 import {
   DEFAULT_THINKING_EFFORT,
   parseThinkingEffort,
@@ -114,47 +112,41 @@ export function createLlmClientForProvider(
   );
 }
 
-export function formatProvidersStatus(
-  env: Record<string, string | undefined>,
-  current?: { provider: LlmProvider; model?: string },
-  saved?: ImportedLlmConfig
-): string {
-  const rows = listProvidersFromEnv(env).map((row) => {
-    if (row.configured) {
-      return row;
-    }
-    // Surface kross-saved provider as configured when env lacks keys.
-    if (saved && isUsableLlmConfig(saved) && saved.provider === row.provider) {
-      return {
-        ...row,
-        configured: true,
-        model: saved.model
-      };
-    }
-    return row;
-  });
+export function createLlmClientForPublicModel(
+  publicModelId: string,
+  options: { thinkingEffort?: ThinkingEffort } = {}
+): LlmClient {
+  const definition = getPublicModel(publicModelId);
+  if (!definition) {
+    throw new Error(`未知公益模型：${publicModelId}`);
+  }
 
-  const lines = [
-    'Providers',
-    ...rows.map((row) => {
-      const mark = row.configured ? '✓' : '·';
-      const currentMark =
-        current?.provider === row.provider ? ' (current)' : '';
-      const modelPart = row.model
-        ? ` model=${row.model}`
-        : ` example=${row.exampleModel}`;
-      return `${mark} ${row.provider}${currentMark}${modelPart}`;
-    }),
-    '',
-    '用法：',
-    '  /model                         打开设置面板（或 ctrl+p）',
-    '  /model list                    列出 provider',
-    '  /model <modelId>               切换当前 provider 的模型',
-    '  /model <provider> <model>      切换 provider + 模型',
-    '  /model off|minimal|…|xhigh     切换思考强度',
-    '  /model cycle                   循环思考强度'
-  ];
-  return lines.join('\n');
+  const common = {
+    model: definition.model,
+    baseUrl: definition.baseUrl,
+    contextWindow: definition.contextWindow,
+    thinkingEffort: options.thinkingEffort ?? DEFAULT_THINKING_EFFORT,
+    publicModelId: definition.id,
+    wireApi: definition.wireApi,
+    backend: 'pi' as const
+  };
+
+  if (definition.provider === 'anthropic') {
+    return createLlmClient({
+      ...common,
+      provider: 'anthropic',
+      apiKey: definition.apiKey,
+      authToken: definition.authToken
+    });
+  }
+  if (!definition.apiKey) {
+    throw new Error(`公益模型 ${definition.id} 缺少 API key`);
+  }
+  return createLlmClient({
+    ...common,
+    provider: definition.provider,
+    apiKey: definition.apiKey
+  });
 }
 
 function createLlmClientFromCredentials(

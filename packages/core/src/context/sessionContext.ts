@@ -124,6 +124,7 @@ export class SessionContext {
   private readonly summarizer: Summarizer;
   private readonly summarizerFollowsRuntimeClient: boolean;
   private readonly compactionInstructions: string | undefined;
+  private readonly isSubagent: boolean;
   private readonly sources = new Map<string, ContextSource>();
   private readonly skills = new Map<string, SkillMetadata>();
   private lastMaintenance: ContextMaintenanceResult[] = [];
@@ -138,6 +139,7 @@ export class SessionContext {
     this.summarizerFollowsRuntimeClient =
       !options.summarizer && !options.summarizerClient;
     this.compactionInstructions = options.compactionInstructions;
+    this.isSubagent = options.isSubagent ?? false;
     this.policy =
       options.policy ??
       createContextPolicy({
@@ -152,6 +154,17 @@ export class SessionContext {
   }
 
   setLlmClient(client: LlmClient | undefined): void {
+    if (client?.contextWindow) {
+      const resized = createContextPolicy({
+        contextWindow: client.contextWindow,
+        isSubagent: this.isSubagent,
+        preserveFullTurns: this.policy.preserveFullTurns,
+        preserveRecentTokens: this.policy.preserveRecentTokens,
+        preserveToolIterations: this.policy.preserveToolIterations,
+        maxToolResultTokens: this.policy.maxToolResultTokens
+      });
+      Object.assign(this.policy, resized);
+    }
     if (
       this.summarizerFollowsRuntimeClient &&
       this.summarizer instanceof LlmSummarizer

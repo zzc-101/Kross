@@ -72,7 +72,8 @@ export const zhCatalog = {
   // slash commands
   'slash.help.desc': '查看全部命令',
   'slash.settings.desc': '模型与思考强度',
-  'slash.model.desc': '切换模型或思考强度',
+  'slash.model.desc': '打开模型面板或按 ID 切换模型',
+  'slash.free.desc': '查看 Kross 暂未支持的公益模型',
   'slash.mode.desc': '切换 Agent 模式',
   'slash.resume.desc': '打开会话选择或恢复指定会话',
   'slash.lang.desc': '切换界面语言',
@@ -166,10 +167,12 @@ export const zhCatalog = {
   'settings.unconfigured': '{example} · {provider} (未配置)',
   'settings.noEffort': '未选择思考强度',
   'settings.current': '当前',
+  'settings.public': '公益·第三方',
+  'settings.notice': '说明：{notice}',
   'settings.effortOnly': '思考强度 → {effort}',
   'settings.missingKey': '{name} 未配置密钥（{envs}）',
   'settings.applied': '已应用 {label}',
-  'settings.hotkeys': '←/→ 分区 · ↑/↓ 选择 · Enter 应用 · Esc 关闭 · ctrl+p 开关',
+  'settings.hotkeys': '←/→ 分区 · ↑/↓ 选择 · Enter 下一步/应用 · Esc 关闭 · ctrl+p 开关',
 
   // session
   'session.readFailed': '读取历史会话失败',
@@ -209,6 +212,20 @@ export const zhCatalog = {
   // commands
   'cmd.status':
     '当前运行在本地 TUI。mode={mode} · perm={perm} · model={model}',
+  'cmd.free.title': '暂未支持的公益模型',
+  'cmd.free.intro': '以下模型暂时无法由 Kross 直接调用，仅供查看：',
+  'cmd.free.model': '模型',
+  'cmd.free.protocol': '协议',
+  'cmd.free.context': '上下文',
+  'cmd.free.endpoint': 'Base URL',
+  'cmd.free.apiKey': 'API Key',
+  'cmd.free.limit': '限制',
+  'cmd.free.codexOnly': '服务端仅允许 Codex CLI，Kross/pi-ai 会被拒绝。',
+  'cmd.free.disclaimerLabel': '免责声明：',
+  'cmd.free.disclaimer': 'Kross 仅作公益模型信息分享，第三方服务的可用性与数据处理由其提供者负责。',
+  'cmd.free.thanksLabel': '致谢：',
+  'cmd.free.thanks': '感谢公益站维护者无偿提供模型服务。',
+  'cmd.free.empty': '当前没有暂未支持的公益模型。',
   'cmd.expandDone': '已切换最近一条 thinking 的折叠状态（也可用 ctrl+o）。',
   'cmd.modeUsage':
     '当前模式：{current}\n用法：/mode auto|plan|conductor\n- auto 默认 agent，可自动切 plan/conductor\n- plan 先计划后开发\n- conductor 指挥家：高级模型拆任务，worker 执行，高级模型验收\n多目录与 mode 无关：/add-dir /dirs /remove-dir',
@@ -343,7 +360,8 @@ export const enCatalog: Record<MessageKey, string> = {
 
   'slash.help.desc': 'Show all commands',
   'slash.settings.desc': 'Model & thinking effort',
-  'slash.model.desc': 'Switch model or thinking effort',
+  'slash.model.desc': 'Open model panel or switch by model ID',
+  'slash.free.desc': 'Show free models not yet supported by Kross',
   'slash.mode.desc': 'Switch agent mode',
   'slash.resume.desc': 'Open session picker or resume by id',
   'slash.lang.desc': 'Switch UI language',
@@ -432,11 +450,13 @@ export const enCatalog: Record<MessageKey, string> = {
   'settings.unconfigured': '{example} · {provider} (not configured)',
   'settings.noEffort': 'No thinking effort selected',
   'settings.current': 'current',
+  'settings.public': 'public·third-party',
+  'settings.notice': 'Notice: {notice}',
   'settings.effortOnly': 'Effort → {effort}',
   'settings.missingKey': '{name} has no credentials ({envs})',
   'settings.applied': 'Applied {label}',
   'settings.hotkeys':
-    '←/→ sections · ↑/↓ select · Enter apply · Esc close · ctrl+p toggle',
+    '←/→ sections · ↑/↓ select · Enter next/apply · Esc close · ctrl+p toggle',
 
   'session.readFailed': 'Failed to load sessions',
   'session.createFailed': 'Failed to create session; using a temporary one',
@@ -476,6 +496,20 @@ export const enCatalog: Record<MessageKey, string> = {
 
   'cmd.status':
     'Running local TUI. mode={mode} · perm={perm} · model={model}',
+  'cmd.free.title': 'Unsupported free models',
+  'cmd.free.intro': 'These models cannot currently be called by Kross:',
+  'cmd.free.model': 'Model',
+  'cmd.free.protocol': 'Protocol',
+  'cmd.free.context': 'Context',
+  'cmd.free.endpoint': 'Base URL',
+  'cmd.free.apiKey': 'API Key',
+  'cmd.free.limit': 'Restriction',
+  'cmd.free.codexOnly': 'The service only allows Codex CLI; Kross/pi-ai is rejected.',
+  'cmd.free.disclaimerLabel': 'Disclaimer:',
+  'cmd.free.disclaimer': 'Kross only shares public model information; availability and data handling are controlled by the third-party provider.',
+  'cmd.free.thanksLabel': 'Thanks:',
+  'cmd.free.thanks': 'Thanks to the public service operator for providing free model access.',
+  'cmd.free.empty': 'There are no unsupported free models.',
   'cmd.expandDone':
     'Toggled the latest thinking block (also available via ctrl+o).',
   'cmd.modeUsage':

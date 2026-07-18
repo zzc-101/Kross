@@ -12,7 +12,9 @@ import { delimiter, dirname, join } from 'node:path';
 import { isAppLocale, type AppLocale } from '../i18n';
 import type { McpServersConfig } from '../mcp/types';
 import { createLlmClient } from '../llm/createLlmClient';
+import { createLlmClientForPublicModel } from '../llm/createLlmClient';
 import { isLlmProvider } from '../llm/llmProviders';
+import { getPublicModel } from '../llm/publicModels';
 import { isUsableLlmConfig } from '../llm/resolveCredentials';
 import type { ThinkingEffort } from '../llm/thinkingEffort';
 import type { LlmClient, LlmFetch, LlmProvider } from '../llm/types';
@@ -29,6 +31,8 @@ export interface ImportedLlmConfig {
   thinkingEffort?: ThinkingEffort;
   /** 模型上下文窗口 token 数；未设置时统一使用 256K。 */
   contextWindow?: number;
+  /** Repository-managed public model selection; credentials come from catalog. */
+  publicModelId?: string;
 }
 
 export interface KrossConfig {
@@ -212,6 +216,11 @@ export function createLlmClientFromKrossConfig(
   fetch?: LlmFetch
 ): LlmClient | undefined {
   const llm = config?.llm;
+  if (llm?.publicModelId && getPublicModel(llm.publicModelId)) {
+    return createLlmClientForPublicModel(llm.publicModelId, {
+      thinkingEffort: llm.thinkingEffort
+    });
+  }
   if (!isUsableImportedLlmConfig(llm) || !isLlmProvider(llm.provider)) {
     return undefined;
   }
@@ -243,6 +252,31 @@ export function createLlmClientFromKrossConfig(
     contextWindow: llm.contextWindow,
     fetch
   });
+}
+
+export function updateKrossPublicModelConfig(
+  publicModelId: string,
+  thinkingEffort?: ThinkingEffort,
+  options: ConfigPersistenceOptions = {}
+): { configPath: string; config: KrossConfig } {
+  const definition = getPublicModel(publicModelId);
+  if (!definition) {
+    throw new Error(`unknown public model: ${publicModelId}`);
+  }
+
+  const configPath = resolveKrossConfigPath(options);
+  const existing = loadKrossConfig(options);
+  const config: KrossConfig = {
+    ...existing,
+    llm: {
+      provider: definition.provider,
+      model: definition.model,
+      publicModelId: definition.id,
+      ...(thinkingEffort ? { thinkingEffort } : {})
+    }
+  };
+  writeKrossConfig(configPath, config);
+  return { configPath, config };
 }
 
 /**

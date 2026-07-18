@@ -5,24 +5,11 @@ import { handleModelCommand } from './modelCommand';
 import type { LlmClient, LlmRequest, LlmResponse, LlmStreamChunk } from './types';
 
 describe('handleModelCommand', () => {
-  it('reports no model when client is missing', () => {
-    const result = handleModelCommand(undefined, undefined, {});
+  it('shows the retained direct-switch usage when model id is missing', () => {
+    const result = handleModelCommand(undefined, undefined);
     expect(result.kind).toBe('message');
     if (result.kind === 'message') {
-      expect(result.text).toContain('no model');
-    }
-  });
-
-  it('lists providers and marks configured ones', () => {
-    const result = handleModelCommand('list', undefined, {
-      OPENROUTER_API_KEY: 'k',
-      OPENROUTER_MODEL: 'openai/gpt-4o-mini'
-    });
-    expect(result.kind).toBe('message');
-    if (result.kind === 'message') {
-      expect(result.text).toContain('openrouter');
-      expect(result.text).toContain('✓');
-      expect(result.text).toContain('model=openai/gpt-4o-mini');
+      expect(result.text).toContain('/model <modelId>');
     }
   });
 
@@ -32,88 +19,46 @@ describe('handleModelCommand', () => {
       apiKey: 'key',
       model: 'gpt-a'
     });
-    const result = handleModelCommand('gpt-b', client, {});
+    const result = handleModelCommand('gpt-b', client);
     expect(result.kind).toBe('set-model');
     expect(client.model).toBe('gpt-b');
     if (result.kind === 'set-model') {
       expect(result.model).toBe('gpt-b');
-      expect(result.text).toContain('gpt-b (medium)');
+      expect(result.text).toContain('gpt-b (high)');
     }
   });
 
-  it('creates a client when switching provider with env credentials', () => {
-    const current = createLlmClient({
-      provider: 'openai',
-      apiKey: 'key',
-      model: 'gpt-a'
-    });
-    const result = handleModelCommand('deepseek deepseek-chat', current, {
-      DEEPSEEK_API_KEY: 'ds-key',
-      DEEPSEEK_MODEL: 'deepseek-chat'
-    });
-    expect(result.kind).toBe('replace-client');
-    if (result.kind === 'replace-client') {
-      expect(result.provider).toBe('deepseek');
-      expect(result.model).toBe('deepseek-chat');
-      expect(result.client.provider).toBe('deepseek');
-    }
-  });
-
-  it('uses the explicit model when provider env only contains an API key', () => {
-    const result = handleModelCommand('openai gpt-explicit', undefined, {
-      OPENAI_API_KEY: 'key'
-    });
-
-    expect(result.kind).toBe('replace-client');
-    if (result.kind === 'replace-client') {
-      expect(result.provider).toBe('openai');
-      expect(result.model).toBe('gpt-explicit');
-      expect(result.client.model).toBe('gpt-explicit');
-    }
-  });
-
-  it('errors when switching provider without credentials', () => {
+  it('rejects the removed provider plus model syntax', () => {
     const current = new StubClient();
-    const result = handleModelCommand('xai grok-3-mini', current, {});
+    const result = handleModelCommand('xai grok-3-mini', current);
     expect(result.kind).toBe('message');
     if (result.kind === 'message') {
-      expect(result.text).toMatch(/密钥|XAI/i);
+      expect(result.text).toContain('/model <modelId>');
     }
+    expect(current.model).toBe('stub');
   });
 
-  it('sets thinking effort via /model <effort>', () => {
+  it('rejects removed effort subcommands without changing model or effort', () => {
     const current = new StubClient();
     current.thinkingEffort = 'medium';
-    const result = handleModelCommand('high', current, {});
-    expect(result.kind).toBe('set-effort');
-    expect(current.thinkingEffort).toBe('high');
+    const result = handleModelCommand('high', current);
+    expect(result.kind).toBe('message');
+    expect(current.model).toBe('stub');
+    expect(current.thinkingEffort).toBe('medium');
   });
 
-  it('cycles thinking effort via /model cycle', () => {
+  it('rejects removed textual list aliases', () => {
     const current = new StubClient();
-    current.thinkingEffort = 'high';
-    const result = handleModelCommand('cycle', current, {});
-    expect(result.kind).toBe('set-effort');
-    if (result.kind === 'set-effort') {
-      expect(result.effort).toBe('xhigh');
-    }
+    expect(handleModelCommand('list', current).kind).toBe('message');
+    expect(handleModelCommand('providers', current).kind).toBe('message');
+    expect(current.model).toBe('stub');
   });
 
-  it('uses saved kross credentials when env lacks keys', () => {
-    const result = handleModelCommand(
-      'anthropic claude-test',
-      undefined,
-      {},
-      {
-        provider: 'anthropic',
-        authToken: 'saved-token',
-        model: 'claude-old'
-      }
-    );
-    expect(result.kind).toBe('replace-client');
-    if (result.kind === 'replace-client') {
-      expect(result.provider).toBe('anthropic');
-      expect(result.model).toBe('claude-test');
+  it('requires a configured current client', () => {
+    const result = handleModelCommand('gpt-b', undefined);
+    expect(result.kind).toBe('message');
+    if (result.kind === 'message') {
+      expect(result.text).toContain('当前未配置 LLM');
     }
   });
 });
@@ -125,10 +70,6 @@ class StubClient implements LlmClient {
 
   setModel(model: string): void {
     this.model = model;
-  }
-
-  setThinkingEffort(effort: import('./thinkingEffort').ThinkingEffort): void {
-    this.thinkingEffort = effort;
   }
 
   async complete(_request: LlmRequest): Promise<LlmResponse> {

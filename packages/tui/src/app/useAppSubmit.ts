@@ -115,7 +115,7 @@ export function useAppSubmit({
       return;
     }
 
-    // 打开设置面板（快捷入口，避免记一堆 /model /think 参数）
+    // 打开设置面板；带参数的 /model <modelId> 仍交给命令处理。
     if (trimmed === '/settings' || trimmed === '/model') {
       setInput('');
       openModelSettings();

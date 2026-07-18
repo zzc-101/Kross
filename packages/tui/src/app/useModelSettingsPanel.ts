@@ -4,6 +4,7 @@ import {
   getLlmProviderDefinition,
   loadKrossConfig,
   updateKrossLlmConfig,
+  updateKrossPublicModelConfig,
   type AgentRuntime
 } from '@kross/core';
 
@@ -57,6 +58,15 @@ export function useModelSettingsPanel({
     const client = agentRuntime.getLlmClient();
     if (client?.model) {
       try {
+        if (result.publicModelId) {
+          updateKrossPublicModelConfig(
+            result.publicModelId,
+            agentRuntime.getThinkingEffort()
+          );
+          append('system', result.summary);
+          setModelSettings(undefined);
+          return;
+        }
         const def = getLlmProviderDefinition(client.provider);
         const env = process.env;
         const apiKey = def.apiKeyEnv
@@ -106,13 +116,13 @@ export function useModelSettingsPanel({
     }
     if (key.leftArrow) {
       setModelSettings((current) =>
-        current ? switchSettingsSection(current, 'effort') : current
+        current ? switchSettingsSection(current, 'model') : current
       );
       return true;
     }
     if (key.rightArrow) {
       setModelSettings((current) =>
-        current ? switchSettingsSection(current, 'model') : current
+        current ? switchSettingsSection(current, 'effort') : current
       );
       return true;
     }
@@ -129,6 +139,12 @@ export function useModelSettingsPanel({
       return true;
     }
     if (key.return) {
+      if (modelSettings.section === 'model') {
+        setModelSettings((current) =>
+          current ? switchSettingsSection(current, 'effort') : current
+        );
+        return true;
+      }
       confirmModelSettings();
       return true;
     }

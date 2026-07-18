@@ -55,5 +55,7 @@ export class ModelSession {
       throw new Error('当前 LLM 客户端不支持切换模型');
     }
     client.setModel(model);
+    // pi-ai catalog models may have different context windows.
+    this.onClientChange(client);
   }
 }

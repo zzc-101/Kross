@@ -90,6 +90,8 @@ export type LlmStreamChunk =
 
 export interface LlmClient {
   readonly provider: LlmProvider;
+  /** Repository-managed public model identity, when applicable. */
+  readonly publicModelId?: string;
   /** 当前默认模型名，供 TUI 状态栏展示。 */
   readonly model?: string;
   /** 默认思考强度（状态栏与请求共用）。 */
@@ -108,6 +110,7 @@ export interface LlmClient {
 }
 
 export type LlmFetch = (url: string, init: RequestInit) => Promise<Response>;
+export type OpenAiWireApi = 'responses' | 'completions';
 
 export interface BaseLlmClientConfig {
   apiKey?: string;
@@ -117,6 +120,9 @@ export interface BaseLlmClientConfig {
   fetch?: LlmFetch;
   thinkingEffort?: ThinkingEffort;
   contextWindow?: number;
+  publicModelId?: string;
+  /** Explicit protocol for custom OpenAI-compatible endpoints. */
+  wireApi?: OpenAiWireApi;
 }
 
 export interface OpenAiFamilyClientConfig extends BaseLlmClientConfig {

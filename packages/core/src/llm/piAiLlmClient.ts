@@ -1,24 +1,23 @@
 import {
-  createModels,
-  createProvider,
   type Api,
   type Model,
   type MutableModels,
   type SimpleStreamOptions
 } from '@earendil-works/pi-ai';
-import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy';
-import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
 
-import {
-  getLlmProviderDefinition,
-  type LlmProvider
-} from './llmProviders';
-import { resolveModelContextWindow } from './modelContextWindows';
+import type { LlmProvider } from './llmProviders';
 import {
   fromPiAssistantMessage,
   mapPiStreamEvent,
   toPiContext
 } from './piAiConvert';
+import {
+  createPiAiModels,
+  FALLBACK_MAX_TOKENS,
+  normalizeAnthropicBaseUrl,
+  normalizeOpenAiBaseUrl,
+  resolvePiAiModel
+} from './piAiModels';
 import {
   abortReason,
   abortableAsyncIterable,
@@ -40,7 +39,6 @@ import type {
 } from './types';
 import { LlmProviderError } from './types';
 
-const DEFAULT_MAX_TOKENS = 32_768;
 /** 流式两次 chunk 之间最长空闲；超时当作取消，避免半开连接死等 + UI 空转 */
 const STREAM_IDLE_MS = 180_000;
 
@@ -50,6 +48,7 @@ const STREAM_IDLE_MS = 180_000;
  */
 export class PiAiLlmClient implements LlmClient {
   readonly provider: LlmProvider;
+  readonly publicModelId: string | undefined;
   private _model: string;
   private _thinkingEffort: ThinkingEffort;
   private _lastUsage: LlmUsage | undefined;
@@ -58,21 +57,21 @@ export class PiAiLlmClient implements LlmClient {
   private piModel: Model<Api>;
   private readonly apiKey?: string;
   private readonly authToken?: string;
-  private readonly api: string;
 
   constructor(private readonly config: LlmClientConfig) {
     this.provider = config.provider;
+    this.publicModelId = config.publicModelId;
     this._model = config.model;
     this._thinkingEffort = config.thinkingEffort ?? DEFAULT_THINKING_EFFORT;
     this.apiKey = config.apiKey;
     this.authToken =
       this.provider === 'anthropic' ? config.authToken : undefined;
 
-    const def = getLlmProviderDefinition(this.provider);
-    this.api = def.apiFamily;
-    this.piModel = buildModel(config);
-    this.models = createModels();
-    this.models.setProvider(buildProvider(config, this.piModel, this.apiKey, this.authToken));
+    this.models = createPiAiModels(this.provider, {
+      baseUrl: this.config.baseUrl,
+      headerAuth: Boolean(this.authToken)
+    });
+    this.piModel = this.resolveModel(this._model);
   }
 
   get model(): string {
@@ -84,11 +83,7 @@ export class PiAiLlmClient implements LlmClient {
   }
 
   get contextWindow(): number {
-    return resolveModelContextWindow(
-      this._model,
-      process.env,
-      this.config.contextWindow
-    );
+    return this.piModel.contextWindow;
   }
 
   get lastUsage(): LlmUsage | undefined {
@@ -104,13 +99,11 @@ export class PiAiLlmClient implements LlmClient {
     if (!next) {
       throw new Error('model 不能为空');
     }
+    if (this.publicModelId && next !== this._model) {
+      throw new Error('公益模型不支持修改底层 model id，请从 /model 面板切换模型');
+    }
     this._model = next;
-    this.piModel = {
-      ...this.piModel,
-      id: next,
-      name: next,
-      contextWindow: this.contextWindow
-    };
+    this.piModel = this.resolveModel(next);
   }
 
   setThinkingEffort(effort: ThinkingEffort): void {
@@ -119,18 +112,19 @@ export class PiAiLlmClient implements LlmClient {
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     throwIfAborted(request.signal);
+    const model = this.modelForRequest(request);
     const context = toPiContext(request.messages, request.tools, {
       provider: this.provider,
-      model: request.model ?? this._model,
-      api: this.api
+      model: model.id,
+      api: model.api
     });
 
     // raceAbort：即使 pi-ai 未及时响应 signal，await 也能在 Esc 时立刻解开
     const message = await raceAbort(
       this.models.completeSimple(
-        this.modelForRequest(request),
+        model,
         context,
-        this.simpleStreamOptions(request)
+        this.simpleStreamOptions(request, model)
       ),
       request.signal
     );
@@ -153,16 +147,17 @@ export class PiAiLlmClient implements LlmClient {
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
     throwIfAborted(request.signal);
     this._lastUsage = undefined;
+    const model = this.modelForRequest(request);
     const context = toPiContext(request.messages, request.tools, {
       provider: this.provider,
-      model: request.model ?? this._model,
-      api: this.api
+      model: model.id,
+      api: model.api
     });
 
     const stream = this.models.streamSimple(
-      this.modelForRequest(request),
+      model,
       context,
-      this.simpleStreamOptions(request)
+      this.simpleStreamOptions(request, model)
     );
 
     try {
@@ -204,23 +199,25 @@ export class PiAiLlmClient implements LlmClient {
     if (modelId === this.piModel.id) {
       return this.piModel;
     }
-    return {
-      ...this.piModel,
-      id: modelId,
-      name: modelId,
-      contextWindow: resolveModelContextWindow(
-        modelId,
-        process.env,
-        this.config.contextWindow
-      )
-    };
+    return this.resolveModel(modelId);
   }
 
-  private simpleStreamOptions(request: LlmRequest): SimpleStreamOptions {
+  private resolveModel(modelId: string): Model<Api> {
+    return resolvePiAiModel(this.models, this.provider, modelId, {
+      baseUrl: this.config.baseUrl,
+      contextWindow: this.config.contextWindow,
+      wireApi: this.config.wireApi
+    });
+  }
+
+  private simpleStreamOptions(
+    request: LlmRequest,
+    model: Model<Api>
+  ): SimpleStreamOptions {
     const effort = request.thinkingEffort ?? this._thinkingEffort;
     const options: SimpleStreamOptions = {
       temperature: request.temperature,
-      maxTokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
+      maxTokens: request.maxTokens ?? model.maxTokens ?? FALLBACK_MAX_TOKENS,
       metadata: request.metadata,
       signal: request.signal
     };
@@ -242,144 +239,4 @@ export class PiAiLlmClient implements LlmClient {
   }
 }
 
-function buildProvider(
-  config: LlmClientConfig,
-  model: Model<Api>,
-  apiKey: string | undefined,
-  authToken: string | undefined
-) {
-  const def = getLlmProviderDefinition(config.provider);
-
-  if (def.apiFamily === 'anthropic-messages') {
-    return createProvider({
-      id: model.provider,
-      name: def.name,
-      baseUrl: model.baseUrl,
-      auth: {
-        apiKey: {
-          name: 'API key',
-          resolve: async () => {
-            if (authToken) {
-              return {
-                auth: {
-                  headers: {
-                    authorization: `Bearer ${authToken}`
-                  }
-                }
-              };
-            }
-            if (apiKey) {
-              return { auth: { apiKey } };
-            }
-            return undefined;
-          }
-        }
-      },
-      models: [model as Model<'anthropic-messages'>],
-      api: anthropicMessagesApi()
-    });
-  }
-
-  return createProvider({
-    id: model.provider,
-    name: def.name,
-    baseUrl: model.baseUrl,
-    auth: {
-      apiKey: {
-        name: 'API key',
-        resolve: async () => (apiKey ? { auth: { apiKey } } : undefined)
-      }
-    },
-    models: [model as Model<'openai-completions'>],
-    api: openAICompletionsApi()
-  });
-}
-
-function buildModel(config: LlmClientConfig): Model<Api> {
-  const def = getLlmProviderDefinition(config.provider);
-
-  if (def.apiFamily === 'anthropic-messages') {
-    return {
-      id: config.model,
-      name: config.model,
-      api: 'anthropic-messages',
-      provider: config.provider,
-      baseUrl: normalizeAnthropicBaseUrl(config.baseUrl ?? def.defaultBaseUrl),
-      reasoning: true,
-      input: ['text'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: resolveModelContextWindow(
-        config.model,
-        process.env,
-        config.contextWindow
-      ),
-      maxTokens: DEFAULT_MAX_TOKENS,
-      compat: {
-        supportsEagerToolInputStreaming: false,
-        supportsLongCacheRetention: false
-      }
-    } satisfies Model<'anthropic-messages'>;
-  }
-
-  return {
-    id: config.model,
-    name: config.model,
-    api: 'openai-completions',
-    provider: config.provider,
-    baseUrl: normalizeOpenAiBaseUrl(config.baseUrl ?? def.defaultBaseUrl),
-    reasoning: true,
-    input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: resolveModelContextWindow(
-      config.model,
-      process.env,
-      config.contextWindow
-    ),
-    maxTokens: DEFAULT_MAX_TOKENS,
-    compat: openaiFamilyCompat(config.provider)
-  } satisfies Model<'openai-completions'>;
-}
-
-function openaiFamilyCompat(
-  provider: LlmProvider
-): Model<'openai-completions'>['compat'] {
-  if (provider === 'deepseek') {
-    return {
-      supportsStore: false,
-      supportsDeveloperRole: false,
-      requiresReasoningContentOnAssistantMessages: true,
-      thinkingFormat: 'deepseek'
-    };
-  }
-  if (provider === 'openrouter') {
-    return {
-      thinkingFormat: 'openrouter'
-    };
-  }
-  if (provider === 'xai') {
-    return {
-      supportsStore: false
-    };
-  }
-  return undefined;
-}
-
-/** OpenAI-compatible chat completions expect .../v1. */
-export function normalizeOpenAiBaseUrl(baseUrl?: string): string {
-  const fallback = getLlmProviderDefinition('openai').defaultBaseUrl;
-  const raw = (baseUrl ?? fallback).replace(/\/+$/, '');
-  return raw || fallback;
-}
-
-/**
- * Anthropic SDK treats baseURL as origin root and appends /v1/messages.
- * Strip a trailing /v1 so imported Kross configs (with /v1) still work.
- */
-export function normalizeAnthropicBaseUrl(baseUrl?: string): string {
-  const fallback = getLlmProviderDefinition('anthropic').defaultBaseUrl;
-  const raw = (baseUrl ?? fallback).replace(/\/+$/, '');
-  if (!raw) {
-    return fallback;
-  }
-  return raw.replace(/\/v1$/i, '') || fallback;
-}
+export { normalizeAnthropicBaseUrl, normalizeOpenAiBaseUrl };

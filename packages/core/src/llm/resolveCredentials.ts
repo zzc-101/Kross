@@ -5,6 +5,7 @@ import {
   type ResolvedProviderCredentials
 } from './llmProviders';
 import type { ThinkingEffort } from './thinkingEffort';
+import { getPublicModel } from './publicModels';
 
 export interface ResolvedLlmCredentials extends ResolvedProviderCredentials {
   thinkingEffort?: ThinkingEffort;
@@ -24,7 +25,8 @@ export function resolveProviderCredentials(
   explicitModel?: string
 ): ResolvedLlmCredentials | undefined {
   const def = getLlmProviderDefinition(provider);
-  const savedMatch = saved?.provider === provider ? saved : undefined;
+  const savedMatch =
+    saved?.provider === provider && !saved.publicModelId ? saved : undefined;
 
   const apiKey = firstNonEmpty(
     firstEnv(env, def.apiKeyEnv),
@@ -69,6 +71,9 @@ export function resolveProviderCredentials(
 export function isUsableLlmConfig(
   config: ImportedLlmConfig | undefined
 ): config is ImportedLlmConfig {
+  if (config?.publicModelId && getPublicModel(config.publicModelId)) {
+    return true;
+  }
   if (!config?.model || !config.provider) {
     return false;
   }

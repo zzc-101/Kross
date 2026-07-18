@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { createLlmClient, createLlmClientFromEnv } from './createLlmClient';
+import {
+  createLlmClient,
+  createLlmClientForPublicModel,
+  createLlmClientFromEnv
+} from './createLlmClient';
 import { AnthropicProtocolClient } from './anthropicProtocolClient';
 import { OpenAiProtocolClient } from './openAiProtocolClient';
 import { PiAiLlmClient } from './piAiLlmClient';
@@ -72,6 +76,23 @@ describe('createLlmClient', () => {
   it('returns undefined when env does not configure an LLM provider', () => {
     expect(createLlmClientFromEnv({})).toBeUndefined();
   });
+
+  it.each([
+    ['public-hy3', 'anthropic', 'tencent/Hy3', 256_000]
+  ])(
+    'creates repository-managed public model %s with the pi backend',
+    (publicModelId, provider, model, contextWindow) => {
+      const client = createLlmClientForPublicModel(publicModelId);
+
+      expect(client).toBeInstanceOf(PiAiLlmClient);
+      expect(client).toMatchObject({
+        provider,
+        model,
+        publicModelId,
+        contextWindow
+      });
+    }
+  );
 
   it('reads OpenAI-compatible settings from env into pi client', () => {
     const client = createLlmClientFromEnv({

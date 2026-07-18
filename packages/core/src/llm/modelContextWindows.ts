@@ -1,10 +1,11 @@
-/** 所有模型统一使用 256K 默认窗口，可由环境变量或配置文件覆盖。 */
+/** 目录外模型的保守默认窗口。 */
 export const DEFAULT_CONTEXT_WINDOW = 256_000;
 
 export function resolveModelContextWindow(
   _model: string | undefined,
   env: Record<string, string | undefined> = process.env,
-  configuredWindow?: number
+  configuredWindow?: number,
+  catalogWindow?: number
 ): number {
   const override = parsePositiveInt(
     env.AGENT_CONTEXT_WINDOW ?? env.KROSS_CONTEXT_WINDOW
@@ -15,6 +16,11 @@ export function resolveModelContextWindow(
   const configured = parsePositiveNumber(configuredWindow);
   if (configured !== undefined) {
     return configured;
+  }
+
+  const catalog = parsePositiveNumber(catalogWindow);
+  if (catalog !== undefined) {
+    return catalog;
   }
 
   return DEFAULT_CONTEXT_WINDOW;

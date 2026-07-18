@@ -94,11 +94,6 @@ describe('App commands and model settings', () => {
       );
       expect(lastFrame()).toContain('gpt-switched (medium)');
       expect(runtime.getModelLabel()).toBe('gpt-switched (medium)');
-
-      await submit?.('/model high');
-      await waitUntil(() => lastFrame()?.includes('gpt-switched (high)') === true);
-      expect(runtime.getModelLabel()).toBe('gpt-switched (high)');
-      expect(runtime.getThinkingEffort()).toBe('high');
     });
 
   it('opens settings panel via /settings and bare /model', async () => {
@@ -121,6 +116,47 @@ describe('App commands and model settings', () => {
       await submit?.('/model');
       await waitUntil(() => lastFrame()?.includes('模型与思考强度') === true);
     });
+
+  it('does not route removed /model list through the settings panel', async () => {
+      let submit: ((value: string) => Promise<void>) | undefined;
+      const runtime = new AgentRuntime({
+        traceStore: new InMemoryTraceStore(),
+        llmClient: new FakeLlmClient('ok')
+      });
+      const { lastFrame } = render(
+        <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+      );
+
+      await waitUntil(() => submit !== undefined);
+      await submit?.('/model list');
+      await waitUntil(() => lastFrame()?.includes('子命令已移除') === true);
+      expect(runtime.getModelLabel()).toBe('fake-model (medium)');
+    });
+
+  it('shows unsupported public models via /free without adding them to /model', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('ok')
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('/free');
+    await waitUntil(() => lastFrame()?.includes('GPT-5.6 Public') === true);
+    expect(lastFrame()).toContain('暂未支持的公益模型');
+    expect(lastFrame()).toContain('gpt-5.6-luna');
+    expect(lastFrame()).toContain('gpt-5.6-sol');
+    expect(lastFrame()).toContain('gpt-5.6-terra');
+    expect(lastFrame()).toContain('Codex CLI');
+    expect(lastFrame()).toContain('API Key');
+    expect(lastFrame()).toContain('sk-qSELE');
+    expect(lastFrame()).toContain('仅作公益模型信息分享');
+    expect(lastFrame()).toContain('感谢公益站维护者');
+
+  });
 
   it('shows a submitted message in conversation history', async () => {
       let submit: ((value: string) => Promise<void>) | undefined;

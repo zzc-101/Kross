@@ -21,7 +21,7 @@ export const THINKING_EFFORT_LEVELS: readonly ThinkingEffort[] = [
   'xhigh'
 ];
 
-export const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'medium';
+export const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'high';
 
 export function isThinkingEffort(value: string): value is ThinkingEffort {
   return (THINKING_EFFORT_LEVELS as readonly string[]).includes(value);
@@ -63,15 +63,4 @@ export function formatModelEffortLabel(
     return 'no model';
   }
   return `${name} (${effort})`;
-}
-
-export function formatThinkingEffortHelp(current?: ThinkingEffort): string {
-  const levels = THINKING_EFFORT_LEVELS.join('|');
-  return [
-    current ? `当前思考强度: ${current}` : '当前思考强度: (未配置模型)',
-    `用法: /think ${levels}`,
-    '      /think            查看当前',
-    '      /think cycle     循环切换下一级',
-    '别名: /effort'
-  ].join('\n');
 }

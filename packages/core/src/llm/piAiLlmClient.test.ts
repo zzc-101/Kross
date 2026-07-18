@@ -45,4 +45,16 @@ describe('PiAiLlmClient helpers', () => {
     expect(anthropic.provider).toBe('anthropic');
     expect(anthropic.model).toBe('claude-test');
   });
+
+  it('uses pi-ai catalog metadata and updates it when switching models', () => {
+    const client = new PiAiLlmClient({
+      provider: 'openai',
+      apiKey: 'key',
+      model: 'gpt-4o'
+    });
+
+    expect(client.contextWindow).toBe(128_000);
+    client.setModel('gpt-4.1');
+    expect(client.contextWindow).toBe(1_047_576);
+  });
 });

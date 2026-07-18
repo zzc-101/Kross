@@ -11,12 +11,9 @@ export const llmProviderSchema = z.enum([
 
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
 
-export type LlmApiFamily = 'openai-completions' | 'anthropic-messages';
-
 export interface LlmProviderDefinition {
   id: LlmProvider;
   name: string;
-  apiFamily: LlmApiFamily;
   defaultBaseUrl: string;
   /** Env vars checked in order for API key. */
   apiKeyEnv: readonly string[];
@@ -25,8 +22,10 @@ export interface LlmProviderDefinition {
   /** Optional Bearer auth (Anthropic-compatible gateways). */
   authTokenEnv?: readonly string[];
   baseUrlEnv?: string;
-  /** Shown in /model list help. */
+  /** Recommended models for provider metadata and compatibility checks. */
   exampleModel: string;
+  /** Curated choices for the compact TUI; metadata comes from pi-ai. */
+  recommendedModels: readonly string[];
   /** Native HTTP clients only implement openai + anthropic wire formats. */
   supportsNative: boolean;
 }
@@ -38,57 +37,71 @@ export const LLM_PROVIDER_DEFINITIONS: Record<
   openai: {
     id: 'openai',
     name: 'OpenAI',
-    apiFamily: 'openai-completions',
     defaultBaseUrl: 'https://api.openai.com/v1',
     apiKeyEnv: ['OPENAI_API_KEY'],
     modelEnv: ['OPENAI_MODEL', 'AGENT_LLM_MODEL'],
     baseUrlEnv: 'OPENAI_BASE_URL',
-    exampleModel: 'gpt-4o-mini',
+    exampleModel: 'gpt-5.6-sol',
+    recommendedModels: [
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.4-mini',
+      'gpt-4.1-mini'
+    ],
     supportsNative: true
   },
   anthropic: {
     id: 'anthropic',
     name: 'Anthropic',
-    apiFamily: 'anthropic-messages',
     defaultBaseUrl: 'https://api.anthropic.com',
     apiKeyEnv: ['ANTHROPIC_API_KEY'],
     authTokenEnv: ['ANTHROPIC_AUTH_TOKEN'],
     modelEnv: ['ANTHROPIC_MODEL', 'AGENT_LLM_MODEL'],
     baseUrlEnv: 'ANTHROPIC_BASE_URL',
-    exampleModel: 'claude-sonnet-4-5',
+    exampleModel: 'claude-sonnet-5',
+    recommendedModels: [
+      'claude-sonnet-5',
+      'claude-opus-4-8',
+      'claude-haiku-4-5'
+    ],
     supportsNative: true
   },
   openrouter: {
     id: 'openrouter',
     name: 'OpenRouter',
-    apiFamily: 'openai-completions',
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     apiKeyEnv: ['OPENROUTER_API_KEY'],
     modelEnv: ['OPENROUTER_MODEL', 'AGENT_LLM_MODEL'],
     baseUrlEnv: 'OPENROUTER_BASE_URL',
-    exampleModel: 'anthropic/claude-sonnet-4',
+    exampleModel: 'anthropic/claude-sonnet-4.6',
+    recommendedModels: [
+      'openai/gpt-5.4',
+      'anthropic/claude-sonnet-4.6',
+      'google/gemini-3.1-pro-preview',
+      'deepseek/deepseek-v3.2'
+    ],
     supportsNative: true
   },
   deepseek: {
     id: 'deepseek',
     name: 'DeepSeek',
-    apiFamily: 'openai-completions',
     defaultBaseUrl: 'https://api.deepseek.com',
     apiKeyEnv: ['DEEPSEEK_API_KEY'],
     modelEnv: ['DEEPSEEK_MODEL', 'AGENT_LLM_MODEL'],
     baseUrlEnv: 'DEEPSEEK_BASE_URL',
-    exampleModel: 'deepseek-chat',
+    exampleModel: 'deepseek-v4-pro',
+    recommendedModels: ['deepseek-v4-pro', 'deepseek-v4-flash'],
     supportsNative: true
   },
   xai: {
     id: 'xai',
     name: 'xAI',
-    apiFamily: 'openai-completions',
     defaultBaseUrl: 'https://api.x.ai/v1',
     apiKeyEnv: ['XAI_API_KEY'],
     modelEnv: ['XAI_MODEL', 'AGENT_LLM_MODEL'],
     baseUrlEnv: 'XAI_BASE_URL',
-    exampleModel: 'grok-3-mini',
+    exampleModel: 'grok-4.5',
+    recommendedModels: ['grok-4.5', 'grok-4.3', 'grok-code-fast-1'],
     supportsNative: true
   }
 };
@@ -103,14 +116,6 @@ export function getLlmProviderDefinition(
   provider: LlmProvider
 ): LlmProviderDefinition {
   return LLM_PROVIDER_DEFINITIONS[provider];
-}
-
-export function isOpenAiFamilyProvider(provider: LlmProvider): boolean {
-  return getLlmProviderDefinition(provider).apiFamily === 'openai-completions';
-}
-
-export function isAnthropicFamilyProvider(provider: LlmProvider): boolean {
-  return getLlmProviderDefinition(provider).apiFamily === 'anthropic-messages';
 }
 
 export function formatProviderModelLabel(
@@ -134,6 +139,17 @@ export interface ResolvedProviderCredentials {
   model: string;
   baseUrl?: string;
   anthropicVersion?: string;
+}
+
+export function hasProviderCredentialsFromEnv(
+  provider: LlmProvider,
+  env: Record<string, string | undefined>
+): boolean {
+  const def = getLlmProviderDefinition(provider);
+  return Boolean(
+    firstEnv(env, def.apiKeyEnv) ||
+      (def.authTokenEnv ? firstEnv(env, def.authTokenEnv) : undefined)
+  );
 }
 
 /**

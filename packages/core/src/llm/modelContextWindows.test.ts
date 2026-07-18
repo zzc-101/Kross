@@ -21,6 +21,23 @@ describe('modelContextWindows', () => {
     ).toBe(1_000_000);
   });
 
+  it('uses catalog metadata after env and config overrides', () => {
+    expect(resolveModelContextWindow('known', {}, undefined, 128_000)).toBe(
+      128_000
+    );
+    expect(resolveModelContextWindow('known', {}, 384_000, 128_000)).toBe(
+      384_000
+    );
+    expect(
+      resolveModelContextWindow(
+        'known',
+        { AGENT_CONTEXT_WINDOW: '512000' },
+        384_000,
+        128_000
+      )
+    ).toBe(512_000);
+  });
+
   it('formats compact token counts and usage pairs', () => {
     expect(formatCompactCount(267_000)).toBe('267K');
     expect(formatCompactCount(1_000_000)).toBe('1M');

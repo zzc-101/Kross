@@ -10,6 +10,7 @@ describe('slashCommands', () => {
     expect(slashCommands.some((command) => command.name === '/help')).toBe(true);
     expect(slashCommands.some((command) => command.name === '/perm')).toBe(true);
     expect(slashCommands.some((command) => command.name === '/lang')).toBe(true);
+    expect(slashCommands.some((command) => command.name === '/free')).toBe(true);
     expect(formatSlashHelp()).toContain('/context');
     expect(formatSlashHelp()).toContain('/instructions');
     expect(formatSlashHelp()).toContain('/skills');
@@ -17,6 +18,9 @@ describe('slashCommands', () => {
     expect(formatSlashHelp()).toContain('/compact');
     expect(formatSlashHelp()).toContain('/resume [sessionId]');
     expect(formatSlashHelp()).toContain('/lang zh|en');
+    expect(formatSlashHelp()).toContain('/model [modelId]');
+    expect(formatSlashHelp()).not.toContain('/model [model|effort]');
+    expect(formatSlashHelp()).toContain('/free');
   });
 
   it('filters by prefix', () => {
@@ -24,6 +28,7 @@ describe('slashCommands', () => {
     expect(names).toContain('/help');
     expect(names).toContain('/mode');
     expect(names).toContain('/add-dir');
+    expect(names).toContain('/free');
     expect(names).toHaveLength(8);
     expect(filterSlashCommands('/mo').map((command) => command.name)).toEqual([
       '/model',
@@ -37,6 +42,9 @@ describe('slashCommands', () => {
     ).toEqual(['/instructions']);
     expect(filterSlashCommands('/ski').map((command) => command.name)).toEqual([
       '/skills'
+    ]);
+    expect(filterSlashCommands('/fr').map((command) => command.name)).toEqual([
+      '/free'
     ]);
     expect(listSlashCommands().some((command) => command.name === '/model')).toBe(
       true

@@ -15,6 +15,7 @@ export function ModelSettingsPanel({
   const boxWidth = Math.max(12, Math.min(width ?? 56, 72));
   const innerWidth = boxWidth - 4;
   const hRule = symbols.boxHorizontal.repeat(boxWidth - 2);
+  const selectedModel = state.models[state.modelIndex];
 
   const Row = ({ children }: { children: React.ReactNode }) => (
     <Box>
@@ -41,43 +42,59 @@ export function ModelSettingsPanel({
       </Row>
 
       <Row>
-        <SectionTab
-          title={t('settings.effort')}
-          active={state.section === 'effort'}
-        />
-        <Text dimColor>  </Text>
+        <Text dimColor>{symbols.boxHorizontal.repeat(Math.min(innerWidth, 40))}</Text>
+      </Row>
+
+      <Row>
         <SectionTab title={t('settings.model')} active={state.section === 'model'} />
       </Row>
+
+      {state.models.map((item, index) => (
+        <Row key={item.id}>
+          <OptionLine
+            selected={index === state.modelIndex && item.configured}
+            focused={state.section === 'model' && index === state.modelIndex}
+            label={item.label}
+            dimmed={!item.configured}
+            badge={item.current ? t('settings.current') : undefined}
+          />
+        </Row>
+      ))}
+
+      {state.models.length === 0 ? (
+        <Row>
+          <Text dimColor>{t('settings.noModels')}</Text>
+        </Row>
+      ) : null}
+
+      {selectedModel?.notice ? (
+        <Row>
+          <Text dimColor>
+            {t('settings.notice', { notice: selectedModel.notice })}
+          </Text>
+        </Row>
+      ) : null}
 
       <Row>
         <Text dimColor>{symbols.boxHorizontal.repeat(Math.min(innerWidth, 40))}</Text>
       </Row>
 
-      {state.section === 'effort'
-        ? state.efforts.map((item, index) => (
-            <Row key={item.id}>
-              <OptionLine
-                selected={index === state.effortIndex}
-                label={item.label}
-              />
-            </Row>
-          ))
-        : state.models.map((item, index) => (
-            <Row key={item.id}>
-              <OptionLine
-                selected={index === state.modelIndex && item.configured}
-                label={item.label}
-                dimmed={!item.configured}
-                badge={item.current ? t('settings.current') : undefined}
-              />
-            </Row>
-          ))}
+      <Row>
+        <SectionTab
+          title={t('settings.effort')}
+          active={state.section === 'effort'}
+        />
+      </Row>
 
-      {state.section === 'model' && state.models.length === 0 ? (
-        <Row>
-          <Text dimColor>{t('settings.noModels')}</Text>
+      {state.efforts.map((item, index) => (
+        <Row key={item.id}>
+          <OptionLine
+            selected={index === state.effortIndex}
+            focused={state.section === 'effort' && index === state.effortIndex}
+            label={item.label}
+          />
         </Row>
-      ) : null}
+      ))}
 
       <Text color={theme.border}>
         {symbols.boxBottomLeft}
@@ -109,22 +126,28 @@ function SectionTab({
 
 function OptionLine({
   selected,
+  focused,
   label,
   dimmed = false,
   badge
 }: {
   selected: boolean;
+  focused: boolean;
   label: string;
   dimmed?: boolean;
   badge?: string;
 }) {
-  const pointer = selected ? `${symbols.approvePointer} ` : '  ';
+  const pointer = focused
+    ? `${symbols.approvePointer} `
+    : selected
+      ? '• '
+      : '  ';
   return (
     <Box>
       <Text
-        color={selected ? theme.selection : undefined}
-        bold={selected}
-        dimColor={dimmed && !selected}
+        color={focused ? theme.selection : undefined}
+        bold={focused}
+        dimColor={dimmed && !focused}
       >
         {pointer}
         {label}
