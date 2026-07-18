@@ -60,6 +60,8 @@ export type PaintItem = {
 
 export interface PaintWindow {
   items: PaintItem[];
+  /** Absolute row of items[0] in the full paint layout. */
+  startRow: number;
   maxScrollOffset: number;
   totalRows: number;
   hasMoreAbove: boolean;
@@ -210,6 +212,7 @@ export function windowPaintLayout(input: {
   if (entries.length === 0) {
     return {
       items: [],
+      startRow: 0,
       maxScrollOffset: 0,
       totalRows: 0,
       hasMoreAbove: false,
@@ -238,6 +241,7 @@ export function windowPaintLayout(input: {
 
   return {
     items: visible,
+    startRow: Math.max(0, endLine - visible.length),
     maxScrollOffset,
     totalRows,
     hasMoreAbove: startLine > 0,

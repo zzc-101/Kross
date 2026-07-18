@@ -52,6 +52,8 @@ import { useMouseClickDispatch } from './app/useMouseClickDispatch';
 import { useAppKeyboard } from './app/useAppKeyboard';
 import { useAppSubmit } from './app/useAppSubmit';
 import { useFooterHeight } from './app/useFooterHeight';
+import { useMessageTextSelection } from './app/useMessageTextSelection';
+import { copyTextToClipboard } from './terminal/clipboard';
 
 export interface AppProps {
   runtime?: AgentRuntime;
@@ -73,6 +75,8 @@ export interface AppProps {
   sessionStoreError?: string;
   /** 由启动入口统一执行 flush → unmount → close。 */
   onExitRequest?: () => void;
+  /** Test/embed override for drag-to-copy delivery. */
+  copyToClipboard?: (text: string) => unknown;
   /** 可选的持久化会话服务；测试/嵌入场景不传时保持纯内存行为。 */
   sessionStore?: Pick<
     HybridSessionStore,
@@ -117,7 +121,8 @@ export function App({
   version = '0.1.0',
   sessionStore,
   sessionStoreError,
-  onExitRequest
+  onExitRequest,
+  copyToClipboard = copyTextToClipboard
 }: AppProps) {
   const { columns, rows, isTty } = useTerminalSize();
   const shellMode = fullscreen && isTty;
@@ -545,6 +550,19 @@ export function App({
     footerHeight
   });
 
+  const textSelectionState = useMessageTextSelection({
+    enabled: shellMode,
+    blocked: isHome || Boolean(pendingToolApproval) || modelSettingsOpen,
+    messages,
+    columns: contentWidth,
+    viewportRows: messageViewportHeight,
+    viewportTopRow: headerHeight + 1,
+    scrollOffset,
+    streamingMessageId,
+    paintCache: clickPaintCacheRef.current,
+    copyText: copyToClipboard
+  });
+
   useMouseClickDispatch({
     shellMode,
     pendingToolApproval,
@@ -635,6 +653,7 @@ export function App({
         permissionMode={permissionMode}
         width={contentWidth}
         bottomGap={composerBottomGap}
+        clipboardFeedback={textSelectionState.feedback}
       />
 
       <SubagentPanel subagents={subagents} width={contentWidth} />
@@ -663,6 +682,8 @@ export function App({
       height={shellMode ? messageViewportHeight : undefined}
       columns={contentWidth}
       onScrollBounds={shellMode ? handleScrollBounds : undefined}
+      paintCache={clickPaintCacheRef.current}
+      textSelection={textSelectionState.selection}
     />
   );
 

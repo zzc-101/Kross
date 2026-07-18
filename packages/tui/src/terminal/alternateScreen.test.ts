@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   canUseAlternateScreen,
   enterAlternateScreen,
+  isMouseTrackingDisabled,
   leaveAlternateScreen
 } from './alternateScreen';
 
@@ -44,9 +45,27 @@ describe('alternateScreen', () => {
     expect(ttyWrite).toHaveBeenCalled();
     expect(nonTtyWrite).not.toHaveBeenCalled();
     expect(String(ttyWrite.mock.calls[0]?.[0])).toContain('1049');
-    // 仅 1000+1006，不应再启用 1015（会注入无 < 的乱码序列）
+    // 1002 报告按住左键的拖动；不启用 1015（会注入无 < 的乱码序列）。
     const written = ttyWrite.mock.calls.map((c) => String(c[0])).join('');
+    expect(written).toContain('1002h');
     expect(written).toContain('1006');
     expect(written).not.toContain('1015h');
+  });
+
+  it('can disable mouse capture for native terminal selection', () => {
+    expect(isMouseTrackingDisabled({ KROSS_DISABLE_MOUSE: '1' })).toBe(true);
+    expect(isMouseTrackingDisabled({ KROSS_DISABLE_MOUSE: 'true' })).toBe(true);
+    expect(isMouseTrackingDisabled({})).toBe(false);
+
+    const write = vi.fn();
+    const fakeStdin = { emit: vi.fn() } as unknown as NodeJS.ReadStream;
+    enterAlternateScreen(
+      { isTTY: true, write } as unknown as NodeJS.WriteStream,
+      fakeStdin,
+      { KROSS_DISABLE_MOUSE: '1' }
+    );
+    const written = write.mock.calls.map((call) => String(call[0])).join('');
+    expect(written).toContain('1049h');
+    expect(written).not.toContain('1002h');
   });
 });

@@ -18,6 +18,15 @@ export {
 } from './MessageLine';
 export { MessageViewport } from './MessageViewport';
 export {
+  copyPaintSelection,
+  highlightPaintSegments,
+  resolveViewportSelectionPoint,
+  selectionColumnsForRow,
+  sliceDisplayColumns,
+  type TextSelectionPoint,
+  type TextSelectionRange
+} from './textSelection';
+export {
   estimateMessageRows,
   layoutFingerprint,
   countWrappedRows,

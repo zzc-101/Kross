@@ -11,6 +11,12 @@ import {
   type PaintItem,
   type PaintSegment
 } from './messagePaint';
+import {
+  highlightPaintSegments,
+  selectionColumnsForRow,
+  type TextSelectionRange
+} from './textSelection';
+import { displayWidth } from './markdownParse';
 import { symbols, theme } from './theme';
 import { usePulse } from './usePulse';
 
@@ -28,7 +34,9 @@ export function MessageViewport({
   columns = 80,
   scrollOffset = 0,
   tip,
-  onScrollBounds
+  onScrollBounds,
+  paintCache,
+  textSelection
 }: {
   messages: ChatMessage[];
   streamingMessageId?: number;
@@ -42,6 +50,8 @@ export function MessageViewport({
     maxScrollOffset: number;
     totalRows: number;
   }) => void;
+  paintCache?: MessagePaintCache;
+  textSelection?: TextSelectionRange;
 }) {
   const viewportRows = height && height > 0 ? height : undefined;
 
@@ -66,10 +76,17 @@ export function MessageViewport({
       messages,
       columns,
       streamingMessageId,
-      paintCache: paintCacheRef.current,
+      paintCache: paintCache ?? paintCacheRef.current,
       nowMs: Date.now()
     });
-  }, [messages, columns, viewportRows, streamingMessageId, thinkingClock]);
+  }, [
+    messages,
+    columns,
+    viewportRows,
+    streamingMessageId,
+    thinkingClock,
+    paintCache
+  ]);
 
   const { contentRows, scrollHint } = useMemo(() => {
     if (viewportRows === undefined) {
@@ -81,7 +98,7 @@ export function MessageViewport({
       viewportRows,
       scrollOffset,
       streamingMessageId,
-      paintCache: paintCacheRef.current
+      paintCache: paintCache ?? paintCacheRef.current
     });
     return {
       contentRows: resolved.contentRows,
@@ -166,6 +183,8 @@ export function MessageViewport({
             streamingMessageId={streamingMessageId}
             cursor={cursor}
             isLastVisible={index === windowed.items.length - 1}
+            absoluteRow={windowed.startRow + index}
+            textSelection={textSelection}
           />
         ))}
       </Box>
@@ -184,21 +203,33 @@ function PaintItemView({
   item,
   streamingMessageId,
   cursor,
-  isLastVisible
+  isLastVisible,
+  absoluteRow,
+  textSelection
 }: {
   item: PaintItem;
   streamingMessageId?: number;
   cursor: string;
   isLastVisible: boolean;
+  absoluteRow: number;
+  textSelection?: TextSelectionRange;
 }) {
   const showCursor =
     isLastVisible &&
     streamingMessageId !== undefined &&
     item.key.includes(`agent-${streamingMessageId}-`);
 
+  const lineWidth = displayWidth(
+    item.segments.map((segment) => segment.text).join('')
+  );
+  const selectedColumns = textSelection
+    ? selectionColumnsForRow(textSelection, absoluteRow, lineWidth)
+    : undefined;
+  const segments = highlightPaintSegments(item.segments, selectedColumns);
+
   return (
     <Text wrap="truncate">
-      {item.segments.map((seg, i) => (
+      {segments.map((seg, i) => (
         <Text key={i} {...segmentProps(seg)}>
           {seg.text}
         </Text>

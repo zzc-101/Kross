@@ -11,7 +11,10 @@ import {
   theme
 } from './theme';
 
-export const COMPOSER_HEIGHT = 3;
+export const COMPOSER_FRAME_HEIGHT = 3;
+export const COMPOSER_FEEDBACK_HEIGHT = 1;
+export const COMPOSER_HEIGHT =
+  COMPOSER_FEEDBACK_HEIGHT + COMPOSER_FRAME_HEIGHT;
 export const COMPOSER_BOTTOM_GAP = 3;
 export const COMPOSER_FOOTER_HEIGHT =
   COMPOSER_HEIGHT + COMPOSER_BOTTOM_GAP;
@@ -26,7 +29,8 @@ export function Composer({
   agentMode = 'auto',
   permissionMode = 'default',
   width,
-  bottomGap = COMPOSER_BOTTOM_GAP
+  bottomGap = COMPOSER_BOTTOM_GAP,
+  clipboardFeedback
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -40,6 +44,8 @@ export function Composer({
   width?: number;
   /** 输入框下方留白；有底部子代理条时可缩小为 0/1 */
   bottomGap?: number;
+  /** 鼠标拖选松开后的短暂复制结果。 */
+  clipboardFeedback?: 'copied' | 'failed';
 }) {
   const displayModelLabel =
     modelLabel === 'no model' ? t('composer.noModel') : modelLabel;
@@ -70,6 +76,26 @@ export function Composer({
       marginBottom={gap}
       flexShrink={0}
     >
+      <Box
+        width={boxWidth}
+        height={COMPOSER_FEEDBACK_HEIGHT}
+        justifyContent="flex-end"
+        paddingRight={1}
+      >
+        {clipboardFeedback ? (
+          <Text
+            color={
+              clipboardFeedback === 'copied'
+                ? theme.statusReady
+                : theme.statusError
+            }
+          >
+            {clipboardFeedback === 'copied'
+              ? t('clipboard.copied')
+              : t('clipboard.failed')}
+          </Text>
+        ) : null}
+      </Box>
       <Text color={theme.border}>{topBorder}</Text>
       <Box width={boxWidth} height={1}>
         <Text color={theme.border}>{symbols.boxVertical}</Text>

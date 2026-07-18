@@ -23,17 +23,26 @@ export function canUseAlternateScreen(
 
 export function enterAlternateScreen(
   stdout: NodeJS.WriteStream = process.stdout,
-  stdin: NodeJS.ReadStream = process.stdin
+  stdin: NodeJS.ReadStream = process.stdin,
+  env: NodeJS.ProcessEnv = process.env
 ): void {
   if (!stdout.isTTY) {
     return;
   }
-  // 必须在 Ink 订阅 stdin 之前安装：否则鼠标 CSI 会泄漏进输入框
-  installMouseInputFilter(stdin);
   stdout.write(ENTER_ALT);
   stdout.write(CLEAR_HOME);
-  // 滚轮 / 触摸板滑动（仅 1000+1006 SGR，不用 1015）
-  enableMouseTracking(stdout);
+  if (!isMouseTrackingDisabled(env)) {
+    // 必须在 Ink 订阅 stdin 之前安装：否则鼠标 CSI 会泄漏进输入框
+    installMouseInputFilter(stdin);
+    // 滚轮、点击与按住左键拖动；使用 1002+1006，不用 1015。
+    enableMouseTracking(stdout);
+  }
+}
+
+export function isMouseTrackingDisabled(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return /^(1|true|yes|on)$/i.test(env.KROSS_DISABLE_MOUSE ?? '');
 }
 
 export function leaveAlternateScreen(

@@ -43,6 +43,8 @@ export const zhCatalog = {
   'header.todo.empty': 'Todo · —',
   'header.todo.progress': 'Todo {done}/{total}',
   'header.todo.more': '+{count}',
+  'clipboard.copied': 'Copied',
+  'clipboard.failed': 'Copy failed',
 
   // status / mode / permission
   'status.ready': '就绪',
@@ -333,6 +335,8 @@ export const enCatalog: Record<MessageKey, string> = {
   'header.todo.empty': 'Todo · —',
   'header.todo.progress': 'Todo {done}/{total}',
   'header.todo.more': '+{count}',
+  'clipboard.copied': 'Copied',
+  'clipboard.failed': 'Copy failed',
 
   'status.ready': 'Ready',
   'status.responding': 'Thinking',

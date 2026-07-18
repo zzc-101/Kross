@@ -4,6 +4,8 @@ import {
   filterMouseSequences,
   stripMouseArtifactsFromInput,
   installMouseInputFilter,
+  subscribeClick,
+  subscribePointer,
   uninstallMouseInputFilter,
   subscribeWheel
 } from './mouseTracking';
@@ -43,12 +45,16 @@ describe('filterMouseSequences', () => {
     expect(carry).toBe('');
   });
 
-  it('emits left-click and strips from stdin rest', () => {
-    const { rest, events, clicks } = filterMouseSequences(
-      'ab\x1b[<0;12;8M\x1b[<32;12;9M\x1b[<3;12;9mcd'
+  it('emits left-button down/drag/up and strips them from stdin rest', () => {
+    const { rest, events, pointers } = filterMouseSequences(
+      'ab\x1b[<0;12;8M\x1b[<32;12;9M\x1b[<0;12;9mcd'
     );
     expect(events).toEqual([]);
-    expect(clicks).toEqual([{ col: 12, row: 8 }]);
+    expect(pointers).toEqual([
+      { phase: 'down', col: 12, row: 8 },
+      { phase: 'drag', col: 12, row: 9 },
+      { phase: 'up', col: 12, row: 9 }
+    ]);
     expect(rest).toBe('abcd');
   });
 
@@ -100,6 +106,32 @@ describe('installMouseInputFilter', () => {
     expect(wheels.some((w) => w.direction === 'up')).toBe(true);
 
     unsub();
+    uninstallMouseInputFilter();
+  });
+
+  it('dispatches a click only after a non-drag mouse release', () => {
+    const stdin = new EventEmitter() as EventEmitter & {
+      emit: (event: string | symbol, ...args: unknown[]) => boolean;
+    };
+    const pointers: string[] = [];
+    const clicks: Array<{ col: number; row: number }> = [];
+    const unsubPointer = subscribePointer((event) => pointers.push(event.phase));
+    const unsubClick = subscribeClick((event) => clicks.push(event));
+    installMouseInputFilter(stdin as unknown as NodeJS.ReadStream);
+
+    stdin.emit('data', '\x1b[<0;4;5M\x1b[<0;4;5m');
+    expect(pointers).toEqual(['down', 'up']);
+    expect(clicks).toEqual([{ col: 4, row: 5 }]);
+
+    stdin.emit(
+      'data',
+      '\x1b[<0;8;9M\x1b[<32;9;9M\x1b[<0;9;9m'
+    );
+    expect(pointers.slice(-3)).toEqual(['down', 'drag', 'up']);
+    expect(clicks).toHaveLength(1);
+
+    unsubPointer();
+    unsubClick();
     uninstallMouseInputFilter();
   });
 });

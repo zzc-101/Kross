@@ -1,7 +1,7 @@
 /**
  * 终端鼠标/触控板滚动上报。
  *
- * 启用 1000 + 1006（SGR）后，滚轮事件形如：
+ * 启用 1002 + 1006（SGR）后，滚轮事件形如：
  *   ESC [ < 64 ; col ; row M
  *
  * 注意：不要启用 1015（urxvt）。它会发无 `<` 的 CSI（如 ESC[98;60;21M），
@@ -12,9 +12,10 @@
  */
 
 const ENABLE_MOUSE =
-  // 基础按键上报 + SGR 坐标（带 <）。不启用 1015。
-  '\x1b[?1000h\x1b[?1006h';
-const DISABLE_MOUSE = '\x1b[?1000l\x1b[?1006l\x1b[?1015l';
+  // 按键 + 按住左键时的 motion + SGR 坐标。不启用 1003/1015。
+  '\x1b[?1002h\x1b[?1006h';
+const DISABLE_MOUSE =
+  '\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l';
 
 export type ScrollDirection = 'up' | 'down';
 
@@ -36,14 +37,27 @@ export interface MouseClickEvent {
 
 export type ClickListener = (event: MouseClickEvent) => void;
 
+/** 左键手势；drag 仅在按钮按住时由 1002 模式上报。 */
+export interface MousePointerEvent {
+  phase: 'down' | 'drag' | 'up';
+  col: number;
+  row: number;
+}
+
+export type PointerListener = (event: MousePointerEvent) => void;
+
 const wheelListeners = new Set<WheelListener>();
 const clickListeners = new Set<ClickListener>();
+const pointerListeners = new Set<PointerListener>();
 
 let filterInstalled = false;
 let pendingCarry = '';
 let originalEmit: ((event: string | symbol, ...args: unknown[]) => boolean) | null =
   null;
 let filteredStdin: NodeJS.ReadStream | null = null;
+let leftGesture:
+  | { col: number; row: number; dragged: boolean }
+  | undefined;
 
 export function enableMouseTracking(
   stdout: NodeJS.WriteStream = process.stdout
@@ -76,6 +90,14 @@ export function subscribeClick(listener: ClickListener): () => void {
   clickListeners.add(listener);
   return () => {
     clickListeners.delete(listener);
+  };
+}
+
+/** 订阅左键 down/drag/up，用于 TUI 内文本选择。 */
+export function subscribePointer(listener: PointerListener): () => void {
+  pointerListeners.add(listener);
+  return () => {
+    pointerListeners.delete(listener);
   };
 }
 
@@ -118,7 +140,7 @@ export function installMouseInputFilter(
         return emit(event, ...args);
       }
 
-      const { events, clicks, rest, carry } = filterMouseSequences(
+      const { events, pointers, rest, carry } = filterMouseSequences(
         pendingCarry + text
       );
       pendingCarry = carry;
@@ -132,14 +154,15 @@ export function installMouseInputFilter(
           }
         }
       }
-      for (const click of clicks) {
-        for (const listener of clickListeners) {
+      for (const pointer of pointers) {
+        for (const listener of pointerListeners) {
           try {
-            listener(click);
+            listener(pointer);
           } catch (error) {
-            console.error('[mouseTracking] click listener failed:', error);
+            console.error('[mouseTracking] pointer listener failed:', error);
           }
         }
+        dispatchClickFromPointer(pointer);
       }
 
       if (rest.length === 0) {
@@ -165,6 +188,7 @@ export function uninstallMouseInputFilter(): void {
     pendingCarry = '';
     originalEmit = null;
     filteredStdin = null;
+    leftGesture = undefined;
     return;
   }
   filteredStdin.emit = originalEmit as typeof filteredStdin.emit;
@@ -172,6 +196,7 @@ export function uninstallMouseInputFilter(): void {
   pendingCarry = '';
   originalEmit = null;
   filteredStdin = null;
+  leftGesture = undefined;
 }
 
 /**
@@ -180,12 +205,12 @@ export function uninstallMouseInputFilter(): void {
  */
 export function filterMouseSequences(chunk: string): {
   events: WheelEvent[];
-  clicks: MouseClickEvent[];
+  pointers: MousePointerEvent[];
   rest: string;
   carry: string;
 } {
   const events: WheelEvent[] = [];
-  const clicks: MouseClickEvent[] = [];
+  const pointers: MousePointerEvent[] = [];
   let rest = '';
   let i = 0;
 
@@ -198,14 +223,14 @@ export function filterMouseSequences(chunk: string): {
 
     const parsed = tryParseMouseAt(chunk, i);
     if (parsed.kind === 'incomplete') {
-      return { events, clicks, rest, carry: chunk.slice(i) };
+      return { events, pointers, rest, carry: chunk.slice(i) };
     }
     if (parsed.kind === 'mouse') {
       if (parsed.event) {
         events.push(parsed.event);
       }
-      if (parsed.click) {
-        clicks.push(parsed.click);
+      if (parsed.pointer) {
+        pointers.push(parsed.pointer);
       }
       i = parsed.end;
       continue;
@@ -216,7 +241,7 @@ export function filterMouseSequences(chunk: string): {
     i += 1;
   }
 
-  return { events, clicks, rest, carry: '' };
+  return { events, pointers, rest, carry: '' };
 }
 
 /**
@@ -241,7 +266,7 @@ type ParseResult =
       kind: 'mouse';
       end: number;
       event: WheelEvent | null;
-      click: MouseClickEvent | null;
+      pointer: MousePointerEvent | null;
     };
 
 function tryParseMouseAt(chunk: string, start: number): ParseResult {
@@ -263,7 +288,7 @@ function tryParseMouseAt(chunk: string, start: number): ParseResult {
       kind: 'mouse',
       end: start + 6,
       event: parsed.wheel,
-      click: parsed.click
+      pointer: parsed.pointer
     };
   }
 
@@ -322,7 +347,7 @@ function tryParseMouseAt(chunk: string, start: number): ParseResult {
     kind: 'mouse',
     end: j + 1,
     event: parsed.wheel,
-    click: parsed.click
+    pointer: parsed.pointer
   };
 }
 
@@ -331,25 +356,64 @@ function mouseFromButton(
   col: number,
   row: number,
   isRelease: boolean
-): { wheel: WheelEvent | null; click: MouseClickEvent | null } {
+): { wheel: WheelEvent | null; pointer: MousePointerEvent | null } {
+  const motion = (button & 32) !== 0;
   // 去掉 shift/meta/ctrl（4/8/16）与 motion bit(32)，保留滚轮/按键基准码
   const base = button & ~0x3c;
   // SGR：64=上滚 65=下滚；旧式 4/5
   if (base === 64 || base === 4) {
     return {
       wheel: { direction: 'up', steps: 1, col, row },
-      click: null
+      pointer: null
     };
   }
   if (base === 65 || base === 5) {
     return {
       wheel: { direction: 'down', steps: 1, col, row },
-      click: null
+      pointer: null
     };
   }
-  // 左键按下（非 release、非 motion）
-  if (base === 0 && !isRelease && (button & 32) === 0) {
-    return { wheel: null, click: { col, row } };
+  if (base === 0) {
+    return {
+      wheel: null,
+      pointer: {
+        phase: isRelease ? 'up' : motion ? 'drag' : 'down',
+        col,
+        row
+      }
+    };
   }
-  return { wheel: null, click: null };
+  // X10 release encodes button=3 and has no separate lowercase final byte.
+  if (base === 3) {
+    return { wheel: null, pointer: { phase: 'up', col, row } };
+  }
+  return { wheel: null, pointer: null };
+}
+
+function dispatchClickFromPointer(pointer: MousePointerEvent): void {
+  if (pointer.phase === 'down') {
+    leftGesture = { col: pointer.col, row: pointer.row, dragged: false };
+    return;
+  }
+  if (!leftGesture) {
+    return;
+  }
+  if (pointer.phase === 'drag') {
+    leftGesture.dragged = true;
+    return;
+  }
+
+  const gesture = leftGesture;
+  leftGesture = undefined;
+  if (gesture.dragged) {
+    return;
+  }
+  const click = { col: pointer.col, row: pointer.row };
+  for (const listener of clickListeners) {
+    try {
+      listener(click);
+    } catch (error) {
+      console.error('[mouseTracking] click listener failed:', error);
+    }
+  }
 }

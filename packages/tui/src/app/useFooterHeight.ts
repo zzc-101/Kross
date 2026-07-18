@@ -52,7 +52,8 @@ export function useFooterHeight(input: FooterLayoutInput): number {
           : Math.max(1, modelSettings.models.length);
       h += 7 + optionRows;
     } else {
-      // Composer 本体 3 行；无子代理时底 gap=3，有子代理时 gap=0 并由 sub 条占 1 行
+      // Composer：1 行复制提示槽 + 3 行输入框；无子代理时底 gap=3，
+      // 有子代理时 gap=0 并由 sub 条占 1 行。
       h += COMPOSER_HEIGHT;
       h += subH > 0 ? 0 : composerBottomGap;
     }
