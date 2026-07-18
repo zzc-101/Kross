@@ -1,4 +1,8 @@
-import { type AgentResult, type AgentRunStreamEvent } from '@kross/core';
+import {
+  type AgentResult,
+  type AgentRunStreamEvent,
+  type VerificationReport
+} from '@kross/core';
 
 import type { ChatMessage } from '../ui';
 
@@ -6,6 +10,8 @@ export interface AppendMessageOptions {
   expanded?: boolean;
   /** 已完成 thinking 的耗时；提交时直接写入，避免 createdAt=现在导致 0 秒 */
   durationMs?: number;
+  /** 结构化的最终验证结论，供 TUI 着色并跨会话恢复。 */
+  verification?: VerificationReport;
 }
 
 export interface AgentStreamConsumerDeps {

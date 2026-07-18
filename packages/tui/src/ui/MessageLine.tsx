@@ -1,12 +1,16 @@
 import React, { useMemo } from 'react';
 import { Box, Text, useStdout } from 'ink';
-import { t } from '@kross/core';
+import { t, type VerificationReport } from '@kross/core';
 
 import { Markdown } from './Markdown';
 import { displayWidth } from './markdownParse';
 import { symbols, theme } from './theme';
 import { usePulse } from './usePulse';
 import { ToolCallCard } from './ToolCallCard';
+import {
+  formatVerificationPresentation,
+  verificationToneColor
+} from './verificationPresentation';
 
 export type ToolCallStatus =
   | 'running'
@@ -63,6 +67,8 @@ export interface ChatMessage {
   durationMs?: number;
   /** 关联 tool 事件，from === 'tool' 时使用 */
   tool?: ToolCallState;
+  /** 最终验证结论；仅用于紧随 agent 回复后的结构化状态行。 */
+  verification?: VerificationReport;
   /**
    * thinking / tool 组默认折叠；true 时展开明细。
    */
@@ -97,6 +103,23 @@ export function MessageLine({
   }
 
   if (message.from === 'system') {
+    if (message.verification) {
+      const presentation = formatVerificationPresentation(message.verification);
+      return (
+        <Box marginBottom={1}>
+          <Text
+            color={verificationToneColor(message.verification.status, {
+              success: theme.statusReady,
+              warning: theme.statusWarn,
+              error: theme.statusError,
+              muted: theme.system
+            })}
+          >
+            {presentation.text}
+          </Text>
+        </Box>
+      );
+    }
     return (
       <Box marginBottom={1} flexDirection="column">
         <Text dimColor wrap="wrap">

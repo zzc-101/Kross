@@ -35,6 +35,21 @@ describe('ThinkingIndicator', () => {
     }
   });
 
+  it('shows the real run phase without rotating generic activity copy', async () => {
+    const view = render(<ThinkingIndicator active phase="verify" />);
+
+    try {
+      await waitUntil(() => view.lastFrame()?.includes('正在验证') === true);
+      const first = view.lastFrame();
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(view.lastFrame()).toContain('正在验证…');
+      expect(view.lastFrame()).not.toContain('读取工作区');
+      expect(first).toContain('正在验证…');
+    } finally {
+      view.unmount();
+    }
+  });
+
   it('shows a stable interrupting state without the Esc hint', async () => {
     const view = render(<ThinkingIndicator active variant="cancelling" />);
 

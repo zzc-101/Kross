@@ -41,6 +41,7 @@ import {
 } from './streamingToolLoop';
 import { toLlmTools } from './toolLoopShared';
 import type { VerificationGateAssessment } from '../verification';
+import type { RunPhase } from './runPhase';
 
 export { toLlmTools } from './toolLoopShared';
 
@@ -78,6 +79,21 @@ export interface RuntimeToolLoopOptions {
     runId: string,
     originalUserInput: string
   ): Promise<VerificationGateAssessment>;
+  observeToolCall(input: {
+    runId: string;
+    call: LlmToolCall;
+    tools: ToolMetadata[];
+    iteration: number;
+  }): Promise<void>;
+  completeVerificationObservation(
+    runId: string,
+    options?: { force?: boolean; reason?: string }
+  ): Promise<void>;
+  setRunPhase(
+    runId: string,
+    phase: RunPhase,
+    details?: Record<string, unknown>
+  ): Promise<void>;
   commitTurn(): void;
   abortTurn(reason: string): void;
   interruptTurn(reason: string): void;
@@ -351,6 +367,12 @@ export class RuntimeToolLoop {
       }
 
       let result: ToolResult;
+      await this.options.observeToolCall({
+        runId: input.runId,
+        call,
+        tools: input.tools,
+        iteration: input.iteration
+      });
       try {
         result = await this.options.toolGateway!.call({
           runId: input.runId,
@@ -370,6 +392,10 @@ export class RuntimeToolLoop {
               toolCallId: call.id,
               name: call.name,
               content: deniedContent
+            });
+            await this.options.completeVerificationObservation(input.runId, {
+              force: true,
+              reason: `Tool ${call.name} was denied by policy.`
             });
             continue;
           }
@@ -402,6 +428,7 @@ export class RuntimeToolLoop {
         name: call.name,
         content: result.content
       });
+      await this.options.completeVerificationObservation(input.runId);
     }
 
     return { kind: 'completed', toolMessages };
@@ -514,6 +541,8 @@ export class RuntimeToolLoop {
       attachChangedFiles: (result) => this.options.attachChangedFiles(result),
       assessVerificationGate: (runId, originalUserInput) =>
         this.options.assessVerificationGate(runId, originalUserInput),
+      setRunPhase: (runId, phase, details) =>
+        this.options.setRunPhase(runId, phase, details),
       toLlmTools,
       onContextMaintained: this.options.onContextMaintained,
       onInterrupted: (runId) => {
@@ -536,6 +565,7 @@ export class RuntimeToolLoop {
       returnErrors: true,
       signal
     });
+    await this.options.completeVerificationObservation(session.runId);
 
     return {
       role: 'tool',
@@ -556,6 +586,10 @@ export class RuntimeToolLoop {
         session.call.name,
         session.call.input
       )
+    });
+    await this.options.completeVerificationObservation(session.runId, {
+      force: true,
+      reason: `Tool ${session.call.name} was rejected by the user.`
     });
 
     return {

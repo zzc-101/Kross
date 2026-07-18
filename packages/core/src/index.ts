@@ -35,6 +35,7 @@ export * from './runtime/runtimeInspection';
 export { SessionServices, type SessionServicesOptions } from './runtime/sessionServices';
 export * from './runtime/subagentRunner';
 export * from './runtime/toolLoop';
+export * from './runtime/runPhase';
 export * from './session/sessionStore';
 export * from './session/sessionWorkState';
 export * from './skills/skillDiscovery';

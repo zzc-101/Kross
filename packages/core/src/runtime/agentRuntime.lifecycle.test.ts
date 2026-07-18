@@ -85,10 +85,17 @@ describe('AgentRuntime lifecycle and context', () => {
       expect(result.summary).toContain('未配置模型');
       expect(traceStore.events.map((event) => event.type)).toEqual([
         'run.started',
+        'run.phase.changed',
         'planner.started',
         'mode.detected',
+        'run.phase.changed',
         'run.completed'
       ]);
+      expect(
+        traceStore.events
+          .filter((event) => event.type === 'run.phase.changed')
+          .map((event) => event.payload.phase)
+      ).toEqual(['inspect', 'complete']);
     });
 
   it('reports planner LLM failures instead of saying the model is unconfigured', async () => {

@@ -12,6 +12,7 @@ import type { LlmToolDefinition } from '../llm/types';
 import { renderPrompt } from '../prompts';
 import { ToolLoopStallDetector } from './toolLoopStallDetector';
 import type { VerificationGateAssessment } from '../verification';
+import type { RunPhase } from './runPhase';
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
 export const MAX_VERIFICATION_FOLLOWUPS = 1;
@@ -116,6 +117,11 @@ export interface StreamingToolLoopDeps {
     runId: string,
     originalUserInput: string
   ): Promise<VerificationGateAssessment>;
+  setRunPhase(
+    runId: string,
+    phase: RunPhase,
+    details?: Record<string, unknown>
+  ): Promise<void>;
   toLlmTools(tools: ToolMetadata[]): LlmToolDefinition[] | undefined;
   onContextMaintained?(
     runId: string,
@@ -300,6 +306,10 @@ export async function* runStreamingToolLoop(
         if (turnText.trim().length > 0) {
           sessionContext.appendAssistant(turnText);
         }
+        await deps.setRunPhase(params.runId, 'review', {
+          trigger: 'model-final',
+          iteration
+        });
         if (deps.toolGateway) {
           const assessment = await deps.assessVerificationGate(
             params.runId,
@@ -388,6 +398,11 @@ export async function* runStreamingToolLoop(
         yield { type: 'result', result: approval };
         return;
       }
+
+      await deps.setRunPhase(params.runId, 'review', {
+        trigger: 'tool-results',
+        iteration
+      });
 
       const stall = stallDetector.observe({
         calls: toolCalls,

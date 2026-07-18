@@ -297,6 +297,21 @@ describe('AgentRuntime observability', () => {
           }
         }
       });
+      expect(
+        traceStore.events
+          .filter((event) => event.type === 'run.phase.changed')
+          .map((event) => event.payload.phase)
+      ).toEqual(['inspect', 'verify', 'review', 'complete']);
+      expect(
+        traceStore.events.filter(
+          (event) => event.type === 'run.verification.started'
+        )
+      ).toHaveLength(1);
+      expect(
+        traceStore.events.filter(
+          (event) => event.type === 'run.verification.completed'
+        )[0]?.payload
+      ).toMatchObject({ status: 'passed', commandCount: 1 });
     });
 
   it('does not let final model text override a failed verification command', async () => {
@@ -442,6 +457,11 @@ describe('AgentRuntime observability', () => {
     expect(result.report.risks).not.toEqual(
       expect.arrayContaining([expect.stringContaining('未验证风险')])
     );
+    expect(
+      traceStore.events
+        .filter((event) => event.type === 'run.phase.changed')
+        .map((event) => event.payload.phase)
+    ).toEqual(['inspect', 'act', 'review', 'verify', 'review', 'complete']);
   });
 
   it('reports an explicitly requested but unavailable check as not-run', async () => {

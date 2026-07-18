@@ -267,7 +267,7 @@ describe('App tool and status UI', () => {
 
         const approval = chooseToolApproval?.(true);
         await waitUntil(
-          () => lastFrame()?.includes('运行已允许的工具') === true
+          () => lastFrame()?.includes('正在修改') === true
         );
         expect(lastFrame()).toContain('已允许一次 fs.write');
 

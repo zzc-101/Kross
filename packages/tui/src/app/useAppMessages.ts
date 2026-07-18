@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { VerificationReport } from '@kross/core';
+
 import {
   buildToolState,
   ensureToolItems,
@@ -75,7 +77,11 @@ export function useAppMessages({
     (
       from: ChatMessage['from'],
       text: string,
-      options: { expanded?: boolean; durationMs?: number } = {}
+      options: {
+        expanded?: boolean;
+        durationMs?: number;
+        verification?: VerificationReport;
+      } = {}
     ) => {
       const id = nextMessageIdRef.current;
       nextMessageIdRef.current += 1;
@@ -85,6 +91,9 @@ export function useAppMessages({
         text,
         createdAt: new Date().toISOString(),
         expanded: options.expanded,
+        ...(options.verification
+          ? { verification: options.verification }
+          : {}),
         ...(typeof options.durationMs === 'number'
           ? { durationMs: Math.max(0, options.durationMs) }
           : {})

@@ -11,6 +11,7 @@ import {
   type HybridSessionStore,
   type PendingToolApproval,
   type PermissionMode,
+  type RunPhase,
   type TodoStoreSnapshot
 } from '@kross/core';
 
@@ -181,6 +182,7 @@ export function App({
   } | undefined>();
   const [awaitingReply, setAwaitingReply] = useState(false);
   const [loadingVariant, setLoadingVariant] = useState<'thinking' | 'tool'>('thinking');
+  const [runPhase, setRunPhase] = useState<RunPhase>();
   const [streamingMessageId, setStreamingMessageId] = useState<number | undefined>();
   const [approvalSelection, setApprovalSelection] = useState<'approve' | 'reject'>('approve');
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
@@ -317,7 +319,8 @@ export function App({
     upsertToolMessage,
     setLoadingVariant,
     setAwaitingReply,
-    setStreamingMessageId
+    setStreamingMessageId,
+    setRunPhase
   });
 
   const cyclePermissionMode = useCallback(() => {
@@ -591,6 +594,7 @@ export function App({
           awaitingReply
         }
         variant={status === 'interrupting' ? 'cancelling' : loadingVariant}
+        phase={runPhase}
       />
 
       {pendingToolApproval ? (

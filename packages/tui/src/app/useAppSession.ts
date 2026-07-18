@@ -5,7 +5,8 @@ import {
   type AgentRuntime,
   type HybridSessionStore,
   type PendingToolApproval,
-  type SessionSummary
+  type SessionSummary,
+  type VerificationReport
 } from '@kross/core';
 
 import type { ChatMessage } from '../ui';
@@ -54,7 +55,7 @@ export interface UseAppSessionOptions {
   append: (
     from: ChatMessage['from'],
     text: string,
-    options?: { expanded?: boolean }
+    options?: { expanded?: boolean; verification?: VerificationReport }
   ) => number;
   resetToBottom: () => void;
 }

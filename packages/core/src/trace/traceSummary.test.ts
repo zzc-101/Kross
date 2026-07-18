@@ -211,6 +211,89 @@ describe('traceSummary', () => {
     expect(summary?.failureMessage).toContain('verification command failed');
   });
 
+  it('reconstructs phase and verification progress from trace events', () => {
+    const events = [
+      event('run-phases', 'run.started', { input: 'fix it' }, 't1'),
+      event(
+        'run-phases',
+        'run.phase.changed',
+        { previous: undefined, phase: 'inspect' },
+        't2'
+      ),
+      event(
+        'run-phases',
+        'run.phase.changed',
+        { previous: 'inspect', phase: 'act' },
+        't3'
+      ),
+      event(
+        'run-phases',
+        'run.verification.started',
+        { command: 'npm test' },
+        't4'
+      ),
+      event(
+        'run-phases',
+        'run.phase.changed',
+        { previous: 'act', phase: 'verify' },
+        't5'
+      ),
+      event(
+        'run-phases',
+        'run.verification.completed',
+        { status: 'passed', commandCount: 1 },
+        't6'
+      ),
+      event(
+        'run-phases',
+        'run.phase.changed',
+        { previous: 'verify', phase: 'complete' },
+        't7'
+      )
+    ];
+
+    const detail = buildTraceDetail('run-phases', events)!;
+    expect(detail).toMatchObject({
+      phase: 'complete',
+      verificationStatus: 'passed',
+      verificationCommandCount: 1
+    });
+    expect(detail.flags).toContain('verification-passed');
+    expect(detail.flags).not.toContain('verification-running');
+    expect(detail.highlights.map((item) => item.type)).toEqual(
+      expect.arrayContaining([
+        'run.phase.changed',
+        'run.verification.started',
+        'run.verification.completed'
+      ])
+    );
+    expect(formatTraceDetail(detail)).toContain(
+      'verification: passed · commands: 1'
+    );
+  });
+
+  it('keeps only the latest verification conclusion in summary flags', () => {
+    const events = [
+      event(
+        'run-retry',
+        'run.verification.completed',
+        { status: 'failed', commandCount: 1 },
+        't1'
+      ),
+      event(
+        'run-retry',
+        'run.verification.completed',
+        { status: 'passed', commandCount: 2 },
+        't2'
+      )
+    ];
+
+    const summary = summarizeTraceEvents('run-retry', events)!;
+    expect(summary.flags).toContain('verification-passed');
+    expect(summary.flags).not.toContain('verification-failed');
+    expect(summary.verificationCommandCount).toBe(2);
+  });
+
   it('counts pre-start approval as tool activity in total', () => {
     const events = [
       event('run-4', 'run.started', { input: 'bash' }, 't1'),

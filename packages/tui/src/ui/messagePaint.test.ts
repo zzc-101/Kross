@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { initI18n, setLocale } from '@kross/core';
 
 import type { ChatMessage } from './MessageLine';
 import {
@@ -24,9 +25,12 @@ function msg(
     expanded: partial.expanded,
     tool: partial.tool,
     durationMs: partial.durationMs,
-    createdAt: partial.createdAt
+    createdAt: partial.createdAt,
+    verification: partial.verification
   };
 }
+
+afterEach(() => initI18n('zh'));
 
 describe('windowPaintRows', () => {
   it('keeps bottom slice and preserves scroll bounds', () => {
@@ -149,6 +153,72 @@ describe('windowPaintRows', () => {
     const plains = items.map(paintItemPlainText).join('\n');
     expect(plains).toContain('思考了 8 秒');
     expect(plains).not.toContain('long thought');
+  });
+
+  it('paints failed and not-run verification as explicit non-success states', () => {
+    const cache = new MessagePaintCache();
+    const failed = cache.paintMessage(
+      msg({
+        id: 20,
+        from: 'system',
+        text: 'ignored fallback',
+        verification: {
+          status: 'failed',
+          commands: ['npm test'],
+          evidence: [],
+          reason: 'tests failed'
+        }
+      }),
+      80,
+      false
+    );
+    const notRun = cache.paintMessage(
+      msg({
+        id: 21,
+        from: 'system',
+        text: 'ignored fallback',
+        verification: {
+          status: 'not-run',
+          commands: [],
+          evidence: [],
+          reason: 'no command observed'
+        }
+      }),
+      80,
+      false
+    );
+
+    expect(failed.map(paintItemPlainText).join('\n')).toContain('验证失败');
+    expect(notRun.map(paintItemPlainText).join('\n')).toContain('未完成验证');
+    expect(failed.flatMap((item) => item.segments)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ color: 'red' })])
+    );
+    expect(notRun.flatMap((item) => item.segments)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ color: 'yellow' })])
+    );
+  });
+
+  it('invalidates verification paint cache when locale changes', () => {
+    const cache = new MessagePaintCache();
+    const message = msg({
+      id: 22,
+      from: 'system',
+      text: '验证通过',
+      verification: {
+        status: 'passed',
+        commands: ['npm test'],
+        evidence: []
+      }
+    });
+    const zh = cache.paintMessage(message, 80, false);
+    setLocale('en');
+    const en = cache.paintMessage(message, 80, false);
+
+    expect(zh.map(paintItemPlainText).join('\n')).toContain('验证通过');
+    expect(en.map(paintItemPlainText).join('\n')).toContain(
+      'Verification passed'
+    );
+    expect(en).not.toBe(zh);
   });
 
   it('repaints streaming thinking with accumulated seconds', () => {

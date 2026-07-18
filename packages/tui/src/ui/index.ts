@@ -64,6 +64,11 @@ export {
 } from './markdownParse';
 export { ThinkingIndicator } from './ThinkingIndicator';
 export {
+  formatVerificationPresentation,
+  verificationToneColor,
+  type VerificationPresentation
+} from './verificationPresentation';
+export {
   SubagentPanel,
   resolveSubagentPanelHeight,
   hitTestSubagentPanel,

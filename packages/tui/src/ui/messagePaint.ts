@@ -34,6 +34,10 @@ import {
   resolveLineStats
 } from './toolDisplay';
 import { symbols, theme } from './theme';
+import {
+  formatVerificationPresentation,
+  verificationToneColor
+} from './verificationPresentation';
 
 export type PaintSegment = {
   text: string;
@@ -105,8 +109,13 @@ export class MessagePaintCache {
       this.columns = width;
     }
 
+    const verificationFingerprint = message.verification
+      ? `\u0001v:${formatVerificationPresentation(message.verification).text}`
+      : '';
     const fingerprint =
-      layoutFingerprint(message) + (streaming ? '\u0001s' : '\u0001d');
+      layoutFingerprint(message) +
+      verificationFingerprint +
+      (streaming ? '\u0001s' : '\u0001d');
     const hit = this.entries.get(message.id);
     // 流式中不缓存最终结果（每帧变），但仍可走增量 parse
     if (!streaming && hit && hit.fingerprint === fingerprint && hit.columns === width) {
@@ -439,6 +448,27 @@ function paintMessageUncached(
   }
 
   if (message.from === 'system') {
+    if (message.verification) {
+      const presentation = formatVerificationPresentation(message.verification);
+      return [
+        ...softWrapLineItems(
+          `verify-${message.id}`,
+          [
+            {
+              text: presentation.text,
+              color: verificationToneColor(message.verification.status, {
+                success: theme.statusReady,
+                warning: theme.statusWarn,
+                error: theme.statusError,
+                muted: theme.system
+              })
+            }
+          ],
+          columns
+        ),
+        blankItem(`verify-gap-${message.id}`)
+      ];
+    }
     return [
       ...softWrapLineItems(
         `sys-${message.id}`,

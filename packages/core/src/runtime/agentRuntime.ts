@@ -22,7 +22,7 @@ import {
   formatContextUsage
 } from '../llm/modelContextWindows';
 import type { ThinkingEffort } from '../llm/thinkingEffort';
-import type { LlmClient } from '../llm/types';
+import type { LlmClient, LlmToolCall } from '../llm/types';
 import { detectMode } from '../modes/modeDetector';
 import { resolveModeTurn } from '../modes/modePolicy';
 import { renderAgentExecutionPrompt } from '../prompts';
@@ -39,6 +39,7 @@ import {
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
 import {
   assessVerificationGate,
+  collectVerificationReport,
   identifyRequestedVerificationCommand,
   type KnownVerificationCommand
 } from '../verification';
@@ -70,6 +71,11 @@ import {
   RuntimeToolLoop
 } from './toolLoop';
 import type { CancellationStage } from './streamingToolLoop';
+import {
+  classifyToolCallPhase,
+  phaseForLifecycleEvent,
+  type RunPhase
+} from './runPhase';
 
 export { DEFAULT_MAX_TOOL_ITERATIONS } from './toolLoop';
 
@@ -104,6 +110,8 @@ export class AgentRuntime extends EventEmitter {
   private readonly modelSession: ModelSession;
   private readonly modeFlows: ModeFlows;
   private readonly sessionServices: SessionServices;
+  private readonly runPhases = new Map<string, RunPhase>();
+  private readonly verificationPendingRuns = new Set<string>();
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
@@ -128,6 +136,11 @@ export class AgentRuntime extends EventEmitter {
       attachChangedFiles: (result) => this.attachChangedFiles(result),
       assessVerificationGate: (runId, originalUserInput) =>
         this.assessRunVerificationGate(runId, originalUserInput),
+      observeToolCall: (input) => this.observeToolCall(input),
+      completeVerificationObservation: (runId, options) =>
+        this.completeVerificationObservation(runId, options),
+      setRunPhase: (runId, phase, details) =>
+        this.setRunPhase(runId, phase, details),
       commitTurn: () => this.sessionContext.commitTurn(),
       abortTurn: (reason) => this.sessionContext.abortTurn(reason),
       interruptTurn: (reason) => this.sessionContext.interruptTurn(reason),
@@ -912,6 +925,89 @@ export class AgentRuntime extends EventEmitter {
     }
   }
 
+  private async observeToolCall(input: {
+    runId: string;
+    call: LlmToolCall;
+    tools: ToolMetadata[];
+    iteration: number;
+  }): Promise<void> {
+    const metadata = input.tools.find((tool) => tool.name === input.call.name);
+    const classified = classifyToolCallPhase(input.call, metadata, {
+      verificationPending: this.verificationPendingRuns.has(input.runId)
+    });
+    await this.setRunPhase(input.runId, classified.phase, {
+      trigger: 'tool-call',
+      toolName: input.call.name,
+      iteration: input.iteration
+    });
+    if (!classified.verification) {
+      return;
+    }
+    this.verificationPendingRuns.add(input.runId);
+    await this.record(input.runId, 'run.verification.started', {
+      command: classified.verification.label,
+      kinds: classified.verification.kinds,
+      toolName: input.call.name,
+      callId: input.call.id,
+      iteration: input.iteration
+    });
+  }
+
+  private async completeVerificationObservation(
+    runId: string,
+    options: { force?: boolean; reason?: string } = {}
+  ): Promise<void> {
+    if (!this.verificationPendingRuns.has(runId)) {
+      return;
+    }
+    let report;
+    try {
+      const events = await this.options.traceStore.readRun(runId);
+      report = collectVerificationReport(events, {
+        changedFiles: extractChangedFilesFromEvents(events),
+        knownCommands: configuredVerificationCommands(this.options)
+      });
+    } catch {
+      if (!options.force) return;
+      report = {
+        status: 'not-run' as const,
+        commands: [],
+        evidence: [],
+        reason: options.reason ?? 'Verification trace was unavailable.'
+      };
+    }
+    if (report.status === 'not-run' && !options.force) {
+      return;
+    }
+    this.verificationPendingRuns.delete(runId);
+    await this.record(runId, 'run.verification.completed', {
+      status: report.status,
+      commands: report.commands,
+      commandCount: report.commands.length,
+      reason:
+        report.status === 'not-run' && options.reason
+          ? options.reason
+          : report.reason
+    });
+  }
+
+  private async setRunPhase(
+    runId: string,
+    phase: RunPhase,
+    details: Record<string, unknown> = {}
+  ): Promise<void> {
+    const previous = this.runPhases.get(runId);
+    if (previous === phase) {
+      return;
+    }
+    this.runPhases.set(runId, phase);
+    await this.appendTraceEvent(runId, 'run.phase.changed', {
+      ...details,
+      phase,
+      previous
+    });
+  }
+
   private async completeInterruptedRun(input: {
     runId: string;
     mode: AgentMode;
@@ -968,6 +1064,37 @@ export class AgentRuntime extends EventEmitter {
   }
 
   private async record(
+    runId: string,
+    type: string,
+    payload: Record<string, unknown>
+  ): Promise<void> {
+    if (type === 'run.started') {
+      await this.appendTraceEvent(runId, type, payload);
+      await this.setRunPhase(runId, 'inspect', { trigger: type });
+      return;
+    }
+    const lifecyclePhase = phaseForLifecycleEvent(type);
+    if (lifecyclePhase) {
+      await this.setRunPhase(runId, lifecyclePhase, { trigger: type });
+    }
+    if (type === 'run.completed') {
+      await this.completeVerificationObservation(runId, {
+        force: true,
+        reason: 'Run ended before verification produced a terminal result.'
+      });
+      await this.setRunPhase(runId, 'complete', {
+        trigger: type,
+        outcome: payload.status
+      });
+    }
+    await this.appendTraceEvent(runId, type, payload);
+    if (type === 'run.completed') {
+      this.verificationPendingRuns.delete(runId);
+      this.runPhases.delete(runId);
+    }
+  }
+
+  private async appendTraceEvent(
     runId: string,
     type: string,
     payload: Record<string, unknown>

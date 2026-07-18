@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { AgentRuntime } from '@kross/core';
+import {
+  isRunPhase,
+  type AgentRuntime,
+  type RunPhase
+} from '@kross/core';
 
 import type { ChatMessage, ToolCallState } from '../ui';
 import {
   applySubagentTraceEvent,
+  isSubagentTraceEvent,
   pruneSubagentUi,
   type SubagentUiState
 } from './subagentUi';
@@ -17,6 +22,7 @@ export interface UseSubagentTraceOptions {
   setLoadingVariant: React.Dispatch<React.SetStateAction<'thinking' | 'tool'>>;
   setAwaitingReply: React.Dispatch<React.SetStateAction<boolean>>;
   setStreamingMessageId: React.Dispatch<React.SetStateAction<number | undefined>>;
+  setRunPhase: React.Dispatch<React.SetStateAction<RunPhase | undefined>>;
 }
 
 export function useSubagentTrace({
@@ -25,7 +31,8 @@ export function useSubagentTrace({
   upsertToolMessage,
   setLoadingVariant,
   setAwaitingReply,
-  setStreamingMessageId
+  setStreamingMessageId,
+  setRunPhase
 }: UseSubagentTraceOptions) {
   const [subagents, setSubagents] = useState<SubagentUiState[]>([]);
   const [subagentExpanded, setSubagentExpanded] = useState(false);
@@ -33,7 +40,18 @@ export function useSubagentTrace({
   appendRef.current = append;
 
   useEffect(() => {
+    setRunPhase(undefined);
+  }, [agentRuntime, setRunPhase]);
+
+  useEffect(() => {
     return agentRuntime.onTrace((event) => {
+      if (
+        !isSubagentTraceEvent(event) &&
+        event.type === 'run.phase.changed' &&
+        isRunPhase(event.payload.phase)
+      ) {
+        setRunPhase(event.payload.phase);
+      }
       setSubagents((current) =>
         pruneSubagentUi(applySubagentTraceEvent(current, event))
       );
@@ -47,7 +65,14 @@ export function useSubagentTrace({
         }
       });
     });
-  }, [agentRuntime, upsertToolMessage, setAwaitingReply, setLoadingVariant, setStreamingMessageId]);
+  }, [
+    agentRuntime,
+    setRunPhase,
+    upsertToolMessage,
+    setAwaitingReply,
+    setLoadingVariant,
+    setStreamingMessageId
+  ]);
 
   // Prune finished subagent cards (keep ~60s; keep while expanded).
   useEffect(() => {

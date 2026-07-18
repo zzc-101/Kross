@@ -43,6 +43,7 @@ export interface StoredSessionMessage {
   durationMs?: number;
   expanded?: boolean;
   tool?: unknown;
+  verification?: unknown;
 }
 
 export interface SessionSummary {

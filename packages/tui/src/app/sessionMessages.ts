@@ -1,4 +1,10 @@
-import { t, type MessageKey, type SessionSummary, type StoredSessionMessage } from '@kross/core';
+import {
+  agentReportSchema,
+  t,
+  type MessageKey,
+  type SessionSummary,
+  type StoredSessionMessage
+} from '@kross/core';
 
 import type { ChatMessage, ToolCallState } from '../ui';
 
@@ -28,7 +34,8 @@ export function toStoredSessionMessage(message: ChatMessage): StoredSessionMessa
       ? { durationMs: message.durationMs }
       : {}),
     ...(message.expanded !== undefined ? { expanded: message.expanded } : {}),
-    ...(message.tool ? { tool: message.tool } : {})
+    ...(message.tool ? { tool: message.tool } : {}),
+    ...(message.verification ? { verification: message.verification } : {})
   };
 }
 
@@ -44,8 +51,17 @@ export function fromStoredSessionMessage(message: StoredSessionMessage): ChatMes
     ...(message.expanded !== undefined ? { expanded: message.expanded } : {}),
     ...(message.tool && typeof message.tool === 'object'
       ? { tool: message.tool as ToolCallState }
-      : {})
+      : {}),
+    ...parseVerification(message.verification)
   };
+}
+
+function parseVerification(value: unknown): Pick<ChatMessage, 'verification'> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const parsed = agentReportSchema.shape.verification.safeParse(value);
+  return parsed.success ? { verification: parsed.data } : {};
 }
 
 export function formatSessionError(prefixKey: MessageKey, error: unknown): string {

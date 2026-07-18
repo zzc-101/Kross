@@ -274,7 +274,7 @@ function createLocalTooling(
 } {
   const innerTraceStore = new SessionTraceStore({
     workspacePath: cwd,
-    krossHome: options.krossHome
+    krossHome: resolveKrossHome(options)
   });
   const traceStore = new ObservableTraceStore(innerTraceStore);
   const toolGateway = new ToolGateway({

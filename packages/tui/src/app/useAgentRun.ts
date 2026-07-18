@@ -5,10 +5,12 @@ import {
   type AgentMode,
   type AgentRuntime,
   type AgentResult,
-  type PendingToolApproval
+  type PendingToolApproval,
+  type VerificationReport
 } from '@kross/core';
 
 import { defaultApprovalSelection, type ChatMessage } from '../ui';
+import { formatVerificationPresentation } from '../ui/verificationPresentation';
 import { consumeAgentStream } from './agentStreamConsumer';
 import { appendApprovalResult } from './traceMessages';
 
@@ -20,7 +22,11 @@ export interface UseAgentRunOptions {
   append: (
     from: ChatMessage['from'],
     text: string,
-    options?: { expanded?: boolean; durationMs?: number }
+    options?: {
+      expanded?: boolean;
+      durationMs?: number;
+      verification?: VerificationReport;
+    }
   ) => number;
   enqueueMessageUpdate: (id: number, text: string) => void;
   flushMessageUpdates: () => void;
@@ -219,6 +225,7 @@ export function useAgentRun({
     if (!sawAgentText && result.summary.trim().length > 0) {
       append('agent', result.summary);
     }
+    appendVerificationResult(append, result);
     finalizeThinkingDurations();
     setAwaitingReply(false);
     setStatus('ready');
@@ -334,6 +341,7 @@ export function useAgentRun({
     if (!sawAgentText) {
       appendApprovalResult(append, result);
     }
+    appendVerificationResult(append, result);
     finalizeThinkingDurations();
     setAwaitingReply(false);
     setStatus('ready');
@@ -467,4 +475,18 @@ export function useAgentRun({
     choosePlanApproval,
     interruptCurrentRun
   };
+}
+
+function appendVerificationResult(
+  append: UseAgentRunOptions['append'],
+  result: AgentResult
+): void {
+  const verification = result.report.verification;
+  // 纯读取或问答无需为每轮额外制造一条状态消息。
+  if (verification.status === 'not-needed') {
+    return;
+  }
+  append('system', formatVerificationPresentation(verification).text, {
+    verification
+  });
 }
