@@ -4,7 +4,11 @@ import {
   isOperationAborted,
   throwIfAborted
 } from '../abort';
-import { subagentResultSchema } from '../domain';
+import {
+  subagentResultSchema,
+  type TraceEvent,
+  type VerificationReport
+} from '../domain';
 import { createSessionContext } from '../context/sessionContext';
 import type { LlmClient } from '../llm/types';
 import { createSubagentTools } from '../tools/builtin/exploreTools';
@@ -18,6 +22,7 @@ import {
 } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
+import { collectVerificationReport } from '../verification';
 import {
   formatProjectInstructionSource,
   loadProjectInstructions
@@ -93,7 +98,8 @@ export async function runSubagent(
   const lifecycleExtras = {
     isSubagent: true,
     subRunId,
-    parentRunId: request.parentRunId
+    parentRunId: request.parentRunId,
+    role: request.role ?? 'worker'
   };
 
   const title =
@@ -148,6 +154,12 @@ export async function runSubagent(
       changedFiles: [],
       diffSummary: [],
       commandsRun: [],
+      verification: {
+        status: 'not-needed',
+        commands: [],
+        evidence: [],
+        reason: 'No worker execution occurred.'
+      },
       evidence: [
         useWorker
           ? '指挥家 worker 子代理未配置 workerLlmClient / 主模型'
@@ -232,7 +244,8 @@ export async function runSubagent(
     const summary = await runCompleteToolLoop({
       runId: subRunId,
       prompt,
-      systemPrompt: renderSubagentExecutionPrompt({ mode }),
+      systemPrompt:
+        request.systemPrompt ?? renderSubagentExecutionPrompt({ mode }),
       mode: 'auto',
       llmClient,
       gateway: childGateway,
@@ -294,29 +307,79 @@ export async function runSubagent(
     });
 
     let changedFiles: string[] = [];
+    let toolsUsed: string[] = [];
+    let diffSummary: string[] = [];
+    let verification: VerificationReport = {
+      status: 'not-run',
+      commands: [],
+      evidence: [],
+      reason: 'Subagent trace was unavailable.'
+    };
     try {
       const events = await deps.traceStore.readRun(subRunId);
       changedFiles = extractChangedFilesFromEvents(events);
+      toolsUsed = [
+        ...new Set(
+          [
+            ...events
+              .filter((event) => event.type === 'tool_call.completed')
+              .map((event) => event.payload.toolName)
+              .filter((name): name is string => typeof name === 'string'),
+            ...extractCompletedGitDiffScopes(events)
+          ]
+        )
+      ];
+      diffSummary = events
+        .filter(
+          (event) =>
+            event.type === 'tool_call.completed' &&
+            event.payload.toolName === 'GitDiff'
+        )
+        .map((event) =>
+          typeof event.payload.summary === 'string'
+            ? event.payload.summary
+            : 'GitDiff completed'
+        );
+      verification = collectVerificationReport(events, { changedFiles });
     } catch {
-      // ignore
+      // A missing trace must never become implicit verification success.
     }
 
+    const verificationNeedsReview =
+      verification.status === 'failed' ||
+      (changedFiles.length > 0 && verification.status !== 'passed');
+    const resultStatus =
+      stalled || verificationNeedsReview ? 'needs-review' : 'completed';
+
     const result = subagentResultSchema.parse({
-      status: stalled ? 'needs-review' : 'completed',
+      status: resultStatus,
       summary,
       changedFiles,
-      diffSummary: [],
-      commandsRun: [],
+      diffSummary,
+      commandsRun: verification.commands,
+      toolsUsed,
+      verification,
       evidence: [
         stalled
           ? '子代理在一次恢复提示后仍重复相同工具调用，且结果没有变化'
           : '子代理已完成独立工具环',
         ...(changedFiles.length > 0
           ? [`修改文件 ${changedFiles.length} 个`]
+          : []),
+        ...verification.evidence
+      ],
+      risks: [
+        ...(stalled ? ['分配给子代理的任务可能尚未完成'] : []),
+        ...(verificationNeedsReview
+          ? [verification.reason ?? '子代理修改缺少可信验证证据']
           : [])
       ],
-      risks: stalled ? ['分配给子代理的任务可能尚未完成'] : [],
-      needsReview: stalled ? ['父 Agent 需要检查阻塞证据并调整策略'] : []
+      needsReview: [
+        ...(stalled ? ['父 Agent 需要检查阻塞证据并调整策略'] : []),
+        ...(verificationNeedsReview
+          ? ['Conductor reviewer 必须检查最终 diff 与验证缺口']
+          : [])
+      ]
     });
 
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.completed', {
@@ -325,7 +388,9 @@ export async function runSubagent(
       status: result.status,
       summaryPreview: result.summary.slice(0, 240),
       evidenceCount: result.evidence.length,
-      changedFiles: result.changedFiles
+      changedFiles: result.changedFiles,
+      toolsUsed: result.toolsUsed,
+      verification: result.verification
     });
 
     return {
@@ -363,6 +428,44 @@ export async function runSubagent(
     });
     throw error;
   }
+}
+
+function extractCompletedGitDiffScopes(
+  events: TraceEvent[]
+): string[] {
+  const completedCallIds = new Set(
+    events
+      .filter(
+        (event) =>
+          event.type === 'tool_call.completed' &&
+          event.payload.toolName === 'GitDiff' &&
+          typeof event.payload.callId === 'string'
+      )
+      .map((event) => event.payload.callId as string)
+  );
+  return events
+    .filter(
+      (event) =>
+        event.type === 'tool_call.started' &&
+        event.payload.toolName === 'GitDiff' &&
+        typeof event.payload.callId === 'string' &&
+        completedCallIds.has(event.payload.callId)
+    )
+    .map((event) => {
+      const input = event.payload.input;
+      const record =
+        input && typeof input === 'object' && !Array.isArray(input)
+          ? (input as { staged?: unknown; path?: unknown; cwd?: unknown })
+          : undefined;
+      if (
+        typeof record?.path === 'string' ||
+        typeof record?.cwd === 'string'
+      ) {
+        return 'GitDiff:scoped';
+      }
+      const staged = record?.staged === true;
+      return staged ? 'GitDiff:staged' : 'GitDiff:unstaged';
+    });
 }
 
 /** Build a default Task runner bound to shared LLM/trace/workspace. */

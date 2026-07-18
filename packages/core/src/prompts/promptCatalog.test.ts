@@ -99,6 +99,9 @@ describe('prompt catalog', () => {
     expect(review).toContain('Conductor review phase:');
     expect(review).not.toContain('Conductor planning phase:');
     expect(review).toContain('reviewing worker-agent results');
+    expect(review).toContain('GitStatus');
+    expect(review).toContain('staged GitDiff');
+    expect(review).toContain('Do not modify files');
   });
 
   it('composes shared rules with distinct subagent mode overlays', () => {

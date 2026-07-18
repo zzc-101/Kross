@@ -76,7 +76,11 @@ export function phaseForLifecycleEvent(type: string): RunPhase | undefined {
   if (type === 'conductor.execution.started') {
     return 'act';
   }
-  if (type === 'conductor.review.completed' || type === 'review.completed') {
+  if (
+    type === 'conductor.review.started' ||
+    type === 'conductor.review.completed' ||
+    type === 'review.completed'
+  ) {
     return 'review';
   }
   return undefined;

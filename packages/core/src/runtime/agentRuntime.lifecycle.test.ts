@@ -274,15 +274,51 @@ describe('AgentRuntime lifecycle and context', () => {
 
   it('executes worker subagents then senior review after conductor approval', async () => {
       const traceStore = new InMemoryTraceStore();
-      const spawned: string[] = [];
+      const workers: string[] = [];
+      const reviewers: string[] = [];
       const runtime = new AgentRuntime({
         traceStore,
+        llmClient: new FakeLlmClient('not-json'),
         workspaceRoot: '/tmp/ws',
         runSubagent: async (request) => {
-          spawned.push(request.title ?? 'task');
+          if (request.role === 'reviewer') {
+            reviewers.push(request.title ?? 'reviewer');
+            expect(request.preferWorkerModel).toBe(false);
+            expect(request.mode).toBe('explore');
+            expect(request.systemPrompt).toContain('高级模型');
+            expect(request.prompt).toContain('最终工作树和 diff');
+            return {
+              subRunId: `review-${reviewers.length}`,
+              mode: 'explore' as const,
+              modeForcedToExplore: false,
+              result: {
+                status: 'completed' as const,
+                summary: '真实 diff 已检查，存在验证缺口但不阻塞\nVERDICT: PASS',
+                changedFiles: [],
+                diffSummary: [],
+                commandsRun: [],
+                toolsUsed: [
+                  'GitStatus',
+                  'GitDiff',
+                  'GitDiff:unstaged',
+                  'GitDiff:staged',
+                  'Read'
+                ],
+                verification: {
+                  status: 'not-needed' as const,
+                  commands: [],
+                  evidence: []
+                },
+                evidence: ['GitStatus and GitDiff inspected'],
+                risks: [],
+                needsReview: []
+              }
+            };
+          }
+          workers.push(request.title ?? 'task');
           expect(request.preferWorkerModel).toBe(true);
           return {
-            subRunId: `sub-${spawned.length}`,
+            subRunId: `sub-${workers.length}`,
             mode: 'general' as const,
             modeForcedToExplore: false,
             result: {
@@ -291,6 +327,13 @@ describe('AgentRuntime lifecycle and context', () => {
               changedFiles: [`${request.title}.ts`],
               diffSummary: [],
               commandsRun: [],
+              toolsUsed: ['Read', 'Write'],
+              verification: {
+                status: 'not-run',
+                commands: [],
+                evidence: [],
+                reason: 'mock worker did not run checks'
+              },
               evidence: [],
               risks: [],
               needsReview: []
@@ -312,14 +355,161 @@ describe('AgentRuntime lifecycle and context', () => {
       });
 
       expect(result.status).toBe('completed');
-      expect(spawned.length).toBeGreaterThan(0);
+      expect(workers.length).toBeGreaterThan(0);
+      expect(reviewers).toHaveLength(1);
       expect(result.summary).toContain('指挥家执行完成');
+      expect(result.summary).toContain('真实 diff 已检查');
+      expect(result.report.verification.status).toBe('not-run');
       expect(traceStore.events.map((e) => e.type)).toContain(
         'conductor.execution.started'
       );
       expect(traceStore.events.map((e) => e.type)).toContain(
+        'conductor.review.evidence'
+      );
+      expect(traceStore.events.map((e) => e.type)).toContain(
         'conductor.review.completed'
       );
+    });
+
+  it('fails conductor acceptance when reviewer skips GitStatus or GitDiff', async () => {
+      const traceStore = new InMemoryTraceStore();
+      const runtime = new AgentRuntime({
+        traceStore,
+        llmClient: new FakeLlmClient('not-json'),
+        workspaceRoot: '/tmp/ws',
+        runSubagent: async (request) => ({
+          subRunId:
+            request.role === 'reviewer' ? 'review-without-tools' : 'worker-1',
+          mode: request.mode === 'general' ? 'general' : 'explore',
+          modeForcedToExplore: false,
+          result: {
+            status: 'completed',
+            summary:
+              request.role === 'reviewer'
+                ? 'looks good without inspecting anything'
+                : 'worker finished',
+            changedFiles:
+              request.role === 'reviewer' ? [] : ['src/worker.ts'],
+            diffSummary: [],
+            commandsRun: request.role === 'reviewer' ? [] : ['npm test'],
+            toolsUsed: request.role === 'reviewer' ? [] : ['Write', 'Bash'],
+            verification:
+              request.role === 'reviewer'
+                ? {
+                    status: 'not-needed',
+                    commands: [],
+                    evidence: []
+                  }
+                : {
+                    status: 'passed',
+                    commands: ['npm test'],
+                    evidence: ['npm test: exit=0']
+                  },
+            evidence: [],
+            risks: [],
+            needsReview: []
+          }
+        })
+      });
+
+      await runtime.run({
+        input: '指挥家：实现并验收改动',
+        requestedMode: 'conductor',
+        approvals: { plan: false }
+      });
+      const result = await runtime.run({
+        input: '指挥家：实现并验收改动',
+        requestedMode: 'conductor',
+        approvals: { plan: true }
+      });
+
+      expect(result.status).toBe('failed');
+      expect(result.report.risks).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(
+            '缺少工具证据：GitStatus, GitDiff(unstaged), GitDiff(staged)'
+          )
+        ])
+      );
+      expect(
+        traceStore.events.find(
+          (event) => event.type === 'conductor.review.completed'
+        )?.payload
+      ).toMatchObject({ reviewerIncomplete: true });
+    });
+
+  it('fails conductor acceptance when reviewer verdict is NEEDS_WORK', async () => {
+      const traceStore = new InMemoryTraceStore();
+      const runtime = new AgentRuntime({
+        traceStore,
+        llmClient: new FakeLlmClient('not-json'),
+        workspaceRoot: '/tmp/ws',
+        runSubagent: async (request) => ({
+          subRunId:
+            request.role === 'reviewer' ? 'review-needs-work' : 'worker-1',
+          mode: request.mode === 'general' ? 'general' : 'explore',
+          modeForcedToExplore: false,
+          result: {
+            status: 'completed',
+            summary:
+              request.role === 'reviewer'
+                ? '发现会导致数据丢失的阻塞问题\nVERDICT: NEEDS_WORK'
+                : 'worker finished',
+            changedFiles:
+              request.role === 'reviewer' ? [] : ['src/worker.ts'],
+            diffSummary: [],
+            commandsRun: request.role === 'reviewer' ? [] : ['npm test'],
+            toolsUsed:
+              request.role === 'reviewer'
+                ? [
+                    'GitStatus',
+                    'GitDiff',
+                    'GitDiff:unstaged',
+                    'GitDiff:staged'
+                  ]
+                : ['Write', 'Bash'],
+            verification:
+              request.role === 'reviewer'
+                ? {
+                    status: 'not-needed',
+                    commands: [],
+                    evidence: []
+                  }
+                : {
+                    status: 'passed',
+                    commands: ['npm test'],
+                    evidence: ['npm test: exit=0']
+                  },
+            evidence: [],
+            risks: [],
+            needsReview: []
+          }
+        })
+      });
+
+      await runtime.run({
+        input: '指挥家：实现并验收改动',
+        requestedMode: 'conductor',
+        approvals: { plan: false }
+      });
+      const result = await runtime.run({
+        input: '指挥家：实现并验收改动',
+        requestedMode: 'conductor',
+        approvals: { plan: true }
+      });
+
+      expect(result.status).toBe('failed');
+      expect(result.report.risks).toContain(
+        'primary: reviewer verdict=NEEDS_WORK'
+      );
+      expect(
+        traceStore.events.find(
+          (event) => event.type === 'conductor.review.completed'
+        )?.payload
+      ).toMatchObject({
+        reviewerIncomplete: false,
+        reviewerRejected: true
+      });
     });
 
   it('returns a resumable cancellation when an approved conductor plan is missing a workspace root', async () => {

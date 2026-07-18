@@ -13,6 +13,8 @@
 - P0-3 Verification Report：已完成（2026-07-18）。
 - P0-4 修改后的完成门：已完成（2026-07-18）。
 - P0-5 运行阶段与 TUI 反馈：已完成（2026-07-18）。
+- P1-1 Worker 结构化验证证据：已完成（2026-07-18）。
+- P1-2 Reviewer 最终 diff 验收：已完成（2026-07-18）。
 
 ## 当前基线
 
@@ -290,11 +292,23 @@ TUI 第一阶段只做轻量展示：
 
 ### Conductor 验收升级
 
+状态：P1-1、P1-2 已完成（2026-07-18）；独立 validation worker、依赖并发和失败重试待实施。
+
 - worker 必须返回结构化验证证据。
 - reviewer 能读取最终 diff，并可使用受限只读工具。
 - 必要时派生独立 validation worker，而不是只审阅 worker 摘要。
 - 支持任务依赖关系；无依赖任务在受控并发上限内并行执行。
 - 单个 worker 失败时允许有限重试或重新规划。
+
+#### P1-1/P1-2 实现状态（2026-07-18）
+
+- `SubagentResult` 增加 `verification` 与 `toolsUsed`；worker 从子 run trace 推导验证状态、命令和证据，不再依赖自然语言自报。
+- worker 修改文件但缺少通过验证时返回 `needs-review`，并把验证缺口写入 `risks`/`needsReview`；只读任务保持 `not-needed`。
+- Conductor 汇总所有 worker 的 Verification Report；任一修改缺少通过证据时，最终报告不会显示为 `passed`。
+- 高级 reviewer 使用独立 `explore` 子上下文和只读工具集，逐个审查计划实际执行过的 workspace root，并以真实工作树为准核对 worker 摘要。
+- reviewer 必须提供成功调用 `GitStatus`、未暂存 `GitDiff` 和已暂存 `GitDiff` 的 trace 证据；跳过工具、缩小 diff 范围、工具失败、stall 或缺少高级模型时，Conductor 以失败和结构化风险收口。
+- reviewer 最后一行必须返回结构化 `VERDICT: PASS|NEEDS_WORK`；缺少 verdict 或任一 root 返回 `NEEDS_WORK` 时，Conductor 不得标记完成。
+- reviewer 不能获得 `Edit`、`Write`、`ApplyPatch`、Bash、Task、MCP 或网络工具，不会在验收阶段修改工作区。
 
 ### Run Checkpoint 与恢复
 

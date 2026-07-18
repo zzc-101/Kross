@@ -42,6 +42,12 @@ export function createMemoryRuntime(
         changedFiles: [],
         diffSummary: [],
         commandsRun: [],
+        toolsUsed: [],
+        verification: {
+          status: 'not-needed',
+          commands: [],
+          evidence: []
+        },
         evidence: [],
         risks: [],
         needsReview: []

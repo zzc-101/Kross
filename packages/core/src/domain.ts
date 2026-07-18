@@ -146,6 +146,8 @@ export const subagentResultSchema = z.object({
   changedFiles: z.array(z.string()),
   diffSummary: z.array(z.string()),
   commandsRun: z.array(z.string()),
+  toolsUsed: z.array(z.string()).default([]),
+  verification: agentReportSchema.shape.verification,
   evidence: z.array(z.string()),
   risks: z.array(z.string()),
   needsReview: z.array(z.string())

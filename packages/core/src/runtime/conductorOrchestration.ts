@@ -8,6 +8,7 @@ import {
   type ConductorTask,
   type ConductorTaskPlan
 } from '../modes/conductorPlan';
+import type { VerificationReport } from '../domain';
 
 export {
   conductorTaskSchema,
@@ -15,6 +16,19 @@ export {
   type ConductorTask,
   type ConductorTaskPlan
 } from '../modes/conductorPlan';
+
+export interface ConductorTaskOutcome {
+  taskId: string;
+  title: string;
+  repoId?: string;
+  status: string;
+  summary: string;
+  changedFiles: string[];
+  evidence: string[];
+  risks: string[];
+  needsReview: string[];
+  verification: VerificationReport;
+}
 
 export function formatConductorTaskPlanSummary(plan: ConductorTaskPlan): string {
   const lines = [
@@ -39,14 +53,7 @@ export function formatConductorTaskPlanSummary(plan: ConductorTaskPlan): string 
 
 export function formatConductorReviewSummary(input: {
   goal: string;
-  taskOutcomes: Array<{
-    taskId: string;
-    title: string;
-    status: string;
-    summary: string;
-    changedFiles: string[];
-    risks: string[];
-  }>;
+  taskOutcomes: ConductorTaskOutcome[];
   reviewText: string;
 }): string {
   const lines = [
@@ -60,6 +67,10 @@ export function formatConductorReviewSummary(input: {
       o.changedFiles.length > 0
         ? `变更：${o.changedFiles.join(', ')}`
         : '变更：（无）',
+      `验证：${o.verification.status}` +
+        (o.verification.commands.length > 0
+          ? ` · ${o.verification.commands.join(', ')}`
+          : ''),
       o.risks.length > 0 ? `风险：${o.risks.join('；')}` : undefined,
       ''
     ]),
@@ -67,6 +78,74 @@ export function formatConductorReviewSummary(input: {
     input.reviewText
   ].filter((line): line is string => line !== undefined);
   return lines.join('\n').trim();
+}
+
+export function aggregateConductorVerification(
+  outcomes: ConductorTaskOutcome[]
+): VerificationReport {
+  const relevant = outcomes.filter(
+    (outcome) =>
+      outcome.changedFiles.length > 0 ||
+      outcome.verification.status !== 'not-needed'
+  );
+  if (relevant.length === 0) {
+    return {
+      status: 'not-needed',
+      commands: [],
+      evidence: [],
+      reason: 'No worker workspace changes or verification commands were observed.'
+    };
+  }
+
+  const commands = [
+    ...new Set(relevant.flatMap((outcome) => outcome.verification.commands))
+  ];
+  const evidence = relevant.flatMap((outcome) =>
+    outcome.verification.evidence.map(
+      (item) => `${outcome.taskId}: ${item}`
+    )
+  );
+  const hasFailed = relevant.some(
+    (outcome) => outcome.verification.status === 'failed'
+  );
+  const hasUnverifiedMutation = relevant.some(
+    (outcome) =>
+      outcome.changedFiles.length > 0 &&
+      outcome.verification.status !== 'passed'
+  );
+  const hasNotRun = relevant.some(
+    (outcome) => outcome.verification.status === 'not-run'
+  );
+
+  if (hasFailed) {
+    return {
+      status: 'failed',
+      commands,
+      evidence,
+      reason: 'At least one worker reported failed verification.'
+    };
+  }
+  if (hasUnverifiedMutation || hasNotRun) {
+    return {
+      status: 'not-run',
+      commands,
+      evidence,
+      reason: 'At least one worker change lacks passing verification evidence.'
+    };
+  }
+  return { status: 'passed', commands, evidence };
+}
+
+export function parseConductorReviewVerdict(
+  text: string
+): 'pass' | 'needs-work' | undefined {
+  const matches = [
+    ...text.matchAll(/\bVERDICT\s*:\s*(PASS|NEEDS_WORK)\b/gi)
+  ];
+  const verdict = matches.at(-1)?.[1]?.toUpperCase();
+  if (verdict === 'PASS') return 'pass';
+  if (verdict === 'NEEDS_WORK') return 'needs-work';
+  return undefined;
 }
 
 /** Heuristic fallback when senior model cannot emit structured tasks. */

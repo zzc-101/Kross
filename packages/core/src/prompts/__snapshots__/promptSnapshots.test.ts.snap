@@ -114,9 +114,9 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "03e1a9c44176ec88fe882bee5a887162a982c8eac959f28f9b02bd083a29e302",
     },
     "en:conductor.review": {
-      "chars": 209,
-      "lines": 2,
-      "sha256": "489fc65853a8b60f1626a06eefe55833d6fca4c11c594da865d052503eca1bed",
+      "chars": 673,
+      "lines": 4,
+      "sha256": "2d8767cb9e61a2ffd038f89847edda9ccf69b2ae2367f544a44b3f0432e301d2",
     },
     "en:plan.body": {
       "chars": 284,
@@ -249,9 +249,9 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "61c233490faf9f58e42b3ebd5cad9c5cb9a49f11ba35b1b357fe3fac7f0efd10",
     },
     "zh:conductor.review": {
-      "chars": 61,
-      "lines": 2,
-      "sha256": "1ecd2e778f43a491d719a66a8871d4bd4f776caa66875f873f8895c7e09012bf",
+      "chars": 256,
+      "lines": 4,
+      "sha256": "c8fe4d201cfcb9bde6ce2437c3400da382a3e30384bc235c72d5efa6f40ac531",
     },
     "zh:plan.body": {
       "chars": 89,
@@ -376,7 +376,7 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "90d88d362f40d64f4d859927ac10c17b8a7ee12edd1631b64baa59f6c4c45783",
     },
     {
-      "chars": 258,
+      "chars": 453,
       "components": [
         "zh:agent.execution.mode.conductor",
         "zh:agent.execution.mode.conductor.review",
@@ -384,9 +384,9 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       ],
       "firstLine": "Conductor 模式：由高级模型拆分任务、用户批准计划、worker 执行、高级模型验收。不要跳过批准、worker 结果检查或最终验收。",
       "id": "zh/conductor/review",
-      "lastLine": "用中文给出：是否达标、遗漏、风险、建议的后续动作。简洁有条理。",
-      "lines": 5,
-      "sha256": "9c443c9026c2112d038d50731a1af0d6280f15c05f441e0af908032d041273cf",
+      "lastLine": "最后一行必须严格输出 VERDICT: PASS 或 VERDICT: NEEDS_WORK；存在阻塞问题、目标未完成或无法确认时使用 NEEDS_WORK。",
+      "lines": 7,
+      "sha256": "73a79a2c8b5d8ba9fbd5144405ce286c136454296ca89157cebbf0c94de0b338",
     },
     {
       "chars": 1800,
@@ -533,7 +533,7 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "fd5736633f2ac00bc971a4fe2dd4a5e83ea2a5fc90edce63f0b96455c10fbbda",
     },
     {
-      "chars": 800,
+      "chars": 1264,
       "components": [
         "en:agent.execution.mode.conductor",
         "en:agent.execution.mode.conductor.review",
@@ -541,9 +541,9 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       ],
       "firstLine": "Conductor mode: a senior model decomposes the work, the user approves the plan, workers execute, and the senior model reviews. Do not skip approval, inspection of worker outcomes, or final review.",
       "id": "en/conductor/review",
-      "lastLine": "In concise, structured English, state whether the goal was met, what is missing, the risks, and recommended follow-up actions.",
-      "lines": 5,
-      "sha256": "63edb9c74cb34c5b6a8ba8aae9cd3b3150d1d27bfc99eecedc292e5f77e213ca",
+      "lastLine": "The final line must be exactly VERDICT: PASS or VERDICT: NEEDS_WORK. Use NEEDS_WORK when there is a blocking issue, the goal is incomplete, or acceptance cannot be established.",
+      "lines": 7,
+      "sha256": "f818a574fc415ce95b985a9f82dd1a742fcf07e469bd938439c662ca86b0f3f3",
     },
     {
       "chars": 5875,

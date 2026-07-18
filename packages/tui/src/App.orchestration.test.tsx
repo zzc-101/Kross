@@ -255,6 +255,12 @@ describe('App orchestration and interruption', () => {
             changedFiles: [],
             diffSummary: [],
             commandsRun: [],
+            toolsUsed: [],
+            verification: {
+              status: 'not-needed',
+              commands: [],
+              evidence: []
+            },
             evidence: [],
             risks: [],
             needsReview: []

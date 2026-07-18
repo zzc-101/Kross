@@ -5,14 +5,18 @@ import {
 import {
   agentResultSchema,
   type AgentMode,
-  type AgentResult
+  type AgentResult,
+  type VerificationReport
 } from '../domain';
 import type { PendingConductorExecution } from '../modes/pendingExecution';
 import { renderModePhasePrompt, renderPrompt } from '../prompts';
 import {
+  aggregateConductorVerification,
   formatConductorReviewSummary,
   formatConductorTaskPlanSummary,
+  parseConductorReviewVerdict,
   parseConductorTaskPlanFromText,
+  type ConductorTaskOutcome,
   type ConductorTaskPlan
 } from './conductorOrchestration';
 import type {
@@ -374,14 +378,7 @@ export class ModeFlows {
     }
 
     const roots = this.deps.options.workspaceRoots;
-    const taskOutcomes: Array<{
-      taskId: string;
-      title: string;
-      status: string;
-      summary: string;
-      changedFiles: string[];
-      risks: string[];
-    }> = [];
+    const taskOutcomes: ConductorTaskOutcome[] = [];
     const allChanged: string[] = [];
     const allEvidence: string[] = [];
     const allRisks: string[] = [];
@@ -411,10 +408,14 @@ export class ModeFlows {
         taskOutcomes.push({
           taskId: task.id,
           title: task.title,
+          repoId: task.repoId,
           status: result.status,
           summary: result.summary,
           changedFiles: result.changedFiles,
-          risks: result.risks
+          evidence: result.evidence,
+          risks: result.risks,
+          needsReview: result.needsReview,
+          verification: result.verification
         });
         yield {
           type: 'text-delta',
@@ -424,7 +425,7 @@ export class ModeFlows {
           allChanged.push(`${task.id}:${file}`);
         }
         allEvidence.push(
-          `${task.id}: ${result.status} — ${result.summary.slice(0, 200)}`
+          `${task.id}: ${result.status} · verification=${result.verification.status} — ${result.summary.slice(0, 200)}`
         );
         allRisks.push(...result.risks.map((risk) => `${task.id}: ${risk}`));
       } catch (error) {
@@ -435,10 +436,14 @@ export class ModeFlows {
         taskOutcomes.push({
           taskId: task.id,
           title: task.title,
+          repoId: task.repoId,
           status: 'failed',
           summary: message,
           changedFiles: [],
-          risks: [message]
+          evidence: [],
+          risks: [message],
+          needsReview: ['Worker execution failed before producing a result.'],
+          verification: failedWorkerVerification(message)
         });
         yield { type: 'text-delta', text: `  → failed: ${message}\n` };
         allEvidence.push(`${task.id}: failed — ${message}`);
@@ -450,15 +455,138 @@ export class ModeFlows {
     const digest = taskOutcomes
       .map(
         (outcome) =>
-          `### ${outcome.taskId} ${outcome.title} [${outcome.status}]\n${outcome.summary}\nfiles=${outcome.changedFiles.join(', ') || '—'}\nrisks=${outcome.risks.join('; ') || '—'}`
+          `### ${outcome.taskId} ${outcome.title} [${outcome.status}]\n${outcome.summary}\nfiles=${outcome.changedFiles.join(', ') || '—'}\nverification=${outcome.verification.status}\ncommands=${outcome.verification.commands.join(', ') || '—'}\nevidence=${outcome.evidence.join('; ') || '—'}\nneedsReview=${outcome.needsReview.join('; ') || '—'}\nrisks=${outcome.risks.join('; ') || '—'}`
       )
       .join('\n\n');
 
     let reviewText = '';
+    const reviewerSubRunIds: string[] = [];
+    const reviewerEvidence: string[] = [];
+    let reviewerIncomplete = !seniorClient;
+    let reviewerRejected = false;
+    if (!seniorClient) {
+      allRisks.push('未配置高级模型，无法执行最终 diff 验收');
+    }
     if (seniorClient) {
+      const reviewTargets = buildConductorReviewTargets(taskOutcomes);
+      await this.deps.record(runId, 'conductor.review.started', {
+        roots: reviewTargets.map(
+          (target) => target.repoId ?? 'primary'
+        )
+      });
+      const reviewSections: string[] = [];
+      for (const target of reviewTargets) {
+        throwIfAborted(signal);
+        const rootLabel = target.repoId ?? 'primary';
+        yield {
+          type: 'text-delta',
+          text: `▸ Reviewer 检查最终 diff [${rootLabel}]…\n`
+        };
+        try {
+          const reviewer = await runSubagent({
+            prompt: renderPrompt('conductor.review.user', {
+              goal,
+              digest,
+              rootLabel,
+              changedFiles: target.changedFiles.join(', ') || '—'
+            }),
+            title: `验收 ${rootLabel}`.slice(0, 48),
+            mode: 'explore',
+            role: 'reviewer',
+            systemPrompt: renderModePhasePrompt(
+              'conductor.review',
+              'conductor'
+            ),
+            parentRunId: runId,
+            parentDepth: 0,
+            signal,
+            repoId: target.repoId,
+            workspaceRoot: target.repoId
+              ? roots?.resolveById(target.repoId)
+              : this.deps.options.workspaceRoot,
+            preferWorkerModel: false
+          });
+          reviewerSubRunIds.push(reviewer.subRunId);
+          const reviewerResult = reviewer.result;
+          reviewerEvidence.push(
+            `${rootLabel}: ${reviewerResult.status} — ${reviewerResult.summary.slice(0, 240)}`,
+            ...reviewerResult.evidence.map(
+              (item) => `${rootLabel}: ${item}`
+            )
+          );
+          const verdict = parseConductorReviewVerdict(
+            reviewerResult.summary
+          );
+          await this.deps.record(runId, 'conductor.review.evidence', {
+            root: rootLabel,
+            subRunId: reviewer.subRunId,
+            status: reviewerResult.status,
+            summaryPreview: reviewerResult.summary.slice(0, 400),
+            evidenceCount: reviewerResult.evidence.length,
+            toolsUsed: reviewerResult.toolsUsed,
+            verdict
+          });
+          const inspectedStatus = reviewerResult.toolsUsed.includes('GitStatus');
+          const inspectedUnstagedDiff = reviewerResult.toolsUsed.includes(
+            'GitDiff:unstaged'
+          );
+          const inspectedStagedDiff = reviewerResult.toolsUsed.includes(
+            'GitDiff:staged'
+          );
+          if (
+            reviewerResult.status === 'completed' &&
+            reviewerResult.summary.trim().length > 0 &&
+            inspectedStatus &&
+            inspectedUnstagedDiff &&
+            inspectedStagedDiff &&
+            verdict !== undefined
+          ) {
+            reviewSections.push(
+              `#### ${rootLabel}\n${reviewerResult.summary.trim()}`
+            );
+            if (verdict === 'needs-work') {
+              reviewerRejected = true;
+              allRisks.push(`${rootLabel}: reviewer verdict=NEEDS_WORK`);
+            }
+          } else {
+            reviewerIncomplete = true;
+            const missingTools = [
+              inspectedStatus ? undefined : 'GitStatus',
+              inspectedUnstagedDiff ? undefined : 'GitDiff(unstaged)',
+              inspectedStagedDiff ? undefined : 'GitDiff(staged)',
+              verdict !== undefined ? undefined : 'VERDICT'
+            ].filter((tool): tool is string => tool !== undefined);
+            allRisks.push(
+              `${rootLabel}: reviewer 未能完成只读验收` +
+                (missingTools.length > 0
+                  ? `，缺少工具证据：${missingTools.join(', ')}`
+                  : '')
+            );
+          }
+        } catch (error) {
+          if (isOperationAborted(error, signal)) {
+            throw error;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          reviewerIncomplete = true;
+          reviewerEvidence.push(`${rootLabel}: reviewer failed — ${message}`);
+          allRisks.push(`${rootLabel}: reviewer failed — ${message}`);
+        }
+      }
+      reviewText = reviewSections.join('\n\n');
+    }
+    if (!reviewText.trim() && seniorClient) {
       for await (const event of this.streamPlainAssistantText({
         systemPrompt: renderModePhasePrompt('conductor.review', 'conductor'),
-        userText: renderPrompt('conductor.review.user', { goal, digest }),
+        userText: renderPrompt('conductor.review.user', {
+          goal,
+          digest,
+          rootLabel: 'primary',
+          changedFiles:
+            taskOutcomes
+              .flatMap((outcome) => outcome.changedFiles)
+              .join(', ') || '—'
+        }),
         signal,
         purpose: 'conductor-review'
       })) {
@@ -476,12 +604,20 @@ export class ModeFlows {
 
     await this.deps.record(runId, 'conductor.review.completed', {
       taskCount: taskOutcomes.length,
-      reviewPreview: reviewText.slice(0, 400)
+      reviewPreview: reviewText.slice(0, 400),
+      reviewerSubRunIds,
+      reviewerEvidenceCount: reviewerEvidence.length,
+      reviewerIncomplete,
+      reviewerRejected
     });
     const summary = formatConductorReviewSummary({ goal, taskOutcomes, reviewText });
-    const anyFailed = taskOutcomes.some((outcome) => outcome.status === 'failed');
+    const anyFailed =
+      reviewerIncomplete ||
+      reviewerRejected ||
+      taskOutcomes.some((outcome) => outcome.status === 'failed');
     const currentSenior = this.deps.modelSession.getLlmClient();
-    const result = await this.deps.attachChangedFiles(
+    const workerVerification = aggregateConductorVerification(taskOutcomes);
+    const attached = await this.deps.attachChangedFiles(
       agentResultSchema.parse({
         runId,
         mode,
@@ -492,12 +628,24 @@ export class ModeFlows {
           evidence: [
             `senior=${currentSenior?.model ?? 'n/a'}`,
             `worker=${this.deps.options.workerLlmClient?.model ?? currentSenior?.model ?? 'n/a'}`,
-            ...allEvidence
+            ...allEvidence,
+            ...reviewerEvidence
           ],
           risks: allRisks
         }
       })
     );
+    const result = agentResultSchema.parse({
+      ...attached,
+      report: {
+        ...attached.report,
+        verification: workerVerification,
+        evidence: [
+          ...attached.report.evidence,
+          `worker-verification=${workerVerification.status}`
+        ]
+      }
+    });
 
     await this.deps.record(runId, 'review.completed', {
       status: result.status,
@@ -512,6 +660,42 @@ export class ModeFlows {
     this.deps.finishTurnWithAssistant(goal, result.summary);
     yield { type: 'result', result };
   }
+}
+
+function failedWorkerVerification(message: string): VerificationReport {
+  return {
+    status: 'not-run',
+    commands: [],
+    evidence: [],
+    reason: `Worker failed before verification completed: ${message}`
+  };
+}
+
+function buildConductorReviewTargets(
+  outcomes: ConductorTaskOutcome[]
+): Array<{ repoId?: string; changedFiles: string[] }> {
+  const byRoot = new Map<
+    string,
+    { repoId?: string; changedFiles: Set<string> }
+  >();
+  for (const outcome of outcomes) {
+    const key = outcome.repoId ?? '__primary__';
+    const target = byRoot.get(key) ?? {
+      repoId: outcome.repoId,
+      changedFiles: new Set<string>()
+    };
+    for (const file of outcome.changedFiles) {
+      target.changedFiles.add(file);
+    }
+    byRoot.set(key, target);
+  }
+  if (byRoot.size === 0) {
+    return [{ changedFiles: [] }];
+  }
+  return [...byRoot.values()].map((target) => ({
+    repoId: target.repoId,
+    changedFiles: [...target.changedFiles].sort()
+  }));
 }
 
 /** No-model fallback for deciding whether plan mode should chat or plan. */

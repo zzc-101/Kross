@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -148,6 +149,7 @@ describe('runSubagent', () => {
 
       expect(outcome.mode).toBe('explore');
       expect(outcome.result.status).toBe('completed');
+      expect(outcome.result.verification.status).toBe('not-needed');
       expect(outcome.result.summary).toContain('note.txt');
       expect(outcome.subRunId.startsWith('sub-parent-run-1')).toBe(true);
 
@@ -247,6 +249,87 @@ describe('runSubagent', () => {
     }
   });
 
+  it('derives an explicit not-run verification report after worker changes', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-verify-'));
+    try {
+      class WriteThenDoneClient implements LlmClient {
+        readonly provider = 'openai' as const;
+        calls = 0;
+
+        async complete(request: LlmRequest): Promise<LlmResponse> {
+          this.calls += 1;
+          return this.calls === 1
+            ? {
+                provider: this.provider,
+                model: 'fake',
+                text: '',
+                raw: {},
+                toolCalls: [
+                  {
+                    id: 'write-1',
+                    name: 'Write',
+                    input: { path: 'worker.ts', content: 'export const ok = true;\n' }
+                  }
+                ]
+              }
+            : {
+                provider: this.provider,
+                model: 'fake',
+                text: 'implemented worker.ts',
+                raw: {}
+              };
+        }
+
+        async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+          const response = await this.complete(request);
+          for (const call of response.toolCalls ?? []) {
+            yield { type: 'tool-call', call };
+          }
+          if (response.text) {
+            yield { type: 'text-delta', text: response.text };
+          }
+          yield { type: 'done' };
+        }
+      }
+
+      const traceStore = new InMemoryTraceStore();
+      const outcome = await runSubagent(
+        {
+          prompt: 'implement worker file',
+          mode: 'general',
+          parentRunId: 'parent-worker-verification'
+        },
+        {
+          workspaceRoot: workspace,
+          llmClient: new WriteThenDoneClient(),
+          traceStore,
+          maxToolIterations: 4
+        }
+      );
+
+      expect(outcome.result).toMatchObject({
+        status: 'needs-review',
+        changedFiles: ['worker.ts'],
+        commandsRun: [],
+        verification: {
+          status: 'not-run',
+          commands: []
+        }
+      });
+      expect(outcome.result.needsReview).toContain(
+        'Conductor reviewer 必须检查最终 diff 与验证缺口'
+      );
+      expect(
+        traceStore.events.find((event) => event.type === 'subagent.completed')
+          ?.payload
+      ).toMatchObject({
+        verification: { status: 'not-run' }
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('auto-allows Edit/Write and does not register Bash/Delete/Task', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-tools-'));
     try {
@@ -276,6 +359,95 @@ describe('runSubagent', () => {
         }
       );
       expect(outcome.result.status).toBe('completed');
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('runs a specialized reviewer with read-only Git evidence', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-reviewer-'));
+    try {
+      execFileSync('git', ['init', '--quiet'], { cwd: workspace });
+      writeFileSync(join(workspace, 'review.txt'), 'pending review\n');
+
+      class ReviewerClient implements LlmClient {
+        readonly provider = 'openai' as const;
+        calls = 0;
+        readonly requests: LlmRequest[] = [];
+
+        async complete(request: LlmRequest): Promise<LlmResponse> {
+          this.requests.push(request);
+          this.calls += 1;
+          const tool =
+            this.calls === 1
+              ? { id: 'status-1', name: 'GitStatus', input: {} }
+              : this.calls === 2
+                ? {
+                    id: 'diff-1',
+                    name: 'GitDiff',
+                    input: { staged: false }
+                  }
+                : this.calls === 3
+                  ? {
+                      id: 'diff-2',
+                      name: 'GitDiff',
+                      input: { staged: true }
+                    }
+                  : undefined;
+          return {
+            provider: this.provider,
+            model: 'senior',
+            text: tool ? '' : 'reviewed the actual diff',
+            raw: {},
+            ...(tool ? { toolCalls: [tool] } : {})
+          };
+        }
+
+        async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+          const response = await this.complete(request);
+          for (const call of response.toolCalls ?? []) {
+            yield { type: 'tool-call', call };
+          }
+          if (response.text) {
+            yield { type: 'text-delta', text: response.text };
+          }
+          yield { type: 'done' };
+        }
+      }
+
+      const llm = new ReviewerClient();
+      const outcome = await runSubagent(
+        {
+          prompt: 'review final workspace diff',
+          title: 'final review',
+          mode: 'explore',
+          role: 'reviewer',
+          systemPrompt: 'SPECIAL READ-ONLY REVIEWER',
+          parentRunId: 'parent-reviewer'
+        },
+        {
+          workspaceRoot: workspace,
+          llmClient: llm,
+          traceStore: new InMemoryTraceStore(),
+          maxToolIterations: 5
+        }
+      );
+
+      expect(outcome.result.toolsUsed).toEqual(
+        expect.arrayContaining([
+          'GitStatus',
+          'GitDiff:unstaged',
+          'GitDiff:staged'
+        ])
+      );
+      expect(outcome.result.diffSummary).toHaveLength(2);
+      expect(
+        llm.requests[0]?.messages.find((message) => message.role === 'system')
+          ?.content
+      ).toContain('SPECIAL READ-ONLY REVIEWER');
+      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).not.toContain(
+        'Write'
+      );
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -505,6 +677,12 @@ describe('Task tool', () => {
               changedFiles: [],
               diffSummary: [],
               commandsRun: [],
+              toolsUsed: [],
+              verification: {
+                status: 'not-needed',
+                commands: [],
+                evidence: []
+              },
               evidence: [],
               risks: [],
               needsReview: []

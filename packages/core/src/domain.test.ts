@@ -54,6 +54,12 @@ describe('domain schemas', () => {
       changedFiles: ['src/task.ts'],
       diffSummary: ['新增 taskSource 字段'],
       commandsRun: ['npm test'],
+      toolsUsed: ['Read', 'Edit', 'Bash'],
+      verification: {
+        status: 'passed',
+        commands: ['npm test'],
+        evidence: ['npm test: passed']
+      },
       evidence: ['测试通过'],
       risks: ['未覆盖并发场景'],
       needsReview: []
@@ -61,6 +67,7 @@ describe('domain schemas', () => {
 
     expect(result.evidence).toContain('测试通过');
     expect(result.risks).toHaveLength(1);
+    expect(result.verification.status).toBe('passed');
   });
 
   it('parses a final agent result for auto mode', () => {

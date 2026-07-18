@@ -14,6 +14,13 @@ export function formatSubagentToolContent(outcome: SubagentRunOutcome): string {
       : undefined,
     result.changedFiles.length > 0
       ? `\nChanged files:\n${result.changedFiles.map((item) => `- ${item}`).join('\n')}`
+      : undefined,
+    `\nVerification: ${result.verification.status}`,
+    result.verification.commands.length > 0
+      ? `Commands: ${result.verification.commands.join(', ')}`
+      : undefined,
+    result.toolsUsed.length > 0
+      ? `Tools used: ${result.toolsUsed.join(', ')}`
       : undefined
   ].filter((line): line is string => line !== undefined);
   return lines.join('\n');
