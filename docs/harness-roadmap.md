@@ -32,7 +32,7 @@ Kross 已经具备完整的 Agent 基础骨架：
 - 工具结果老化、轮次压缩和硬截断组成的三级上下文治理。
 - Project Instructions、Skills、stdio MCP 和多模型 Provider。
 
-当前主要短板不是“缺少 Agent 能力”，而是 Harness 对完成质量的约束不足：主模型不再发起工具调用时，run 即可进入 `completed`；发生代码修改后，系统不会确认最后一次修改之后是否执行过有效验证。主 Agent 与子代理现已共享重复工具调用 stall guard，能够识别调用与结果均无变化的空转循环。
+路线图启动时的主要短板不是“缺少 Agent 能力”，而是 Harness 对完成质量的约束不足：主模型不再发起工具调用时即可进入 `completed`，发生代码修改后也不会确认最后一次修改之后是否执行过有效验证。P0/P1 已补齐确定性完成门、结构化验证、Conductor 最终 diff 验收、安全 checkpoint 与风险感知工具调度；当前实现概览见 [Agent Harness](harness.md)。
 
 ## P0：完成质量闭环
 

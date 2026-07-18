@@ -46,6 +46,15 @@ Write、Edit、Delete、Move 和 ApplyPatch 统一写入 mutation journal：
 
 mutation blobs 位于 `~/.kross/mutations`，其中可能包含历史文件正文，不应公开分享。
 
+## Checkpoint 与恢复
+
+- 等待工具审批时，Kross 会持久化 open turn 和版本化 run checkpoint，其中可能包含模型生成的工具参数。
+- 恢复前会核对 tool-call id、已有结果、当前工具定义、动态风险和审批策略；任一证据不一致都会拒绝恢复。
+- 只有尚未执行的待审批调用可以继续。已完成的 write / execute 调用不会因为重启而自动重放。
+- 普通运行在任意中间点异常退出时会作为 interrupted turn 收口，不会猜测上一次操作是否成功。
+
+会话与 checkpoint 位于 `~/.kross/sessions`，可能包含源码片段、命令参数或业务数据，应按本地敏感数据保护。
+
 ## Bash 与后台进程
 
 - `Bash` 和 `ProcessStart` 只有 cwd/workspace 约束，没有 OS 级文件、网络或进程沙箱。

@@ -9,11 +9,14 @@
 Kross 不只是一个把提示词转发给模型的聊天界面。它围绕真实开发任务提供完整运行闭环：
 
 - **三种工作模式**：`auto` 直接解决问题，`plan` 先确认计划，`conductor` 拆分任务并交给子代理执行、复核。
+- **可验证的完成契约**：代码修改后根据 mutation 与真实工具 trace 检查验证证据；测试失败或未运行时不会伪装成成功。
+- **抗空转工具循环**：重复调用无进展时先引导模型恢复策略，仍然停滞则有限退出并报告阻塞。
 - **项目规则感知**：自动加载 workspace 根目录中的 `CLAUDE.md`、`AGENTS.md` 和 `KROSS.md`。
 - **可扩展 Skills**：发现个人与项目 Skills，只在需要时安全读取正文和资源。
 - **安全文件修改**：写入前后记录 mutation journal，支持带冲突保护的 `/undo`。
-- **可恢复会话**：消息、上下文、Todo、当前模式和待确认计划可跨重启恢复。
+- **可恢复会话与运行**：消息、上下文、Todo、当前模式、待确认计划和未执行的工具审批可跨重启安全恢复，已完成写操作不会重放。
 - **可管理后台进程**：启动、轮询、输入和终止长时间运行的命令，并按会话隔离进程。
+- **受控工具调度**：独立只读调用可并发执行，写入、执行、Process 和 MCP 调用保持有序；无进展轮询会自动退避。
 - **透明可调试**：通过 `/context`、`/trace` 和 `/diff` 查看上下文、执行轨迹与代码变更。
 - **多模型支持**：兼容 OpenAI、Anthropic、OpenRouter、DeepSeek 和 xAI。
 
@@ -133,8 +136,9 @@ npm run dev
 flowchart LR
     U["Terminal User"] --> T["Ink TUI"]
     T --> R["Agent Runtime"]
-    R --> C["Context & Sessions"]
-    R --> G["Tool Gateway"]
+    R --> C["Context / Sessions / Checkpoints"]
+    R --> H["Harness Completion Gate"]
+    H --> G["Tool Gateway & Scheduler"]
     R --> M["LLM Providers"]
     G --> F["Files / Git / Search"]
     G --> P["Processes / MCP / Subagents"]
@@ -142,9 +146,9 @@ flowchart LR
 
 仓库采用 TypeScript monorepo：
 
-- `packages/core`：Agent runtime、上下文治理、会话、工具、权限、Skills、MCP 与模型适配。
+- `packages/core`：Agent runtime、Harness 完成门、上下文治理、会话、工具、权限、Skills、MCP 与模型适配。
 - `packages/tui`：基于 Ink 的交互式终端界面。
-- `docs/superpowers`：设计规格与实施计划。
+- `docs`：用户指南、技术概览、Harness 说明和发布文档。
 
 ## 文档
 
@@ -155,6 +159,7 @@ flowchart LR
 - [安全模型](docs/security.md)
 - [故障排查](docs/troubleshooting.md)
 - [技术概览](docs/technical-overview.md)
+- [Agent Harness](docs/harness.md)
 - [Harness 优化路线图](docs/harness-roadmap.md)
 - [发布指南](docs/releasing.md)
 - [参与贡献](CONTRIBUTING.md)

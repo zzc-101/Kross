@@ -21,10 +21,10 @@ npm run dev
 
 ```text
 /status
-/model list
+/model
 ```
 
-确认 Provider、密钥和模型三者完整。环境变量示例：
+在模型面板中确认可用模型；环境变量示例：
 
 ```bash
 export AGENT_LLM_PROVIDER=openai
@@ -89,6 +89,17 @@ Kross 当前不提供 `--force` undo。
 - 会话按 workspace 隔离；确认你从正确目录启动。
 - 会话事实源位于 `~/.kross/sessions`，`~/.kross/session-store.db` 只是可重建索引。
 
+## 恢复会话后工具审批面板没有出现
+
+只有“尚未执行且证据完整”的工具审批可以恢复。以下情况会 fail-closed，并把上次轮次标记为 interrupted：
+
+- 保存的 assistant tool call 或已完成 tool result 缺失；
+- 工具已被移除或输入不再符合当前 schema；
+- 动态风险或当前审批策略与保存时不一致；
+- 上次进程在普通 LLM / 工具执行中间点退出，而不是停在审批边界。
+
+Kross 不会为了恢复界面而猜测性重放 write / execute 操作。先用 Git、`/diff` 或 `/trace` 确认已有结果，再发送一条新任务继续。
+
 ## `/processes` 看不到之前的进程
 
 managed process 按持久化会话隔离。切换到其他会话后不可查看或控制原会话进程；恢复原 session 后会重新可见。
@@ -134,7 +145,5 @@ npm test -- --run
 完整验证：
 
 ```bash
-npm run typecheck
-npm run build
-npm test -- --run
+npm run check
 ```

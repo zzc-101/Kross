@@ -8,11 +8,8 @@
 |---|---|
 | `/help` | 显示完整命令帮助 |
 | `/settings` | 打开模型与思考强度面板 |
-| `/model` | 打开模型设置或查看模型命令帮助 |
-| `/model list` | 列出 Provider |
+| `/model` | 打开模型与思考强度面板 |
 | `/model <modelId>` | 切换当前 Provider 的模型 |
-| `/model <provider> <model>` | 切换 Provider 和模型 |
-| `/model off|minimal|low|medium|high|xhigh|cycle` | 设置或轮换思考强度 |
 | `/mode auto|plan|conductor` | 切换工作模式 |
 | `/status` | 显示当前模式、权限和模型 |
 | `/lang zh|en` | 切换并保存界面语言 |
