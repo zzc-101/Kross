@@ -100,6 +100,57 @@ function send(
 }
 
 describe('WorkerService integration', () => {
+  it('rejects new tasks when the workspace exceeds its disk quota', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-worker-quota-'));
+    const workspace = join(root, 'repo');
+    mkdirSync(workspace);
+    const executions: string[] = [];
+    const service = new WorkerService({
+      workspaceId: 'w1',
+      workspaceRoot: workspace,
+      krossHome: join(root, '.kross'),
+      runtimeFactory: runtimeFactory(executions),
+      diskLimitBytes: 10 * 1024,
+      diskUsageBytes: async () => 12 * 1024
+    });
+    const events: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'create-quota',
+      type: 'session.create',
+      workspaceId: 'w1'
+    }, events);
+    const snapshot = events.find(
+      (event) => event.event.type === 'session.snapshot'
+    );
+    if (snapshot?.event.type !== 'session.snapshot') {
+      throw new Error('missing session snapshot');
+    }
+
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'input-over-quota',
+      type: 'session.input',
+      workspaceId: 'w1',
+      sessionId: snapshot.event.data.summary.id,
+      input: '执行任务',
+      mode: 'auto'
+    }, events);
+
+    expect(
+      events.find(
+        (event) =>
+          event.event.type === 'request.error' &&
+          event.event.requestId === 'input-over-quota'
+      )?.event
+    ).toMatchObject({
+      type: 'request.error',
+      code: 'WORKSPACE_DISK_QUOTA_EXCEEDED'
+    });
+    expect(executions).toEqual([]);
+    await service.close();
+  });
+
   it('runs, pauses for approval, resumes, persists and replays the session', async () => {
     const root = mkdtempSync(join(tmpdir(), 'kross-worker-'));
     const workspace = join(root, 'repo');

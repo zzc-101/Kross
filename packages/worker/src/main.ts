@@ -14,6 +14,9 @@ const service = new WorkerService({
   workspaceId,
   workspaceRoot,
   krossHome,
+  diskLimitBytes: Number(
+    process.env.KROSS_WORKSPACE_DISK_BYTES ?? 10 * 1024 ** 3
+  ),
   env: process.env
 });
 const server = new WorkerWsServer(service, {

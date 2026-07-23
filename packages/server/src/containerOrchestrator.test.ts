@@ -56,7 +56,8 @@ describe('DockerOrchestrator', () => {
         limits: {
           memoryBytes: 1024,
           nanoCpus: 2_000,
-          pidsLimit: 32
+          pidsLimit: 32,
+          diskBytes: 4096
         }
       }
     );
@@ -76,6 +77,8 @@ describe('DockerOrchestrator', () => {
     expect(helper?.User).toBe('0:0');
     expect(JSON.stringify(helper?.Cmd)).not.toContain('git-secret');
     expect(helper?.Env).toContain('KROSS_GIT_TOKEN=git-secret');
+    expect(helper?.Env).toContain('KROSS_DISK_LIMIT_KIB=4');
+    expect(JSON.stringify(helper?.Cmd)).toContain('du -sk /workspace');
     expect(worker?.Image).toBe('worker:test');
     expect(worker?.Labels).toMatchObject({
       'dev.kross.workspace': 'workspace-1',
@@ -84,6 +87,7 @@ describe('DockerOrchestrator', () => {
     expect(worker?.Env).toEqual(
       expect.arrayContaining([
         'KROSS_WORKSPACE_ID=workspace-1',
+        'KROSS_WORKSPACE_DISK_BYTES=4096',
         'AGENT_LLM_PROVIDER=openai',
         'OPENAI_API_KEY=provider-secret'
       ])

@@ -8,6 +8,7 @@ export interface WorkspaceLimits {
   memoryBytes: number;
   nanoCpus: number;
   pidsLimit: number;
+  diskBytes: number;
 }
 
 export interface CreateWorkspaceContainerInput {
@@ -65,9 +66,10 @@ export interface DockerOrchestratorOptions {
 }
 
 const DEFAULT_LIMITS: WorkspaceLimits = {
-  memoryBytes: 4 * 1024 * 1024 * 1024,
-  nanoCpus: 2_000_000_000,
-  pidsLimit: 512
+  memoryBytes: 2 * 1024 * 1024 * 1024,
+  nanoCpus: 1_000_000_000,
+  pidsLimit: 256,
+  diskBytes: 10 * 1024 * 1024 * 1024
 };
 
 export class DockerOrchestrator implements ContainerOrchestrator {
@@ -273,6 +275,7 @@ export class DockerOrchestrator implements ContainerOrchestrator {
         'KROSS_WORKSPACE_ROOT=/workspace/repo',
         'KROSS_HOME=/workspace/.kross',
         `KROSS_WORKER_TOKEN=${input.workerToken}`,
+        `KROSS_WORKSPACE_DISK_BYTES=${this.limits.diskBytes}`,
         'PORT=8788',
         ...this.workerEnvironment
       ],
@@ -316,6 +319,9 @@ export class DockerOrchestrator implements ContainerOrchestrator {
     input: CreateWorkspaceContainerInput
   ): Promise<void> {
     const environment: string[] = [];
+    environment.push(
+      `KROSS_DISK_LIMIT_KIB=${Math.floor(this.limits.diskBytes / 1024)}`
+    );
     const cloneUrl = normalizeGitUrl(input.gitUrl, input.credential);
     if (input.credential?.type === 'https-token') {
       environment.push(`KROSS_GIT_TOKEN=${input.credential.token}`);
@@ -325,10 +331,12 @@ export class DockerOrchestrator implements ContainerOrchestrator {
     const branchArgs = input.defaultBranch
       ? ['--branch', input.defaultBranch]
       : [];
+    const quotaCheck =
+      'used="$(du -sk /workspace | cut -f1)"; if [ "$used" -gt "$KROSS_DISK_LIMIT_KIB" ]; then echo "workspace disk quota exceeded" >&2; exit 42; fi';
     const command =
       input.credential?.type === 'ssh-key'
         ? [
-            'umask 077; mkdir -p /workspace/.kross/ssh; printf %s "$KROSS_SSH_KEY" > /workspace/.kross/ssh/id_ed25519; GIT_SSH_COMMAND="ssh -i /workspace/.kross/ssh/id_ed25519 -o UserKnownHostsFile=/workspace/.kross/ssh/known_hosts -o StrictHostKeyChecking=accept-new" git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace',
+            `umask 077; mkdir -p /workspace/.kross/ssh; printf %s "$KROSS_SSH_KEY" > /workspace/.kross/ssh/id_ed25519; GIT_SSH_COMMAND="ssh -i /workspace/.kross/ssh/id_ed25519 -o UserKnownHostsFile=/workspace/.kross/ssh/known_hosts -o StrictHostKeyChecking=accept-new" git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace; ${quotaCheck}`,
             'clone',
             ...branchArgs,
             '--',
@@ -336,14 +344,14 @@ export class DockerOrchestrator implements ContainerOrchestrator {
           ]
         : input.credential?.type === 'https-token'
           ? [
-              'umask 077; mkdir -p /workspace/.kross; printf %s "$KROSS_GIT_TOKEN" > /workspace/.kross/git-token; printf \'#!/bin/sh\\ncase "$1" in *Username*) printf %s x-access-token;; *) cat /workspace/.kross/git-token;; esac\\n\' > /workspace/.kross/git-askpass.sh; chmod 700 /workspace/.kross/git-askpass.sh; GIT_ASKPASS=/workspace/.kross/git-askpass.sh GIT_TERMINAL_PROMPT=0 git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace',
+              `umask 077; mkdir -p /workspace/.kross; printf %s "$KROSS_GIT_TOKEN" > /workspace/.kross/git-token; printf '#!/bin/sh\\ncase "$1" in *Username*) printf %s x-access-token;; *) cat /workspace/.kross/git-token;; esac\\n' > /workspace/.kross/git-askpass.sh; chmod 700 /workspace/.kross/git-askpass.sh; GIT_ASKPASS=/workspace/.kross/git-askpass.sh GIT_TERMINAL_PROMPT=0 git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace; ${quotaCheck}`,
               'clone',
               ...branchArgs,
               '--',
               cloneUrl
             ]
           : [
-              'git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace',
+              `git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace; ${quotaCheck}`,
               'clone',
               ...branchArgs,
               '--',
@@ -365,6 +373,13 @@ export class DockerOrchestrator implements ContainerOrchestrator {
       await helper.start();
       const result = await helper.wait();
       if (result.StatusCode !== 0) {
+        if (result.StatusCode === 42) {
+          throw new Error(
+            `仓库超过工作区磁盘配额（${Math.floor(
+              this.limits.diskBytes / 1024 ** 3
+            )} GiB）`
+          );
+        }
         throw new Error(`Git clone 失败，退出码 ${result.StatusCode}`);
       }
     } finally {

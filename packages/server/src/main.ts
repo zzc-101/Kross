@@ -23,9 +23,12 @@ const orchestrator = new DockerOrchestrator(undefined, {
   managerId: process.env.KROSS_MANAGER_ID,
   workerEnv: runtimeConfig.workerEnvironment(),
   limits: {
-    memoryBytes: Number(process.env.KROSS_WORKSPACE_MEMORY ?? 4 * 1024 ** 3),
-    nanoCpus: Number(process.env.KROSS_WORKSPACE_NANO_CPUS ?? 2_000_000_000),
-    pidsLimit: Number(process.env.KROSS_WORKSPACE_PIDS ?? 512)
+    memoryBytes: Number(process.env.KROSS_WORKSPACE_MEMORY ?? 2 * 1024 ** 3),
+    nanoCpus: Number(process.env.KROSS_WORKSPACE_NANO_CPUS ?? 1_000_000_000),
+    pidsLimit: Number(process.env.KROSS_WORKSPACE_PIDS ?? 256),
+    diskBytes: Number(
+      process.env.KROSS_WORKSPACE_DISK_BYTES ?? 10 * 1024 ** 3
+    )
   }
 });
 const pushService =

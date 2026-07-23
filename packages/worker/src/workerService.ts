@@ -24,6 +24,10 @@ import {
 import { EventJournal } from './eventJournal';
 import { appendGitPatch } from './gitInspection';
 import { SessionSettingsStore } from './sessionSettingsStore';
+import {
+  formatDiskBytes,
+  measureWorkspaceDiskUsage
+} from './workspaceDisk';
 
 const execFileAsync = promisify(execFile);
 
@@ -33,6 +37,8 @@ export interface WorkerServiceOptions {
   krossHome: string;
   env?: Record<string, string | undefined>;
   runtimeFactory?: () => Promise<RuntimeHandle>;
+  diskLimitBytes?: number;
+  diskUsageBytes?: () => Promise<number>;
   now?: () => Date;
 }
 
@@ -58,9 +64,17 @@ export class WorkerService {
   private readonly sessions = new Map<string, ActiveSession>();
   private readonly sinks = new Set<WorkerEventSink>();
   private readonly now: () => Date;
+  private readonly diskUsageBytes: () => Promise<number>;
 
   constructor(private readonly options: WorkerServiceOptions) {
     this.now = options.now ?? (() => new Date());
+    this.diskUsageBytes =
+      options.diskUsageBytes ??
+      (() =>
+        measureWorkspaceDiskUsage([
+          options.workspaceRoot,
+          options.krossHome
+        ]));
     this.store = new HybridSessionStore({ krossHome: options.krossHome });
     this.journal = new EventJournal(
       join(options.krossHome, 'cloud-events'),
@@ -306,6 +320,40 @@ export class WorkerService {
     requestId: string,
     sink?: WorkerEventSink
   ): Promise<void> {
+    if (
+      this.options.diskLimitBytes !== undefined &&
+      this.options.diskLimitBytes > 0
+    ) {
+      let usedBytes: number;
+      try {
+        usedBytes = await this.diskUsageBytes();
+      } catch (error) {
+        this.emitError(
+          sessionId,
+          requestId,
+          'WORKSPACE_DISK_CHECK_FAILED',
+          `无法检查工作区磁盘配额：${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          sink
+        );
+        return;
+      }
+      if (usedBytes > this.options.diskLimitBytes) {
+        this.emitError(
+          sessionId,
+          requestId,
+          'WORKSPACE_DISK_QUOTA_EXCEEDED',
+          `工作区已使用 ${formatDiskBytes(
+            usedBytes
+          )}，超过 ${formatDiskBytes(
+            this.options.diskLimitBytes
+          )} 配额。请清理文件后重试。`,
+          sink
+        );
+        return;
+      }
+    }
     const session = await this.requireSession(sessionId, requestId, sink);
     if (!session) return;
     if (session.abortController) {
