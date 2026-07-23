@@ -385,7 +385,10 @@ function contentType(extension: string): string {
       '.css': 'text/css; charset=utf-8',
       '.json': 'application/json; charset=utf-8',
       '.webmanifest': 'application/manifest+json',
-      '.svg': 'image/svg+xml'
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.webp': 'image/webp',
+      '.ico': 'image/x-icon'
     }[extension] ?? 'application/octet-stream'
   );
 }

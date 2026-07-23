@@ -7,6 +7,9 @@ import type {
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { SetupPanel } from './SetupPanel';
+import { ActionDialog, type DialogAction } from './OperationDialog';
+import { InspectionPanel } from './InspectionPanel';
+import { applyPwaUpdate, installPwa, usePwa } from './pwa';
 import { fetchSetupStatus, type SetupStatus } from './setupApi';
 import { useCloud, type UiMessage } from './useCloud';
 
@@ -18,16 +21,25 @@ interface AppProps {
 
 export function App({ endpoint, token, onLogout }: AppProps) {
   const cloud = useCloud(endpoint, token);
+  const pwa = usePwa();
   const { state, client, connection } = cloud;
   const selectedWorkspace = state.workspaces.find(
     (workspace) => workspace.id === state.workspaceId
   );
   const [input, setInput] = useState('');
   const [mobilePanel, setMobilePanel] = useState<'chat' | 'sessions' | 'todo'>('chat');
+  const [sessionQuery, setSessionQuery] = useState('');
   const [showWorkspaceForm, setShowWorkspaceForm] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [dialogAction, setDialogAction] = useState<DialogAction>();
   const [setupStatus, setSetupStatus] = useState<SetupStatus>();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const visibleSessions = state.sessions.filter((session) => {
+    const query = sessionQuery.trim().toLocaleLowerCase();
+    return !query ||
+      session.title.toLocaleLowerCase().includes(query) ||
+      session.preview.toLocaleLowerCase().includes(query);
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -65,11 +77,7 @@ export function App({ endpoint, token, onLogout }: AppProps) {
 
   useEffect(() => {
     if (state.workspaceId && state.sessions.length === 0 && !state.snapshot) {
-      try {
-        cloud.selectWorkspace(state.workspaceId);
-      } catch {
-        // 首次连接尚未 open，workspace.list 返回后由用户操作或重连补齐。
-      }
+      cloud.selectWorkspace(state.workspaceId);
     }
   }, [cloud.selectWorkspace, state.snapshot, state.sessions.length, state.workspaceId]);
 
@@ -88,13 +96,14 @@ export function App({ endpoint, token, onLogout }: AppProps) {
     setInput('');
   };
 
-  const inspect = (kind: 'trace' | 'diff') => {
+  const inspect = (kind: 'trace' | 'diff', argument?: string) => {
     if (!state.workspaceId || !state.snapshot) return;
     client.send({
       type: 'session.inspect',
       workspaceId: state.workspaceId,
       sessionId: state.snapshot.summary.id,
-      kind
+      kind,
+      argument
     });
   };
 
@@ -134,41 +143,92 @@ export function App({ endpoint, token, onLogout }: AppProps) {
 
   const pushBranch = () => {
     if (!state.workspaceId || !state.snapshot) return;
-    const branch = window.prompt('要推送的分支名称');
-    if (!branch) return;
-    client.send({
-      type: 'git.push',
-      workspaceId: state.workspaceId,
-      sessionId: state.snapshot.summary.id,
+    setDialogAction({
+      kind: 'git-push',
       remote: 'origin',
-      branch,
-      setUpstream: true
+      branch: selectedWorkspace?.defaultBranch ?? 'main'
     });
   };
 
   const createPullRequest = () => {
     if (!state.workspaceId || !state.snapshot) return;
-    const head = window.prompt('PR 源分支');
-    if (!head) return;
-    const base = window.prompt('PR 目标分支', 'main');
-    const title = window.prompt('PR 标题', state.snapshot.summary.title);
-    if (!base || !title) return;
-    client.send({
-      type: 'git.pull-request',
-      workspaceId: state.workspaceId,
-      sessionId: state.snapshot.summary.id,
-      head,
-      base,
-      title,
+    setDialogAction({
+      kind: 'git-pr',
+      head: '',
+      base: selectedWorkspace?.defaultBranch ?? 'main',
+      title: state.snapshot.summary.title,
       body: ''
     });
+  };
+
+  const submitDialogAction = (action: DialogAction) => {
+    if (action.kind === 'rename-session' && state.workspaceId) {
+      client.send({
+        type: 'session.rename',
+        workspaceId: state.workspaceId,
+        sessionId: action.sessionId,
+        title: action.title.trim()
+      });
+    } else if (
+      action.kind === 'model' &&
+      state.workspaceId &&
+      state.snapshot
+    ) {
+      client.send({
+        type: 'session.settings',
+        workspaceId: state.workspaceId,
+        sessionId: state.snapshot.summary.id,
+        model: action.model.trim()
+      });
+    } else if (
+      action.kind === 'git-push' &&
+      state.workspaceId &&
+      state.snapshot
+    ) {
+      client.send({
+        type: 'git.push',
+        workspaceId: state.workspaceId,
+        sessionId: state.snapshot.summary.id,
+        remote: action.remote.trim(),
+        branch: action.branch.trim(),
+        setUpstream: true
+      });
+    } else if (
+      action.kind === 'git-pr' &&
+      state.workspaceId &&
+      state.snapshot
+    ) {
+      client.send({
+        type: 'git.pull-request',
+        workspaceId: state.workspaceId,
+        sessionId: state.snapshot.summary.id,
+        head: action.head.trim(),
+        base: action.base.trim(),
+        title: action.title.trim(),
+        body: action.body
+      });
+    } else if (action.kind === 'delete-workspace') {
+      client.send({
+        type: 'workspace.delete',
+        workspaceId: action.workspaceId,
+        removeVolume: action.removeVolume
+      });
+    }
+    setDialogAction(undefined);
   };
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand"><span>K</span> Kross Cloud</div>
-        <div className={`connection ${connection}`}>{connectionLabel(connection)}</div>
+        <div
+          className={`connection ${connection}`}
+          role="status"
+          aria-live="polite"
+          title={connectionLabel(connection)}
+        >
+          {connectionLabel(connection)}
+        </div>
         <select
           aria-label="工作区"
           value={state.workspaceId ?? ''}
@@ -188,8 +248,29 @@ export function App({ endpoint, token, onLogout }: AppProps) {
         >
           环境
         </button>
+        {pwa.installable && !pwa.installed && (
+          <button
+            className="icon-button install-button"
+            onClick={() => void installPwa()}
+          >
+            安装
+          </button>
+        )}
         <button className="icon-button muted" onClick={onLogout}>退出</button>
       </header>
+
+      {(pwa.offline || pwa.updateAvailable) && (
+        <div className={`app-banner ${pwa.updateAvailable ? 'update' : 'offline'}`}>
+          <span>
+            {pwa.updateAvailable
+              ? 'Kross Cloud 有新版本可用。'
+              : '网络已断开；操作会排队，并在恢复连接后发送。'}
+          </span>
+          {pwa.updateAvailable && (
+            <button onClick={applyPwaUpdate}>更新并重新载入</button>
+          )}
+        </div>
+      )}
 
       <main className="layout">
         <aside className={`sidebar ${mobilePanel === 'sessions' ? 'mobile-active' : ''}`}>
@@ -201,27 +282,64 @@ export function App({ endpoint, token, onLogout }: AppProps) {
             新建会话
           </button>
           <h2>会话</h2>
+          <input
+            className="session-search"
+            type="search"
+            aria-label="搜索会话"
+            placeholder="搜索会话"
+            value={sessionQuery}
+            onChange={(event) => setSessionQuery(event.target.value)}
+          />
           <div className="session-list">
-            {state.sessions.map((session) => (
-              <button
-                className={state.snapshot?.summary.id === session.id ? 'active' : ''}
+            {visibleSessions.map((session) => (
+              <div
+                className={`session-row ${
+                  state.snapshot?.summary.id === session.id ? 'active' : ''
+                }`}
                 key={session.id}
-                onClick={() => {
-                  if (state.workspaceId) {
-                    cloud.resumeSession(state.workspaceId, session.id);
-                    setMobilePanel('chat');
-                  }
-                }}
               >
-                <strong>{session.title}</strong>
-                <small>{session.preview || '空会话'}</small>
-              </button>
+                <button
+                  className="session-open"
+                  onClick={() => {
+                    if (state.workspaceId) {
+                      cloud.resumeSession(state.workspaceId, session.id);
+                      setMobilePanel('chat');
+                    }
+                  }}
+                >
+                  <strong>{session.title}</strong>
+                  <small>{session.preview || '空会话'}</small>
+                </button>
+                <button
+                  className="session-rename"
+                  aria-label={`重命名会话 ${session.title}`}
+                  title="重命名"
+                  onClick={() => {
+                    setDialogAction({
+                      kind: 'rename-session',
+                      sessionId: session.id,
+                      title: session.title
+                    });
+                  }}
+                >
+                  ✎
+                </button>
+              </div>
             ))}
+            {visibleSessions.length === 0 && (
+              <p className="quiet session-empty">没有匹配的会话。</p>
+            )}
           </div>
           {selectedWorkspace && (
             <WorkspaceActions
               workspace={selectedWorkspace}
               onCommand={(command) => client.send(command)}
+              onDelete={() => setDialogAction({
+                kind: 'delete-workspace',
+                workspaceId: selectedWorkspace.id,
+                name: selectedWorkspace.name,
+                removeVolume: false
+              })}
             />
           )}
         </aside>
@@ -264,19 +382,13 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                   <button className="desktop-action" onClick={pushBranch}>Push</button>
                   <button className="desktop-action" onClick={createPullRequest}>PR</button>
                   {'Notification' in window && <button className="desktop-action" onClick={() => void enableNotifications()}>通知</button>}
-                  <button onClick={() => {
-                    const model = window.prompt('模型 ID', state.snapshot?.model ?? '');
-                    if (model && state.workspaceId && state.snapshot) {
-                      client.send({
-                        type: 'session.settings',
-                        workspaceId: state.workspaceId,
-                        sessionId: state.snapshot.summary.id,
-                        model
-                      });
-                    }
-                  }}>模型</button>
+                  <button onClick={() => setDialogAction({
+                    kind: 'model',
+                    model: state.snapshot?.model ?? ''
+                  })}>模型</button>
                   <select
-                    value={state.snapshot.thinkingEffort}
+                    value={state.snapshot.thinkingEffort ?? 'off'}
+                    aria-label="思考强度"
                     onChange={(event) =>
                       client.send({
                         type: 'session.settings',
@@ -306,7 +418,11 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                       payload={trace.payload}
                     />
                   ))}
-                {state.running && <div className="running"><i /> Agent 正在工作</div>}
+                {state.running && (
+                  <div className="running" role="status" aria-live="polite">
+                    <i /> Agent 正在工作
+                  </div>
+                )}
                 <div ref={bottomRef} />
               </div>
               {state.snapshot.pendingApproval && (
@@ -412,20 +528,36 @@ export function App({ endpoint, token, onLogout }: AppProps) {
       </main>
 
       <nav className="mobile-nav">
-        <button onClick={() => setMobilePanel('sessions')}>会话</button>
-        <button onClick={() => setMobilePanel('chat')}>对话</button>
-        <button onClick={() => setMobilePanel('todo')}>进度</button>
+        <button
+          className={mobilePanel === 'sessions' ? 'active' : ''}
+          aria-current={mobilePanel === 'sessions' ? 'page' : undefined}
+          onClick={() => setMobilePanel('sessions')}
+        >
+          会话
+        </button>
+        <button
+          className={mobilePanel === 'chat' ? 'active' : ''}
+          aria-current={mobilePanel === 'chat' ? 'page' : undefined}
+          onClick={() => setMobilePanel('chat')}
+        >
+          对话
+        </button>
+        <button
+          className={mobilePanel === 'todo' ? 'active' : ''}
+          aria-current={mobilePanel === 'todo' ? 'page' : undefined}
+          onClick={() => setMobilePanel('todo')}
+        >
+          进度
+        </button>
       </nav>
 
       {state.inspection && (
-        <div className="modal-backdrop" onClick={cloud.clearInspection}>
-          <section className="inspection" onClick={(event) => event.stopPropagation()}>
-            <header><h2>{state.inspection.kind === 'diff' ? '工作区 Diff' : '运行 Trace'}</h2>
-              <button onClick={cloud.clearInspection}>关闭</button>
-            </header>
-            <pre>{state.inspection.content}</pre>
-          </section>
-        </div>
+        <InspectionPanel
+          kind={state.inspection.kind}
+          content={state.inspection.content}
+          onInspect={inspect}
+          onClose={cloud.clearInspection}
+        />
       )}
       {showWorkspaceForm && (
         <WorkspaceForm
@@ -461,7 +593,29 @@ export function App({ endpoint, token, onLogout }: AppProps) {
           onStatus={setSetupStatus}
         />
       )}
-      {state.error && <button className="toast" onClick={cloud.clearError}>{state.error}</button>}
+      {dialogAction && (
+        <ActionDialog
+          key={`${dialogAction.kind}-${
+            'sessionId' in dialogAction
+              ? dialogAction.sessionId
+              : 'workspaceId' in dialogAction
+                ? dialogAction.workspaceId
+                : ''
+          }`}
+          action={dialogAction}
+          onSubmit={submitDialogAction}
+          onClose={() => setDialogAction(undefined)}
+        />
+      )}
+      {state.error && (
+        <button
+          className="toast"
+          role="alert"
+          onClick={cloud.clearError}
+        >
+          {state.error}
+        </button>
+      )}
     </div>
   );
 }
@@ -557,7 +711,11 @@ function ApprovalCard(props: {
 }) {
   const risk = riskPresentation(props.risk);
   return (
-    <section className={`approval risk-${risk.level}`}>
+    <section
+      className={`approval risk-${risk.level}`}
+      role="region"
+      aria-label={props.title}
+    >
       <div className="approval-icon">{risk.icon}</div>
       <div className="approval-body">
         <div>
@@ -606,9 +764,21 @@ function WorkspaceForm(props: {
     credentialType,
     secret
   );
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') props.onClose();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [props.onClose]);
   return (
     <div className="modal-backdrop">
-      <form className="workspace-form" onSubmit={(event) => {
+      <form
+        className="workspace-form"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="workspace-form-title"
+        onSubmit={(event) => {
         event.preventDefault();
         if (!validationError) {
           props.onCreate(
@@ -619,7 +789,7 @@ function WorkspaceForm(props: {
           );
         }
       }}>
-        <h2>添加工作区</h2>
+        <h2 id="workspace-form-title">添加工作区</h2>
         <p>仓库会克隆到独立数据卷，创建过程可随时查看阶段进度。</p>
         <label>名称<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label>Git URL<input required value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://github.com/org/repo.git" /></label>
@@ -641,11 +811,22 @@ function WorkspaceForm(props: {
             <option value="ssh-key">SSH 私钥</option>
           </select>
         </label>
-        {credentialType !== 'none' && (
-          <label>{credentialType === 'https-token' ? 'Token' : '私钥'}
+        {credentialType === 'https-token' && (
+          <label>Token
+            <input
+              required
+              type="password"
+              value={secret}
+              onChange={(event) => setSecret(event.target.value)}
+              autoComplete="new-password"
+            />
+          </label>
+        )}
+        {credentialType === 'ssh-key' && (
+          <label>私钥
             <textarea
               required
-              rows={credentialType === 'ssh-key' ? 6 : 2}
+              rows={6}
               value={secret}
               onChange={(event) => setSecret(event.target.value)}
               autoComplete="off"
@@ -673,12 +854,8 @@ function WorkspaceActions(props: {
           type: 'workspace.start' | 'workspace.stop';
           workspaceId: string;
         }
-      | {
-          type: 'workspace.delete';
-          workspaceId: string;
-          removeVolume: boolean;
-        }
-  ) => void;
+    ) => void;
+  onDelete: () => void;
 }) {
   const workspace = props.workspace;
   return (
@@ -692,15 +869,7 @@ function WorkspaceActions(props: {
         })}>
           {workspace.status === 'stopped' ? '启动' : '停止'}
         </button>
-        <button className="danger" onClick={() => {
-          if (window.confirm(`删除工作区“${workspace.name}”？`)) {
-            props.onCommand({
-              type: 'workspace.delete',
-              workspaceId: workspace.id,
-              removeVolume: window.confirm('同时永久删除工作区数据卷？')
-            });
-          }
-        }}>删除</button>
+        <button className="danger" onClick={props.onDelete}>删除</button>
       </div>
     </section>
   );
@@ -727,10 +896,15 @@ function WorkspaceProgressPanel(props: {
       : stages.findIndex((stage) => stage.id === props.progress.stage);
   return (
     <div className="modal-backdrop">
-      <section className={`provision-panel ${props.progress.stage}`}>
+      <section
+        className={`provision-panel ${props.progress.stage}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="provision-title"
+      >
         <span className="eyebrow">Workspace Provisioning</span>
-        <h2>{props.progress.name}</h2>
-        <p>{props.progress.message}</p>
+        <h2 id="provision-title">{props.progress.name}</h2>
+        <p role="status" aria-live="polite">{props.progress.message}</p>
         <div className="provision-steps">
           {stages.map((stage, index) => (
             <div

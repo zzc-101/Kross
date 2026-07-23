@@ -4,6 +4,10 @@
 > `packages/protocol`、`packages/worker`、`packages/server` 和
 > `packages/web`；容器入口见 `docker/` 与 `docker-compose.yml`，部署及验收说明见
 > [cloud-agent-deployment.md](./cloud-agent-deployment.md)。
+>
+> P1 稳定性增强（2026-07-23）：Web 客户端支持断线命令排队、按 `seq`
+> 去重回放、会话搜索与重命名、真实 Git patch 查看、可下钻 Trace、
+> PWA 安装/更新提示，以及键盘和移动端可访问性反馈。
 
 ## 背景与结论
 
@@ -67,6 +71,10 @@ flowchart LR
 - React + Vite,移动优先的响应式布局,manifest + service worker 支持添加到主屏幕。
 - 功能:流式 Markdown 对话(含 thinking 折叠)、工具调用卡片、审批卡片(Approve/Reject)、plan/conductor 计划确认、Todo 面板、diff 查看、会话列表与恢复、工作区管理、模型/思考强度切换——对齐 TUI 现有能力。
 - 断线自动重连 + `lastSeq` 增量补齐,弱网可用。
+- 连接中断期间保留带稳定 `requestId` 的待发送命令；恢复会话后按顺序补发，
+  同一会话内丢弃重复 `seq` 事件。
+- Diff 面板同时展示运行摘要与受大小限制的未暂存/已暂存 Git patch；Trace
+  面板可从最近运行列表下钻到单次运行详情。
 
 ## core 需要的改动(刻意最小化)
 

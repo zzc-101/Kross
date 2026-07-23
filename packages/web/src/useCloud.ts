@@ -115,6 +115,20 @@ function reducer(state: CloudState, action: Action): CloudState {
       return { ...state, workspaceProgress: event.data };
     case 'session.list':
       return { ...state, sessions: event.data };
+    case 'session.updated': {
+      const sessions = [
+        event.data,
+        ...state.sessions.filter((session) => session.id !== event.data.id)
+      ];
+      return {
+        ...state,
+        sessions,
+        snapshot:
+          state.snapshot?.summary.id === event.data.id
+            ? { ...state.snapshot, summary: event.data }
+            : state.snapshot
+      };
+    }
     case 'session.snapshot':
       const persistedMessages = event.data.messages.map((message) => ({
         id: String(message.id),
@@ -269,6 +283,7 @@ export function useCloud(endpoint: string, token: string) {
 
   const selectWorkspace = useCallback(
     (workspaceId: string) => {
+      client.clearActiveSession();
       dispatch({ type: 'select-workspace', id: workspaceId });
       client.send({ type: 'session.list', workspaceId, limit: 50 });
     },

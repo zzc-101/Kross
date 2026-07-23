@@ -130,6 +130,25 @@ describe('WorkerService integration', () => {
 
     await send(service, {
       protocolVersion: PROTOCOL_VERSION,
+      requestId: 'rename',
+      type: 'session.rename',
+      workspaceId: 'w1',
+      sessionId,
+      title: '审批流程测试'
+    }, events);
+    expect(
+      events.find(
+        (event) =>
+          event.event.type === 'session.updated' &&
+          event.event.data.id === sessionId
+      )?.event
+    ).toMatchObject({
+      type: 'session.updated',
+      data: { title: '审批流程测试' }
+    });
+
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
       requestId: 'input',
       type: 'session.input',
       workspaceId: 'w1',

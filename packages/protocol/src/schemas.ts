@@ -175,6 +175,13 @@ export const clientCommandSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     ...commandBase,
+    type: z.literal('session.rename'),
+    workspaceId: identifierSchema,
+    sessionId: identifierSchema,
+    title: z.string().trim().min(1).max(200)
+  }),
+  z.object({
+    ...commandBase,
     type: z.literal('session.input'),
     workspaceId: identifierSchema,
     sessionId: identifierSchema,
@@ -307,6 +314,10 @@ export const serverEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('session.list'),
     data: z.array(sessionSummarySchema)
+  }),
+  z.object({
+    type: z.literal('session.updated'),
+    data: sessionSummarySchema
   }),
   z.object({ type: z.literal('workspace.list'), data: z.array(workspaceSchema) }),
   z.object({ type: z.literal('workspace.updated'), data: workspaceSchema }),

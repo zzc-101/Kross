@@ -33,6 +33,7 @@ describe('GatewayHttpServer', () => {
     const staticDir = join(root, 'web');
     mkdirSync(staticDir);
     writeFileSync(join(staticDir, 'index.html'), '<h1>Kross</h1>');
+    writeFileSync(join(staticDir, 'icon-192.png'), Buffer.from([137, 80, 78, 71]));
     const registry = new WorkspaceRegistry(join(root, 'workspaces.json'));
     const runtimeConfig = new RuntimeConfigStore(
       join(root, 'provider.json'),
@@ -65,6 +66,12 @@ describe('GatewayHttpServer', () => {
         await fetch(`http://127.0.0.1:${port}/`, { method: 'HEAD' })
       ).status
     ).toBe(200);
+    const iconResponse = await fetch(
+      `http://127.0.0.1:${port}/icon-192.png`,
+      { method: 'HEAD' }
+    );
+    expect(iconResponse.status).toBe(200);
+    expect(iconResponse.headers.get('content-type')).toBe('image/png');
     expect((await fetch(`http://127.0.0.1:${port}/api/workspaces`)).status).toBe(401);
     expect(
       (

@@ -49,4 +49,37 @@ describe('cloud protocol', () => {
     });
     expect(envelope.event.type).toBe('workspace.progress');
   });
+
+  it('validates session rename commands and updated summaries', () => {
+    const command = clientCommandSchema.parse({
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'rename-1',
+      type: 'session.rename',
+      workspaceId: 'w1',
+      sessionId: 's1',
+      title: '新的会话名称'
+    });
+    expect(command.type).toBe('session.rename');
+
+    const timestamp = new Date().toISOString();
+    const envelope = eventEnvelopeSchema.parse({
+      protocolVersion: PROTOCOL_VERSION,
+      workspaceId: 'w1',
+      sessionId: 's1',
+      seq: 2,
+      timestamp,
+      event: {
+        type: 'session.updated',
+        data: {
+          id: 's1',
+          title: '新的会话名称',
+          preview: '',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          messageCount: 0
+        }
+      }
+    });
+    expect(envelope.event.type).toBe('session.updated');
+  });
 });

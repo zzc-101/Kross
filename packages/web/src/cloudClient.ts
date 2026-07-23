@@ -17,6 +17,11 @@ export class CloudClient {
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private reconnectAttempt = 0;
   private closed = false;
+  private readonly queuedCommands: Array<{
+    command: OutgoingCommand;
+    requestId: string;
+  }> = [];
+  private readonly handledSeq = new Map<string, number>();
   private readonly eventListeners = new Set<(event: EventEnvelope) => void>();
   private readonly stateListeners = new Set<(state: ConnectionState) => void>();
   private activeSession?: { workspaceId: string; sessionId: string };
@@ -27,6 +32,13 @@ export class CloudClient {
   ) {}
 
   connect(): void {
+    if (
+      !this.closed &&
+      (this.socket?.readyState === WebSocket.OPEN ||
+        this.socket?.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
+    }
     this.closed = false;
     this.open();
   }
@@ -34,7 +46,11 @@ export class CloudClient {
   close(): void {
     this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.socket?.close(1000, 'client logout');
+    this.reconnectTimer = undefined;
+    this.queuedCommands.length = 0;
+    const socket = this.socket;
+    this.socket = undefined;
+    socket?.close(1000, 'client logout');
   }
 
   onEvent(listener: (event: EventEnvelope) => void): () => void {
@@ -49,25 +65,39 @@ export class CloudClient {
 
   setActiveSession(workspaceId: string, sessionId: string): void {
     this.activeSession = { workspaceId, sessionId };
+    this.handledSeq.set(
+      sessionKey(workspaceId, sessionId),
+      readLastSeq(workspaceId, sessionId)
+    );
+  }
+
+  clearActiveSession(): void {
+    this.activeSession = undefined;
   }
 
   send(command: OutgoingCommand): string {
-    if (this.socket?.readyState !== WebSocket.OPEN) {
-      throw new Error('连接尚未就绪');
-    }
     const requestId = crypto.randomUUID();
-    this.socket.send(
-      JSON.stringify({ ...command, protocolVersion: PROTOCOL_VERSION, requestId })
-    );
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.sendNow(command, requestId);
+    } else {
+      if (this.queuedCommands.length >= 100) {
+        throw new Error('等待发送的操作过多，请恢复连接后重试');
+      }
+      this.queuedCommands.push({ command, requestId });
+    }
     return requestId;
   }
 
   private open(): void {
+    if (this.closed) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
     this.emitState('connecting');
     const protocols = ['kross.v1', `kross.token.${encodeToken(this.token)}`];
     const socket = new WebSocket(this.endpoint, protocols);
     this.socket = socket;
     socket.addEventListener('open', () => {
+      if (this.socket !== socket || this.closed) return;
       this.reconnectAttempt = 0;
       this.emitState('online');
       this.send({ type: 'workspace.list' });
@@ -80,8 +110,13 @@ export class CloudClient {
           lastSeq: readLastSeq(workspaceId, sessionId)
         });
       }
+      const queued = this.queuedCommands.splice(0);
+      for (const item of queued) {
+        this.sendNow(item.command, item.requestId);
+      }
     });
     socket.addEventListener('message', (message) => {
+      if (this.socket !== socket || this.closed) return;
       let raw: unknown;
       try {
         raw = JSON.parse(String(message.data));
@@ -91,6 +126,13 @@ export class CloudClient {
       const parsed = eventEnvelopeSchema.safeParse(raw);
       if (!parsed.success) return;
       if (parsed.data.sessionId && parsed.data.seq > 0) {
+        const key = sessionKey(
+          parsed.data.workspaceId,
+          parsed.data.sessionId
+        );
+        const previous = this.handledSeq.get(key) ?? 0;
+        if (parsed.data.seq <= previous) return;
+        this.handledSeq.set(key, parsed.data.seq);
         writeLastSeq(
           parsed.data.workspaceId,
           parsed.data.sessionId,
@@ -99,8 +141,14 @@ export class CloudClient {
       }
       for (const listener of this.eventListeners) listener(parsed.data);
     });
-    socket.addEventListener('close', () => this.reconnect());
-    socket.addEventListener('error', () => socket.close());
+    socket.addEventListener('close', () => {
+      if (this.socket !== socket) return;
+      this.socket = undefined;
+      this.reconnect();
+    });
+    socket.addEventListener('error', () => {
+      if (this.socket === socket) socket.close();
+    });
   }
 
   private reconnect(): void {
@@ -108,6 +156,16 @@ export class CloudClient {
     if (this.closed) return;
     const delay = Math.min(30_000, 600 * 2 ** this.reconnectAttempt++);
     this.reconnectTimer = setTimeout(() => this.open(), delay);
+  }
+
+  private sendNow(command: OutgoingCommand, requestId: string): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) {
+      this.queuedCommands.unshift({ command, requestId });
+      return;
+    }
+    this.socket.send(
+      JSON.stringify({ ...command, protocolVersion: PROTOCOL_VERSION, requestId })
+    );
   }
 
   private emitState(state: ConnectionState): void {
@@ -127,6 +185,10 @@ function encodeToken(value: string): string {
 
 function seqKey(workspaceId: string, sessionId: string): string {
   return `kross.seq.${workspaceId}.${sessionId}`;
+}
+
+function sessionKey(workspaceId: string, sessionId: string): string {
+  return `${workspaceId}\u0000${sessionId}`;
 }
 
 function readLastSeq(workspaceId: string, sessionId: string): number {

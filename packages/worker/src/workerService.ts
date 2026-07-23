@@ -22,6 +22,7 @@ import {
 } from '@kross/protocol';
 
 import { EventJournal } from './eventJournal';
+import { appendGitPatch } from './gitInspection';
 import { SessionSettingsStore } from './sessionSettingsStore';
 
 const execFileAsync = promisify(execFile);
@@ -132,6 +133,9 @@ export class WorkerService {
           command.requestId,
           sink
         );
+        return;
+      case 'session.rename':
+        await this.renameSession(command, sink);
         return;
       case 'session.input':
         await this.runInput(
@@ -248,6 +252,50 @@ export class WorkerService {
       sink
     );
     this.emit(sessionId, { type: 'request.accepted', requestId }, sink);
+  }
+
+  private async renameSession(
+    command: Extract<ClientCommand, { type: 'session.rename' }>,
+    sink?: WorkerEventSink
+  ): Promise<void> {
+    const stored = this.store.loadSession(
+      this.options.workspaceRoot,
+      command.sessionId
+    );
+    if (!stored) {
+      this.emitError(
+        command.sessionId,
+        command.requestId,
+        'SESSION_NOT_FOUND',
+        '会话不存在',
+        sink
+      );
+      return;
+    }
+    const summary = this.store.renameSession(
+      command.sessionId,
+      command.title
+    );
+    if (!summary) {
+      this.emitError(
+        command.sessionId,
+        command.requestId,
+        'INVALID_SESSION_TITLE',
+        '会话名称不能为空',
+        sink
+      );
+      return;
+    }
+    this.emit(
+      command.sessionId,
+      { type: 'request.accepted', requestId: command.requestId },
+      sink
+    );
+    this.emit(
+      command.sessionId,
+      { type: 'session.updated', data: summary },
+      sink
+    );
   }
 
   private async runInput(
@@ -479,10 +527,14 @@ export class WorkerService {
     );
     if (!session) return;
     try {
-      const content =
+      const formatted =
         command.kind === 'diff'
           ? await session.runtime.formatDiffCommand(command.argument)
           : await session.runtime.formatTraceCommand(command.argument);
+      const content =
+        command.kind === 'diff'
+          ? await appendGitPatch(this.options.workspaceRoot, formatted)
+          : formatted;
       this.emit(
         command.sessionId,
         {

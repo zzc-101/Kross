@@ -55,6 +55,14 @@ export function SetupPanel(props: SetupPanelProps) {
       );
   }, [props.endpoint, props.token]);
 
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') props.onClose();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [props.onClose]);
+
   const changeProvider = (next: ProviderInput['provider']) => {
     setProvider(next);
     const recommendation = PROVIDERS.find((item) => item.value === next);
@@ -98,11 +106,16 @@ export function SetupPanel(props: SetupPanelProps) {
 
   return (
     <div className="modal-backdrop">
-      <section className="setup-panel">
+      <section
+        className="setup-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="setup-title"
+      >
         <header>
           <div>
             <span className="eyebrow">环境与模型</span>
-            <h2>运行环境检查</h2>
+            <h2 id="setup-title">运行环境检查</h2>
             <p>确认 Agent 执行所需的基础能力，并安全配置模型。</p>
           </div>
           <button onClick={props.onClose}>关闭</button>
@@ -190,8 +203,10 @@ export function SetupPanel(props: SetupPanelProps) {
               </span>
             </label>
           )}
-          {error && <p className="form-error">{error}</p>}
-          {savedMessage && <p className="form-success">{savedMessage}</p>}
+          {error && <p className="form-error" role="alert">{error}</p>}
+          {savedMessage && (
+            <p className="form-success" role="status">{savedMessage}</p>
+          )}
           <div className="form-actions">
             <button type="button" onClick={props.onClose}>取消</button>
             <button className="primary" disabled={saving}>
