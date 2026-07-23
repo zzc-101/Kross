@@ -8,6 +8,7 @@ import {
   Activity,
   Bell,
   Bot,
+  ChevronRight,
   CircleCheck,
   Download,
   FolderGit2,
@@ -26,13 +27,33 @@ import {
   Trash2,
   Upload
 } from 'lucide-react';
-import { memo, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode
+} from 'react';
 
 import { SetupPanel } from './SetupPanel';
 import { ActionDialog, type DialogAction } from './OperationDialog';
 import { InspectionPanel } from './InspectionPanel';
+import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
-import { Card, CardContent } from './components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle
+} from './components/ui/card';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger
+} from './components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -51,6 +72,8 @@ import {
 } from './components/ui/dropdown-menu';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
+import { Progress } from './components/ui/progress';
+import { ScrollArea } from './components/ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -788,7 +811,7 @@ const Message = memo(function Message({ message }: { message: UiMessage }) {
   if (message.tool) {
     return (
       <article className="message tool">
-        <label>工具记录</label>
+        <div className="message-author">工具记录</div>
         <HistoricalToolCard
           tool={message.tool}
           fallbackText={message.text}
@@ -799,9 +822,13 @@ const Message = memo(function Message({ message }: { message: UiMessage }) {
   }
   return (
     <article className={`message ${message.from}`}>
-      <label>{message.from === 'user' ? '你' : message.from === 'thinking' ? '思考' : 'Kross'}</label>
+      <div className="message-author">
+        {message.from === 'user' ? '你' : message.from === 'thinking' ? '思考' : 'Kross'}
+      </div>
       {message.from === 'thinking' ? (
-        <details><summary>查看思考过程</summary><pre>{message.text}</pre></details>
+        <ToolDisclosure label="查看思考过程">
+          <pre>{message.text}</pre>
+        </ToolDisclosure>
       ) : <ReactMarkdown>{message.text}</ReactMarkdown>}
     </article>
   );
@@ -818,49 +845,57 @@ function HistoricalToolCard({
 }) {
   const details = tool.detailLines ?? [];
   return (
-    <section className={`tool-card history ${tool.status}`}>
-      <div>
-        <span>工具</span>
-        <strong>{tool.name}</strong>
-      </div>
-      <small>{toolStatusLabel(tool.status)}</small>
-      <p>{tool.summary || fallbackText}</p>
-      {tool.inputPreview && (
-        <details>
-          <summary>查看输入</summary>
-          <pre>{tool.inputPreview}</pre>
-        </details>
-      )}
-      {details.length > 0 && (
-        <details>
-          <summary>
-            查看执行明细{tool.detailTruncated ? '（已截断）' : ''}
-          </summary>
-          <pre className="tool-detail">
-            {details.map((line, index) => (
-              <span className={line.op ? `diff-${line.op}` : undefined} key={index}>
-                {line.lineNo ? `${line.lineNo} ` : ''}
-                {line.text}
-                {'\n'}
-              </span>
+    <Card className={`tool-card history ${tool.status}`}>
+      <CardHeader className="tool-card-header">
+        <div>
+          <Badge variant="outline">工具</Badge>
+          <CardTitle>{tool.name}</CardTitle>
+        </div>
+        <Badge variant={toolStatusVariant(tool.status)}>
+          {toolStatusLabel(tool.status)}
+        </Badge>
+      </CardHeader>
+      <CardContent className="tool-card-content">
+        <CardDescription>{tool.summary || fallbackText}</CardDescription>
+        {tool.inputPreview && (
+          <ToolDisclosure label="查看输入">
+            <pre>{tool.inputPreview}</pre>
+          </ToolDisclosure>
+        )}
+        {details.length > 0 && (
+          <ToolDisclosure
+            label={
+              `查看执行明细${tool.detailTruncated ? '（已截断）' : ''}`
+            }
+          >
+            <pre className="tool-detail">
+              {details.map((line, index) => (
+                <span className={line.op ? `diff-${line.op}` : undefined} key={index}>
+                  {line.lineNo ? `${line.lineNo} ` : ''}
+                  {line.text}
+                  {'\n'}
+                </span>
+              ))}
+            </pre>
+          </ToolDisclosure>
+        )}
+        {tool.items && tool.items.length > 0 && (
+          <ul className="tool-items">
+            {tool.items.map((item, index) => (
+              <li key={`${item.callId ?? item.path ?? index}`}>
+                <strong>{item.path ?? item.callId ?? `步骤 ${index + 1}`}</strong>
+                <Badge variant={toolStatusVariant(item.status)}>
+                  {toolStatusLabel(item.status)}
+                </Badge>
+                {(item.summary || item.preview) && (
+                  <small>{item.summary ?? item.preview}</small>
+                )}
+              </li>
             ))}
-          </pre>
-        </details>
-      )}
-      {tool.items && tool.items.length > 0 && (
-        <ul className="tool-items">
-          {tool.items.map((item, index) => (
-            <li key={`${item.callId ?? item.path ?? index}`}>
-              <strong>{item.path ?? item.callId ?? `步骤 ${index + 1}`}</strong>
-              <span>{toolStatusLabel(item.status)}</span>
-              {(item.summary || item.preview) && (
-                <small>{item.summary ?? item.preview}</small>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      <footer>
+          </ul>
+        )}
+      </CardContent>
+      <CardFooter className="tool-card-footer">
         {tool.durationMs !== undefined && <span>{tool.durationMs} ms</span>}
         {(tool.linesAdded !== undefined || tool.linesRemoved !== undefined) && (
           <span>
@@ -871,8 +906,27 @@ function HistoricalToolCard({
         {verification && (
           <span>验证：{verificationLabel(verification.status)}</span>
         )}
-      </footer>
-    </section>
+      </CardFooter>
+    </Card>
+  );
+}
+
+function ToolDisclosure(props: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <Collapsible className="tool-disclosure">
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="sm" className="tool-disclosure-trigger">
+          <ChevronRight />
+          {props.label}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        {props.children}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -885,17 +939,36 @@ function ToolCard({
 }) {
   const status = type.split('.').at(-1) ?? 'running';
   return (
-    <section className={`tool-card ${status}`}>
-      <div>
-        <span>工具</span>
-        <strong>{String(payload.toolName ?? payload.name ?? 'Tool')}</strong>
-      </div>
-      <small>{status}</small>
+    <Card className={`tool-card ${status}`}>
+      <CardHeader className="tool-card-header">
+        <div>
+          <Badge variant="outline">工具</Badge>
+          <CardTitle>
+            {String(payload.toolName ?? payload.name ?? 'Tool')}
+          </CardTitle>
+        </div>
+        <Badge variant={toolStatusVariant(status)}>
+          {toolStatusLabel(status)}
+        </Badge>
+      </CardHeader>
       {(payload.input !== undefined || payload.contentPreview !== undefined) && (
-        <pre>{formatToolValue(payload.input ?? payload.contentPreview)}</pre>
+        <CardContent className="tool-card-content">
+          <ToolDisclosure label="查看调用内容">
+            <pre>{formatToolValue(payload.input ?? payload.contentPreview)}</pre>
+          </ToolDisclosure>
+        </CardContent>
       )}
-    </section>
+    </Card>
   );
+}
+
+function toolStatusVariant(
+  status: string
+): 'default' | 'secondary' | 'destructive' | 'outline' {
+  if (status === 'failed' || status === 'denied') return 'destructive';
+  if (status === 'completed') return 'secondary';
+  if (status === 'running') return 'default';
+  return 'outline';
 }
 
 function toolStatusLabel(status: string): string {
@@ -980,21 +1053,27 @@ function ApprovalCard(props: {
     props.onChoose(approved, approved ? undefined : reason.trim() || undefined);
   };
   return (
-    <section
+    <Card
       className={`approval risk-${risk.level}`}
       role="region"
       aria-label={props.title}
     >
-      <div className="approval-icon">{risk.icon}</div>
-      <div className="approval-body">
+      <CardHeader className="approval-header">
+        <div className="approval-icon">{risk.icon}</div>
         <div>
-          <span className="risk">{risk.label}</span>
-          <h3>{props.title}</h3>
+          <Badge variant={risk.level === 'high' ? 'destructive' : 'outline'}>
+            {risk.label}
+          </Badge>
+          <CardTitle>{props.title}</CardTitle>
+          <CardDescription>{risk.description}</CardDescription>
         </div>
-        <p>{risk.description}</p>
-        <pre>{props.detail}</pre>
+      </CardHeader>
+      <CardContent className="approval-body">
+        <ScrollArea className="approval-detail">
+          <pre>{props.detail}</pre>
+        </ScrollArea>
         {rejecting && (
-          <textarea
+          <Textarea
             aria-label="拒绝原因"
             placeholder="可选：告诉 Agent 应该如何调整"
             value={reason}
@@ -1003,20 +1082,23 @@ function ApprovalCard(props: {
             rows={2}
           />
         )}
-      </div>
-      <div className="approval-actions">
-        <button disabled={processing} onClick={() => choose(false)}>
+      </CardContent>
+      <CardFooter className="approval-actions">
+        <Button
+          variant="outline"
+          disabled={processing}
+          onClick={() => choose(false)}
+        >
           {rejecting ? '确认拒绝' : '拒绝'}
-        </button>
-        <button
-          className="primary"
+        </Button>
+        <Button
           disabled={processing}
           onClick={() => choose(true)}
         >
           {processing ? '处理中…' : '仅批准这一次'}
-        </button>
-      </div>
-    </section>
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -1179,19 +1261,32 @@ function WorkspaceActions(props: {
 }) {
   const workspace = props.workspace;
   return (
-    <section className="workspace-actions">
-      <strong>{workspace.name}</strong>
-      <small>{workspace.gitUrl}</small>
-      <div>
-        <button onClick={() => props.onCommand({
-          type: workspace.status === 'stopped' ? 'workspace.start' : 'workspace.stop',
-          workspaceId: workspace.id
-        })}>
+    <Card className="workspace-actions">
+      <CardHeader>
+        <div className="workspace-status">
+          <CardTitle>{workspace.name}</CardTitle>
+          <Badge variant={workspace.status === 'ready' ? 'secondary' : 'outline'}>
+            {workspaceStatusLabel(workspace.status)}
+          </Badge>
+        </div>
+        <CardDescription>{workspace.gitUrl}</CardDescription>
+      </CardHeader>
+      <CardFooter>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => props.onCommand({
+            type: workspace.status === 'stopped' ? 'workspace.start' : 'workspace.stop',
+            workspaceId: workspace.id
+          })}
+        >
           {workspace.status === 'stopped' ? '启动' : '停止'}
-        </button>
-        <button className="danger" onClick={props.onDelete}>删除</button>
-      </div>
-    </section>
+        </Button>
+        <Button variant="destructive" size="sm" onClick={props.onDelete}>
+          删除
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -1214,17 +1309,28 @@ function WorkspaceProgressPanel(props: {
     props.progress.stage === 'failed'
       ? -1
       : stages.findIndex((stage) => stage.id === props.progress.stage);
+  const terminal =
+    props.progress.stage === 'ready' || props.progress.stage === 'failed';
+  const progressValue =
+    props.progress.stage === 'failed'
+      ? 100
+      : Math.max(0, ((currentIndex + 1) / stages.length) * 100);
   return (
-    <div className="modal-backdrop">
-      <section
-        className={`provision-panel ${props.progress.stage}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="provision-title"
-      >
-        <span className="eyebrow">Workspace Provisioning</span>
-        <h2 id="provision-title">{props.progress.name}</h2>
-        <p role="status" aria-live="polite">{props.progress.message}</p>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && terminal) props.onClose();
+      }}
+    >
+      <DialogContent className={`provision-panel ${terminal ? 'terminal' : ''}`}>
+        <DialogHeader>
+          <span className="eyebrow">Workspace Provisioning</span>
+          <DialogTitle>{props.progress.name}</DialogTitle>
+          <DialogDescription role="status" aria-live="polite">
+            {props.progress.message}
+          </DialogDescription>
+        </DialogHeader>
+        <Progress value={progressValue} aria-label="工作区创建进度" />
         <div className="provision-steps">
           {stages.map((stage, index) => (
             <div
@@ -1251,19 +1357,18 @@ function WorkspaceProgressPanel(props: {
             创建失败。请检查仓库地址、分支和凭据后重试。
           </p>
         )}
-        <div className="form-actions">
+        <DialogFooter className="form-actions">
           {props.progress.stage === 'failed' && (
-            <button onClick={props.onRetry}>修改并重试</button>
+            <Button variant="outline" onClick={props.onRetry}>修改并重试</Button>
           )}
-          {(props.progress.stage === 'ready' ||
-            props.progress.stage === 'failed') && (
-            <button className="primary" onClick={props.onClose}>
+          {terminal && (
+            <Button onClick={props.onClose}>
               {props.progress.stage === 'ready' ? '进入工作区' : '关闭'}
-            </button>
+            </Button>
           )}
-        </div>
-      </section>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1280,32 +1385,45 @@ function ExecutionSummary(props: {
         ? resultLabel(props.result.status)
         : '尚未运行';
   return (
-    <section className="execution-summary">
-      <div>
-        <span className={`run-status ${props.running ? 'running' : ''}`} />
-        <strong>{status}</strong>
-      </div>
+    <Card className="execution-summary">
+      <CardHeader>
+        <div>
+          <span className={`run-status ${props.running ? 'running' : ''}`} />
+          <CardTitle>{status}</CardTitle>
+        </div>
+      </CardHeader>
       {props.result && (
         <>
-          <small>{props.result.summary}</small>
-          <dl>
-            <div>
-              <dt>修改文件</dt>
-              <dd>{props.result.report.changedFiles.length}</dd>
-            </div>
-            <div>
-              <dt>验证</dt>
-              <dd>{verificationLabel(props.result.report.verification.status)}</dd>
-            </div>
-            <div>
-              <dt>风险</dt>
-              <dd>{props.result.report.risks.length}</dd>
-            </div>
-          </dl>
+          <CardContent>
+            <CardDescription>{props.result.summary}</CardDescription>
+            <dl>
+              <div>
+                <dt>修改文件</dt>
+                <dd>{props.result.report.changedFiles.length}</dd>
+              </div>
+              <div>
+                <dt>验证</dt>
+                <dd>{verificationLabel(props.result.report.verification.status)}</dd>
+              </div>
+              <div>
+                <dt>风险</dt>
+                <dd>{props.result.report.risks.length}</dd>
+              </div>
+            </dl>
+          </CardContent>
         </>
       )}
-    </section>
+    </Card>
   );
+}
+
+function workspaceStatusLabel(status: CloudWorkspace['status']): string {
+  return {
+    ready: '运行中',
+    stopped: '已停止',
+    creating: '创建中',
+    error: '异常'
+  }[status] ?? status;
 }
 
 function riskPresentation(value: string): {

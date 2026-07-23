@@ -1,10 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
 import type { EventEnvelope } from '@kross/protocol';
+import { Check, Clipboard, Copy, RotateCcw } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
+import { diffLineKind, traceRunIds } from './inspection';
+import { Button } from './components/ui/button';
 import {
-  diffLineKind,
-  traceRunIds
-} from './inspection';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from './components/ui/dialog';
+import { ScrollArea } from './components/ui/scroll-area';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger
+} from './components/ui/tabs';
 
 type InspectionData = Extract<
   EventEnvelope['event'],
@@ -27,14 +40,6 @@ export function InspectionPanel(props: InspectionPanelProps) {
     [props.inspection]
   );
 
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') props.onClose();
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [props.onClose]);
-
   const copy = async () => {
     await navigator.clipboard.writeText(inspectionText(props.inspection));
     setCopied(true);
@@ -42,28 +47,31 @@ export function InspectionPanel(props: InspectionPanelProps) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <section
-        className="inspection"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="inspection-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent className="inspection">
+        <DialogHeader className="inspection-header">
           <div>
             <span className="eyebrow">Session Inspection</span>
-            <h2 id="inspection-title">
+            <DialogTitle>
               {props.inspection.kind === 'diff' ? '工作区 Diff' : '运行 Trace'}
-            </h2>
+            </DialogTitle>
+            <DialogDescription>
+              {props.inspection.kind === 'diff'
+                ? '检查当前工作区尚未提交的代码变化。'
+                : '查看 Agent 运行事件和工具调用轨迹。'}
+            </DialogDescription>
           </div>
-          <div className="inspection-actions">
-            <button onClick={() => void copy()}>
-              {copied ? '已复制' : '复制'}
-            </button>
-            <button onClick={props.onClose}>关闭</button>
-          </div>
-        </header>
+          <Button variant="outline" size="sm" onClick={() => void copy()}>
+            {copied ? <Check /> : <Copy />}
+            {copied ? '已复制' : '复制'}
+          </Button>
+        </DialogHeader>
+
         {props.inspection.kind === 'diff' ? (
           <DiffContent inspection={props.inspection} />
         ) : (
@@ -74,8 +82,8 @@ export function InspectionPanel(props: InspectionPanelProps) {
             onBack={() => props.onInspect('trace')}
           />
         )}
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -84,23 +92,46 @@ function DiffContent({
 }: {
   inspection: Extract<InspectionData, { kind: 'diff' }>;
 }) {
+  if (inspection.patches.length === 0) {
+    return (
+      <div className="inspection-empty">
+        <Clipboard />
+        <strong>没有 Git 变更</strong>
+        <p>{inspection.summary}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="inspection-content">
       <pre className="inspection-summary">{inspection.summary}</pre>
-      {inspection.patches.length === 0 && <p className="quiet">没有 Git 变更。</p>}
-      {inspection.patches.map((section, sectionIndex) => (
-        <details key={`${section.staged}-${sectionIndex}`} open>
-          <summary>{section.staged ? '已暂存变更' : '未暂存变更'}</summary>
-          <div className="diff-view" aria-label="Git patch">
-            {section.patch.split('\n').map((line, index) => (
-              <div className={`diff-line ${diffLineKind(line)}`} key={`${index}-${line}`}>
-                <span>{index + 1}</span>
-                <code>{line || ' '}</code>
+      <Tabs defaultValue="patch-0" className="inspection-tabs">
+        <TabsList>
+          {inspection.patches.map((section, index) => (
+            <TabsTrigger key={`${section.staged}-${index}`} value={`patch-${index}`}>
+              {section.staged ? '已暂存变更' : '未暂存变更'}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {inspection.patches.map((section, sectionIndex) => (
+          <TabsContent
+            key={`${section.staged}-${sectionIndex}`}
+            value={`patch-${sectionIndex}`}
+            className="inspection-tab-content"
+          >
+            <ScrollArea className="inspection-scroll">
+              <div className="diff-view" aria-label="Git patch">
+                {section.patch.split('\n').map((line, index) => (
+                  <div className={`diff-line ${diffLineKind(line)}`} key={`${index}-${line}`}>
+                    <span>{index + 1}</span>
+                    <code>{line || ' '}</code>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </details>
-      ))}
+            </ScrollArea>
+          </TabsContent>
+        ))}
+      </Tabs>
     </div>
   );
 }
@@ -126,14 +157,25 @@ function TraceContent(props: {
   return (
     <div className="inspection-content trace-content">
       <div className="trace-toolbar">
-        {isDetail && <button onClick={props.onBack}>← 最近运行</button>}
+        {isDetail && (
+          <Button variant="outline" size="sm" onClick={props.onBack}>
+            <RotateCcw /> 最近运行
+          </Button>
+        )}
         {!isDetail && props.runIds.map((runId) => (
-          <button key={runId} onClick={() => props.onSelect(runId)}>
+          <Button
+            variant="outline"
+            size="sm"
+            key={runId}
+            onClick={() => props.onSelect(runId)}
+          >
             {runId}
-          </button>
+          </Button>
         ))}
       </div>
-      <pre>{props.content}</pre>
+      <ScrollArea className="inspection-scroll">
+        <pre>{props.content}</pre>
+      </ScrollArea>
     </div>
   );
 }
