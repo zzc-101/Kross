@@ -1,5 +1,26 @@
+import { AlertTriangle, Check, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 
+import { Badge } from './components/ui/badge';
+import { Button } from './components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from './components/ui/dialog';
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from './components/ui/select';
+import { Switch } from './components/ui/switch';
 import {
   fetchSetupStatus,
   saveProvider,
@@ -55,14 +76,6 @@ export function SetupPanel(props: SetupPanelProps) {
       );
   }, [props.endpoint, props.token]);
 
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') props.onClose();
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [props.onClose]);
-
   const changeProvider = (next: ProviderInput['provider']) => {
     setProvider(next);
     const recommendation = PROVIDERS.find((item) => item.value === next);
@@ -105,79 +118,109 @@ export function SetupPanel(props: SetupPanelProps) {
   };
 
   return (
-    <div className="modal-backdrop">
-      <section
-        className="setup-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="setup-title"
-      >
-        <header>
-          <div>
-            <span className="eyebrow">环境与模型</span>
-            <h2 id="setup-title">运行环境检查</h2>
-            <p>确认 Agent 执行所需的基础能力，并安全配置模型。</p>
-          </div>
-          <button onClick={props.onClose}>关闭</button>
-        </header>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent className="setup-panel">
+        <DialogHeader>
+          <span className="eyebrow">环境与模型</span>
+          <DialogTitle>运行环境检查</DialogTitle>
+          <DialogDescription>
+            确认 Agent 执行所需的基础能力，并安全配置模型。
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="setup-checks">
-          {status?.checks.map((check) => (
-            <article key={check.id} className={`setup-check ${check.status}`}>
-              <span>{check.status === 'passed' ? '✓' : check.status === 'failed' ? '×' : '!'}</span>
-              <div>
-                <strong>{check.label}</strong>
-                <small>{check.detail}</small>
-              </div>
-            </article>
-          )) ?? <p className="quiet">正在检查运行环境…</p>}
+          {status?.checks.map((check) => {
+            const StatusIcon =
+              check.status === 'passed'
+                ? Check
+                : check.status === 'failed'
+                  ? X
+                  : AlertTriangle;
+            return (
+              <article key={check.id} className={`setup-check ${check.status}`}>
+                <span><StatusIcon /></span>
+                <div>
+                  <div className="setup-check-title">
+                    <strong>{check.label}</strong>
+                    <Badge
+                      variant={
+                        check.status === 'failed'
+                          ? 'destructive'
+                          : check.status === 'passed'
+                            ? 'secondary'
+                            : 'outline'
+                      }
+                    >
+                      {check.status === 'passed'
+                        ? '正常'
+                        : check.status === 'failed'
+                          ? '异常'
+                          : '注意'}
+                    </Badge>
+                  </div>
+                  <small>{check.detail}</small>
+                </div>
+              </article>
+            );
+          }) ?? <p className="quiet">正在检查运行环境…</p>}
         </div>
 
         <form className="provider-form" onSubmit={(event) => void submit(event)}>
           <div>
             <span className="eyebrow">Provider</span>
             <h2>模型配置</h2>
-            <p>
-              API Key 仅写入 Gateway 的私有配置文件，界面不会回显。
-            </p>
+            <p>API Key 仅写入 Gateway 的私有配置文件，界面不会回显。</p>
           </div>
+
           <div className="provider-grid">
-            <label>
+            <Label className="setup-field">
               服务商
-              <select
+              <Select
                 value={provider}
-                onChange={(event) =>
-                  changeProvider(event.target.value as ProviderInput['provider'])
+                onValueChange={(value) =>
+                  changeProvider(value as ProviderInput['provider'])
                 }
               >
-                {PROVIDERS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROVIDERS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Label>
+            <Label className="setup-field">
               模型 ID
-              <input
+              <Input
                 required
                 value={model}
                 onChange={(event) => setModel(event.target.value)}
               />
-            </label>
+            </Label>
           </div>
-          <label>
+
+          <Label className="setup-field">
             Base URL（可选）
-            <input
+            <Input
               inputMode="url"
               placeholder="使用服务商默认地址"
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.target.value)}
             />
-          </label>
-          <label>
+          </Label>
+
+          <Label className="setup-field">
             API Key
-            <input
+            <Input
               type="password"
               autoComplete="new-password"
               required={!status?.provider.hasApiKey}
@@ -189,32 +232,37 @@ export function SetupPanel(props: SetupPanelProps) {
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
             />
-          </label>
+          </Label>
+
           {props.workspaceCount > 0 && (
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={restartWorkers}
-                onChange={(event) => setRestartWorkers(event.target.checked)}
-              />
+            <Label className="restart-option">
               <span>
                 重建现有 Worker 以立即应用配置
                 <small>保留仓库和会话卷，运行中的任务会被中断。</small>
               </span>
-            </label>
+              <Switch
+                checked={restartWorkers}
+                onCheckedChange={setRestartWorkers}
+                aria-label="重建现有 Worker"
+              />
+            </Label>
           )}
+
           {error && <p className="form-error" role="alert">{error}</p>}
           {savedMessage && (
             <p className="form-success" role="status">{savedMessage}</p>
           )}
-          <div className="form-actions">
-            <button type="button" onClick={props.onClose}>取消</button>
-            <button className="primary" disabled={saving}>
+
+          <DialogFooter className="form-actions">
+            <Button type="button" variant="outline" onClick={props.onClose}>
+              取消
+            </Button>
+            <Button disabled={saving}>
               {saving ? '正在保存…' : '保存配置'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

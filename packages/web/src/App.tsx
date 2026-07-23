@@ -4,11 +4,61 @@ import type {
   CloudWorkspace,
   WorkspaceProgress
 } from '@kross/protocol';
+import {
+  Activity,
+  Bell,
+  Bot,
+  CircleCheck,
+  Download,
+  FolderGit2,
+  GitCompare,
+  GitPullRequest,
+  ListTodo,
+  LogOut,
+  MessageSquareText,
+  MessagesSquare,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Send,
+  Settings,
+  Square,
+  Trash2,
+  Upload
+} from 'lucide-react';
 import { memo, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { SetupPanel } from './SetupPanel';
 import { ActionDialog, type DialogAction } from './OperationDialog';
 import { InspectionPanel } from './InspectionPanel';
+import { Button } from './components/ui/button';
+import { Card, CardContent } from './components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from './components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from './components/ui/dropdown-menu';
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from './components/ui/select';
+import { Textarea } from './components/ui/textarea';
 import { applyPwaUpdate, installPwa, usePwa } from './pwa';
 import { fetchSetupStatus, type SetupStatus } from './setupApi';
 import { useCloud, type UiMessage } from './useCloud';
@@ -240,34 +290,45 @@ export function App({ endpoint, token, onLogout }: AppProps) {
         >
           {connectionLabel(connection)}
         </div>
-        <select
-          aria-label="工作区"
+        <Select
           value={state.workspaceId ?? ''}
-          onChange={(event) => cloud.selectWorkspace(event.target.value)}
+          onValueChange={cloud.selectWorkspace}
         >
-          <option value="" disabled>选择工作区</option>
-          {state.workspaces.map((workspace) => (
-            <option key={workspace.id} value={workspace.id}>
-              {workspace.name} · {workspace.status}
-            </option>
-          ))}
-        </select>
-        <button className="icon-button" onClick={() => setShowWorkspaceForm(true)}>＋ 工作区</button>
-        <button
+          <SelectTrigger className="workspace-select" aria-label="工作区">
+            <SelectValue placeholder="选择工作区" />
+          </SelectTrigger>
+          <SelectContent>
+            {state.workspaces.map((workspace) => (
+              <SelectItem key={workspace.id} value={workspace.id}>
+                {workspace.name} · {workspace.status}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="ghost" size="sm" className="icon-button" onClick={() => setShowWorkspaceForm(true)}>
+          <Plus /> 工作区
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           className={`icon-button setup-button ${setupStatus?.ready ? 'ready' : 'attention'}`}
           onClick={() => setShowSetup(true)}
         >
-          环境
-        </button>
+          <Settings /> 环境
+        </Button>
         {pwa.installable && !pwa.installed && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             className="icon-button install-button"
             onClick={() => void installPwa()}
           >
-            安装
-          </button>
+            <Download /> 安装
+          </Button>
         )}
-        <button className="icon-button muted" onClick={onLogout}>退出</button>
+        <Button variant="ghost" size="sm" className="icon-button muted" onClick={onLogout}>
+          <LogOut /> 退出
+        </Button>
       </header>
 
       {(pwa.offline || pwa.updateAvailable) && (
@@ -278,22 +339,22 @@ export function App({ endpoint, token, onLogout }: AppProps) {
               : '网络已断开；操作会排队，并在恢复连接后发送。'}
           </span>
           {pwa.updateAvailable && (
-            <button onClick={applyPwaUpdate}>更新并重新载入</button>
+            <Button variant="ghost" size="sm" onClick={applyPwaUpdate}>更新并重新载入</Button>
           )}
         </div>
       )}
 
       <main className="layout">
         <aside className={`sidebar ${mobilePanel === 'sessions' ? 'mobile-active' : ''}`}>
-          <button
-            className="primary full"
+          <Button
+            className="full"
             disabled={!state.workspaceId}
             onClick={() => state.workspaceId && cloud.createSession(state.workspaceId)}
           >
-            新建会话
-          </button>
+            <Plus /> 新建会话
+          </Button>
           <h2>会话</h2>
-          <input
+          <Input
             className="session-search"
             type="search"
             aria-label="搜索会话"
@@ -321,34 +382,44 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                   <strong>{session.title}</strong>
                   <small>{session.preview || '空会话'}</small>
                 </button>
-                <button
-                  className="session-rename"
-                  aria-label={`重命名会话 ${session.title}`}
-                  title="重命名"
-                  onClick={() => {
-                    setDialogAction({
-                      kind: 'rename-session',
-                      sessionId: session.id,
-                      title: session.title
-                    });
-                  }}
-                >
-                  ✎
-                </button>
-                <button
-                  className="session-delete"
-                  aria-label={`删除会话 ${session.title}`}
-                  title="删除"
-                  onClick={() =>
-                    setDialogAction({
-                      kind: 'delete-session',
-                      sessionId: session.id,
-                      title: session.title
-                    })
-                  }
-                >
-                  ×
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="session-menu"
+                      aria-label={`会话操作 ${session.title}`}
+                    >
+                      <MoreHorizontal />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onSelect={() =>
+                        setDialogAction({
+                          kind: 'rename-session',
+                          sessionId: session.id,
+                          title: session.title
+                        })
+                      }
+                    >
+                      <Pencil /> 重命名
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={() =>
+                        setDialogAction({
+                          kind: 'delete-session',
+                          sessionId: session.id,
+                          title: session.title
+                        })
+                      }
+                    >
+                      <Trash2 /> 删除
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             ))}
             {visibleSessions.length === 0 && (
@@ -386,48 +457,88 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                   <small>{state.snapshot.model ?? '未配置模型'} · {state.snapshot.thinkingEffort}</small>
                 </div>
                 <div className="head-actions">
-                  <select
-                    aria-label="Agent 模式"
+                  <Select
                     value={state.snapshot.mode}
-                    onChange={(event) =>
+                    onValueChange={(mode) =>
                       client.send({
                         type: 'session.settings',
                         workspaceId: state.workspaceId!,
                         sessionId: state.snapshot!.summary.id,
-                        mode: event.target.value as 'auto' | 'plan' | 'conductor'
+                        mode: mode as 'auto' | 'plan' | 'conductor'
                       })
                     }
                   >
-                    <option value="auto">Auto</option>
-                    <option value="plan">Plan</option>
-                    <option value="conductor">Conductor</option>
-                  </select>
-                  <button className="desktop-action" onClick={() => inspect('diff')}>Diff</button>
-                  <button className="desktop-action" onClick={() => inspect('trace')}>Trace</button>
-                  <button className="desktop-action" onClick={pushBranch}>Push</button>
-                  <button className="desktop-action" onClick={createPullRequest}>PR</button>
-                  {'Notification' in window && <button className="desktop-action" onClick={() => void enableNotifications()}>通知</button>}
-                  <button onClick={() => setDialogAction({
+                    <SelectTrigger className="head-select" aria-label="Agent 模式">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto</SelectItem>
+                      <SelectItem value="plan">Plan</SelectItem>
+                      <SelectItem value="conductor">Conductor</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="desktop-action"
+                        aria-label="更多会话操作"
+                      >
+                        <MoreHorizontal /> 更多
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>检查</DropdownMenuLabel>
+                      <DropdownMenuItem onSelect={() => inspect('diff')}>
+                        <GitCompare /> Diff
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => inspect('trace')}>
+                        <Activity /> Trace
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>Git</DropdownMenuLabel>
+                      <DropdownMenuItem onSelect={pushBranch}>
+                        <Upload /> Push
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={createPullRequest}>
+                        <GitPullRequest /> 创建 PR
+                      </DropdownMenuItem>
+                      {'Notification' in window && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => void enableNotifications()}>
+                            <Bell /> 启用通知
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button variant="outline" size="sm" onClick={() => setDialogAction({
                     kind: 'model',
                     model: state.snapshot?.model ?? state.models[0]?.id ?? '',
                     options: state.models.map((model) => model.id)
-                  })}>模型</button>
-                  <select
+                  })}>模型</Button>
+                  <Select
                     value={state.snapshot.thinkingEffort ?? 'off'}
-                    aria-label="思考强度"
-                    onChange={(event) =>
+                    onValueChange={(thinkingEffort) =>
                       client.send({
                         type: 'session.settings',
                         workspaceId: state.workspaceId!,
                         sessionId: state.snapshot!.summary.id,
-                        thinkingEffort: event.target.value as SessionThinkingEffort
+                        thinkingEffort: thinkingEffort as SessionThinkingEffort
                       })
                     }
                   >
-                    {['off', 'minimal', 'low', 'medium', 'high', 'xhigh'].map((effort) => (
-                      <option key={effort}>{effort}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="head-select" aria-label="思考强度">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {['off', 'minimal', 'low', 'medium', 'high', 'xhigh'].map((effort) => (
+                        <SelectItem key={effort} value={effort}>{effort}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="messages">
@@ -503,7 +614,7 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                 />
               )}
               <form className="composer" onSubmit={submit}>
-                <textarea
+                <Textarea
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
                   onKeyDown={(event) => {
@@ -520,9 +631,9 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                   rows={2}
                 />
                 {state.running ? (
-                  <button
+                  <Button
                     type="button"
-                    className="danger"
+                    variant="destructive"
                     onClick={() =>
                       client.send({
                         type: 'session.abort',
@@ -531,9 +642,9 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                       })
                     }
                   >
-                    停止
-                  </button>
-                ) : <button className="primary">发送</button>}
+                    <Square /> 停止
+                  </Button>
+                ) : <Button><Send />发送</Button>}
               </form>
             </>
           )}
@@ -541,12 +652,12 @@ export function App({ endpoint, token, onLogout }: AppProps) {
 
         <aside className={`details ${mobilePanel === 'todo' ? 'mobile-active' : ''}`}>
           <div className="mobile-utilities">
-            <button onClick={() => inspect('diff')}>Diff</button>
-            <button onClick={() => inspect('trace')}>Trace</button>
-            <button onClick={pushBranch}>Push</button>
-            <button onClick={createPullRequest}>PR</button>
+            <Button variant="outline" size="sm" onClick={() => inspect('diff')}>Diff</Button>
+            <Button variant="outline" size="sm" onClick={() => inspect('trace')}>Trace</Button>
+            <Button variant="outline" size="sm" onClick={pushBranch}>Push</Button>
+            <Button variant="outline" size="sm" onClick={createPullRequest}>PR</Button>
             {'Notification' in window && (
-              <button onClick={() => void enableNotifications()}>通知</button>
+              <Button variant="outline" size="sm" onClick={() => void enableNotifications()}>通知</Button>
             )}
           </div>
           <h2>进度</h2>
@@ -572,27 +683,30 @@ export function App({ endpoint, token, onLogout }: AppProps) {
       </main>
 
       <nav className="mobile-nav">
-        <button
+        <Button
+          variant="ghost"
           className={mobilePanel === 'sessions' ? 'active' : ''}
           aria-current={mobilePanel === 'sessions' ? 'page' : undefined}
           onClick={() => setMobilePanel('sessions')}
         >
-          会话
-        </button>
-        <button
+          <MessagesSquare /><span>会话</span>
+        </Button>
+        <Button
+          variant="ghost"
           className={mobilePanel === 'chat' ? 'active' : ''}
           aria-current={mobilePanel === 'chat' ? 'page' : undefined}
           onClick={() => setMobilePanel('chat')}
         >
-          对话
-        </button>
-        <button
+          <MessageSquareText /><span>对话</span>
+        </Button>
+        <Button
+          variant="ghost"
           className={mobilePanel === 'todo' ? 'active' : ''}
           aria-current={mobilePanel === 'todo' ? 'page' : undefined}
           onClick={() => setMobilePanel('todo')}
         >
-          进度
-        </button>
+          <ListTodo /><span>进度</span>
+        </Button>
       </nav>
 
       {state.inspection && (
@@ -807,39 +921,43 @@ function EmptyState(props: {
     props.setupStatus.provider.model
   );
   return (
-    <div className="empty">
-      <div className="empty-mark">K</div>
-      <span className="eyebrow">Kross Cloud Agent</span>
-      <h1>{props.hasWorkspace ? '开始一个新会话' : '准备你的第一个工作区'}</h1>
-      <p>
-        {props.hasWorkspace
-          ? '会话、审批和运行记录都会保存在隔离的工作区中。'
-          : '先完成模型配置，再连接 Git 仓库，Kross 会创建独立执行环境。'}
-      </p>
-      <div className="onboarding-steps">
-        <button
-          className={providerReady ? 'complete' : ''}
-          onClick={props.onOpenSetup}
-        >
-          <span>{providerReady ? '✓' : '1'}</span>
-          <div><strong>配置模型</strong><small>{providerReady ? `${props.setupStatus?.provider.provider} 已就绪` : '设置 Provider 和 API Key'}</small></div>
-        </button>
-        <button
-          className={props.hasWorkspace ? 'complete' : ''}
-          onClick={props.onAddWorkspace}
-        >
-          <span>{props.hasWorkspace ? '✓' : '2'}</span>
-          <div><strong>连接仓库</strong><small>{props.hasWorkspace ? '工作区已经就绪' : '公开或私有 Git 仓库'}</small></div>
-        </button>
-        <button disabled={!props.hasWorkspace} onClick={props.onCreate}>
-          <span>3</span>
-          <div><strong>创建任务</strong><small>让 Agent 分析、修改并验证代码</small></div>
-        </button>
-      </div>
-      {props.hasWorkspace && (
-        <button className="primary" onClick={props.onCreate}>新建会话</button>
-      )}
-    </div>
+    <Card className="empty">
+      <CardContent className="empty-content">
+        <div className="empty-mark">K</div>
+        <span className="eyebrow">Kross Cloud Agent</span>
+        <h1>{props.hasWorkspace ? '开始一个新会话' : '准备你的第一个工作区'}</h1>
+        <p>
+          {props.hasWorkspace
+            ? '会话、审批和运行记录都会保存在隔离的工作区中。'
+            : '先完成模型配置，再连接 Git 仓库，Kross 会创建独立执行环境。'}
+        </p>
+        <div className="onboarding-steps">
+          <Button
+            variant="ghost"
+            className={providerReady ? 'complete' : ''}
+            onClick={props.onOpenSetup}
+          >
+            <span>{providerReady ? <CircleCheck /> : <Settings />}</span>
+            <div><strong>配置模型</strong><small>{providerReady ? `${props.setupStatus?.provider.provider} 已就绪` : '设置 Provider 和 API Key'}</small></div>
+          </Button>
+          <Button
+            variant="ghost"
+            className={props.hasWorkspace ? 'complete' : ''}
+            onClick={props.onAddWorkspace}
+          >
+            <span>{props.hasWorkspace ? <CircleCheck /> : <FolderGit2 />}</span>
+            <div><strong>连接仓库</strong><small>{props.hasWorkspace ? '工作区已经就绪' : '公开或私有 Git 仓库'}</small></div>
+          </Button>
+          <Button variant="ghost" disabled={!props.hasWorkspace} onClick={props.onCreate}>
+            <span><Bot /></span>
+            <div><strong>创建任务</strong><small>让 Agent 分析、修改并验证代码</small></div>
+          </Button>
+        </div>
+        {props.hasWorkspace && (
+          <Button onClick={props.onCreate}><Plus /> 新建会话</Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -931,85 +1049,120 @@ function WorkspaceForm(props: {
     credentialType,
     secret
   );
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') props.onClose();
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [props.onClose]);
   return (
-    <div className="modal-backdrop">
-      <form
-        className="workspace-form"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="workspace-form-title"
-        onSubmit={(event) => {
-        event.preventDefault();
-        if (!validationError) {
-          props.onCreate(
-            name.trim(),
-            url.trim(),
-            defaultBranch.trim(),
-            credential
-          );
-        }
-      }}>
-        <h2 id="workspace-form-title">添加工作区</h2>
-        <p>仓库会克隆到独立数据卷，创建过程可随时查看阶段进度。</p>
-        <label>名称<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label>Git URL<input required value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://github.com/org/repo.git" /></label>
-        <label>默认分支（可选）
-          <input
-            value={defaultBranch}
-            onChange={(event) => setDefaultBranch(event.target.value)}
-            placeholder="自动检测"
-            pattern="[A-Za-z0-9][A-Za-z0-9._/-]*"
-          />
-        </label>
-        <label>仓库凭证
-          <select value={credentialType} onChange={(event) => {
-            setCredentialType(event.target.value as typeof credentialType);
-            setSecret('');
-          }}>
-            <option value="none">公开仓库 / 无凭证</option>
-            <option value="https-token">HTTPS Token</option>
-            <option value="ssh-key">SSH 私钥</option>
-          </select>
-        </label>
-        {credentialType === 'https-token' && (
-          <label>Token
-            <input
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent className="workspace-dialog">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!validationError) {
+              props.onCreate(
+                name.trim(),
+                url.trim(),
+                defaultBranch.trim(),
+                credential
+              );
+            }
+          }}
+        >
+          <DialogHeader>
+            <span className="eyebrow">工作区</span>
+            <DialogTitle>添加工作区</DialogTitle>
+            <DialogDescription>
+              仓库会克隆到独立数据卷，创建过程可随时查看阶段进度。
+            </DialogDescription>
+          </DialogHeader>
+
+          <Label className="dialog-field">
+            名称
+            <Input
+              autoFocus
               required
-              type="password"
-              value={secret}
-              onChange={(event) => setSecret(event.target.value)}
-              autoComplete="new-password"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
             />
-          </label>
-        )}
-        {credentialType === 'ssh-key' && (
-          <label>私钥
-            <textarea
+          </Label>
+          <Label className="dialog-field">
+            Git URL
+            <Input
               required
-              rows={6}
-              value={secret}
-              onChange={(event) => setSecret(event.target.value)}
-              autoComplete="off"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="https://github.com/org/repo.git"
             />
-          </label>
-        )}
-        {url && validationError && <p className="form-error">{validationError}</p>}
-        <p>凭证仅发送给对应工作区的初始化容器，不写入网关日志。</p>
-        <div>
-          <button type="button" onClick={props.onClose}>取消</button>
-          <button className="primary" disabled={Boolean(validationError)}>
-            创建工作区
-          </button>
-        </div>
-      </form>
-    </div>
+          </Label>
+          <Label className="dialog-field">
+            默认分支（可选）
+            <Input
+              value={defaultBranch}
+              onChange={(event) => setDefaultBranch(event.target.value)}
+              placeholder="自动检测"
+              pattern="[A-Za-z0-9][A-Za-z0-9._/-]*"
+            />
+          </Label>
+          <Label className="dialog-field">
+            仓库凭证
+            <Select
+              value={credentialType}
+              onValueChange={(value) => {
+                setCredentialType(value as typeof credentialType);
+                setSecret('');
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">公开仓库 / 无凭证</SelectItem>
+                <SelectItem value="https-token">HTTPS Token</SelectItem>
+                <SelectItem value="ssh-key">SSH 私钥</SelectItem>
+              </SelectContent>
+            </Select>
+          </Label>
+
+          {credentialType === 'https-token' && (
+            <Label className="dialog-field">
+              Token
+              <Input
+                required
+                type="password"
+                value={secret}
+                onChange={(event) => setSecret(event.target.value)}
+                autoComplete="new-password"
+              />
+            </Label>
+          )}
+          {credentialType === 'ssh-key' && (
+            <Label className="dialog-field">
+              私钥
+              <Textarea
+                required
+                rows={6}
+                value={secret}
+                onChange={(event) => setSecret(event.target.value)}
+                autoComplete="off"
+              />
+            </Label>
+          )}
+
+          {url && validationError && <p className="form-error">{validationError}</p>}
+          <p className="credential-note">
+            凭证仅发送给对应工作区的初始化容器，不写入网关日志。
+          </p>
+          <DialogFooter className="form-actions">
+            <Button type="button" variant="outline" onClick={props.onClose}>
+              取消
+            </Button>
+            <Button disabled={Boolean(validationError)}>创建工作区</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
