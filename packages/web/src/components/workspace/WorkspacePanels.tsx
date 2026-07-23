@@ -1,6 +1,8 @@
 import type { CloudWorkspace, WorkspaceProgress } from '@kross/protocol';
+import type { TFunction } from 'i18next';
 import { Bot, CircleCheck, FolderGit2, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { SetupStatus } from '../../setupApi';
 import { Badge } from '../ui/badge';
@@ -44,6 +46,7 @@ export function EmptyState(props: {
   onAddWorkspace: () => void;
   onOpenSetup: () => void;
 }) {
+  const { t } = useTranslation();
   const providerReady = Boolean(
     props.setupStatus?.provider.hasApiKey &&
     props.setupStatus.provider.model
@@ -52,12 +55,12 @@ export function EmptyState(props: {
     <Card className="empty">
       <CardContent className="empty-content">
         <div className="empty-mark">K</div>
-        <span className="eyebrow">Kross Cloud Agent</span>
-        <h1>{props.hasWorkspace ? '开始一个新会话' : '准备你的第一个工作区'}</h1>
+        <span className="eyebrow">{t('onboarding.eyebrow')}</span>
+        <h1>{props.hasWorkspace ? t('onboarding.newSession') : t('onboarding.firstWorkspace')}</h1>
         <p>
           {props.hasWorkspace
-            ? '会话、审批和运行记录都会保存在隔离的工作区中。'
-            : '先完成模型配置，再连接 Git 仓库，Kross 会创建独立执行环境。'}
+            ? t('onboarding.sessionDescription')
+            : t('onboarding.workspaceDescription')}
         </p>
         <div className="onboarding-steps">
           <Button
@@ -66,7 +69,16 @@ export function EmptyState(props: {
             onClick={props.onOpenSetup}
           >
             <span>{providerReady ? <CircleCheck /> : <Settings />}</span>
-            <div><strong>配置模型</strong><small>{providerReady ? `${props.setupStatus?.provider.provider} 已就绪` : '设置 Provider 和 API Key'}</small></div>
+            <div>
+              <strong>{t('onboarding.configureModel')}</strong>
+              <small>
+                {providerReady
+                  ? t('onboarding.providerReady', {
+                      provider: props.setupStatus?.provider.provider
+                    })
+                  : t('onboarding.providerHint')}
+              </small>
+            </div>
           </Button>
           <Button
             variant="ghost"
@@ -74,15 +86,18 @@ export function EmptyState(props: {
             onClick={props.onAddWorkspace}
           >
             <span>{props.hasWorkspace ? <CircleCheck /> : <FolderGit2 />}</span>
-            <div><strong>连接仓库</strong><small>{props.hasWorkspace ? '工作区已经就绪' : '公开或私有 Git 仓库'}</small></div>
+            <div>
+              <strong>{t('onboarding.connectRepository')}</strong>
+              <small>{props.hasWorkspace ? t('onboarding.workspaceReady') : t('onboarding.repositoryHint')}</small>
+            </div>
           </Button>
           <Button variant="ghost" disabled={!props.hasWorkspace} onClick={props.onCreate}>
             <span><Bot /></span>
-            <div><strong>创建任务</strong><small>让 Agent 分析、修改并验证代码</small></div>
+            <div><strong>{t('onboarding.createTask')}</strong><small>{t('onboarding.taskHint')}</small></div>
           </Button>
         </div>
         {props.hasWorkspace && (
-          <Button onClick={props.onCreate}><Plus /> 新建会话</Button>
+          <Button onClick={props.onCreate}><Plus /> {t('session.new')}</Button>
         )}
       </CardContent>
     </Card>
@@ -98,6 +113,7 @@ export function WorkspaceForm(props: {
     credential?: WorkspaceCredential
   ) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [defaultBranch, setDefaultBranch] = useState('');
@@ -112,7 +128,8 @@ export function WorkspaceForm(props: {
   const validationError = validateWorkspaceInput(
     url,
     credentialType,
-    secret
+    secret,
+    t
   );
   return (
     <Dialog
@@ -136,15 +153,15 @@ export function WorkspaceForm(props: {
           }}
         >
           <DialogHeader>
-            <span className="eyebrow">工作区</span>
-            <DialogTitle>添加工作区</DialogTitle>
+            <span className="eyebrow">{t('workspace.dialogEyebrow')}</span>
+            <DialogTitle>{t('workspace.add')}</DialogTitle>
             <DialogDescription>
-              仓库会克隆到独立数据卷，创建过程可随时查看阶段进度。
+              {t('workspace.description')}
             </DialogDescription>
           </DialogHeader>
 
           <Label className="dialog-field">
-            名称
+            {t('workspace.name')}
             <Input
               autoFocus
               required
@@ -162,16 +179,16 @@ export function WorkspaceForm(props: {
             />
           </Label>
           <Label className="dialog-field">
-            默认分支（可选）
+            {t('workspace.defaultBranch')}
             <Input
               value={defaultBranch}
               onChange={(event) => setDefaultBranch(event.target.value)}
-              placeholder="自动检测"
+              placeholder={t('workspace.autoDetect')}
               pattern="[A-Za-z0-9][A-Za-z0-9._/-]*"
             />
           </Label>
           <Label className="dialog-field">
-            仓库凭证
+            {t('workspace.credential')}
             <Select
               value={credentialType}
               onValueChange={(value) => {
@@ -183,16 +200,16 @@ export function WorkspaceForm(props: {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">公开仓库 / 无凭证</SelectItem>
-                <SelectItem value="https-token">HTTPS Token</SelectItem>
-                <SelectItem value="ssh-key">SSH 私钥</SelectItem>
+                <SelectItem value="none">{t('workspace.publicRepository')}</SelectItem>
+                <SelectItem value="https-token">{t('workspace.httpsToken')}</SelectItem>
+                <SelectItem value="ssh-key">{t('workspace.sshKey')}</SelectItem>
               </SelectContent>
             </Select>
           </Label>
 
           {credentialType === 'https-token' && (
             <Label className="dialog-field">
-              Token
+              {t('workspace.token')}
               <Input
                 required
                 type="password"
@@ -204,7 +221,7 @@ export function WorkspaceForm(props: {
           )}
           {credentialType === 'ssh-key' && (
             <Label className="dialog-field">
-              私钥
+              {t('workspace.privateKey')}
               <Textarea
                 required
                 rows={6}
@@ -217,13 +234,13 @@ export function WorkspaceForm(props: {
 
           {url && validationError && <p className="form-error">{validationError}</p>}
           <p className="credential-note">
-            凭证仅发送给对应工作区的初始化容器，不写入网关日志。
+            {t('workspace.credentialNote')}
           </p>
           <DialogFooter className="form-actions">
             <Button type="button" variant="outline" onClick={props.onClose}>
-              取消
+              {t('common.cancel')}
             </Button>
-            <Button disabled={Boolean(validationError)}>创建工作区</Button>
+            <Button disabled={Boolean(validationError)}>{t('workspace.create')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -236,6 +253,7 @@ export function WorkspaceActions(props: {
   onToggle: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   const workspace = props.workspace;
   return (
     <Card className="workspace-actions">
@@ -243,17 +261,17 @@ export function WorkspaceActions(props: {
         <div className="workspace-status">
           <CardTitle>{workspace.name}</CardTitle>
           <Badge variant={workspace.status === 'ready' ? 'secondary' : 'outline'}>
-            {workspaceStatusLabel(workspace.status)}
+            {workspaceStatusLabel(workspace.status, t)}
           </Badge>
         </div>
         <CardDescription>{workspace.gitUrl}</CardDescription>
       </CardHeader>
       <CardFooter>
         <Button variant="outline" size="sm" onClick={props.onToggle}>
-          {workspace.status === 'stopped' ? '启动' : '停止'}
+          {workspace.status === 'stopped' ? t('workspace.start') : t('workspace.stop')}
         </Button>
         <Button variant="destructive" size="sm" onClick={props.onDelete}>
-          删除
+          {t('common.delete')}
         </Button>
       </CardFooter>
     </Card>
@@ -265,15 +283,16 @@ export function WorkspaceProgressPanel(props: {
   onClose: () => void;
   onRetry: () => void;
 }) {
+  const { t } = useTranslation();
   const stages: Array<{
     id: WorkspaceProgress['stage'];
     label: string;
   }> = [
-    { id: 'validating', label: '校验仓库' },
-    { id: 'provisioning', label: '准备环境' },
-    { id: 'cloning', label: '克隆代码' },
-    { id: 'starting', label: '启动 Worker' },
-    { id: 'ready', label: '工作区就绪' }
+    { id: 'validating', label: t('workspace.stageValidate') },
+    { id: 'provisioning', label: t('workspace.stagePrepare') },
+    { id: 'cloning', label: t('workspace.stageClone') },
+    { id: 'starting', label: t('workspace.stageStart') },
+    { id: 'ready', label: t('workspace.stageReady') }
   ];
   const currentIndex =
     props.progress.stage === 'failed'
@@ -294,7 +313,7 @@ export function WorkspaceProgressPanel(props: {
     >
       <DialogContent className={`provision-panel ${terminal ? 'terminal' : ''}`}>
         <DialogHeader>
-          <span className="eyebrow">Workspace Provisioning</span>
+          <span className="eyebrow">{t('workspace.provisioning')}</span>
           <DialogTitle>{props.progress.name}</DialogTitle>
           <DialogDescription role="status" aria-live="polite">
             {props.progress.message}
@@ -302,7 +321,7 @@ export function WorkspaceProgressPanel(props: {
         </DialogHeader>
         <Progress
           value={progressValue}
-          aria-label="工作区创建进度"
+          aria-label={t('workspace.progressLabel')}
           className={props.progress.stage === 'failed' ? 'failed' : undefined}
         />
         <div className="provision-steps">
@@ -328,16 +347,16 @@ export function WorkspaceProgressPanel(props: {
         </div>
         {props.progress.stage === 'failed' && (
           <p className="form-error">
-            创建失败。请检查仓库地址、分支和凭据后重试。
+            {t('workspace.createFailed')}
           </p>
         )}
         <DialogFooter className="form-actions">
           {props.progress.stage === 'failed' && (
-            <Button variant="outline" onClick={props.onRetry}>修改并重试</Button>
+            <Button variant="outline" onClick={props.onRetry}>{t('common.retry')}</Button>
           )}
           {terminal && (
             <Button onClick={props.onClose}>
-              {props.progress.stage === 'ready' ? '进入工作区' : '关闭'}
+              {props.progress.stage === 'ready' ? t('workspace.enter') : t('common.close')}
             </Button>
           )}
         </DialogFooter>
@@ -346,60 +365,64 @@ export function WorkspaceProgressPanel(props: {
   );
 }
 
-function workspaceStatusLabel(status: CloudWorkspace['status']): string {
+function workspaceStatusLabel(
+  status: CloudWorkspace['status'],
+  t: TFunction
+): string {
   return {
-    ready: '运行中',
-    stopped: '已停止',
-    creating: '创建中',
-    error: '异常'
+    ready: t('workspace.statusReady'),
+    stopped: t('workspace.statusStopped'),
+    creating: t('workspace.statusCreating'),
+    error: t('workspace.statusError')
   }[status] ?? status;
 }
 
 function validateWorkspaceInput(
   value: string,
   credentialType: 'none' | 'https-token' | 'ssh-key',
-  secret: string
+  secret: string,
+  t: TFunction
 ): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   const scpStyle = /^[\w.-]+@[\w.-]+:.+/.test(trimmed);
   if (scpStyle) {
     if (credentialType === 'https-token') {
-      return 'HTTPS Token 不能用于 SSH 仓库地址';
+      return t('workspace.validation.tokenWithSsh');
     }
   } else {
     try {
       const url = new URL(trimmed);
       if (!['https:', 'ssh:', 'git:', 'git+ssh:'].includes(url.protocol)) {
-        return '仅支持 HTTPS 或 SSH Git 地址';
+        return t('workspace.validation.protocol');
       }
       if (url.username || url.password) {
-        return 'Git URL 不能内嵌凭据，请使用下方凭据字段';
+        return t('workspace.validation.embeddedCredential');
       }
       if (credentialType === 'https-token' && url.protocol !== 'https:') {
-        return 'HTTPS Token 只能用于 https:// 地址';
+        return t('workspace.validation.tokenProtocol');
       }
       if (
         credentialType === 'ssh-key' &&
         !['ssh:', 'git+ssh:'].includes(url.protocol)
       ) {
-        return 'SSH 私钥需要 ssh://、git+ssh:// 或 scp 风格地址';
+        return t('workspace.validation.sshProtocol');
       }
     } catch {
-      return '请输入完整的 HTTPS、SSH 或 scp 风格 Git 地址';
+      return t('workspace.validation.completeUrl');
     }
   }
   if (credentialType !== 'none' && !secret.trim()) {
     return credentialType === 'https-token'
-      ? '请输入 HTTPS Token'
-      : '请输入 SSH 私钥';
+      ? t('workspace.validation.tokenRequired')
+      : t('workspace.validation.keyRequired');
   }
   if (
     credentialType === 'ssh-key' &&
     secret &&
     !secret.includes('PRIVATE KEY')
   ) {
-    return 'SSH 私钥格式不正确';
+    return t('workspace.validation.invalidKey');
   }
   return undefined;
 }

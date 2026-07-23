@@ -1,7 +1,9 @@
 import type { AgentResult } from '@kross/protocol';
+import type { TFunction } from 'i18next';
 import { ChevronRight } from 'lucide-react';
 import { memo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { useTranslation } from 'react-i18next';
 
 import type { UiMessage } from '../../useCloud';
 import { Badge } from '../ui/badge';
@@ -27,10 +29,11 @@ export const Message = memo(function Message({
 }: {
   message: UiMessage;
 }) {
+  const { t } = useTranslation();
   if (message.tool) {
     return (
       <article className="message tool">
-        <div className="message-author">工具记录</div>
+        <div className="message-author">{t('session.toolRecord')}</div>
         <HistoricalToolCard
           tool={message.tool}
           fallbackText={message.text}
@@ -42,10 +45,14 @@ export const Message = memo(function Message({
   return (
     <article className={`message ${message.from}`}>
       <div className="message-author">
-        {message.from === 'user' ? '你' : message.from === 'thinking' ? '思考' : 'Kross'}
+        {message.from === 'user'
+          ? t('session.you')
+          : message.from === 'thinking'
+            ? t('session.thinking')
+            : t('session.assistant')}
       </div>
       {message.from === 'thinking' ? (
-        <ToolDisclosure label="查看思考过程">
+        <ToolDisclosure label={t('session.viewThinking')}>
           <pre>{message.text}</pre>
         </ToolDisclosure>
       ) : <ReactMarkdown>{message.text}</ReactMarkdown>}
@@ -62,28 +69,31 @@ function HistoricalToolCard({
   fallbackText: string;
   verification?: UiMessage['verification'];
 }) {
+  const { t } = useTranslation();
   const details = tool.detailLines ?? [];
   return (
     <Card className={`tool-card history ${tool.status}`}>
       <CardHeader className="tool-card-header">
         <div>
-          <Badge variant="outline">工具</Badge>
+          <Badge variant="outline">{t('session.tool')}</Badge>
           <CardTitle>{tool.name}</CardTitle>
         </div>
         <Badge variant={toolStatusVariant(tool.status)}>
-          {toolStatusLabel(tool.status)}
+          {toolStatusLabel(tool.status, t)}
         </Badge>
       </CardHeader>
       <CardContent className="tool-card-content">
         <CardDescription>{tool.summary || fallbackText}</CardDescription>
         {tool.inputPreview && (
-          <ToolDisclosure label="查看输入">
+          <ToolDisclosure label={t('session.viewInput')}>
             <pre>{tool.inputPreview}</pre>
           </ToolDisclosure>
         )}
         {details.length > 0 && (
           <ToolDisclosure
-            label={`查看执行明细${tool.detailTruncated ? '（已截断）' : ''}`}
+            label={t('session.viewDetails', {
+              suffix: tool.detailTruncated ? t('session.truncated') : ''
+            })}
           >
             <pre className="tool-detail">
               {details.map((line, index) => (
@@ -100,9 +110,9 @@ function HistoricalToolCard({
           <ul className="tool-items">
             {tool.items.map((item, index) => (
               <li key={`${item.callId ?? item.path ?? index}`}>
-                <strong>{item.path ?? item.callId ?? `步骤 ${index + 1}`}</strong>
+                <strong>{item.path ?? item.callId ?? t('session.step', { number: index + 1 })}</strong>
                 <Badge variant={toolStatusVariant(item.status)}>
-                  {toolStatusLabel(item.status)}
+                  {toolStatusLabel(item.status, t)}
                 </Badge>
                 {(item.summary || item.preview) && (
                   <small>{item.summary ?? item.preview}</small>
@@ -121,7 +131,9 @@ function HistoricalToolCard({
           </span>
         )}
         {verification && (
-          <span>验证：{verificationLabel(verification.status)}</span>
+          <span>{t('session.verification', {
+            status: verificationLabel(verification.status, t)
+          })}</span>
         )}
       </CardFooter>
     </Card>
@@ -154,23 +166,24 @@ export function ToolCard({
   type: string;
   payload: Record<string, unknown>;
 }) {
+  const { t } = useTranslation();
   const status = type.split('.').at(-1) ?? 'running';
   return (
     <Card className={`tool-card ${status}`}>
       <CardHeader className="tool-card-header">
         <div>
-          <Badge variant="outline">工具</Badge>
+          <Badge variant="outline">{t('session.tool')}</Badge>
           <CardTitle>
             {String(payload.toolName ?? payload.name ?? 'Tool')}
           </CardTitle>
         </div>
         <Badge variant={toolStatusVariant(status)}>
-          {toolStatusLabel(status)}
+          {toolStatusLabel(status, t)}
         </Badge>
       </CardHeader>
       {(payload.input !== undefined || payload.contentPreview !== undefined) && (
         <CardContent className="tool-card-content">
-          <ToolDisclosure label="查看调用内容">
+          <ToolDisclosure label={t('session.viewCall')}>
             <pre>{formatToolValue(payload.input ?? payload.contentPreview)}</pre>
           </ToolDisclosure>
         </CardContent>
@@ -185,7 +198,8 @@ export function ApprovalCard(props: {
   risk: string;
   onChoose: (approved: boolean, reason?: string) => void;
 }) {
-  const risk = riskPresentation(props.risk);
+  const { t } = useTranslation();
+  const risk = riskPresentation(props.risk, t);
   const [processing, setProcessing] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
@@ -219,8 +233,8 @@ export function ApprovalCard(props: {
         </ScrollArea>
         {rejecting && (
           <Textarea
-            aria-label="拒绝原因"
-            placeholder="可选：告诉 Agent 应该如何调整"
+            aria-label={t('approval.reasonLabel')}
+            placeholder={t('approval.reasonPlaceholder')}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             disabled={processing}
@@ -234,13 +248,13 @@ export function ApprovalCard(props: {
           disabled={processing}
           onClick={() => choose(false)}
         >
-          {rejecting ? '确认拒绝' : '拒绝'}
+          {rejecting ? t('approval.confirmReject') : t('approval.reject')}
         </Button>
         <Button
           disabled={processing}
           onClick={() => choose(true)}
         >
-          {processing ? '处理中…' : '仅批准这一次'}
+          {processing ? t('approval.processing') : t('approval.approveOnce')}
         </Button>
       </CardFooter>
     </Card>
@@ -252,13 +266,14 @@ export function ExecutionSummary(props: {
   pendingApproval: boolean;
   result?: AgentResult;
 }) {
+  const { t } = useTranslation();
   const status = props.pendingApproval
-    ? '等待审批'
+    ? t('status.approvalRequired')
     : props.running
-      ? '执行中'
+      ? t('status.running')
       : props.result
-        ? resultLabel(props.result.status)
-        : '尚未运行';
+        ? resultLabel(props.result.status, t)
+        : t('execution.idle');
   return (
     <Card className="execution-summary">
       <CardHeader>
@@ -272,15 +287,15 @@ export function ExecutionSummary(props: {
           <CardDescription>{props.result.summary}</CardDescription>
           <dl>
             <div>
-              <dt>修改文件</dt>
+              <dt>{t('execution.changedFiles')}</dt>
               <dd>{props.result.report.changedFiles.length}</dd>
             </div>
             <div>
-              <dt>验证</dt>
-              <dd>{verificationLabel(props.result.report.verification.status)}</dd>
+              <dt>{t('execution.verification')}</dt>
+              <dd>{verificationLabel(props.result.report.verification.status, t)}</dd>
             </div>
             <div>
-              <dt>风险</dt>
+              <dt>{t('execution.risks')}</dt>
               <dd>{props.result.report.risks.length}</dd>
             </div>
           </dl>
@@ -299,17 +314,17 @@ function toolStatusVariant(
   return 'outline';
 }
 
-function toolStatusLabel(status: string): string {
+function toolStatusLabel(status: string, t: TFunction): string {
   return {
-    awaiting: '等待中',
-    running: '执行中',
-    completed: '已完成',
-    failed: '失败',
-    denied: '已拒绝'
+    awaiting: t('status.awaiting'),
+    running: t('status.running'),
+    completed: t('status.completed'),
+    failed: t('status.failed'),
+    denied: t('status.denied')
   }[status] ?? status;
 }
 
-function riskPresentation(value: string): {
+function riskPresentation(value: string, t: TFunction): {
   level: 'low' | 'medium' | 'high';
   label: string;
   description: string;
@@ -323,46 +338,49 @@ function riskPresentation(value: string): {
   ) {
     return {
       level: 'high',
-      label: '高风险',
+      label: t('approval.highRisk'),
       icon: '!',
-      description: '该操作可能造成不可逆变化，请确认范围和参数。'
+      description: t('approval.highRiskDescription')
     };
   }
   if (normalized === 'plan' || normalized.includes('medium')) {
     return {
       level: 'medium',
-      label: normalized === 'plan' ? '计划确认' : '需要确认',
+      label: normalized === 'plan'
+        ? t('approval.planConfirmation')
+        : t('approval.confirmationRequired'),
       icon: '?',
       description: normalized === 'plan'
-        ? '批准后 Agent 将按此计划开始执行。'
-        : '该操作会改变工作区，请确认后继续。'
+        ? t('approval.planDescription')
+        : t('approval.mediumDescription')
     };
   }
   return {
     level: 'low',
-    label: '受控操作',
+    label: t('approval.controlled'),
     icon: '✓',
-    description: '审批只对本次工具调用生效。'
+    description: t('approval.controlledDescription')
   };
 }
 
-function resultLabel(status: AgentResult['status']): string {
+function resultLabel(status: AgentResult['status'], t: TFunction): string {
   return {
-    completed: '执行完成',
-    failed: '执行失败',
-    cancelled: '已取消',
-    'approval-required': '等待审批'
+    completed: t('execution.completed'),
+    failed: t('execution.failed'),
+    cancelled: t('execution.cancelled'),
+    'approval-required': t('status.approvalRequired')
   }[status];
 }
 
 function verificationLabel(
-  status: AgentResult['report']['verification']['status']
+  status: AgentResult['report']['verification']['status'],
+  t: TFunction
 ): string {
   return {
-    passed: '已通过',
-    failed: '失败',
-    'not-run': '未运行',
-    'not-needed': '无需验证'
+    passed: t('status.passed'),
+    failed: t('status.failed'),
+    'not-run': t('status.notRun'),
+    'not-needed': t('status.notNeeded')
   }[status];
 }
 

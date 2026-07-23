@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { InspectionPanel } from './InspectionPanel';
 import { ActionDialog, type DialogAction } from './OperationDialog';
@@ -19,6 +20,7 @@ interface AppProps {
 }
 
 export function App({ endpoint, token, onLogout }: AppProps) {
+  const { t } = useTranslation();
   const cloud = useCloud(endpoint, token);
   const pwa = usePwa();
   const { state, client, connection } = cloud;
@@ -123,14 +125,16 @@ export function App({ endpoint, token, onLogout }: AppProps) {
       headers: { authorization: `Bearer ${token}` }
     });
     const config = await response.json() as { vapidPublicKey?: string };
-    if (!config.vapidPublicKey) throw new Error('网关尚未配置 Web Push');
+    if (!config.vapidPublicKey) {
+      throw new Error(t('notifications.gatewayNotConfigured'));
+    }
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: decodeVapidKey(config.vapidPublicKey)
     });
     const serialized = subscription.toJSON();
     if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys.auth) {
-      throw new Error('浏览器未返回完整的推送订阅');
+      throw new Error(t('notifications.incompleteSubscription'));
     }
     client.send({
       type: 'push.subscribe',

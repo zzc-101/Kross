@@ -1,4 +1,6 @@
+import type { TFunction } from 'i18next';
 import { useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { validateGitRef } from './actionDialog';
 import {
@@ -56,6 +58,7 @@ export function ActionDialog(props: {
   onSubmit: (action: DialogAction) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [action, setAction] = useState(props.action);
 
   if (action.kind === 'delete-session' || action.kind === 'delete-workspace') {
@@ -68,12 +71,12 @@ export function ActionDialog(props: {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <span className="eyebrow">Kross Cloud</span>
-            <AlertDialogTitle>{dialogTitle(action)}</AlertDialogTitle>
+            <span className="eyebrow">{t('operation.brand')}</span>
+            <AlertDialogTitle>{dialogTitle(action, t)}</AlertDialogTitle>
             <AlertDialogDescription>
               {action.kind === 'delete-session'
-                ? `即将永久删除会话“${action.title}”及其执行记录，此操作无法撤销。`
-                : `即将删除工作区“${action.name}”的 Worker 和登记信息。`}
+                ? t('operation.deleteSessionWarning', { title: action.title })
+                : t('operation.deleteWorkspaceWarning', { name: action.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -87,25 +90,25 @@ export function ActionDialog(props: {
                   }
                 />
                 <span>
-                  同时永久删除工作区数据卷
-                  <small>仓库、会话和审批记录将无法恢复。</small>
+                  {t('operation.removeVolume')}
+                  <small>{t('operation.removeVolumeHint')}</small>
                 </span>
               </Label>
               {!action.removeVolume && (
                 <p className="form-success">
-                  数据卷会保留，后续仍可人工恢复。
+                  {t('operation.keepVolume')}
                 </p>
               )}
             </>
           )}
 
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className={buttonVariants({ variant: 'destructive' })}
               onClick={() => props.onSubmit(action)}
             >
-              确认删除
+              {t('operation.confirmDelete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -135,14 +138,14 @@ export function ActionDialog(props: {
       <DialogContent className="action-dialog">
         <form onSubmit={submit}>
           <DialogHeader>
-            <span className="eyebrow">Kross Cloud</span>
-            <DialogTitle>{dialogTitle(action)}</DialogTitle>
-            <DialogDescription>{dialogDescription(action)}</DialogDescription>
+            <span className="eyebrow">{t('operation.brand')}</span>
+            <DialogTitle>{dialogTitle(action, t)}</DialogTitle>
+            <DialogDescription>{dialogDescription(action, t)}</DialogDescription>
           </DialogHeader>
 
           {action.kind === 'rename-session' && (
             <Label className="dialog-field">
-              会话名称
+              {t('operation.sessionName')}
               <Input
                 autoFocus
                 required
@@ -157,14 +160,14 @@ export function ActionDialog(props: {
 
           {action.kind === 'model' && (
             <Label className="dialog-field">
-              模型 ID
+              {t('operation.modelId')}
               <Select
                 required
                 value={action.model}
                 onValueChange={(model) => setAction({ ...action, model })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="选择模型" />
+                  <SelectValue placeholder={t('operation.selectModel')} />
                 </SelectTrigger>
                 <SelectContent>
                   {!action.options.includes(action.model) && action.model && (
@@ -191,7 +194,7 @@ export function ActionDialog(props: {
                 />
               </Label>
               <Label className="dialog-field">
-                分支
+                {t('operation.branch')}
                 <Input
                   autoFocus
                   required
@@ -208,7 +211,7 @@ export function ActionDialog(props: {
             <>
               <div className="action-grid">
                 <Label className="dialog-field">
-                  源分支
+                  {t('operation.sourceBranch')}
                   <Input
                     autoFocus
                     required
@@ -219,7 +222,7 @@ export function ActionDialog(props: {
                   />
                 </Label>
                 <Label className="dialog-field">
-                  目标分支
+                  {t('operation.targetBranch')}
                   <Input
                     required
                     value={action.base}
@@ -230,7 +233,7 @@ export function ActionDialog(props: {
                 </Label>
               </div>
               <Label className="dialog-field">
-                PR 标题
+                {t('operation.prTitle')}
                 <Input
                   required
                   value={action.title}
@@ -240,7 +243,7 @@ export function ActionDialog(props: {
                 />
               </Label>
               <Label className="dialog-field">
-                PR 描述（可选）
+                {t('operation.prBody')}
                 <Textarea
                   rows={5}
                   value={action.body}
@@ -255,9 +258,9 @@ export function ActionDialog(props: {
           {gitError && <p className="form-error" role="alert">{gitError}</p>}
           <DialogFooter className="form-actions">
             <Button type="button" variant="outline" onClick={props.onClose}>
-              取消
+              {t('common.cancel')}
             </Button>
-            <Button disabled={Boolean(gitError)}>确认</Button>
+            <Button disabled={Boolean(gitError)}>{t('common.confirm')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -265,25 +268,25 @@ export function ActionDialog(props: {
   );
 }
 
-function dialogTitle(action: DialogAction): string {
+function dialogTitle(action: DialogAction, t: TFunction): string {
   return {
-    'rename-session': '重命名会话',
-    'delete-session': '删除会话',
-    model: '切换模型',
-    'git-push': '推送分支',
-    'git-pr': '创建 Pull Request',
-    'delete-workspace': '删除工作区'
+    'rename-session': t('operation.renameSession'),
+    'delete-session': t('operation.deleteSession'),
+    model: t('operation.switchModel'),
+    'git-push': t('operation.pushBranch'),
+    'git-pr': t('operation.createPr'),
+    'delete-workspace': t('operation.deleteWorkspace')
   }[action.kind];
 }
 
 function dialogDescription(action: Exclude<
   DialogAction,
   { kind: 'delete-session' } | { kind: 'delete-workspace' }
->): string {
+>, t: TFunction): string {
   return {
-    'rename-session': '为当前会话设置一个更容易识别的名称。',
-    model: '选择后将应用到当前会话。',
-    'git-push': '将当前工作区分支推送到远程仓库。',
-    'git-pr': '从当前工作区创建新的 Pull Request。'
+    'rename-session': t('operation.renameDescription'),
+    model: t('operation.modelDescription'),
+    'git-push': t('operation.pushDescription'),
+    'git-pr': t('operation.prDescription')
   }[action.kind];
 }

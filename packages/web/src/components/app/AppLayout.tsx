@@ -1,4 +1,5 @@
 import type { CloudWorkspace } from '@kross/protocol';
+import type { TFunction } from 'i18next';
 import {
   Activity,
   Bell,
@@ -24,6 +25,7 @@ import type {
   RefObject,
   SetStateAction
 } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { DialogAction } from '../../OperationDialog';
 import { applyPwaUpdate, installPwa, type usePwa } from '../../pwa';
@@ -57,6 +59,7 @@ import {
   EmptyState,
   WorkspaceActions
 } from '../workspace/WorkspacePanels';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 type CloudController = ReturnType<typeof useCloud>;
 type CloudState = CloudController['state'];
@@ -165,6 +168,7 @@ function AppHeader(props: {
   onOpenWorkspaceForm: () => void;
   onOpenSetup: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <header className="topbar">
@@ -173,16 +177,16 @@ function AppHeader(props: {
           className={`connection ${props.connection}`}
           role="status"
           aria-live="polite"
-          title={connectionLabel(props.connection)}
+          title={connectionLabel(props.connection, t)}
         >
-          {connectionLabel(props.connection)}
+          {connectionLabel(props.connection, t)}
         </div>
         <Select
           value={props.state.workspaceId ?? ''}
           onValueChange={props.cloud.selectWorkspace}
         >
-          <SelectTrigger className="workspace-select" aria-label="工作区">
-            <SelectValue placeholder="选择工作区" />
+          <SelectTrigger className="workspace-select" aria-label={t('header.workspace')}>
+            <SelectValue placeholder={t('header.selectWorkspace')} />
           </SelectTrigger>
           <SelectContent>
             {props.state.workspaces.map((workspace) => (
@@ -193,7 +197,7 @@ function AppHeader(props: {
           </SelectContent>
         </Select>
         <Button variant="ghost" size="sm" className="icon-button" onClick={props.onOpenWorkspaceForm}>
-          <Plus /> 工作区
+          <Plus /> {t('header.addWorkspace')}
         </Button>
         <Button
           variant="ghost"
@@ -201,7 +205,7 @@ function AppHeader(props: {
           className={`icon-button setup-button ${props.setupStatus?.ready ? 'ready' : 'attention'}`}
           onClick={props.onOpenSetup}
         >
-          <Settings /> 环境
+          <Settings /> {t('header.environment')}
         </Button>
         {props.pwa.installable && !props.pwa.installed && (
           <Button
@@ -210,11 +214,12 @@ function AppHeader(props: {
             className="icon-button install-button"
             onClick={() => void installPwa()}
           >
-            <Download /> 安装
+            <Download /> {t('header.install')}
           </Button>
         )}
+        <LanguageSwitcher compact />
         <Button variant="ghost" size="sm" className="icon-button muted" onClick={props.onLogout}>
-          <LogOut /> 退出
+          <LogOut /> {t('header.logout')}
         </Button>
       </header>
 
@@ -222,11 +227,11 @@ function AppHeader(props: {
         <div className={`app-banner ${props.pwa.updateAvailable ? 'update' : 'offline'}`}>
           <span>
             {props.pwa.updateAvailable
-              ? 'Kross Cloud 有新版本可用。'
-              : '网络已断开；操作会排队，并在恢复连接后发送。'}
+              ? t('connection.updateBanner')
+              : t('connection.offlineBanner')}
           </span>
           {props.pwa.updateAvailable && (
-            <Button variant="ghost" size="sm" onClick={applyPwaUpdate}>更新并重新载入</Button>
+            <Button variant="ghost" size="sm" onClick={applyPwaUpdate}>{t('connection.updateAction')}</Button>
           )}
         </div>
       )}
@@ -245,6 +250,7 @@ function SessionSidebar(props: {
   onMobilePanelChange: (panel: MobilePanel) => void;
   onDialogAction: Dispatch<SetStateAction<DialogAction | undefined>>;
 }) {
+  const { t } = useTranslation();
   return (
     <aside className={`sidebar ${props.mobilePanel === 'sessions' ? 'mobile-active' : ''}`}>
       <Button
@@ -252,14 +258,14 @@ function SessionSidebar(props: {
         disabled={!props.state.workspaceId}
         onClick={() => props.state.workspaceId && props.cloud.createSession(props.state.workspaceId)}
       >
-        <Plus /> 新建会话
+        <Plus /> {t('session.new')}
       </Button>
-      <h2>会话</h2>
+      <h2>{t('session.title')}</h2>
       <Input
         className="session-search"
         type="search"
-        aria-label="搜索会话"
-        placeholder="搜索会话"
+        aria-label={t('session.search')}
+        placeholder={t('session.search')}
         value={props.sessionQuery}
         onChange={(event) => props.onSessionQueryChange(event.target.value)}
       />
@@ -281,7 +287,7 @@ function SessionSidebar(props: {
               }}
             >
               <strong>{session.title}</strong>
-              <small>{session.preview || '空会话'}</small>
+              <small>{session.preview || t('session.emptySession')}</small>
             </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -289,7 +295,7 @@ function SessionSidebar(props: {
                   variant="ghost"
                   size="icon"
                   className="session-menu"
-                  aria-label={`会话操作 ${session.title}`}
+                  aria-label={t('session.actions', { title: session.title })}
                 >
                   <MoreHorizontal />
                 </Button>
@@ -304,7 +310,7 @@ function SessionSidebar(props: {
                     })
                   }
                 >
-                  <Pencil /> 重命名
+                  <Pencil /> {t('session.rename')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -317,14 +323,14 @@ function SessionSidebar(props: {
                     })
                   }
                 >
-                  <Trash2 /> 删除
+                  <Trash2 /> {t('common.delete')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         ))}
         {props.visibleSessions.length === 0 && (
-          <p className="quiet session-empty">没有匹配的会话。</p>
+          <p className="quiet session-empty">{t('session.empty')}</p>
         )}
       </div>
       {props.selectedWorkspace && (
@@ -367,6 +373,7 @@ function ChatPanel(props: {
   onPushBranch: () => void;
   onCreatePullRequest: () => void;
 }) {
+  const { t } = useTranslation();
   const snapshot = props.state.snapshot;
   return (
     <section className={`chat ${props.mobilePanel === 'chat' ? 'mobile-active' : ''}`}>
@@ -383,7 +390,7 @@ function ChatPanel(props: {
           <div className="chat-head">
             <div>
               <h1>{snapshot.summary.title}</h1>
-              <small>{snapshot.model ?? '未配置模型'} · {snapshot.thinkingEffort}</small>
+              <small>{snapshot.model ?? t('session.unconfiguredModel')} · {snapshot.thinkingEffort}</small>
             </div>
             <div className="head-actions">
               <Select
@@ -397,7 +404,7 @@ function ChatPanel(props: {
                   })
                 }
               >
-                <SelectTrigger className="head-select" aria-label="Agent 模式">
+                <SelectTrigger className="head-select" aria-label={t('session.agentMode')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -412,13 +419,13 @@ function ChatPanel(props: {
                     variant="outline"
                     size="sm"
                     className="desktop-action"
-                    aria-label="更多会话操作"
+                    aria-label={t('session.moreActions')}
                   >
-                    <MoreHorizontal /> 更多
+                    <MoreHorizontal /> {t('session.more')}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>检查</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t('session.inspect')}</DropdownMenuLabel>
                   <DropdownMenuItem onSelect={() => props.onInspect('diff')}>
                     <GitCompare /> Diff
                   </DropdownMenuItem>
@@ -426,18 +433,18 @@ function ChatPanel(props: {
                     <Activity /> Trace
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuLabel>Git</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t('session.git')}</DropdownMenuLabel>
                   <DropdownMenuItem onSelect={props.onPushBranch}>
                     <Upload /> Push
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={props.onCreatePullRequest}>
-                    <GitPullRequest /> 创建 PR
+                    <GitPullRequest /> {t('session.createPr')}
                   </DropdownMenuItem>
                   {'Notification' in window && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onSelect={() => void props.onEnableNotifications()}>
-                        <Bell /> 启用通知
+                        <Bell /> {t('session.enableNotifications')}
                       </DropdownMenuItem>
                     </>
                   )}
@@ -447,7 +454,7 @@ function ChatPanel(props: {
                 kind: 'model',
                 model: snapshot.model ?? props.state.models[0]?.id ?? '',
                 options: props.state.models.map((model) => model.id)
-              })}>模型</Button>
+              })}>{t('session.model')}</Button>
               <Select
                 value={snapshot.thinkingEffort ?? 'off'}
                 onValueChange={(thinkingEffort) =>
@@ -459,7 +466,7 @@ function ChatPanel(props: {
                   })
                 }
               >
-                <SelectTrigger className="head-select" aria-label="思考强度">
+                <SelectTrigger className="head-select" aria-label={t('session.thinkingEffort')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -493,18 +500,18 @@ function ChatPanel(props: {
               ))}
             {props.state.running && (
               <div className="running" role="status" aria-live="polite">
-                <i /> Agent 正在工作
+                <i /> {t('session.agentWorking')}
               </div>
             )}
             <div ref={props.bottomRef} />
           </div>
           {snapshot.pendingApproval && (
             <ApprovalCard
-              title={`${snapshot.pendingApproval.toolName} 请求执行`}
+              title={t('session.pendingApproval', { tool: snapshot.pendingApproval.toolName })}
               detail={[
                 snapshot.pendingApproval.command,
                 snapshot.pendingApproval.workDir
-                  ? `工作目录：${snapshot.pendingApproval.workDir}`
+                  ? t('session.workDir', { path: snapshot.pendingApproval.workDir })
                   : undefined,
                 snapshot.pendingApproval.inputPreview
               ].filter(Boolean).join('\n\n')}
@@ -523,8 +530,8 @@ function ChatPanel(props: {
           )}
           {snapshot.pendingPlan && (
             <ApprovalCard
-              title="计划已就绪"
-              detail="确认后 Agent 将按上方计划继续执行。"
+              title={t('session.planReady')}
+              detail={t('session.planDetail')}
               risk="plan"
               onChoose={(approved) => {
                 const prompt =
@@ -556,7 +563,7 @@ function ChatPanel(props: {
                   event.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder="告诉 Kross 要完成什么…"
+              placeholder={t('session.composerPlaceholder')}
               rows={2}
             />
             {props.state.running ? (
@@ -571,9 +578,9 @@ function ChatPanel(props: {
                   })
                 }
               >
-                <Square /> 停止
+                <Square /> {t('session.stop')}
               </Button>
-            ) : <Button><Send />发送</Button>}
+            ) : <Button><Send />{t('session.send')}</Button>}
           </form>
         </>
       )}
@@ -589,6 +596,7 @@ function SessionDetails(props: {
   onPushBranch: () => void;
   onCreatePullRequest: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <aside className={`details ${props.mobilePanel === 'todo' ? 'mobile-active' : ''}`}>
       <div className="mobile-utilities">
@@ -597,10 +605,10 @@ function SessionDetails(props: {
         <Button variant="outline" size="sm" onClick={props.onPushBranch}>Push</Button>
         <Button variant="outline" size="sm" onClick={props.onCreatePullRequest}>PR</Button>
         {'Notification' in window && (
-          <Button variant="outline" size="sm" onClick={() => void props.onEnableNotifications()}>通知</Button>
+          <Button variant="outline" size="sm" onClick={() => void props.onEnableNotifications()}>{t('session.notifications')}</Button>
         )}
       </div>
-      <h2>进度</h2>
+      <h2>{t('execution.progress')}</h2>
       <ExecutionSummary
         running={props.state.running}
         pendingApproval={Boolean(props.state.snapshot?.pendingApproval)}
@@ -611,8 +619,8 @@ function SessionDetails(props: {
           <span>{todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '●' : '○'}</span>
           <p>{todo.content}</p>
         </div>
-      )) : <p className="quiet">Agent 创建任务后会显示在这里。</p>}
-      <h2>工具活动</h2>
+      )) : <p className="quiet">{t('execution.noTodos')}</p>}
+      <h2>{t('execution.toolActivity')}</h2>
       {props.state.traces.slice(-12).reverse().map((trace) => (
         <div className="trace" key={trace.id}>
           <strong>{trace.type}</strong>
@@ -627,6 +635,7 @@ function MobileNavigation(props: {
   active: MobilePanel;
   onChange: (panel: MobilePanel) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <nav className="mobile-nav">
       <Button
@@ -635,7 +644,7 @@ function MobileNavigation(props: {
         aria-current={props.active === 'sessions' ? 'page' : undefined}
         onClick={() => props.onChange('sessions')}
       >
-        <MessagesSquare /><span>会话</span>
+        <MessagesSquare /><span>{t('navigation.sessions')}</span>
       </Button>
       <Button
         variant="ghost"
@@ -643,7 +652,7 @@ function MobileNavigation(props: {
         aria-current={props.active === 'chat' ? 'page' : undefined}
         onClick={() => props.onChange('chat')}
       >
-        <MessageSquareText /><span>对话</span>
+        <MessageSquareText /><span>{t('navigation.chat')}</span>
       </Button>
       <Button
         variant="ghost"
@@ -651,15 +660,15 @@ function MobileNavigation(props: {
         aria-current={props.active === 'todo' ? 'page' : undefined}
         onClick={() => props.onChange('todo')}
       >
-        <ListTodo /><span>进度</span>
+        <ListTodo /><span>{t('navigation.progress')}</span>
       </Button>
     </nav>
   );
 }
 
-function connectionLabel(state: string): string {
-  if (state === 'online') return '已连接';
-  if (state === 'connecting') return '连接中';
-  if (state === 'outdated') return '客户端版本过旧，请更新';
-  return '正在重连';
+function connectionLabel(state: string, t: TFunction): string {
+  if (state === 'online') return t('connection.online');
+  if (state === 'connecting') return t('connection.connecting');
+  if (state === 'outdated') return t('connection.outdated');
+  return t('connection.reconnecting');
 }

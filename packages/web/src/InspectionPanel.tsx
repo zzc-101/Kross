@@ -1,6 +1,8 @@
 import type { EventEnvelope } from '@kross/protocol';
+import type { TFunction } from 'i18next';
 import { Check, Clipboard, Copy, RotateCcw } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { diffLineKind, traceRunIds } from './inspection';
 import { Button } from './components/ui/button';
@@ -31,6 +33,7 @@ interface InspectionPanelProps {
 }
 
 export function InspectionPanel(props: InspectionPanelProps) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const runIds = useMemo(
     () =>
@@ -41,7 +44,7 @@ export function InspectionPanel(props: InspectionPanelProps) {
   );
 
   const copy = async () => {
-    await navigator.clipboard.writeText(inspectionText(props.inspection));
+    await navigator.clipboard.writeText(inspectionText(props.inspection, t));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   };
@@ -56,19 +59,19 @@ export function InspectionPanel(props: InspectionPanelProps) {
       <DialogContent className="inspection">
         <DialogHeader className="inspection-header">
           <div>
-            <span className="eyebrow">Session Inspection</span>
+            <span className="eyebrow">{t('inspection.eyebrow')}</span>
             <DialogTitle>
-              {props.inspection.kind === 'diff' ? '工作区 Diff' : '运行 Trace'}
+              {props.inspection.kind === 'diff' ? t('inspection.diffTitle') : t('inspection.traceTitle')}
             </DialogTitle>
             <DialogDescription>
               {props.inspection.kind === 'diff'
-                ? '检查当前工作区尚未提交的代码变化。'
-                : '查看 Agent 运行事件和工具调用轨迹。'}
+                ? t('inspection.diffDescription')
+                : t('inspection.traceDescription')}
             </DialogDescription>
           </div>
           <Button variant="outline" size="sm" onClick={() => void copy()}>
             {copied ? <Check /> : <Copy />}
-            {copied ? '已复制' : '复制'}
+            {copied ? t('common.copied') : t('common.copy')}
           </Button>
         </DialogHeader>
 
@@ -92,11 +95,12 @@ function DiffContent({
 }: {
   inspection: Extract<InspectionData, { kind: 'diff' }>;
 }) {
+  const { t } = useTranslation();
   if (inspection.patches.length === 0) {
     return (
       <div className="inspection-empty">
         <Clipboard />
-        <strong>没有 Git 变更</strong>
+        <strong>{t('inspection.noChanges')}</strong>
         <p>{inspection.summary}</p>
       </div>
     );
@@ -109,7 +113,7 @@ function DiffContent({
         <TabsList>
           {inspection.patches.map((section, index) => (
             <TabsTrigger key={`${section.staged}-${index}`} value={`patch-${index}`}>
-              {section.staged ? '已暂存变更' : '未暂存变更'}
+              {section.staged ? t('inspection.staged') : t('inspection.unstaged')}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -136,13 +140,13 @@ function DiffContent({
   );
 }
 
-function inspectionText(inspection: InspectionData): string {
+function inspectionText(inspection: InspectionData, t: TFunction): string {
   if (inspection.kind === 'trace') return inspection.content;
   return [
     inspection.summary,
     ...inspection.patches.map(
       (section) =>
-        `${section.staged ? '# 已暂存变更' : '# 未暂存变更'}\n${section.patch}`
+        `${section.staged ? t('inspection.stagedHeading') : t('inspection.unstagedHeading')}\n${section.patch}`
     )
   ].join('\n\n');
 }
@@ -153,13 +157,14 @@ function TraceContent(props: {
   onSelect: (runId: string) => void;
   onBack: () => void;
 }) {
+  const { t } = useTranslation();
   const isDetail = props.content.startsWith('Trace:');
   return (
     <div className="inspection-content trace-content">
       <div className="trace-toolbar">
         {isDetail && (
           <Button variant="outline" size="sm" onClick={props.onBack}>
-            <RotateCcw /> 最近运行
+            <RotateCcw /> {t('inspection.recentRuns')}
           </Button>
         )}
         {!isDetail && props.runIds.map((runId) => (

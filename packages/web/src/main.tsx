@@ -1,8 +1,11 @@
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { useTranslation } from 'react-i18next';
 
+import './i18n';
 import { App } from './App';
 import { httpEndpoint } from './cloudClient';
+import { LanguageSwitcher } from './components/app/LanguageSwitcher';
 import { Button } from './components/ui/button';
 import {
   Card,
@@ -20,6 +23,7 @@ import './styles.css';
 initializePwa();
 
 function Root() {
+  const { t } = useTranslation();
   const [token, setToken] = useState(() => localStorage.getItem('kross.token') ?? '');
   const [endpoint, setEndpoint] = useState(() => {
     const saved = localStorage.getItem('kross.endpoint');
@@ -39,9 +43,10 @@ function Root() {
       <main className="login">
         <Card className="login-card">
           <CardHeader className="text-center">
+            <div className="login-language"><LanguageSwitcher /></div>
             <div className="empty-mark">K</div>
             <CardTitle className="text-2xl">Kross Cloud</CardTitle>
-            <CardDescription>连接到你的自托管 Agent 网关</CardDescription>
+            <CardDescription>{t('login.subtitle')}</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={(event) => {
@@ -62,22 +67,22 @@ function Root() {
                   setLoginError(
                     reason instanceof Error
                       ? reason.message
-                      : '无法连接 Gateway'
+                      : t('login.connectionFailed')
                   );
                 })
                 .finally(() => setConnecting(false));
             }}>
               <Label className="login-field">
-                网关地址
+                {t('login.endpoint')}
                 <Input name="endpoint" defaultValue={endpoint} required />
               </Label>
               <Label className="login-field">
-                访问令牌
+                {t('login.token')}
                 <Input name="token" type="password" autoComplete="current-password" required />
               </Label>
               {loginError && <p className="form-error" role="alert">{loginError}</p>}
               <Button className="w-full" disabled={connecting}>
-                {connecting ? '正在验证…' : '安全连接'}
+                {connecting ? t('login.connecting') : t('login.connect')}
               </Button>
             </form>
           </CardContent>

@@ -1,5 +1,6 @@
 import { AlertTriangle, Check, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
@@ -49,6 +50,7 @@ const PROVIDERS: Array<{
 ];
 
 export function SetupPanel(props: SetupPanelProps) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<SetupStatus>();
   const [provider, setProvider] =
     useState<ProviderInput['provider']>('openai');
@@ -104,8 +106,8 @@ export function SetupPanel(props: SetupPanelProps) {
       setApiKey('');
       setSavedMessage(
         result.restarted.length
-          ? `配置已保存，并重建了 ${result.restarted.length} 个 Worker`
-          : '配置已安全保存，新建 Worker 将立即使用'
+          ? t('setup.savedWithWorkers', { count: result.restarted.length })
+          : t('setup.saved')
       );
       const next = await fetchSetupStatus(props.endpoint, props.token);
       setStatus(next);
@@ -126,10 +128,10 @@ export function SetupPanel(props: SetupPanelProps) {
     >
       <DialogContent className="setup-panel">
         <DialogHeader>
-          <span className="eyebrow">环境与模型</span>
-          <DialogTitle>运行环境检查</DialogTitle>
+          <span className="eyebrow">{t('setup.eyebrow')}</span>
+          <DialogTitle>{t('setup.title')}</DialogTitle>
           <DialogDescription>
-            确认 Agent 执行所需的基础能力，并安全配置模型。
+            {t('setup.description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -157,29 +159,29 @@ export function SetupPanel(props: SetupPanelProps) {
                       }
                     >
                       {check.status === 'passed'
-                        ? '正常'
+                        ? t('setup.passed')
                         : check.status === 'failed'
-                          ? '异常'
-                          : '注意'}
+                          ? t('setup.failed')
+                          : t('setup.warning')}
                     </Badge>
                   </div>
                   <small>{check.detail}</small>
                 </div>
               </article>
             );
-          }) ?? <p className="quiet">正在检查运行环境…</p>}
+          }) ?? <p className="quiet">{t('setup.checking')}</p>}
         </div>
 
         <form className="provider-form" onSubmit={(event) => void submit(event)}>
           <div>
-            <span className="eyebrow">Provider</span>
-            <h2>模型配置</h2>
-            <p>API Key 仅写入 Gateway 的私有配置文件，界面不会回显。</p>
+            <span className="eyebrow">{t('setup.provider')}</span>
+            <h2>{t('setup.modelConfig')}</h2>
+            <p>{t('setup.keyNotice')}</p>
           </div>
 
           <div className="provider-grid">
             <Label className="setup-field">
-              服务商
+              {t('setup.providerLabel')}
               <Select
                 value={provider}
                 onValueChange={(value) =>
@@ -199,7 +201,7 @@ export function SetupPanel(props: SetupPanelProps) {
               </Select>
             </Label>
             <Label className="setup-field">
-              模型 ID
+              {t('setup.modelId')}
               <Input
                 required
                 value={model}
@@ -209,10 +211,10 @@ export function SetupPanel(props: SetupPanelProps) {
           </div>
 
           <Label className="setup-field">
-            Base URL（可选）
+            {t('setup.baseUrl')}
             <Input
               inputMode="url"
-              placeholder="使用服务商默认地址"
+              placeholder={t('setup.baseUrlPlaceholder')}
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.target.value)}
             />
@@ -226,8 +228,8 @@ export function SetupPanel(props: SetupPanelProps) {
               required={!status?.provider.hasApiKey}
               placeholder={
                 status?.provider.hasApiKey
-                  ? '已配置；留空表示保持不变'
-                  : '请输入 API Key'
+                  ? t('setup.keyConfigured')
+                  : t('setup.keyRequired')
               }
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
@@ -237,13 +239,13 @@ export function SetupPanel(props: SetupPanelProps) {
           {props.workspaceCount > 0 && (
             <Label className="restart-option">
               <span>
-                重建现有 Worker 以立即应用配置
-                <small>保留仓库和会话卷，运行中的任务会被中断。</small>
+                {t('setup.restartWorkers')}
+                <small>{t('setup.restartHint')}</small>
               </span>
               <Switch
                 checked={restartWorkers}
                 onCheckedChange={setRestartWorkers}
-                aria-label="重建现有 Worker"
+                aria-label={t('setup.restartWorkers')}
               />
             </Label>
           )}
@@ -255,10 +257,10 @@ export function SetupPanel(props: SetupPanelProps) {
 
           <DialogFooter className="form-actions">
             <Button type="button" variant="outline" onClick={props.onClose}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button disabled={saving}>
-              {saving ? '正在保存…' : '保存配置'}
+              {saving ? t('setup.saving') : t('setup.save')}
             </Button>
           </DialogFooter>
         </form>
