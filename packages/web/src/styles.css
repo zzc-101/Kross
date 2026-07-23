@@ -104,6 +104,20 @@ summary:focus-visible {
 .tool-card small { float: right; margin-top: -20px; color: #859087; }
 .tool-card pre { max-height: 180px; overflow: auto; margin: 9px 0 0; padding: 9px; border-radius: 7px; background: #0d100e; color: #aeb8af; white-space: pre-wrap; }
 .tool-card.failed, .tool-card.denied { border-color: #6f3832; }
+.tool-card.history > p { margin: 10px 0 0; color: #c7cec8; }
+.tool-card.history details { margin-top: 9px; }
+.tool-card.history summary { cursor: pointer; color: #9fa9a0; font-size: 12px; }
+.tool-card.history footer { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; color: #7f8980; font-size: 11px; }
+.tool-card.history footer ins { color: #8fdb88; text-decoration: none; }
+.tool-card.history footer del { color: #ef8177; text-decoration: none; }
+.tool-detail span { display: block; min-height: 1.4em; }
+.tool-detail .diff-add { color: #98d993; }
+.tool-detail .diff-del { color: #ee8a80; }
+.tool-detail .diff-meta { color: #8ba7d9; }
+.tool-items { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.tool-items li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 8px; border-radius: 7px; background: #121613; }
+.tool-items li > span { padding: 0; color: #859087; background: none; font-size: 11px; text-transform: none; }
+.tool-items li > small { grid-column: 1 / -1; float: none; margin: 0; }
 .running { display: flex; align-items: center; gap: 9px; color: #9aa49b; font-size: 13px; }
 .running i { width: 9px; height: 9px; border-radius: 50%; background: #b7f34a; animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .25; transform: scale(.75); } }

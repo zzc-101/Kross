@@ -57,6 +57,7 @@ export interface RuntimeHandle {
 interface ActiveSession extends RuntimeHandle {
   id: string;
   nextMessageId: number;
+  toolMessages: Map<string, SessionSnapshot['messages'][number]>;
   abortController?: AbortController;
   unsubscribeTrace: () => void;
   unsubscribeWorkState: () => void;
@@ -1004,16 +1005,21 @@ export class WorkerService {
       id: sessionId,
       nextMessageId:
         Math.max(0, ...(stored?.messages.map((message) => message.id) ?? [])) + 1,
+      toolMessages: restoredToolMessages(stored?.messages ?? []),
       lastUsedAt: this.now().getTime(),
       recentTraces: await loadRecentTraces(handle.tooling.traceStore),
       unsubscribeTrace: () => undefined,
       unsubscribeWorkState: () => undefined
     };
+    for (const trace of active.recentTraces) {
+      this.persistToolTrace(active, trace);
+    }
     active.unsubscribeTrace = handle.tooling.traceStore.subscribe((trace) => {
       active.recentTraces = [
         ...active.recentTraces.filter((event) => event.id !== trace.id),
         trace
       ].slice(-200);
+      this.persistToolTrace(active, trace);
       this.emit(sessionId, { type: 'trace', data: trace });
     });
     active.unsubscribeWorkState = handle.runtime.onWorkStateChanged(() => {
@@ -1132,6 +1138,30 @@ export class WorkerService {
     });
   }
 
+  private persistToolTrace(session: ActiveSession, trace: TraceEvent): void {
+    const callId =
+      typeof trace.payload.callId === 'string'
+        ? trace.payload.callId
+        : undefined;
+    const toolName =
+      typeof trace.payload.toolName === 'string'
+        ? trace.payload.toolName
+        : undefined;
+    if (!callId || !toolName || !isToolLifecycleTrace(trace.type)) return;
+    const previous = session.toolMessages.get(callId);
+    const tool = toolMessageFromTrace(trace, previous?.tool);
+    if (!tool) return;
+    const message: SessionSnapshot['messages'][number] = {
+      id: previous?.id ?? session.nextMessageId++,
+      from: 'tool',
+      text: `${tool.name} · ${tool.summary ?? toolStatusSummary(tool.status)}`,
+      createdAt: previous?.createdAt ?? trace.timestamp,
+      tool
+    };
+    session.toolMessages.set(callId, message);
+    this.store.upsertMessage(session.id, message);
+  }
+
   private persistState(session: ActiveSession): void {
     this.store.upsertContextState(
       session.id,
@@ -1201,6 +1231,149 @@ function sanitizeStoredMessage(
   if (parsed.success) return parsed.data;
   const { tool: _tool, verification: _verification, ...legacy } = message;
   return storedMessageSchema.parse(legacy);
+}
+
+function restoredToolMessages(
+  messages: StoredSessionMessage[]
+): Map<string, SessionSnapshot['messages'][number]> {
+  const restored = new Map<string, SessionSnapshot['messages'][number]>();
+  for (const message of messages) {
+    const parsed = storedMessageSchema.safeParse(message);
+    if (!parsed.success || !parsed.data.tool?.callId) continue;
+    restored.set(parsed.data.tool.callId, parsed.data);
+  }
+  return restored;
+}
+
+function isToolLifecycleTrace(type: string): boolean {
+  return [
+    'tool_call.started',
+    'tool_call.completed',
+    'tool_call.failed',
+    'tool_call.denied',
+    'tool_call.cancelled'
+  ].includes(type);
+}
+
+function toolMessageFromTrace(
+  trace: TraceEvent,
+  previous: SessionSnapshot['messages'][number]['tool']
+): NonNullable<SessionSnapshot['messages'][number]['tool']> | undefined {
+  const payload = trace.payload;
+  const callId = typeof payload.callId === 'string' ? payload.callId : undefined;
+  const name =
+    typeof payload.toolName === 'string' ? payload.toolName : previous?.name;
+  if (!callId || !name) return undefined;
+  const status = toolTraceStatus(trace.type, payload.status);
+  const content = firstString(
+    payload.contentPreview,
+    payload.error,
+    payload.reason,
+    payload.message
+  );
+  const summary =
+    firstString(payload.summary, payload.error, payload.reason, payload.message) ??
+    toolStatusSummary(status);
+  const data =
+    payload.data && typeof payload.data === 'object'
+      ? payload.data as Record<string, unknown>
+      : {};
+  const detail = content ? content.split('\n') : [];
+  return {
+    callId,
+    name,
+    ...(typeof payload.risk === 'string'
+      ? { risk: payload.risk }
+      : previous?.risk
+        ? { risk: previous.risk }
+        : {}),
+    status,
+    summary,
+    ...(trace.type === 'tool_call.started'
+      ? {
+          inputPreview: formatToolInput(payload.input)
+        }
+      : previous?.inputPreview
+        ? { inputPreview: previous.inputPreview }
+        : {}),
+    ...(typeof payload.durationMs === 'number' && payload.durationMs >= 0
+      ? { durationMs: payload.durationMs }
+      : {}),
+    ...optionalLineCount('linesAdded', payload, data),
+    ...optionalLineCount('linesRemoved', payload, data),
+    ...(detail.length > 0
+      ? {
+          detailLines: detail.slice(0, 40).map((text) => ({
+            text,
+            op: 'ctx' as const
+          })),
+          ...(detail.length > 40 ? { detailTruncated: true } : {})
+        }
+      : previous?.detailLines
+        ? {
+            detailLines: previous.detailLines,
+            ...(previous.detailTruncated ? { detailTruncated: true } : {})
+          }
+        : {})
+  };
+}
+
+function toolTraceStatus(
+  type: string,
+  payloadStatus: unknown
+): NonNullable<SessionSnapshot['messages'][number]['tool']>['status'] {
+  if (type === 'tool_call.started') return 'running';
+  if (type === 'tool_call.failed') return 'failed';
+  if (type === 'tool_call.denied') return 'denied';
+  if (type === 'tool_call.cancelled') return 'cancelled';
+  if (
+    typeof payloadStatus === 'string' &&
+    ['completed', 'failed', 'denied', 'cancelled'].includes(payloadStatus)
+  ) {
+    return payloadStatus as 'completed' | 'failed' | 'denied' | 'cancelled';
+  }
+  return 'completed';
+}
+
+function toolStatusSummary(
+  status: NonNullable<SessionSnapshot['messages'][number]['tool']>['status']
+): string {
+  return {
+    awaiting: '等待审批',
+    running: '正在执行',
+    completed: '执行完成',
+    failed: '执行失败',
+    denied: '已拒绝',
+    cancelled: '已取消'
+  }[status];
+}
+
+function formatToolInput(input: unknown): string {
+  if (input === undefined) return '';
+  try {
+    const value =
+      typeof input === 'string' ? input : JSON.stringify(input, null, 2);
+    return value.length > 2_000 ? `${value.slice(0, 2_000)}…` : value;
+  } catch {
+    return String(input);
+  }
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find(
+    (value): value is string => typeof value === 'string' && value.length > 0
+  );
+}
+
+function optionalLineCount(
+  key: 'linesAdded' | 'linesRemoved',
+  payload: Record<string, unknown>,
+  data: Record<string, unknown>
+): Partial<Record<'linesAdded' | 'linesRemoved', number>> {
+  const value = payload[key] ?? data[key];
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? { [key]: value }
+    : {};
 }
 
 export function createWorkerCommand(

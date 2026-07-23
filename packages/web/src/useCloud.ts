@@ -14,8 +14,22 @@ export interface UiMessage {
   id: string;
   from: 'user' | 'agent' | 'system' | 'tool' | 'thinking';
   text: string;
+  tool?: SessionSnapshot['messages'][number]['tool'];
+  verification?: SessionSnapshot['messages'][number]['verification'];
   streaming?: boolean;
   transient?: boolean;
+}
+
+export function hydrateSnapshotMessages(
+  messages: SessionSnapshot['messages']
+): UiMessage[] {
+  return messages.map((message) => ({
+    id: String(message.id),
+    from: message.from,
+    text: message.text,
+    ...(message.tool ? { tool: message.tool } : {}),
+    ...(message.verification ? { verification: message.verification } : {})
+  }));
 }
 
 interface CloudState {
@@ -195,11 +209,7 @@ function reducer(state: CloudState, action: Action): CloudState {
       };
     }
     case 'session.snapshot':
-      const persistedMessages = event.data.messages.map((message) => ({
-        id: String(message.id),
-        from: message.from,
-        text: message.text
-      }));
+      const persistedMessages = hydrateSnapshotMessages(event.data.messages);
       const unpersistedMessages = state.messages.filter(
         (message) =>
           message.transient &&

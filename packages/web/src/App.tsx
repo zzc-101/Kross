@@ -40,6 +40,11 @@ export function App({ endpoint, token, onLogout }: AppProps) {
       session.title.toLocaleLowerCase().includes(query) ||
       session.preview.toLocaleLowerCase().includes(query);
   });
+  const persistedToolCallIds = new Set(
+    state.messages.flatMap((message) =>
+      message.tool?.callId ? [message.tool.callId] : []
+    )
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -430,7 +435,14 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                   <Message key={message.id} message={message} />
                 ))}
                 {state.traces
-                  .filter((trace) => trace.type.startsWith('tool_call.'))
+                  .filter(
+                    (trace) =>
+                      trace.type.startsWith('tool_call.') &&
+                      !(
+                        typeof trace.payload.callId === 'string' &&
+                        persistedToolCallIds.has(trace.payload.callId)
+                      )
+                  )
                   .slice(-4)
                   .map((trace) => (
                     <ToolCard
@@ -659,6 +671,18 @@ export function App({ endpoint, token, onLogout }: AppProps) {
 type SessionThinkingEffort = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 const Message = memo(function Message({ message }: { message: UiMessage }) {
+  if (message.tool) {
+    return (
+      <article className="message tool">
+        <label>工具记录</label>
+        <HistoricalToolCard
+          tool={message.tool}
+          fallbackText={message.text}
+          verification={message.verification}
+        />
+      </article>
+    );
+  }
   return (
     <article className={`message ${message.from}`}>
       <label>{message.from === 'user' ? '你' : message.from === 'thinking' ? '思考' : 'Kross'}</label>
@@ -668,6 +692,75 @@ const Message = memo(function Message({ message }: { message: UiMessage }) {
     </article>
   );
 });
+
+function HistoricalToolCard({
+  tool,
+  fallbackText,
+  verification
+}: {
+  tool: NonNullable<UiMessage['tool']>;
+  fallbackText: string;
+  verification?: UiMessage['verification'];
+}) {
+  const details = tool.detailLines ?? [];
+  return (
+    <section className={`tool-card history ${tool.status}`}>
+      <div>
+        <span>工具</span>
+        <strong>{tool.name}</strong>
+      </div>
+      <small>{toolStatusLabel(tool.status)}</small>
+      <p>{tool.summary || fallbackText}</p>
+      {tool.inputPreview && (
+        <details>
+          <summary>查看输入</summary>
+          <pre>{tool.inputPreview}</pre>
+        </details>
+      )}
+      {details.length > 0 && (
+        <details>
+          <summary>
+            查看执行明细{tool.detailTruncated ? '（已截断）' : ''}
+          </summary>
+          <pre className="tool-detail">
+            {details.map((line, index) => (
+              <span className={line.op ? `diff-${line.op}` : undefined} key={index}>
+                {line.lineNo ? `${line.lineNo} ` : ''}
+                {line.text}
+                {'\n'}
+              </span>
+            ))}
+          </pre>
+        </details>
+      )}
+      {tool.items && tool.items.length > 0 && (
+        <ul className="tool-items">
+          {tool.items.map((item, index) => (
+            <li key={`${item.callId ?? item.path ?? index}`}>
+              <strong>{item.path ?? item.callId ?? `步骤 ${index + 1}`}</strong>
+              <span>{toolStatusLabel(item.status)}</span>
+              {(item.summary || item.preview) && (
+                <small>{item.summary ?? item.preview}</small>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <footer>
+        {tool.durationMs !== undefined && <span>{tool.durationMs} ms</span>}
+        {(tool.linesAdded !== undefined || tool.linesRemoved !== undefined) && (
+          <span>
+            <ins>+{tool.linesAdded ?? 0}</ins>{' '}
+            <del>-{tool.linesRemoved ?? 0}</del>
+          </span>
+        )}
+        {verification && (
+          <span>验证：{verificationLabel(verification.status)}</span>
+        )}
+      </footer>
+    </section>
+  );
+}
 
 function ToolCard({
   type,
@@ -689,6 +782,17 @@ function ToolCard({
       )}
     </section>
   );
+}
+
+function toolStatusLabel(status: string): string {
+  return {
+    awaiting: '等待中',
+    running: '执行中',
+    completed: '已完成',
+    failed: '失败',
+    denied: '已拒绝',
+    cancelled: '已取消'
+  }[status] ?? status;
 }
 
 function EmptyState(props: {

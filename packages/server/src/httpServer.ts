@@ -27,7 +27,6 @@ export interface GatewayHttpServerOptions {
   host?: string;
   port?: number;
   staticDir?: string;
-  allowedOrigins?: string[];
   sseHeartbeatMs?: number;
 }
 

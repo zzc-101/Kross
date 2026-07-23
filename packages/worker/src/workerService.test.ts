@@ -395,6 +395,26 @@ describe('WorkerService integration', () => {
         .filter((event) => event.event.type === 'stream')
         .every((event) => event.correlationId === undefined)
     ).toBe(true);
+    const completedToolSnapshot = [...events].reverse().find(
+      (event) =>
+        event.event.type === 'session.snapshot' &&
+        event.event.data.messages.some((message) => message.tool?.callId === 'danger-1')
+    );
+    expect(
+      completedToolSnapshot?.event.type === 'session.snapshot'
+        ? completedToolSnapshot.event.data.messages.find(
+            (message) => message.tool?.callId === 'danger-1'
+          )
+        : undefined
+    ).toMatchObject({
+      from: 'tool',
+      tool: {
+        callId: 'danger-1',
+        name: 'DangerWrite',
+        status: 'completed',
+        summary: 'wrote value'
+      }
+    });
 
     await send(service, {
       protocolVersion: PROTOCOL_VERSION,
@@ -490,6 +510,20 @@ describe('WorkerService integration', () => {
           (message) => message.from === 'agent' && message.text === '执行完成'
         )
     ).toBe(true);
+    expect(
+      restoredSnapshot?.event.type === 'session.snapshot'
+        ? restoredSnapshot.event.data.messages.filter(
+            (message) => message.tool?.callId === 'danger-1'
+          )
+        : []
+    ).toEqual([
+      expect.objectContaining({
+        tool: expect.objectContaining({
+          name: 'DangerWrite',
+          status: 'completed'
+        })
+      })
+    ]);
     await restored.close();
   });
 });
