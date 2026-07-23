@@ -349,9 +349,6 @@ summary:focus-visible {
   .connection { width: 12px; overflow: hidden; font-size: 0; white-space: nowrap; }
   .connection::before { margin: 0; }
   .topbar .icon-button:not(.muted) { width: 38px; padding: 8px; font-size: 0; }
-  .topbar .icon-button:not(.muted):not(.setup-button)::before { content: "+"; font-size: 21px; }
-  .topbar .setup-button::before { content: "⚙"; font-size: 16px; }
-  .topbar .install-button::before { content: "⇩"; font-size: 18px; }
   .topbar .workspace-select { min-width: 0; width: auto; max-width: calc(100vw - 104px); margin-left: auto; }
   .layout { display: block; min-height: 0; position: relative; }
   .sidebar, .chat, .details { display: none; width: 100%; height: 100%; border: 0; }
