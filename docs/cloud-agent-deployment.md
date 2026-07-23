@@ -15,6 +15,19 @@
 
 需要 Node.js 22.19+、Docker Engine 和 Docker Compose。
 
+推荐直接使用一键脚本。首次运行会根据 `.env.example` 创建 `.env`、自动生成访问
+令牌、构建 Gateway 与 Worker 镜像并在后台启动：
+
+```bash
+./scripts/start-cloud.sh
+```
+
+后续可用 `./scripts/start-cloud.sh --no-build` 跳过镜像构建，
+`./scripts/start-cloud.sh --logs` 查看日志，使用
+`./scripts/start-cloud.sh --stop` 停止服务并保留数据卷。
+
+也可以按以下步骤手动启动：
+
 ```bash
 npm ci
 npm run build

@@ -38,6 +38,8 @@
     "build": "npm run typecheck && npm run build:bundle && npm run build:cloud",
     "build:bundle": "node scripts/build.mjs",
     "build:cloud": "npm run --workspace @kross/web build",
+    "cloud:start": "./scripts/start-cloud.sh",
+    "cloud:stop": "./scripts/start-cloud.sh --stop",
     "dev": "tsx packages/tui/src/main.tsx",
     "dev:cloud:web": "npm run --workspace @kross/web dev",
     "dev:cloud:server": "tsx packages/server/src/main.ts",
