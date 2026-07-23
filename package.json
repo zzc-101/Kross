@@ -35,9 +35,13 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run typecheck && npm run build:bundle",
+    "build": "npm run typecheck && npm run build:bundle && npm run build:cloud",
     "build:bundle": "node scripts/build.mjs",
+    "build:cloud": "npm run --workspace @kross/web build",
     "dev": "tsx packages/tui/src/main.tsx",
+    "dev:cloud:web": "npm run --workspace @kross/web dev",
+    "dev:cloud:server": "tsx packages/server/src/main.ts",
+    "dev:cloud:worker": "tsx packages/worker/src/main.ts",
     "test": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.base.json",
     "package:check": "npm run build && node scripts/package-smoke.mjs",

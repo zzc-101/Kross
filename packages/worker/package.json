@@ -1,0 +1,21 @@
+{
+  "name": "@kross/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@kross/core": "0.1.0",
+    "@kross/protocol": "0.1.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

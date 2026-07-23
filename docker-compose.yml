@@ -1,0 +1,69 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    environment:
+      KROSS_ACCESS_TOKEN: ${KROSS_ACCESS_TOKEN:?请设置 KROSS_ACCESS_TOKEN}
+      KROSS_SERVER_DATA: /var/lib/kross-server
+      KROSS_WORKER_IMAGE: kross-worker:local
+      KROSS_DOCKER_NETWORK: kross-cloud
+      KROSS_MANAGER_ID: ${KROSS_MANAGER_ID:-kross-cloud}
+      KROSS_IDLE_TIMEOUT_MS: ${KROSS_IDLE_TIMEOUT_MS:-1800000}
+      KROSS_WORKSPACE_MEMORY: ${KROSS_WORKSPACE_MEMORY:-4294967296}
+      KROSS_WORKSPACE_NANO_CPUS: ${KROSS_WORKSPACE_NANO_CPUS:-2000000000}
+      KROSS_WORKSPACE_PIDS: ${KROSS_WORKSPACE_PIDS:-512}
+      KROSS_STOP_WORKERS_ON_SHUTDOWN: ${KROSS_STOP_WORKERS_ON_SHUTDOWN:-true}
+      KROSS_ALLOWED_ORIGINS: ${KROSS_ALLOWED_ORIGINS:-}
+      AGENT_LLM_PROVIDER: ${AGENT_LLM_PROVIDER:-}
+      AGENT_LLM_MODEL: ${AGENT_LLM_MODEL:-}
+      AGENT_LLM_BACKEND: ${AGENT_LLM_BACKEND:-}
+      AGENT_THINKING_EFFORT: ${AGENT_THINKING_EFFORT:-}
+      AGENT_CONTEXT_WINDOW: ${AGENT_CONTEXT_WINDOW:-}
+      KROSS_THINKING_EFFORT: ${KROSS_THINKING_EFFORT:-}
+      KROSS_CONTEXT_WINDOW: ${KROSS_CONTEXT_WINDOW:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_VERSION: ${ANTHROPIC_VERSION:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      XAI_MODEL: ${XAI_MODEL:-}
+      XAI_BASE_URL: ${XAI_BASE_URL:-}
+      GH_TOKEN: ${GH_TOKEN:-}
+      KROSS_VAPID_PUBLIC_KEY: ${KROSS_VAPID_PUBLIC_KEY:-}
+      KROSS_VAPID_PRIVATE_KEY: ${KROSS_VAPID_PRIVATE_KEY:-}
+      KROSS_VAPID_SUBJECT: ${KROSS_VAPID_SUBJECT:-}
+    ports:
+      - "${KROSS_PORT:-8787}:8787"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kross-server-data:/var/lib/kross-server
+    networks:
+      - kross-cloud
+    restart: unless-stopped
+
+  worker-image:
+    image: kross-worker:local
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    command: ["true"]
+    profiles: ["build"]
+
+volumes:
+  kross-server-data:
+
+networks:
+  kross-cloud:
+    name: kross-cloud
+    driver: bridge

@@ -1,0 +1,458 @@
+import { randomBytes } from 'node:crypto';
+
+import Docker from 'dockerode';
+
+import type { WorkspaceRecord } from './workspaceRegistry';
+
+export interface WorkspaceLimits {
+  memoryBytes: number;
+  nanoCpus: number;
+  pidsLimit: number;
+}
+
+export interface CreateWorkspaceContainerInput {
+  id: string;
+  gitUrl: string;
+  defaultBranch?: string;
+  onProgress?: (
+    stage: 'validating' | 'provisioning' | 'cloning' | 'starting',
+    message: string
+  ) => void;
+  credential?:
+    | { type: 'https-token'; token: string }
+    | { type: 'ssh-key'; privateKey: string };
+}
+
+export interface ContainerOrchestrator {
+  create(input: CreateWorkspaceContainerInput): Promise<{
+    containerName: string;
+    volumeName: string;
+    workerToken: string;
+  }>;
+  start(record: WorkspaceRecord): Promise<void>;
+  stop(record: WorkspaceRecord): Promise<void>;
+  remove(record: WorkspaceRecord, removeVolume: boolean): Promise<void>;
+  workerUrl(record: WorkspaceRecord): Promise<string>;
+  inspect(record: WorkspaceRecord): Promise<{
+    exists?: boolean;
+    running: boolean;
+    lastActiveAt?: string;
+  }>;
+  listManaged?(): Promise<Array<{
+    workspaceId: string;
+    containerName: string;
+    running: boolean;
+  }>>;
+  stopManaged?(containerName: string): Promise<void>;
+  removeManaged?(containerName: string): Promise<void>;
+  configureWorkerEnvironment?(
+    environment: Record<string, string | undefined>
+  ): void;
+  recreate?(record: WorkspaceRecord, start: boolean): Promise<void>;
+  diagnostics?(): Promise<{
+    docker: boolean;
+    workerImage: boolean;
+    network: boolean;
+  }>;
+}
+
+export interface DockerOrchestratorOptions {
+  image?: string;
+  network?: string;
+  managerId?: string;
+  limits?: Partial<WorkspaceLimits>;
+  workerEnv?: Record<string, string | undefined>;
+}
+
+const DEFAULT_LIMITS: WorkspaceLimits = {
+  memoryBytes: 4 * 1024 * 1024 * 1024,
+  nanoCpus: 2_000_000_000,
+  pidsLimit: 512
+};
+
+export class DockerOrchestrator implements ContainerOrchestrator {
+  private readonly image: string;
+  private readonly network: string;
+  private readonly managerId: string;
+  private readonly limits: WorkspaceLimits;
+  private workerEnvironment: string[];
+
+  constructor(
+    private readonly docker = new Docker(),
+    options: DockerOrchestratorOptions = {}
+  ) {
+    this.image = options.image ?? 'kross-worker:local';
+    this.network = options.network ?? 'kross-cloud';
+    this.managerId = options.managerId ?? this.network;
+    this.limits = { ...DEFAULT_LIMITS, ...options.limits };
+    this.workerEnvironment = toWorkerEnvironment(
+      options.workerEnv ?? process.env
+    );
+  }
+
+  async create(input: CreateWorkspaceContainerInput): Promise<{
+    containerName: string;
+    volumeName: string;
+    workerToken: string;
+  }> {
+    const safeId = input.id.replace(/[^a-zA-Z0-9_.-]/g, '-');
+    const containerName = `kross-worker-${safeId}`;
+    const volumeName = `kross-workspace-${safeId}`;
+    const workerToken = randomBytes(32).toString('base64url');
+    input.onProgress?.('validating', '正在校验仓库地址与凭据类型');
+    normalizeGitUrl(input.gitUrl, input.credential);
+    input.onProgress?.('provisioning', '正在准备 Docker 网络与工作区数据卷');
+    await this.ensureNetwork();
+    await this.docker.createVolume({
+      Name: volumeName,
+      Labels: {
+        'dev.kross.workspace': input.id,
+        'dev.kross.manager': this.managerId
+      }
+    });
+    try {
+      input.onProgress?.('cloning', '正在克隆 Git 仓库');
+      await this.cloneRepository(volumeName, input);
+      input.onProgress?.('starting', '正在启动隔离的 Agent Worker');
+      const container = await this.createWorkerContainer({
+        workspaceId: input.id,
+        containerName,
+        volumeName,
+        workerToken
+      });
+      await container.start();
+      return { containerName, volumeName, workerToken };
+    } catch (error) {
+      await this.docker.getVolume(volumeName).remove().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async start(record: WorkspaceRecord): Promise<void> {
+    const container = this.docker.getContainer(record.containerName);
+    const state = await container.inspect();
+    if (!state.State.Running) await container.start();
+  }
+
+  async stop(record: WorkspaceRecord): Promise<void> {
+    const container = this.docker.getContainer(record.containerName);
+    const state = await container.inspect();
+    if (state.State.Running) await container.stop({ t: 15 });
+  }
+
+  async remove(record: WorkspaceRecord, removeVolume: boolean): Promise<void> {
+    const container = this.docker.getContainer(record.containerName);
+    await container.stop({ t: 10 }).catch(() => undefined);
+    await container.remove({ force: true }).catch(() => undefined);
+    if (removeVolume) {
+      await this.docker
+        .getVolume(record.volumeName)
+        .remove()
+        .catch(() => undefined);
+    }
+  }
+
+  async workerUrl(record: WorkspaceRecord): Promise<string> {
+    return `ws://${record.containerName}:8788`;
+  }
+
+  async inspect(record: WorkspaceRecord): Promise<{
+    exists: boolean;
+    running: boolean;
+    lastActiveAt?: string;
+  }> {
+    try {
+      const state = await this.docker
+        .getContainer(record.containerName)
+        .inspect();
+      return {
+        exists: true,
+        running: Boolean(state.State.Running),
+        lastActiveAt: state.State.StartedAt
+      };
+    } catch {
+      return { exists: false, running: false };
+    }
+  }
+
+  async listManaged(): Promise<Array<{
+    workspaceId: string;
+    containerName: string;
+    running: boolean;
+  }>> {
+    const containers = await this.docker.listContainers({
+      all: true,
+      filters: {
+        label: [
+          'dev.kross.workspace',
+          `dev.kross.manager=${this.managerId}`
+        ]
+      }
+    });
+    return containers.flatMap((container) => {
+      const workspaceId = container.Labels?.['dev.kross.workspace'];
+      const containerName = container.Names?.[0]?.replace(/^\//, '');
+      if (!workspaceId || !containerName) return [];
+      return [{
+        workspaceId,
+        containerName,
+        running: container.State === 'running'
+      }];
+    });
+  }
+
+  async stopManaged(containerName: string): Promise<void> {
+    const container = this.docker.getContainer(containerName);
+    const state = await container.inspect();
+    if (state.State.Running) await container.stop({ t: 15 });
+  }
+
+  async removeManaged(containerName: string): Promise<void> {
+    const container = this.docker.getContainer(containerName);
+    await container.stop({ t: 15 }).catch(() => undefined);
+    await container.remove({ force: true }).catch(() => undefined);
+  }
+
+  configureWorkerEnvironment(
+    environment: Record<string, string | undefined>
+  ): void {
+    this.workerEnvironment = toWorkerEnvironment(environment);
+  }
+
+  async recreate(record: WorkspaceRecord, start: boolean): Promise<void> {
+    const previous = this.docker.getContainer(record.containerName);
+    await previous.stop({ t: 15 }).catch(() => undefined);
+    await previous.remove({ force: true }).catch(() => undefined);
+    const replacement = await this.createWorkerContainer({
+      workspaceId: record.workspace.id,
+      containerName: record.containerName,
+      volumeName: record.volumeName,
+      workerToken: record.workerToken
+    });
+    if (start) await replacement.start();
+  }
+
+  async diagnostics(): Promise<{
+    docker: boolean;
+    workerImage: boolean;
+    network: boolean;
+  }> {
+    try {
+      await this.docker.ping();
+    } catch {
+      return { docker: false, workerImage: false, network: false };
+    }
+    const [workerImage, networks] = await Promise.all([
+      this.docker
+        .getImage(this.image)
+        .inspect()
+        .then(() => true)
+        .catch(() => false),
+      this.docker
+        .listNetworks({ filters: { name: [this.network] } })
+        .catch(() => [])
+    ]);
+    return {
+      docker: true,
+      workerImage,
+      network: networks.some((network) => network.Name === this.network)
+    };
+  }
+
+  private createWorkerContainer(input: {
+    workspaceId: string;
+    containerName: string;
+    volumeName: string;
+    workerToken: string;
+  }) {
+    return this.docker.createContainer({
+      name: input.containerName,
+      Image: this.image,
+      Env: [
+        `KROSS_WORKSPACE_ID=${input.workspaceId}`,
+        'KROSS_WORKSPACE_ROOT=/workspace/repo',
+        'KROSS_HOME=/workspace/.kross',
+        `KROSS_WORKER_TOKEN=${input.workerToken}`,
+        'PORT=8788',
+        ...this.workerEnvironment
+      ],
+      Labels: {
+        'dev.kross.workspace': input.workspaceId,
+        'dev.kross.manager': this.managerId
+      },
+      HostConfig: {
+        Binds: [`${input.volumeName}:/workspace`],
+        NetworkMode: this.network,
+        Memory: this.limits.memoryBytes,
+        NanoCpus: this.limits.nanoCpus,
+        PidsLimit: this.limits.pidsLimit,
+        CapDrop: ['ALL'],
+        SecurityOpt: ['no-new-privileges:true'],
+        RestartPolicy: { Name: 'unless-stopped' }
+      },
+      ExposedPorts: { '8788/tcp': {} }
+    });
+  }
+
+  private async ensureNetwork(): Promise<void> {
+    const networks = await this.docker.listNetworks({
+      filters: { name: [this.network] }
+    });
+    if (!networks.some((network) => network.Name === this.network)) {
+      await this.docker.createNetwork({
+        Name: this.network,
+        Driver: 'bridge',
+        Internal: false,
+        Labels: {
+          'dev.kross.managed': 'true',
+          'dev.kross.manager': this.managerId
+        }
+      });
+    }
+  }
+
+  private async cloneRepository(
+    volumeName: string,
+    input: CreateWorkspaceContainerInput
+  ): Promise<void> {
+    const environment: string[] = [];
+    const cloneUrl = normalizeGitUrl(input.gitUrl, input.credential);
+    if (input.credential?.type === 'https-token') {
+      environment.push(`KROSS_GIT_TOKEN=${input.credential.token}`);
+    } else if (input.credential?.type === 'ssh-key') {
+      environment.push(`KROSS_SSH_KEY=${input.credential.privateKey}`);
+    }
+    const branchArgs = input.defaultBranch
+      ? ['--branch', input.defaultBranch]
+      : [];
+    const command =
+      input.credential?.type === 'ssh-key'
+        ? [
+            'umask 077; mkdir -p /workspace/.kross/ssh; printf %s "$KROSS_SSH_KEY" > /workspace/.kross/ssh/id_ed25519; GIT_SSH_COMMAND="ssh -i /workspace/.kross/ssh/id_ed25519 -o UserKnownHostsFile=/workspace/.kross/ssh/known_hosts -o StrictHostKeyChecking=accept-new" git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace',
+            'clone',
+            ...branchArgs,
+            '--',
+            cloneUrl
+          ]
+        : input.credential?.type === 'https-token'
+          ? [
+              'umask 077; mkdir -p /workspace/.kross; printf %s "$KROSS_GIT_TOKEN" > /workspace/.kross/git-token; printf \'#!/bin/sh\\ncase "$1" in *Username*) printf %s x-access-token;; *) cat /workspace/.kross/git-token;; esac\\n\' > /workspace/.kross/git-askpass.sh; chmod 700 /workspace/.kross/git-askpass.sh; GIT_ASKPASS=/workspace/.kross/git-askpass.sh GIT_TERMINAL_PROMPT=0 git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace',
+              'clone',
+              ...branchArgs,
+              '--',
+              cloneUrl
+            ]
+          : [
+              'git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace',
+              'clone',
+              ...branchArgs,
+              '--',
+              cloneUrl
+            ];
+    const helper = await this.docker.createContainer({
+      Image: this.image,
+      User: '0:0',
+      Entrypoint: ['/bin/sh', '-ec'],
+      Cmd: command,
+      Env: environment,
+      HostConfig: {
+        Binds: [`${volumeName}:/workspace`],
+        AutoRemove: false,
+        NetworkMode: this.network
+      }
+    });
+    try {
+      await helper.start();
+      const result = await helper.wait();
+      if (result.StatusCode !== 0) {
+        throw new Error(`Git clone 失败，退出码 ${result.StatusCode}`);
+      }
+    } finally {
+      await helper.remove({ force: true }).catch(() => undefined);
+    }
+  }
+}
+
+export function normalizeGitUrl(
+  value: string,
+  credential?: CreateWorkspaceContainerInput['credential']
+): string {
+  const trimmed = value.trim();
+  if (/^[\w.-]+@[\w.-]+:.+/.test(trimmed)) {
+    if (credential?.type === 'https-token') {
+      throw new Error('HTTPS Token 不能与 SSH Git URL 一起使用');
+    }
+    return trimmed;
+  }
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error('Git URL 必须是 HTTPS、SSH 或标准 scp 风格地址');
+  }
+  if (
+    url.password ||
+    ((url.protocol === 'https:' || url.protocol === 'http:') && url.username)
+  ) {
+    throw new Error('Git URL 不得内嵌凭证，请使用 credential 字段');
+  }
+  if (credential?.type === 'https-token' && url.protocol !== 'https:') {
+    throw new Error('HTTPS Token 只能用于 https:// Git URL');
+  }
+  if (
+    credential?.type === 'ssh-key' &&
+    !['ssh:', 'git+ssh:'].includes(url.protocol)
+  ) {
+    throw new Error('SSH 私钥只能用于 SSH Git URL');
+  }
+  if (!['https:', 'ssh:', 'git:', 'git+ssh:'].includes(url.protocol)) {
+    throw new Error(`不支持的 Git URL 协议: ${url.protocol}`);
+  }
+  return url.toString();
+}
+
+const WORKER_ENV_ALLOWLIST = [
+  'AGENT_LLM_PROVIDER',
+  'AGENT_LLM_MODEL',
+  'AGENT_LLM_BACKEND',
+  'AGENT_THINKING_EFFORT',
+  'AGENT_CONTEXT_WINDOW',
+  'KROSS_THINKING_EFFORT',
+  'KROSS_CONTEXT_WINDOW',
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'OPENAI_BASE_URL',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_VERSION',
+  'OPENROUTER_API_KEY',
+  'OPENROUTER_MODEL',
+  'OPENROUTER_BASE_URL',
+  'DEEPSEEK_API_KEY',
+  'DEEPSEEK_MODEL',
+  'DEEPSEEK_BASE_URL',
+  'XAI_API_KEY',
+  'XAI_MODEL',
+  'XAI_BASE_URL',
+  'GH_TOKEN'
+] as const;
+
+export function selectWorkerEnvironment(
+  environment: Record<string, string | undefined>
+): Record<string, string> {
+  return Object.fromEntries(
+    WORKER_ENV_ALLOWLIST.flatMap((name) => {
+      const value = environment[name];
+      return value ? [[name, value]] : [];
+    })
+  );
+}
+
+function toWorkerEnvironment(
+  environment: Record<string, string | undefined>
+): string[] {
+  return Object.entries(selectWorkerEnvironment(environment))
+    .map(([name, value]) => `${name}=${value}`);
+}
