@@ -63,7 +63,11 @@ const server = new GatewayHttpServer(gateway, {
 const reaper = new IdleWorkspaceReaper(
   registry,
   orchestrator,
-  Number(process.env.KROSS_IDLE_TIMEOUT_MS ?? 30 * 60_000)
+  Number(process.env.KROSS_IDLE_TIMEOUT_MS ?? 30 * 60_000),
+  undefined,
+  undefined,
+  (workspaceId) => gateway.isWorkspaceBusy(workspaceId),
+  (workspaceId) => gateway.releaseWorkspaceConnection(workspaceId)
 );
 
 const reconciliation = await gateway.reconcileWorkspaces();

@@ -22,6 +22,22 @@ afterEach(() => {
 });
 
 describe('HybridSessionStore', () => {
+  it('permanently deletes a session source and projection', () => {
+    const { root, workspace, store } = createStore();
+    const created = store.createSession(workspace);
+    store.upsertMessage(created.id, {
+      id: 1,
+      from: 'user',
+      text: 'delete me'
+    });
+
+    expect(store.deleteSession(created.id)).toBe(true);
+    expect(store.loadSession(workspace, created.id)).toBeNull();
+    expect(store.listRecent(workspace, 10)).toEqual([]);
+    expect(findEventFiles(join(root, '.kross', 'sessions'))).toEqual([]);
+    store.close();
+  });
+
   it('persists durable work state and deduplicates identical snapshots', () => {
     const { root, workspace, store } = createStore();
     const created = store.createSession(workspace);

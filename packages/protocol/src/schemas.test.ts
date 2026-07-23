@@ -18,16 +18,21 @@ describe('cloud protocol', () => {
   });
 
   it('validates replayable event envelopes', () => {
-    expect(
-      eventEnvelopeSchema.parse({
+    const current = eventEnvelopeSchema.parse({
         protocolVersion: PROTOCOL_VERSION,
         workspaceId: 'w1',
         sessionId: 's1',
+        correlationId: 'command-1',
         seq: 1,
         timestamp: new Date().toISOString(),
         event: { type: 'request.accepted', requestId: 'r1' }
-      }).seq
-    ).toBe(1);
+      });
+    expect(current.seq).toBe(1);
+    expect(current.correlationId).toBe('command-1');
+
+    const legacy = { ...current };
+    delete legacy.correlationId;
+    expect(eventEnvelopeSchema.parse(legacy).correlationId).toBeUndefined();
   });
 
   it('validates workspace provisioning progress events', () => {

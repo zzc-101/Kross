@@ -57,6 +57,20 @@ export class GatewayService {
     return () => this.sinks.delete(sink);
   }
 
+  broadcast(event: EventEnvelope, direct?: GatewaySink): void {
+    direct?.(event);
+    for (const sink of this.sinks) {
+      if (sink !== direct) sink(event);
+    }
+  }
+
+  initialEvent(): EventEnvelope {
+    return this.envelope(undefined, {
+      type: 'workspace.list',
+      data: this.registry.list()
+    });
+  }
+
   getPushPublicKey(): string | undefined {
     return this.pushService?.publicKey;
   }
@@ -212,13 +226,51 @@ export class GatewayService {
     if (event.event.type !== 'inspection.result') {
       throw new Error('worker 未返回检查结果');
     }
-    return event.event.data.content;
+    return event.event.data.kind === 'trace'
+      ? event.event.data.content
+      : [
+          event.event.data.summary,
+          ...event.event.data.patches.map(
+            (patch) =>
+              `${patch.staged ? '# 已暂存变更' : '# 未暂存变更'}\n${patch.patch}`
+          )
+        ].join('\n\n');
   }
 
-  async handle(command: ClientCommand, sink: GatewaySink): Promise<void> {
+  async isWorkspaceBusy(workspaceId: string): Promise<boolean> {
+    const event = await this.requestWorker(
+      {
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: randomUUID(),
+        type: 'workspace.status',
+        workspaceId
+      },
+      (candidate) => candidate.event.type === 'workspace.runtime-status',
+      5_000
+    );
+    return (
+      event.event.type === 'workspace.runtime-status' &&
+      event.event.data.activeRuns > 0
+    );
+  }
+
+  releaseWorkspaceConnection(workspaceId: string): void {
+    this.clients.get(workspaceId)?.close();
+    this.clients.delete(workspaceId);
+  }
+
+  async handle(
+    command: ClientCommand,
+    sink: GatewaySink = () => undefined
+  ): Promise<void> {
+    const respond: GatewaySink = (event) =>
+      this.broadcast(
+        { ...event, correlationId: command.requestId },
+        sink
+      );
     switch (command.type) {
       case 'workspace.list':
-        sink(
+        respond(
           this.envelope(undefined, {
             type: 'workspace.list',
             data: this.registry.list()
@@ -226,35 +278,35 @@ export class GatewayService {
         );
         return;
       case 'workspace.create':
-        await this.createWorkspace(command, sink);
+        await this.createWorkspace(command, respond);
         return;
       case 'workspace.start':
-        await this.changeLifecycle(command.workspaceId, 'start', command.requestId, sink);
+        await this.changeLifecycle(command.workspaceId, 'start', command.requestId, respond);
         return;
       case 'workspace.stop':
-        await this.changeLifecycle(command.workspaceId, 'stop', command.requestId, sink);
+        await this.changeLifecycle(command.workspaceId, 'stop', command.requestId, respond);
         return;
       case 'workspace.delete':
         await this.deleteWorkspace(
           command.workspaceId,
           command.removeVolume,
           command.requestId,
-          sink
+          respond
         );
         return;
       case 'push.subscribe':
         if (!this.pushService) {
-          sink(this.error(undefined, command.requestId, 'NOT_CONFIGURED', '尚未配置 Web Push'));
+          respond(this.error(undefined, command.requestId, 'NOT_CONFIGURED', '尚未配置 Web Push'));
           return;
         }
         this.pushService.subscribe(command.subscription);
-        sink(this.envelope(undefined, {
+        respond(this.envelope(undefined, {
           type: 'request.accepted',
           requestId: command.requestId
         }));
         return;
       default:
-        await this.forward(command.workspaceId, command, sink);
+        await this.forward(command.workspaceId, command, respond);
     }
   }
 
@@ -296,6 +348,12 @@ export class GatewayService {
           record.workspace.error = 'Worker 容器不存在，请删除后重新创建工作区';
           missing += 1;
         }
+      } else if (state.needsRecreate && this.orchestrator.recreate) {
+        const shouldStart = record.workspace.status === 'ready';
+        this.releaseWorkspaceConnection(record.workspace.id);
+        await this.orchestrator.recreate(record, shouldStart);
+        if (shouldStart) running += 1;
+        else stopped += 1;
       } else if (record.workspace.status === 'stopped') {
         if (state.running) await this.orchestrator.stop(record);
         stopped += 1;
@@ -310,6 +368,10 @@ export class GatewayService {
       }
       record.workspace.updatedAt = this.now().toISOString();
       this.registry.put(record);
+      if (record.workspace.status === 'ready' && this.pushService) {
+        const client = await this.client(record);
+        client.start();
+      }
     }
     const knownIds = new Set(records.map((record) => record.workspace.id));
     const managed = await this.orchestrator.listManaged?.() ?? [];
@@ -338,6 +400,7 @@ export class GatewayService {
         timeoutMs
       );
       const settle = (event: EventEnvelope) => {
+        if (event.correlationId !== command.requestId) return;
         if (
           event.event.type === 'request.error' &&
           event.event.requestId === command.requestId
@@ -510,11 +573,12 @@ export class GatewayService {
     if (cached) return cached;
     const client = new WorkerClient(
       await this.orchestrator.workerUrl(record),
-      record.workerToken
+      record.workerToken,
+      record.workspace.id
     );
     client.subscribe((event) => {
       this.touchWorkspace(record.workspace.id);
-      for (const sink of this.sinks) sink(event);
+      this.broadcast(event);
       if (event.event.type === 'approval.pending') {
         void this.pushService?.notifyApproval({
           workspaceId: record.workspace.id,
@@ -580,6 +644,7 @@ export class GatewayService {
   ): EventEnvelope {
     return {
       protocolVersion: PROTOCOL_VERSION,
+      source: 'gateway',
       workspaceId: workspaceId ?? '$gateway',
       seq: 0,
       timestamp: this.now().toISOString(),

@@ -4,7 +4,8 @@ import { validateGitRef } from './actionDialog';
 
 export type DialogAction =
   | { kind: 'rename-session'; sessionId: string; title: string }
-  | { kind: 'model'; model: string }
+  | { kind: 'delete-session'; sessionId: string; title: string }
+  | { kind: 'model'; model: string; options: string[] }
   | { kind: 'git-push'; branch: string; remote: string }
   | {
       kind: 'git-pr';
@@ -72,17 +73,27 @@ export function ActionDialog(props: {
             />
           </label>
         )}
+        {action.kind === 'delete-session' && (
+          <p>即将永久删除会话“{action.title}”及其执行记录，此操作无法撤销。</p>
+        )}
         {action.kind === 'model' && (
           <label>
             模型 ID
-            <input
+            <select
               autoFocus
               required
               value={action.model}
               onChange={(event) =>
                 setAction({ ...action, model: event.target.value })
               }
-            />
+            >
+              {!action.options.includes(action.model) && action.model && (
+                <option value={action.model}>{action.model}</option>
+              )}
+              {action.options.map((model) => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
           </label>
         )}
         {action.kind === 'git-push' && (
@@ -187,11 +198,17 @@ export function ActionDialog(props: {
           <button type="button" onClick={props.onClose}>取消</button>
           <button
             className={
-              action.kind === 'delete-workspace' ? 'danger' : 'primary'
+              action.kind === 'delete-workspace' ||
+              action.kind === 'delete-session'
+                ? 'danger'
+                : 'primary'
             }
             disabled={Boolean(gitError)}
           >
-            {action.kind === 'delete-workspace' ? '确认删除' : '确认'}
+            {action.kind === 'delete-workspace' ||
+            action.kind === 'delete-session'
+              ? '确认删除'
+              : '确认'}
           </button>
         </div>
       </form>
@@ -202,6 +219,7 @@ export function ActionDialog(props: {
 function dialogTitle(action: DialogAction): string {
   return {
     'rename-session': '重命名会话',
+    'delete-session': '删除会话',
     model: '切换模型',
     'git-push': '推送分支',
     'git-pr': '创建 Pull Request',

@@ -38,6 +38,7 @@ export interface ContainerOrchestrator {
     exists?: boolean;
     running: boolean;
     lastActiveAt?: string;
+    needsRecreate?: boolean;
   }>;
   listManaged?(): Promise<Array<{
     workspaceId: string;
@@ -63,6 +64,7 @@ export interface DockerOrchestratorOptions {
   managerId?: string;
   limits?: Partial<WorkspaceLimits>;
   workerEnv?: Record<string, string | undefined>;
+  gatewayContainer?: string;
 }
 
 const DEFAULT_LIMITS: WorkspaceLimits = {
@@ -76,6 +78,7 @@ export class DockerOrchestrator implements ContainerOrchestrator {
   private readonly image: string;
   private readonly network: string;
   private readonly managerId: string;
+  private readonly gatewayContainer: string;
   private readonly limits: WorkspaceLimits;
   private workerEnvironment: string[];
 
@@ -86,6 +89,8 @@ export class DockerOrchestrator implements ContainerOrchestrator {
     this.image = options.image ?? 'kross-worker:local';
     this.network = options.network ?? 'kross-cloud';
     this.managerId = options.managerId ?? this.network;
+    this.gatewayContainer =
+      options.gatewayContainer ?? process.env.HOSTNAME ?? 'gateway';
     this.limits = { ...DEFAULT_LIMITS, ...options.limits };
     this.workerEnvironment = toWorkerEnvironment(
       options.workerEnv ?? process.env
@@ -105,14 +110,16 @@ export class DockerOrchestrator implements ContainerOrchestrator {
     normalizeGitUrl(input.gitUrl, input.credential);
     input.onProgress?.('provisioning', '正在准备 Docker 网络与工作区数据卷');
     await this.ensureNetwork();
-    await this.docker.createVolume({
-      Name: volumeName,
-      Labels: {
-        'dev.kross.workspace': input.id,
-        'dev.kross.manager': this.managerId
-      }
-    });
     try {
+      await this.ensureWorkspaceNetwork(input.id);
+      await this.attachGateway(input.id);
+      await this.docker.createVolume({
+        Name: volumeName,
+        Labels: {
+          'dev.kross.workspace': input.id,
+          'dev.kross.manager': this.managerId
+        }
+      });
       input.onProgress?.('cloning', '正在克隆 Git 仓库');
       await this.cloneRepository(volumeName, input);
       input.onProgress?.('starting', '正在启动隔离的 Agent Worker');
@@ -126,6 +133,7 @@ export class DockerOrchestrator implements ContainerOrchestrator {
       return { containerName, volumeName, workerToken };
     } catch (error) {
       await this.docker.getVolume(volumeName).remove().catch(() => undefined);
+      await this.removeWorkspaceNetwork(input.id);
       throw error;
     }
   }
@@ -146,6 +154,7 @@ export class DockerOrchestrator implements ContainerOrchestrator {
     const container = this.docker.getContainer(record.containerName);
     await container.stop({ t: 10 }).catch(() => undefined);
     await container.remove({ force: true }).catch(() => undefined);
+    await this.removeWorkspaceNetwork(record.workspace.id);
     if (removeVolume) {
       await this.docker
         .getVolume(record.volumeName)
@@ -155,6 +164,8 @@ export class DockerOrchestrator implements ContainerOrchestrator {
   }
 
   async workerUrl(record: WorkspaceRecord): Promise<string> {
+    await this.ensureWorkspaceNetwork(record.workspace.id);
+    await this.attachGateway(record.workspace.id);
     return `ws://${record.containerName}:8788`;
   }
 
@@ -162,15 +173,21 @@ export class DockerOrchestrator implements ContainerOrchestrator {
     exists: boolean;
     running: boolean;
     lastActiveAt?: string;
+    needsRecreate?: boolean;
   }> {
     try {
-      const state = await this.docker
-        .getContainer(record.containerName)
-        .inspect();
+      const [state, image] = await Promise.all([
+        this.docker.getContainer(record.containerName).inspect(),
+        this.docker.getImage(this.image).inspect()
+      ]);
       return {
         exists: true,
         running: Boolean(state.State.Running),
-        lastActiveAt: state.State.StartedAt
+        lastActiveAt: state.State.StartedAt,
+        needsRecreate:
+          state.HostConfig.NetworkMode !==
+            this.workspaceNetworkName(record.workspace.id) ||
+          state.Image !== image.Id
       };
     } catch {
       return { exists: false, running: false };
@@ -211,8 +228,11 @@ export class DockerOrchestrator implements ContainerOrchestrator {
 
   async removeManaged(containerName: string): Promise<void> {
     const container = this.docker.getContainer(containerName);
+    const state = await container.inspect().catch(() => undefined);
+    const workspaceId = state?.Config?.Labels?.['dev.kross.workspace'];
     await container.stop({ t: 15 }).catch(() => undefined);
     await container.remove({ force: true }).catch(() => undefined);
+    if (workspaceId) await this.removeWorkspaceNetwork(workspaceId);
   }
 
   configureWorkerEnvironment(
@@ -225,6 +245,8 @@ export class DockerOrchestrator implements ContainerOrchestrator {
     const previous = this.docker.getContainer(record.containerName);
     await previous.stop({ t: 15 }).catch(() => undefined);
     await previous.remove({ force: true }).catch(() => undefined);
+    await this.ensureWorkspaceNetwork(record.workspace.id);
+    await this.attachGateway(record.workspace.id);
     const replacement = await this.createWorkerContainer({
       workspaceId: record.workspace.id,
       containerName: record.containerName,
@@ -285,7 +307,7 @@ export class DockerOrchestrator implements ContainerOrchestrator {
       },
       HostConfig: {
         Binds: [`${input.volumeName}:/workspace`],
-        NetworkMode: this.network,
+        NetworkMode: this.workspaceNetworkName(input.workspaceId),
         Memory: this.limits.memoryBytes,
         NanoCpus: this.limits.nanoCpus,
         PidsLimit: this.limits.pidsLimit,
@@ -314,6 +336,52 @@ export class DockerOrchestrator implements ContainerOrchestrator {
     }
   }
 
+  private async ensureWorkspaceNetwork(workspaceId: string): Promise<void> {
+    const name = this.workspaceNetworkName(workspaceId);
+    const networks = await this.docker.listNetworks({
+      filters: { name: [name] }
+    });
+    if (!networks.some((network) => network.Name === name)) {
+      await this.docker.createNetwork({
+        Name: name,
+        Driver: 'bridge',
+        Internal: false,
+        Labels: {
+          'dev.kross.managed': 'true',
+          'dev.kross.manager': this.managerId,
+          'dev.kross.workspace': workspaceId
+        }
+      });
+    }
+  }
+
+  private async attachGateway(workspaceId: string): Promise<void> {
+    const network = this.docker.getNetwork(
+      this.workspaceNetworkName(workspaceId)
+    );
+    const [networkState, gatewayState] = await Promise.all([
+      network.inspect(),
+      this.docker.getContainer(this.gatewayContainer).inspect()
+    ]);
+    if (networkState.Containers?.[gatewayState.Id]) return;
+    await network.connect({ Container: gatewayState.Id });
+  }
+
+  private async removeWorkspaceNetwork(workspaceId: string): Promise<void> {
+    const network = this.docker.getNetwork(
+      this.workspaceNetworkName(workspaceId)
+    );
+    await network
+      .disconnect({ Container: this.gatewayContainer, Force: true })
+      .catch(() => undefined);
+    await network.remove().catch(() => undefined);
+  }
+
+  private workspaceNetworkName(workspaceId: string): string {
+    const safeId = workspaceId.replace(/[^a-zA-Z0-9_.-]/g, '-');
+    return `kross-workspace-net-${safeId}`.slice(0, 63);
+  }
+
   private async cloneRepository(
     volumeName: string,
     input: CreateWorkspaceContainerInput
@@ -323,11 +391,12 @@ export class DockerOrchestrator implements ContainerOrchestrator {
       `KROSS_DISK_LIMIT_KIB=${Math.floor(this.limits.diskBytes / 1024)}`
     );
     const cloneUrl = normalizeGitUrl(input.gitUrl, input.credential);
-    if (input.credential?.type === 'https-token') {
-      environment.push(`KROSS_GIT_TOKEN=${input.credential.token}`);
-    } else if (input.credential?.type === 'ssh-key') {
-      environment.push(`KROSS_SSH_KEY=${input.credential.privateKey}`);
-    }
+    const credentialInput =
+      input.credential?.type === 'https-token'
+        ? Buffer.from(input.credential.token).toString('base64')
+        : input.credential?.type === 'ssh-key'
+          ? Buffer.from(input.credential.privateKey).toString('base64')
+          : undefined;
     const branchArgs = input.defaultBranch
       ? ['--branch', input.defaultBranch]
       : [];
@@ -336,7 +405,7 @@ export class DockerOrchestrator implements ContainerOrchestrator {
     const command =
       input.credential?.type === 'ssh-key'
         ? [
-            `umask 077; mkdir -p /workspace/.kross/ssh; printf %s "$KROSS_SSH_KEY" > /workspace/.kross/ssh/id_ed25519; GIT_SSH_COMMAND="ssh -i /workspace/.kross/ssh/id_ed25519 -o UserKnownHostsFile=/workspace/.kross/ssh/known_hosts -o StrictHostKeyChecking=accept-new" git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace; ${quotaCheck}`,
+            `umask 077; IFS= read -r secret; mkdir -p /workspace/.kross/ssh; printf %s "$secret" | base64 -d > /workspace/.kross/ssh/id_ed25519; unset secret; GIT_SSH_COMMAND="ssh -i /workspace/.kross/ssh/id_ed25519 -o UserKnownHostsFile=/workspace/.kross/ssh/known_hosts -o StrictHostKeyChecking=accept-new" git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace; ${quotaCheck}`,
             'clone',
             ...branchArgs,
             '--',
@@ -344,7 +413,7 @@ export class DockerOrchestrator implements ContainerOrchestrator {
           ]
         : input.credential?.type === 'https-token'
           ? [
-              `umask 077; mkdir -p /workspace/.kross; printf %s "$KROSS_GIT_TOKEN" > /workspace/.kross/git-token; printf '#!/bin/sh\\ncase "$1" in *Username*) printf %s x-access-token;; *) cat /workspace/.kross/git-token;; esac\\n' > /workspace/.kross/git-askpass.sh; chmod 700 /workspace/.kross/git-askpass.sh; GIT_ASKPASS=/workspace/.kross/git-askpass.sh GIT_TERMINAL_PROMPT=0 git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace; ${quotaCheck}`,
+              `umask 077; IFS= read -r secret; mkdir -p /workspace/.kross; printf %s "$secret" | base64 -d > /workspace/.kross/git-token; unset secret; printf '#!/bin/sh\\ncase "$1" in *Username*) printf %s x-access-token;; *) cat /workspace/.kross/git-token;; esac\\n' > /workspace/.kross/git-askpass.sh; chmod 700 /workspace/.kross/git-askpass.sh; GIT_ASKPASS=/workspace/.kross/git-askpass.sh GIT_TERMINAL_PROMPT=0 git clone "$@" /workspace/repo; chown -R 1000:1000 /workspace; ${quotaCheck}`,
               'clone',
               ...branchArgs,
               '--',
@@ -363,6 +432,8 @@ export class DockerOrchestrator implements ContainerOrchestrator {
       Entrypoint: ['/bin/sh', '-ec'],
       Cmd: command,
       Env: environment,
+      OpenStdin: Boolean(credentialInput),
+      StdinOnce: Boolean(credentialInput),
       HostConfig: {
         Binds: [`${volumeName}:/workspace`],
         AutoRemove: false,
@@ -370,7 +441,17 @@ export class DockerOrchestrator implements ContainerOrchestrator {
       }
     });
     try {
+      const stdin = credentialInput
+        ? await helper.attach({
+            stream: true,
+            stdin: true,
+            stdout: false,
+            stderr: false,
+            hijack: true
+          })
+        : undefined;
       await helper.start();
+      stdin?.end(`${credentialInput}\n`);
       const result = await helper.wait();
       if (result.StatusCode !== 0) {
         if (result.StatusCode === 42) {

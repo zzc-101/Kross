@@ -18,7 +18,6 @@ import {
   type ClientCommand,
   type EventEnvelope
 } from '@kross/protocol';
-import { WebSocketServer, WebSocket } from 'ws';
 
 import { readBearerToken, tokenMatches } from './auth';
 import { GatewayService } from './gatewayService';
@@ -29,15 +28,12 @@ export interface GatewayHttpServerOptions {
   port?: number;
   staticDir?: string;
   allowedOrigins?: string[];
+  sseHeartbeatMs?: number;
 }
 
 export class GatewayHttpServer {
   private readonly http: Server;
-  private readonly ws = new WebSocketServer({
-    noServer: true,
-    handleProtocols: (protocols) =>
-      protocols.has('kross.v1') ? 'kross.v1' : false
-  });
+  private readonly eventStreams = new Set<ServerResponse>();
 
   constructor(
     private readonly gateway: GatewayService,
@@ -46,25 +42,6 @@ export class GatewayHttpServer {
     this.http = createServer((request, response) => {
       this.route(request, response);
     });
-    this.http.on('upgrade', (request, socket, head) => {
-      if (!originAllowed(request, options.allowedOrigins ?? [])) {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-        socket.destroy();
-        return;
-      }
-      if (
-        !this.authorized(request.headers.authorization) &&
-        !tokenMatches(readWebSocketToken(request.headers['sec-websocket-protocol']), options.accessToken)
-      ) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
-        return;
-      }
-      this.ws.handleUpgrade(request, socket, head, (client) => {
-        this.ws.emit('connection', client);
-      });
-    });
-    this.ws.on('connection', (client) => this.connect(client));
   }
 
   async listen(): Promise<void> {
@@ -84,8 +61,8 @@ export class GatewayHttpServer {
   }
 
   async close(): Promise<void> {
-    for (const client of this.ws.clients) client.close(1001, 'server shutdown');
-    await new Promise<void>((resolve) => this.ws.close(() => resolve()));
+    for (const stream of this.eventStreams) stream.end();
+    this.eventStreams.clear();
     await new Promise<void>((resolve, reject) =>
       this.http.close((error) => (error ? reject(error) : resolve()))
     );
@@ -115,6 +92,14 @@ export class GatewayHttpServer {
     if (!this.authorized(request.headers.authorization)) {
       response.writeHead(401, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: 'UNAUTHORIZED' }));
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/api/events') {
+      this.connectEventStream(response);
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/api/commands') {
+      void this.receiveCommand(request, response);
       return;
     }
     if (request.method === 'GET' && request.url === '/api/workspaces') {
@@ -261,7 +246,7 @@ export class GatewayHttpServer {
           ? 'no-cache'
           : 'public, max-age=31536000, immutable',
       'content-security-policy':
-        "default-src 'self'; connect-src 'self' https: http: ws: wss:; img-src 'self' data:; style-src 'self'; script-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+        "default-src 'self'; connect-src 'self' https: http:; img-src 'self' data:; style-src 'self'; script-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
       'x-content-type-options': 'nosniff',
       'x-frame-options': 'DENY',
       'referrer-policy': 'no-referrer'
@@ -270,57 +255,67 @@ export class GatewayHttpServer {
     return true;
   }
 
-  private connect(client: WebSocket): void {
-    const workspaceIds = new Set<string>();
-    const sessionIds = new Set<string>();
-    const awaitingSessionCreate = new Set<string>();
+  private connectEventStream(response: ServerResponse): void {
+    response.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache',
+      'x-accel-buffering': 'no',
+      connection: 'keep-alive'
+    });
+    response.write('retry: 3000\n\n');
+    this.eventStreams.add(response);
     const send = (event: EventEnvelope) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(event));
+      if (!response.destroyed) {
+        response.write(`data: ${JSON.stringify(event)}\n\n`);
       }
     };
-    const sendSubscribed = (event: EventEnvelope) => {
-      if (event.workspaceId !== '$gateway' && !workspaceIds.has(event.workspaceId)) {
-        return;
-      }
-      if (event.sessionId && !sessionIds.has(event.sessionId)) {
-        if (
-          event.event.type === 'session.snapshot' &&
-          awaitingSessionCreate.has(event.workspaceId)
-        ) {
-          sessionIds.add(event.sessionId);
-          awaitingSessionCreate.delete(event.workspaceId);
-        } else {
-          return;
-        }
-      }
-      send(event);
-    };
-    const unsubscribe = this.gateway.subscribe(sendSubscribed);
-    client.once('close', unsubscribe);
-    client.on('message', (data) => {
-      let raw: unknown;
-      try {
-        raw = JSON.parse(data.toString());
-      } catch {
-        send(invalidCommandEvent('INVALID_JSON', '消息不是合法 JSON'));
-        return;
-      }
-      const parsed = clientCommandSchema.safeParse(raw);
-      if (!parsed.success) {
-        send(invalidCommandEvent('INVALID_COMMAND', parsed.error.message));
-        return;
-      }
-      if ('workspaceId' in parsed.data) {
-        workspaceIds.add(parsed.data.workspaceId);
-      }
-      if ('sessionId' in parsed.data) {
-        sessionIds.add(parsed.data.sessionId);
-      }
-      if (parsed.data.type === 'session.create') {
-        awaitingSessionCreate.add(parsed.data.workspaceId);
-      }
-      void this.gateway.handle(parsed.data, send);
+    const unsubscribe = this.gateway.subscribe(send);
+    send(this.gateway.initialEvent());
+    const heartbeat = setInterval(() => {
+      if (!response.destroyed) response.write(': ping\n\n');
+    }, this.options.sseHeartbeatMs ?? 25_000);
+    heartbeat.unref();
+    response.once('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      this.eventStreams.delete(response);
+    });
+  }
+
+  private async receiveCommand(
+    request: IncomingMessage,
+    response: ServerResponse
+  ): Promise<void> {
+    let body: unknown;
+    try {
+      body = await readJsonBody(request);
+    } catch (error) {
+      response.writeHead(400, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        error: error instanceof Error ? error.message : String(error)
+      }));
+      return;
+    }
+    const parsed = clientCommandSchema.safeParse(body);
+    if (!parsed.success) {
+      response.writeHead(400, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        error: 'INVALID_COMMAND',
+        details: parsed.error.issues
+      }));
+      return;
+    }
+    response.writeHead(202, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({
+      accepted: true,
+      requestId: parsed.data.requestId
+    }));
+    void this.gateway.handle(parsed.data).catch((error) => {
+      this.gateway.broadcast(commandFailureEvent(
+        parsed.data.requestId,
+        'COMMAND_FAILED',
+        error instanceof Error ? error.message : String(error)
+      ));
     });
   }
 
@@ -362,21 +357,6 @@ function isSecureRequest(request: IncomingMessage): boolean {
   );
 }
 
-function originAllowed(
-  request: IncomingMessage,
-  allowedOrigins: string[]
-): boolean {
-  const origin = request.headers.origin;
-  if (!origin) return true;
-  try {
-    const parsed = new URL(origin);
-    if (parsed.host === request.headers.host) return true;
-    return allowedOrigins.includes(parsed.origin);
-  } catch {
-    return false;
-  }
-}
-
 function contentType(extension: string): string {
   return (
     {
@@ -393,27 +373,19 @@ function contentType(extension: string): string {
   );
 }
 
-function readWebSocketToken(header: string | undefined): string | undefined {
-  const encoded = header
-    ?.split(',')
-    .map((value) => value.trim())
-    .find((value) => value.startsWith('kross.token.'))
-    ?.slice('kross.token.'.length);
-  if (!encoded) return undefined;
-  try {
-    return Buffer.from(encoded, 'base64url').toString('utf8');
-  } catch {
-    return undefined;
-  }
-}
-
-function invalidCommandEvent(code: string, message: string): EventEnvelope {
+function commandFailureEvent(
+  requestId: string,
+  code: string,
+  message: string
+): EventEnvelope {
   return {
     protocolVersion: PROTOCOL_VERSION,
+    source: 'gateway',
     workspaceId: '$gateway',
+    correlationId: requestId,
     seq: 0,
     timestamp: new Date().toISOString(),
-    event: { type: 'request.error', code, message }
+    event: { type: 'request.error', requestId, code, message }
   };
 }
 

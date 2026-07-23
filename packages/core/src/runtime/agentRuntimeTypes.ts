@@ -91,6 +91,8 @@ export interface AgentRunInput {
 export interface ResolveToolApprovalInput {
   runId: string;
   approved: boolean;
+  /** 用户拒绝时给 Agent 的修正说明。 */
+  reason?: string;
   /** 取消审批后的工具执行与后续模型请求。 */
   signal?: AbortSignal;
 }

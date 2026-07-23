@@ -100,18 +100,157 @@ function send(
 }
 
 describe('WorkerService integration', () => {
+  it('deduplicates concurrent runtime loads and evicts least-recent idle sessions', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-worker-lru-'));
+    const workspace = join(root, 'repo');
+    mkdirSync(workspace);
+    let created = 0;
+    let closed = 0;
+    const factory = async () => {
+      created += 1;
+      const handle = await runtimeFactory([])();
+      handle.tooling.close = async () => {
+        closed += 1;
+      };
+      return handle;
+    };
+    const service = new WorkerService({
+      workspaceId: 'w1',
+      workspaceRoot: workspace,
+      krossHome: join(root, '.kross'),
+      runtimeFactory: factory,
+      maxActiveSessions: 1,
+      sessionIdleMs: Number.POSITIVE_INFINITY
+    });
+    const events: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'create-1',
+      type: 'session.create',
+      workspaceId: 'w1'
+    }, events);
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'create-2',
+      type: 'session.create',
+      workspaceId: 'w1'
+    }, events);
+    expect(created).toBe(2);
+    expect(closed).toBe(1);
+
+    const firstSession = events.find(
+      (event) =>
+        event.correlationId === 'create-1' &&
+        event.event.type === 'session.snapshot'
+    );
+    if (firstSession?.event.type !== 'session.snapshot') {
+      throw new Error('missing first session');
+    }
+    const resumes: EventEnvelope[] = [];
+    await Promise.all([
+      send(service, {
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: 'resume-a',
+        type: 'session.resume',
+        workspaceId: 'w1',
+        sessionId: firstSession.event.data.summary.id,
+        lastSeq: 0
+      }, resumes),
+      send(service, {
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: 'resume-b',
+        type: 'session.resume',
+        workspaceId: 'w1',
+        sessionId: firstSession.event.data.summary.id,
+        lastSeq: 0
+      }, resumes)
+    ]);
+    expect(created).toBe(3);
+    await service.close();
+  });
+
+  it('lists configured models and deletes an idle session', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-worker-management-'));
+    const workspace = join(root, 'repo');
+    mkdirSync(workspace);
+    const service = new WorkerService({
+      workspaceId: 'w1',
+      workspaceRoot: workspace,
+      krossHome: join(root, '.kross'),
+      env: {
+        AGENT_LLM_PROVIDER: 'openai',
+        AGENT_LLM_MODEL: 'custom-model'
+      },
+      runtimeFactory: runtimeFactory([])
+    });
+    const events: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'models',
+      type: 'models.list',
+      workspaceId: 'w1'
+    }, events);
+    const modelEvent = events.find(
+      (event) => event.event.type === 'models.list'
+    );
+    expect(
+      modelEvent?.event.type === 'models.list'
+        ? modelEvent.event.data
+        : []
+    ).toContainEqual(
+      expect.objectContaining({ id: 'custom-model', provider: 'OpenAI' })
+    );
+
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'create-delete',
+      type: 'session.create',
+      workspaceId: 'w1'
+    }, events);
+    const snapshot = events.find(
+      (event) =>
+        event.correlationId === 'create-delete' &&
+        event.event.type === 'session.snapshot'
+    );
+    if (snapshot?.event.type !== 'session.snapshot') {
+      throw new Error('missing created session');
+    }
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'delete',
+      type: 'session.delete',
+      workspaceId: 'w1',
+      sessionId: snapshot.event.data.summary.id
+    }, events);
+    expect(
+      events.find(
+        (event) =>
+          event.correlationId === 'delete' &&
+          event.event.type === 'session.deleted'
+      )?.event
+    ).toMatchObject({
+      type: 'session.deleted',
+      data: { sessionId: snapshot.event.data.summary.id }
+    });
+    await service.close();
+  });
+
   it('rejects new tasks when the workspace exceeds its disk quota', async () => {
     const root = mkdtempSync(join(tmpdir(), 'kross-worker-quota-'));
     const workspace = join(root, 'repo');
     mkdirSync(workspace);
     const executions: string[] = [];
+    let diskChecks = 0;
     const service = new WorkerService({
       workspaceId: 'w1',
       workspaceRoot: workspace,
       krossHome: join(root, '.kross'),
       runtimeFactory: runtimeFactory(executions),
       diskLimitBytes: 10 * 1024,
-      diskUsageBytes: async () => 12 * 1024
+      diskUsageBytes: async () => {
+        diskChecks += 1;
+        return 12 * 1024;
+      }
     });
     const events: EventEnvelope[] = [];
     await send(service, {
@@ -148,6 +287,16 @@ describe('WorkerService integration', () => {
       code: 'WORKSPACE_DISK_QUOTA_EXCEEDED'
     });
     expect(executions).toEqual([]);
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'input-over-quota-again',
+      type: 'session.input',
+      workspaceId: 'w1',
+      sessionId: snapshot.event.data.summary.id,
+      input: '再次执行任务',
+      mode: 'auto'
+    }, events);
+    expect(diskChecks).toBe(1);
     await service.close();
   });
 
@@ -177,6 +326,14 @@ describe('WorkerService integration', () => {
     if (snapshotEvent?.event.type !== 'session.snapshot') {
       throw new Error('missing session snapshot');
     }
+    expect(snapshotEvent.correlationId).toBe('create');
+    expect(
+      events.find(
+        (event) =>
+          event.event.type === 'request.accepted' &&
+          event.event.requestId === 'create'
+      )?.correlationId
+    ).toBe('create');
     const sessionId = snapshotEvent.event.data.summary.id;
 
     await send(service, {
@@ -232,6 +389,11 @@ describe('WorkerService integration', () => {
           event.event.data.type === 'text-delta' &&
           event.event.data.text === '执行完成'
       )
+    ).toBe(true);
+    expect(
+      events
+        .filter((event) => event.event.type === 'stream')
+        .every((event) => event.correlationId === undefined)
     ).toBe(true);
 
     await send(service, {

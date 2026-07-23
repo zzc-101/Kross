@@ -10,13 +10,46 @@ import {
 class FakeDocker {
   readonly configs: Array<Record<string, unknown>> = [];
   readonly volumes: string[] = [];
+  readonly networks = new Map<string, Set<string>>([
+    ['kross-cloud', new Set()]
+  ]);
+  readonly stdin: string[] = [];
 
-  async listNetworks() {
-    return [{ Name: 'kross-cloud' }];
+  async listNetworks(input?: { filters?: { name?: string[] } }) {
+    const names = input?.filters?.name;
+    return [...this.networks.keys()]
+      .filter((name) => !names || names.includes(name))
+      .map((Name) => ({ Name }));
   }
 
-  async createNetwork() {
-    throw new Error('network already exists');
+  async createNetwork(input: { Name: string }) {
+    this.networks.set(input.Name, new Set());
+    return {};
+  }
+
+  getNetwork(name: string) {
+    return {
+      inspect: async () => ({
+        Containers: Object.fromEntries(
+          [...(this.networks.get(name) ?? [])].map((id) => [id, {}])
+        )
+      }),
+      connect: async ({ Container }: { Container: string }) => {
+        this.networks.get(name)?.add(Container);
+      },
+      disconnect: async ({ Container }: { Container: string }) => {
+        this.networks.get(name)?.delete(Container);
+      },
+      remove: async () => {
+        this.networks.delete(name);
+      }
+    };
+  }
+
+  getContainer(name: string) {
+    return {
+      inspect: async () => ({ Id: name })
+    };
   }
 
   async createVolume(input: { Name: string }) {
@@ -33,6 +66,9 @@ class FakeDocker {
     const helper = this.configs.length === 1;
     return {
       start: async () => undefined,
+      attach: async () => ({
+        end: (value: string) => this.stdin.push(value)
+      }),
       wait: async () => ({ StatusCode: 0 }),
       remove: async () => undefined,
       ...(helper ? {} : { id: 'worker' })
@@ -41,7 +77,7 @@ class FakeDocker {
 }
 
 describe('DockerOrchestrator', () => {
-  it('creates an isolated, resource-limited worker on the shared network', async () => {
+  it('creates an isolated, resource-limited worker on a workspace network', async () => {
     const docker = new FakeDocker();
     const orchestrator = new DockerOrchestrator(
       docker as unknown as Docker,
@@ -49,6 +85,7 @@ describe('DockerOrchestrator', () => {
         image: 'worker:test',
         network: 'kross-cloud',
         managerId: 'test-manager',
+        gatewayContainer: 'gateway-id',
         workerEnv: {
           AGENT_LLM_PROVIDER: 'openai',
           OPENAI_API_KEY: 'provider-secret'
@@ -71,12 +108,19 @@ describe('DockerOrchestrator', () => {
     });
 
     expect(docker.volumes).toEqual(['kross-workspace-workspace-1']);
+    expect(docker.networks.has('kross-workspace-net-workspace-1')).toBe(true);
+    expect(
+      docker.networks.get('kross-workspace-net-workspace-1')
+    ).toContain('gateway-id');
     const helper = docker.configs[0];
     const worker = docker.configs[1];
     expect(helper?.Image).toBe('worker:test');
     expect(helper?.User).toBe('0:0');
     expect(JSON.stringify(helper?.Cmd)).not.toContain('git-secret');
-    expect(helper?.Env).toContain('KROSS_GIT_TOKEN=git-secret');
+    expect(helper?.Env).not.toContain('KROSS_GIT_TOKEN=git-secret');
+    expect(
+      Buffer.from(docker.stdin[0]!.trim(), 'base64').toString('utf8')
+    ).toBe('git-secret');
     expect(helper?.Env).toContain('KROSS_DISK_LIMIT_KIB=4');
     expect(JSON.stringify(helper?.Cmd)).toContain('du -sk /workspace');
     expect(worker?.Image).toBe('worker:test');
@@ -93,7 +137,7 @@ describe('DockerOrchestrator', () => {
       ])
     );
     expect(worker?.HostConfig).toMatchObject({
-      NetworkMode: 'kross-cloud',
+      NetworkMode: 'kross-workspace-net-workspace-1',
       Memory: 1024,
       NanoCpus: 2_000,
       PidsLimit: 32,
@@ -129,7 +173,7 @@ describe('DockerOrchestrator', () => {
     const docker = new FakeDocker();
     const orchestrator = new DockerOrchestrator(
       docker as unknown as Docker,
-      { network: 'kross-cloud' }
+      { network: 'kross-cloud', gatewayContainer: 'gateway-id' }
     );
 
     await orchestrator.create({
@@ -143,7 +187,10 @@ describe('DockerOrchestrator', () => {
 
     const helper = docker.configs[0];
     expect(JSON.stringify(helper?.Cmd)).not.toContain('PRIVATE-KEY-CONTENT');
-    expect(helper?.Env).toContain('KROSS_SSH_KEY=PRIVATE-KEY-CONTENT');
+    expect(helper?.Env).not.toContain('KROSS_SSH_KEY=PRIVATE-KEY-CONTENT');
+    expect(
+      Buffer.from(docker.stdin[0]!.trim(), 'base64').toString('utf8')
+    ).toBe('PRIVATE-KEY-CONTENT');
     expect(JSON.stringify(helper?.Cmd)).toContain(
       '/workspace/.kross/ssh/id_ed25519'
     );

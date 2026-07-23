@@ -73,6 +73,10 @@ export function applyPwaUpdate(): void {
   worker.postMessage({ type: 'SKIP_WAITING' });
 }
 
+export async function checkForPwaUpdate(): Promise<void> {
+  await registration?.update().catch(() => undefined);
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

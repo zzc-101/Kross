@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { EventEnvelope } from '@kross/protocol';
 
 import {
   diffLineKind,
-  parseDiffInspection,
   traceRunIds
 } from './inspection';
 
+type InspectionData = Extract<
+  EventEnvelope['event'],
+  { type: 'inspection.result' }
+>['data'];
+
 interface InspectionPanelProps {
-  kind: 'trace' | 'diff';
-  content: string;
+  inspection: InspectionData;
   onInspect: (kind: 'trace' | 'diff', argument?: string) => void;
   onClose: () => void;
 }
@@ -16,8 +20,11 @@ interface InspectionPanelProps {
 export function InspectionPanel(props: InspectionPanelProps) {
   const [copied, setCopied] = useState(false);
   const runIds = useMemo(
-    () => props.kind === 'trace' ? traceRunIds(props.content) : [],
-    [props.content, props.kind]
+    () =>
+      props.inspection.kind === 'trace'
+        ? traceRunIds(props.inspection.content)
+        : [],
+    [props.inspection]
   );
 
   useEffect(() => {
@@ -29,7 +36,7 @@ export function InspectionPanel(props: InspectionPanelProps) {
   }, [props.onClose]);
 
   const copy = async () => {
-    await navigator.clipboard.writeText(props.content);
+    await navigator.clipboard.writeText(inspectionText(props.inspection));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   };
@@ -47,7 +54,7 @@ export function InspectionPanel(props: InspectionPanelProps) {
           <div>
             <span className="eyebrow">Session Inspection</span>
             <h2 id="inspection-title">
-              {props.kind === 'diff' ? '工作区 Diff' : '运行 Trace'}
+              {props.inspection.kind === 'diff' ? '工作区 Diff' : '运行 Trace'}
             </h2>
           </div>
           <div className="inspection-actions">
@@ -57,11 +64,11 @@ export function InspectionPanel(props: InspectionPanelProps) {
             <button onClick={props.onClose}>关闭</button>
           </div>
         </header>
-        {props.kind === 'diff' ? (
-          <DiffContent content={props.content} />
+        {props.inspection.kind === 'diff' ? (
+          <DiffContent inspection={props.inspection} />
         ) : (
           <TraceContent
-            content={props.content}
+            content={props.inspection.content}
             runIds={runIds}
             onSelect={(runId) => props.onInspect('trace', runId)}
             onBack={() => props.onInspect('trace')}
@@ -72,23 +79,41 @@ export function InspectionPanel(props: InspectionPanelProps) {
   );
 }
 
-function DiffContent({ content }: { content: string }) {
-  const parsed = parseDiffInspection(content);
+function DiffContent({
+  inspection
+}: {
+  inspection: Extract<InspectionData, { kind: 'diff' }>;
+}) {
   return (
     <div className="inspection-content">
-      <pre className="inspection-summary">{parsed.summary}</pre>
-      {parsed.patch && (
-        <div className="diff-view" aria-label="Git patch">
-          {parsed.patch.split('\n').map((line, index) => (
-            <div className={`diff-line ${diffLineKind(line)}`} key={`${index}-${line}`}>
-              <span>{index + 1}</span>
-              <code>{line || ' '}</code>
-            </div>
-          ))}
-        </div>
-      )}
+      <pre className="inspection-summary">{inspection.summary}</pre>
+      {inspection.patches.length === 0 && <p className="quiet">没有 Git 变更。</p>}
+      {inspection.patches.map((section, sectionIndex) => (
+        <details key={`${section.staged}-${sectionIndex}`} open>
+          <summary>{section.staged ? '已暂存变更' : '未暂存变更'}</summary>
+          <div className="diff-view" aria-label="Git patch">
+            {section.patch.split('\n').map((line, index) => (
+              <div className={`diff-line ${diffLineKind(line)}`} key={`${index}-${line}`}>
+                <span>{index + 1}</span>
+                <code>{line || ' '}</code>
+              </div>
+            ))}
+          </div>
+        </details>
+      ))}
     </div>
   );
+}
+
+function inspectionText(inspection: InspectionData): string {
+  if (inspection.kind === 'trace') return inspection.content;
+  return [
+    inspection.summary,
+    ...inspection.patches.map(
+      (section) =>
+        `${section.staged ? '# 已暂存变更' : '# 未暂存变更'}\n${section.patch}`
+    )
+  ].join('\n\n');
 }
 
 function TraceContent(props: {

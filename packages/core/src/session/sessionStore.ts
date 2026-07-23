@@ -10,6 +10,7 @@ import {
   readSync,
   readdirSync,
   realpathSync,
+  rmSync,
   statSync
 } from 'node:fs';
 import { homedir } from 'node:os';
@@ -198,6 +199,15 @@ export class HybridSessionStore {
       this.writeProjection(state);
     }
     return toSummary(state);
+  }
+
+  deleteSession(sessionId: string): boolean {
+    const state = this.getState(sessionId);
+    if (!state) return false;
+    this.states.delete(sessionId);
+    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    rmSync(dirname(state.eventPath), { recursive: true, force: true });
+    return true;
   }
 
   upsertMessage(

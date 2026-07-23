@@ -8,13 +8,17 @@ import {
   bootstrapRuntimeTooling,
   createRuntimeOptionsFromEnv,
   HybridSessionStore,
+  LLM_PROVIDER_DEFINITIONS,
+  isLlmProvider,
   type AgentHostTooling,
   type AgentRunStreamEvent,
   type AgentMode,
-  type StoredSessionMessage
+  type StoredSessionMessage,
+  type TraceEvent
 } from '@kross/core';
 import {
   PROTOCOL_VERSION,
+  storedMessageSchema,
   type ClientCommand,
   type EventEnvelope,
   type ServerEvent,
@@ -22,7 +26,7 @@ import {
 } from '@kross/protocol';
 
 import { EventJournal } from './eventJournal';
-import { appendGitPatch } from './gitInspection';
+import { inspectGitDiff } from './gitInspection';
 import { SessionSettingsStore } from './sessionSettingsStore';
 import {
   formatDiskBytes,
@@ -39,6 +43,9 @@ export interface WorkerServiceOptions {
   runtimeFactory?: () => Promise<RuntimeHandle>;
   diskLimitBytes?: number;
   diskUsageBytes?: () => Promise<number>;
+  diskCheckIntervalMs?: number;
+  maxActiveSessions?: number;
+  sessionIdleMs?: number;
   now?: () => Date;
 }
 
@@ -53,6 +60,8 @@ interface ActiveSession extends RuntimeHandle {
   abortController?: AbortController;
   unsubscribeTrace: () => void;
   unsubscribeWorkState: () => void;
+  lastUsedAt: number;
+  recentTraces: TraceEvent[];
 }
 
 export type WorkerEventSink = (event: EventEnvelope) => void;
@@ -62,9 +71,15 @@ export class WorkerService {
   private readonly journal: EventJournal;
   private readonly settings: SessionSettingsStore;
   private readonly sessions = new Map<string, ActiveSession>();
+  private readonly loadingSessions = new Map<string, Promise<ActiveSession>>();
   private readonly sinks = new Set<WorkerEventSink>();
+  private readonly sinkCorrelations = new WeakMap<WorkerEventSink, string>();
+  private readonly sinkTargets = new WeakMap<WorkerEventSink, WorkerEventSink>();
   private readonly now: () => Date;
   private readonly diskUsageBytes: () => Promise<number>;
+  private readonly diskCheckTimer: ReturnType<typeof setInterval>;
+  private diskUsageCache?: { bytes: number; checkedAt: number };
+  private diskUsageRefresh?: Promise<number>;
 
   constructor(private readonly options: WorkerServiceOptions) {
     this.now = options.now ?? (() => new Date());
@@ -83,6 +98,12 @@ export class WorkerService {
     this.settings = new SessionSettingsStore(
       join(options.krossHome, 'cloud-session-settings')
     );
+    const diskCheckInterval = options.diskCheckIntervalMs ?? 60_000;
+    this.diskCheckTimer = setInterval(() => {
+      void this.refreshDiskUsage().catch(() => undefined);
+    }, diskCheckInterval);
+    this.diskCheckTimer.unref();
+    void this.refreshDiskUsage().catch(() => undefined);
   }
 
   subscribe(sink: WorkerEventSink): () => void {
@@ -91,6 +112,14 @@ export class WorkerService {
   }
 
   async handle(command: ClientCommand, sink?: WorkerEventSink): Promise<void> {
+    const target = sink;
+    const commandEvents: EventEnvelope[] = [];
+    sink = (event) => {
+      commandEvents.push(event);
+      target?.(event);
+    };
+    this.sinkCorrelations.set(sink, command.requestId);
+    if (target) this.sinkTargets.set(sink, target);
     if (
       'workspaceId' in command &&
       command.workspaceId !== this.options.workspaceId
@@ -111,19 +140,21 @@ export class WorkerService {
       'sessionId' in command && typeof command.sessionId === 'string'
         ? command.sessionId
         : undefined;
-    if (sessionId && command.type !== 'session.resume') {
-      const accepted = this.journal.findAcceptedRequest(
+    await this.evictSessions(sessionId);
+    if (command.type !== 'session.resume') {
+      const completed = this.journal.findCompletedRequest(
         this.options.workspaceId,
         sessionId,
         command.requestId
       );
-      if (accepted) {
-        sink?.(accepted);
+      if (completed) {
+        for (const event of completed) sink(event);
         return;
       }
     }
 
-    switch (command.type) {
+    try {
+      switch (command.type) {
       case 'session.create':
         await this.createSession(command.requestId, sink);
         return;
@@ -151,6 +182,9 @@ export class WorkerService {
       case 'session.rename':
         await this.renameSession(command, sink);
         return;
+      case 'session.delete':
+        await this.deleteSession(command.sessionId, command.requestId, sink);
+        return;
       case 'session.input':
         await this.runInput(
           command.sessionId,
@@ -166,6 +200,7 @@ export class WorkerService {
           command.sessionId,
           command.runId,
           command.approved,
+          command.reason,
           command.requestId,
           sink
         );
@@ -186,6 +221,50 @@ export class WorkerService {
       case 'git.pull-request':
         await this.runGitOperation(command, sink);
         return;
+      case 'workspace.status':
+        this.emit(
+          undefined,
+          {
+            type: 'workspace.runtime-status',
+            data: {
+              activeRuns: [...this.sessions.values()].filter(
+                (session) => Boolean(session.abortController)
+              ).length,
+              loadedSessions: this.sessions.size
+            }
+          },
+          sink
+        );
+        return;
+      case 'models.list': {
+        const environment = this.options.env ?? process.env;
+        const provider = environment.AGENT_LLM_PROVIDER ?? 'openai';
+        const definition = isLlmProvider(provider)
+          ? LLM_PROVIDER_DEFINITIONS[provider]
+          : LLM_PROVIDER_DEFINITIONS.openai;
+        const configuredModel =
+          environment.AGENT_LLM_MODEL ??
+          definition.modelEnv
+            .map((name) => environment[name])
+            .find(Boolean);
+        const ids = [
+          ...(configuredModel ? [configuredModel] : []),
+          ...definition.recommendedModels
+        ];
+        this.emit(
+          undefined,
+          {
+            type: 'models.list',
+            data: [...new Set(ids)].map((id) => ({
+              id,
+              label: id,
+              provider: definition.name
+            }))
+          },
+          sink
+        );
+        return;
+      }
       default: {
         const sessionId =
           'sessionId' in command && typeof command.sessionId === 'string'
@@ -202,10 +281,28 @@ export class WorkerService {
           sink
         );
       }
+      }
+    } finally {
+      const directEvents = commandEvents.filter(
+        (event) => event.correlationId === command.requestId
+      );
+      if (
+        command.type !== 'session.resume' &&
+        directEvents.length > 0 &&
+        !directEvents.some((event) => event.event.type === 'request.error')
+      ) {
+        this.journal.completeRequest(
+          this.options.workspaceId,
+          sessionId,
+          command.requestId,
+          directEvents
+        );
+      }
     }
   }
 
   async close(): Promise<void> {
+    clearInterval(this.diskCheckTimer);
     for (const session of this.sessions.values()) {
       session.abortController?.abort('worker shutdown');
       session.unsubscribeTrace();
@@ -312,6 +409,56 @@ export class WorkerService {
     );
   }
 
+  private async deleteSession(
+    sessionId: string,
+    requestId: string,
+    sink?: WorkerEventSink
+  ): Promise<void> {
+    const loaded = this.sessions.get(sessionId);
+    if (
+      loaded?.abortController ||
+      loaded?.runtime.getPendingToolApproval() ||
+      loaded?.runtime.getPendingModeExecution()
+    ) {
+      this.emitError(
+        sessionId,
+        requestId,
+        'SESSION_BUSY',
+        '会话正在运行或等待审批，无法删除',
+        sink
+      );
+      return;
+    }
+    if (loaded) {
+      this.sessions.delete(sessionId);
+      loaded.unsubscribeTrace();
+      loaded.unsubscribeWorkState();
+      await loaded.tooling.close();
+    }
+    if (!this.store.deleteSession(sessionId)) {
+      this.emitError(
+        sessionId,
+        requestId,
+        'SESSION_NOT_FOUND',
+        '会话不存在',
+        sink
+      );
+      return;
+    }
+    this.settings.delete(sessionId);
+    this.journal.deleteSession(this.options.workspaceId, sessionId);
+    this.emit(
+      undefined,
+      { type: 'session.deleted', data: { sessionId } },
+      sink
+    );
+    this.emit(
+      undefined,
+      { type: 'request.accepted', requestId },
+      sink
+    );
+  }
+
   private async runInput(
     sessionId: string,
     input: string,
@@ -326,7 +473,7 @@ export class WorkerService {
     ) {
       let usedBytes: number;
       try {
-        usedBytes = await this.diskUsageBytes();
+        usedBytes = await this.currentDiskUsage();
       } catch (error) {
         this.emitError(
           sessionId,
@@ -388,6 +535,8 @@ export class WorkerService {
     } finally {
       session.abortController = undefined;
       this.persistState(session);
+      session.lastUsedAt = this.now().getTime();
+      void this.refreshDiskUsage().catch(() => undefined);
     }
   }
 
@@ -395,6 +544,7 @@ export class WorkerService {
     sessionId: string,
     runId: string,
     approved: boolean,
+    reason: string | undefined,
     requestId: string,
     sink?: WorkerEventSink
   ): Promise<void> {
@@ -413,6 +563,7 @@ export class WorkerService {
         session.runtime.resolveToolApprovalStreaming({
           runId,
           approved,
+          reason,
           signal: controller.signal
         }),
         sink
@@ -420,6 +571,8 @@ export class WorkerService {
     } finally {
       session.abortController = undefined;
       this.persistState(session);
+      session.lastUsedAt = this.now().getTime();
+      void this.refreshDiskUsage().catch(() => undefined);
     }
   }
 
@@ -579,15 +732,15 @@ export class WorkerService {
         command.kind === 'diff'
           ? await session.runtime.formatDiffCommand(command.argument)
           : await session.runtime.formatTraceCommand(command.argument);
-      const content =
+      const data =
         command.kind === 'diff'
-          ? await appendGitPatch(this.options.workspaceRoot, formatted)
-          : formatted;
+          ? await inspectGitDiff(this.options.workspaceRoot, formatted)
+          : { kind: 'trace' as const, content: formatted };
       this.emit(
         command.sessionId,
         {
           type: 'inspection.result',
-          data: { kind: command.kind, content }
+          data
         },
         sink
       );
@@ -727,7 +880,7 @@ export class WorkerService {
     let thinking = '';
     let finalResult: Extract<AgentRunStreamEvent, { type: 'result' }>['result'] | undefined;
     for await (const data of stream) {
-      this.emit(session.id, { type: 'stream', data }, sink);
+      this.emit(session.id, { type: 'stream', data }, sink, false);
       if (data.type === 'text-delta') text += data.text;
       if (data.type === 'thinking-delta') thinking += data.text;
       if (data.type === 'result') {
@@ -736,7 +889,8 @@ export class WorkerService {
           this.emit(
             session.id,
             { type: 'approval.pending', data: data.result.pendingApproval },
-            sink
+            sink,
+            false
           );
         }
       }
@@ -773,7 +927,10 @@ export class WorkerService {
     sink?: WorkerEventSink
   ): Promise<ActiveSession | undefined> {
     const existing = this.sessions.get(sessionId);
-    if (existing) return existing;
+    if (existing) {
+      existing.lastUsedAt = this.now().getTime();
+      return existing;
+    }
     const stored = this.store.loadSession(this.options.workspaceRoot, sessionId);
     if (!stored) {
       this.emitError(sessionId, requestId, 'SESSION_NOT_FOUND', '会话不存在', sink);
@@ -788,7 +945,25 @@ export class WorkerService {
       undefined
   ): Promise<ActiveSession> {
     const cached = this.sessions.get(sessionId);
-    if (cached) return cached;
+    if (cached) {
+      cached.lastUsedAt = this.now().getTime();
+      return cached;
+    }
+    const loading = this.loadingSessions.get(sessionId);
+    if (loading) return loading;
+    const promise = this.initializeRuntime(sessionId, stored);
+    this.loadingSessions.set(sessionId, promise);
+    try {
+      return await promise;
+    } finally {
+      this.loadingSessions.delete(sessionId);
+    }
+  }
+
+  private async initializeRuntime(
+    sessionId: string,
+    stored: ReturnType<HybridSessionStore['loadSession']> | undefined
+  ): Promise<ActiveSession> {
     const handle = this.options.runtimeFactory
       ? await this.options.runtimeFactory()
       : await this.createDefaultRuntime();
@@ -829,10 +1004,16 @@ export class WorkerService {
       id: sessionId,
       nextMessageId:
         Math.max(0, ...(stored?.messages.map((message) => message.id) ?? [])) + 1,
+      lastUsedAt: this.now().getTime(),
+      recentTraces: await loadRecentTraces(handle.tooling.traceStore),
       unsubscribeTrace: () => undefined,
       unsubscribeWorkState: () => undefined
     };
     active.unsubscribeTrace = handle.tooling.traceStore.subscribe((trace) => {
+      active.recentTraces = [
+        ...active.recentTraces.filter((event) => event.id !== trace.id),
+        trace
+      ].slice(-200);
       this.emit(sessionId, { type: 'trace', data: trace });
     });
     active.unsubscribeWorkState = handle.runtime.onWorkStateChanged(() => {
@@ -843,7 +1024,57 @@ export class WorkerService {
       });
     });
     this.sessions.set(sessionId, active);
+    await this.evictSessions(sessionId);
     return active;
+  }
+
+  private async evictSessions(excludeSessionId?: string): Promise<void> {
+    const now = this.now().getTime();
+    const idleMs = this.options.sessionIdleMs ?? 15 * 60_000;
+    const maxSessions = this.options.maxActiveSessions ?? 20;
+    const candidates = [...this.sessions.values()]
+      .filter(
+        (session) =>
+          session.id !== excludeSessionId &&
+          !session.abortController &&
+          !session.runtime.getPendingToolApproval() &&
+          !session.runtime.getPendingModeExecution()
+      )
+      .sort((left, right) => left.lastUsedAt - right.lastUsedAt);
+    for (const session of candidates) {
+      const overLimit = this.sessions.size > maxSessions;
+      const idle = now - session.lastUsedAt >= idleMs;
+      if (!overLimit && !idle) continue;
+      this.sessions.delete(session.id);
+      session.unsubscribeTrace();
+      session.unsubscribeWorkState();
+      await session.tooling.close();
+    }
+  }
+
+  private async currentDiskUsage(): Promise<number> {
+    const interval = this.options.diskCheckIntervalMs ?? 60_000;
+    if (!this.diskUsageCache) return this.refreshDiskUsage();
+    if (this.now().getTime() - this.diskUsageCache.checkedAt >= interval) {
+      void this.refreshDiskUsage().catch(() => undefined);
+    }
+    return this.diskUsageCache.bytes;
+  }
+
+  private refreshDiskUsage(): Promise<number> {
+    if (this.diskUsageRefresh) return this.diskUsageRefresh;
+    this.diskUsageRefresh = this.diskUsageBytes()
+      .then((bytes) => {
+        this.diskUsageCache = {
+          bytes,
+          checkedAt: this.now().getTime()
+        };
+        return bytes;
+      })
+      .finally(() => {
+        this.diskUsageRefresh = undefined;
+      });
+    return this.diskUsageRefresh;
   }
 
   private async createDefaultRuntime(): Promise<RuntimeHandle> {
@@ -877,10 +1108,11 @@ export class WorkerService {
   ): SessionSnapshot {
     return {
       summary,
-      messages,
+      messages: messages.map(sanitizeStoredMessage),
       pendingApproval: session.runtime.getPendingToolApproval(),
       pendingPlan: session.runtime.getPendingModeExecution(),
       todos: session.runtime.getTodoStore()?.list() ?? [],
+      traces: session.recentTraces,
       mode: session.runtime.getSessionMode(),
       model: session.runtime.getLlmClient()?.model,
       thinkingEffort: session.runtime.getThinkingEffort()
@@ -912,16 +1144,23 @@ export class WorkerService {
   private emit(
     sessionId: string | undefined,
     event: ServerEvent,
-    sink?: WorkerEventSink
+    sink?: WorkerEventSink,
+    correlate = true
   ): EventEnvelope {
+    const correlationId =
+      correlate && sink ? this.sinkCorrelations.get(sink) : undefined;
     const envelope = this.journal.append(
       this.options.workspaceId,
       sessionId,
-      event
+      event,
+      correlationId
     );
     sink?.(envelope);
+    const directTarget = sink ? this.sinkTargets.get(sink) : undefined;
     for (const subscriber of this.sinks) {
-      if (subscriber !== sink) subscriber(envelope);
+      if (subscriber !== sink && subscriber !== directTarget) {
+        subscriber(envelope);
+      }
     }
     return envelope;
   }
@@ -939,6 +1178,29 @@ export class WorkerService {
       sink
     );
   }
+}
+
+async function loadRecentTraces(
+  traceStore: AgentHostTooling['traceStore']
+): Promise<TraceEvent[]> {
+  try {
+    const runIds = (await traceStore.listRunIds()).slice(-20);
+    const runs = await Promise.all(
+      runIds.map((runId) => traceStore.readRun(runId))
+    );
+    return runs.flat().slice(-200);
+  } catch {
+    return [];
+  }
+}
+
+function sanitizeStoredMessage(
+  message: StoredSessionMessage
+): SessionSnapshot['messages'][number] {
+  const parsed = storedMessageSchema.safeParse(message);
+  if (parsed.success) return parsed.data;
+  const { tool: _tool, verification: _verification, ...legacy } = message;
+  return storedMessageSchema.parse(legacy);
 }
 
 export function createWorkerCommand(

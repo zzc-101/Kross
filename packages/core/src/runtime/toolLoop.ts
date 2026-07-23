@@ -310,7 +310,7 @@ export class RuntimeToolLoop {
       throwIfAborted(input.signal);
     const toolMessage = input.approved
       ? await this.executeApprovedToolCall(session, input.signal)
-      : await this.createRejectedToolMessage(session);
+      : await this.createRejectedToolMessage(session, input.reason);
     throwIfAborted(input.signal);
 
     if (toolMessage.role === 'tool') {
@@ -855,12 +855,17 @@ export class RuntimeToolLoop {
   }
 
   private async createRejectedToolMessage(
-    session: PendingToolSession
+    session: PendingToolSession,
+    reason?: string
   ): Promise<LlmMessage> {
-    const content = `Tool ${session.call.name} rejected by user.`;
+    const normalizedReason = reason?.trim();
+    const content = normalizedReason
+      ? `Tool ${session.call.name} rejected by user. User feedback: ${normalizedReason}`
+      : `Tool ${session.call.name} rejected by user.`;
     await this.options.record(session.runId, 'tool_call.rejected', {
       toolName: session.call.name,
       toolCallId: session.call.id,
+      ...(normalizedReason ? { reason: normalizedReason } : {}),
       input: this.options.toolGateway!.formatInputForTrace(
         session.call.name,
         session.call.input
@@ -868,7 +873,9 @@ export class RuntimeToolLoop {
     });
     await this.options.completeVerificationObservation(session.runId, {
       force: true,
-      reason: `Tool ${session.call.name} was rejected by the user.`
+      reason: normalizedReason
+        ? `Tool ${session.call.name} was rejected by the user: ${normalizedReason}`
+        : `Tool ${session.call.name} was rejected by the user.`
     });
 
     return {
@@ -883,12 +890,24 @@ export class RuntimeToolLoop {
     session: PendingToolSession,
     error: ToolPermissionError
   ): Promise<AgentResult> {
+    const input =
+      session.call.input && typeof session.call.input === 'object'
+        ? session.call.input as Record<string, unknown>
+        : {};
     const pendingApproval: PendingToolApproval = {
       runId: session.runId,
       toolCallId: session.call.id,
       toolName: session.call.name,
       risk: error.risk,
       reason: error.reason,
+      ...(typeof input.command === 'string'
+        ? { command: input.command }
+        : {}),
+      ...(typeof input.cwd === 'string'
+        ? { workDir: input.cwd }
+        : typeof input.workDir === 'string'
+          ? { workDir: input.workDir }
+          : {}),
       inputPreview: formatToolInputPreview(
         session.call.name,
         session.call.input,

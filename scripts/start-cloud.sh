@@ -92,7 +92,7 @@ wait_for_gateway() {
 
   attempt=0
   while [ "$attempt" -lt 30 ]; do
-    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/"; then
+    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/healthz"; then
       return 0
     fi
     attempt=$((attempt + 1))

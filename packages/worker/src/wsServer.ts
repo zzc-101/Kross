@@ -12,11 +12,14 @@ export interface WorkerWsServerOptions {
   host?: string;
   port?: number;
   internalToken: string;
+  heartbeatMs?: number;
 }
 
 export class WorkerWsServer {
   private readonly http: Server;
   private readonly ws: WebSocketServer;
+  private readonly alive = new WeakSet<WebSocket>();
+  private readonly heartbeat: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly service: WorkerService,
@@ -39,6 +42,17 @@ export class WorkerWsServer {
       });
     });
     this.ws.on('connection', (client) => this.connect(client));
+    this.heartbeat = setInterval(() => {
+      for (const client of this.ws.clients) {
+        if (!this.alive.has(client)) {
+          client.terminate();
+          continue;
+        }
+        this.alive.delete(client);
+        client.ping();
+      }
+    }, options.heartbeatMs ?? 20_000);
+    this.heartbeat.unref();
   }
 
   async listen(): Promise<void> {
@@ -53,6 +67,7 @@ export class WorkerWsServer {
   }
 
   async close(): Promise<void> {
+    clearInterval(this.heartbeat);
     for (const client of this.ws.clients) client.close(1001, 'server shutdown');
     await new Promise<void>((resolve) => this.ws.close(() => resolve()));
     await new Promise<void>((resolve, reject) =>
@@ -62,6 +77,8 @@ export class WorkerWsServer {
   }
 
   private connect(client: WebSocket): void {
+    this.alive.add(client);
+    client.on('pong', () => this.alive.add(client));
     const sink = (event: EventEnvelope) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(event));

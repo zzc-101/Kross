@@ -2,20 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   diffLineKind,
-  parseDiffInspection,
   traceRunIds
 } from './inspection';
 
 describe('inspection helpers', () => {
-  it('splits diff summaries from patches', () => {
-    expect(
-      parseDiffInspection('Diff\nrun: r1\n\n--- KROSS PATCH ---\n@@ -1 +1 @@\n-old\n+new')
-    ).toEqual({
-      summary: 'Diff\nrun: r1',
-      patch: '@@ -1 +1 @@\n-old\n+new'
-    });
-  });
-
   it('extracts safe run ids from trace lists and details', () => {
     expect(
       traceRunIds('1. run-1 completed\n2. run_2 failed\nTrace: run-1')

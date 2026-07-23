@@ -2,7 +2,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { PROTOCOL_VERSION, type ClientCommand } from '@kross/protocol';
+import {
+  PROTOCOL_VERSION,
+  type ClientCommand,
+  type EventEnvelope
+} from '@kross/protocol';
 import { describe, expect, it } from 'vitest';
 
 import type {
@@ -22,7 +26,10 @@ class FakeOrchestrator implements ContainerOrchestrator {
   removedManaged: string[] = [];
   recreated: Array<{ id: string; start: boolean }> = [];
   configuredEnvironment?: Record<string, string | undefined>;
-  states = new Map<string, { exists: boolean; running: boolean }>();
+  states = new Map<
+    string,
+    { exists: boolean; running: boolean; needsRecreate?: boolean }
+  >();
   managed: Array<{
     workspaceId: string;
     containerName: string;
@@ -54,6 +61,7 @@ class FakeOrchestrator implements ContainerOrchestrator {
   async inspect(record: WorkspaceRecord): Promise<{
     exists: boolean;
     running: boolean;
+    needsRecreate?: boolean;
   }> {
     return this.states.get(record.workspace.id) ??
       { exists: true, running: true };
@@ -83,7 +91,7 @@ describe('GatewayService', () => {
     const registry = new WorkspaceRegistry(join(root, 'workspaces.json'));
     const orchestrator = new FakeOrchestrator();
     const gateway = new GatewayService(registry, orchestrator);
-    const events: Parameters<Parameters<typeof gateway.handle>[1]>[0][] = [];
+    const events: EventEnvelope[] = [];
 
     await gateway.handle(
       {
@@ -212,6 +220,34 @@ describe('GatewayService', () => {
     expect(registry.get('w1')?.workspace.status).toBe('stopped');
   });
 
+  it('recreates a worker that uses a stale image or shared network', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-migrate-worker-'));
+    const registry = new WorkspaceRegistry(join(root, 'workspaces.json'));
+    const orchestrator = new FakeOrchestrator();
+    registry.put({
+      workspace: {
+        id: 'w1',
+        name: 'demo',
+        gitUrl: 'https://example.com/repo.git',
+        status: 'stopped',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      },
+      containerName: 'c1',
+      volumeName: 'v1',
+      workerToken: 'token'
+    });
+    orchestrator.states.set('w1', {
+      exists: true,
+      running: false,
+      needsRecreate: true
+    });
+    const gateway = new GatewayService(registry, orchestrator);
+
+    await gateway.reconcileWorkspaces();
+    expect(orchestrator.recreated).toEqual([{ id: 'w1', start: false }]);
+  });
+
   it('applies saved provider configuration and optionally rebuilds workers', async () => {
     const root = mkdtempSync(join(tmpdir(), 'kross-configure-'));
     const registry = new WorkspaceRegistry(join(root, 'workspaces.json'));
@@ -287,5 +323,37 @@ describe('GatewayService', () => {
 
     expect(await reaper.sweep()).toEqual(['w1']);
     expect(registry.get('w1')?.workspace.status).toBe('stopped');
+  });
+
+  it('does not reap a workspace with an active run', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-reaper-busy-'));
+    const registry = new WorkspaceRegistry(join(root, 'workspaces.json'));
+    const orchestrator = new FakeOrchestrator();
+    registry.put({
+      workspace: {
+        id: 'w1',
+        name: 'busy',
+        gitUrl: 'https://example.com/repo.git',
+        status: 'ready',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        lastActiveAt: '2026-01-01T00:00:00.000Z'
+      },
+      containerName: 'c1',
+      volumeName: 'v1',
+      workerToken: 'token'
+    });
+    const reaper = new IdleWorkspaceReaper(
+      registry,
+      orchestrator,
+      60_000,
+      10_000,
+      () => Date.parse('2026-01-01T00:02:00.000Z'),
+      async () => true
+    );
+
+    expect(await reaper.sweep()).toEqual([]);
+    expect(registry.get('w1')?.workspace.status).toBe('ready');
+    expect(orchestrator.stopped).toEqual([]);
   });
 });

@@ -1,19 +1,3 @@
-const PATCH_MARKER = '--- KROSS PATCH ---';
-
-export interface ParsedDiffInspection {
-  summary: string;
-  patch?: string;
-}
-
-export function parseDiffInspection(content: string): ParsedDiffInspection {
-  const markerIndex = content.indexOf(PATCH_MARKER);
-  if (markerIndex === -1) return { summary: content.trim() };
-  return {
-    summary: content.slice(0, markerIndex).trim(),
-    patch: content.slice(markerIndex + PATCH_MARKER.length).trim()
-  };
-}
-
 export function traceRunIds(content: string): string[] {
   const ids = new Set<string>();
   for (const line of content.split('\n')) {

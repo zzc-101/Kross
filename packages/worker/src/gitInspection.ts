@@ -2,8 +2,13 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const PATCH_MARKER = '--- KROSS PATCH ---';
 const MAX_PATCH_LENGTH = 512 * 1024;
+
+export interface StructuredGitInspection {
+  kind: 'diff';
+  summary: string;
+  patches: Array<{ staged: boolean; patch: string }>;
+}
 
 export type GitInspectionRunner = (
   args: string[],
@@ -19,11 +24,11 @@ const defaultRunner: GitInspectionRunner = async (args, cwd) => {
   return { stdout: result.stdout, stderr: result.stderr };
 };
 
-export async function appendGitPatch(
+export async function inspectGitDiff(
   workspaceRoot: string,
   summary: string,
   runGit: GitInspectionRunner = defaultRunner
-): Promise<string> {
+): Promise<StructuredGitInspection> {
   try {
     const [unstaged, staged] = await Promise.all([
       runGit(['diff', '--no-ext-diff', '--unified=3', '--'], workspaceRoot),
@@ -32,19 +37,22 @@ export async function appendGitPatch(
         workspaceRoot
       )
     ]);
-    const sections = [
-      unstaged.stdout.trim()
-        ? `# 未暂存变更\n${unstaged.stdout.trim()}`
-        : '',
-      staged.stdout.trim()
-        ? `# 已暂存变更\n${staged.stdout.trim()}`
-        : ''
-    ].filter(Boolean);
-    const patch = sections.join('\n\n') || '(没有可显示的 Git patch)';
-    return `${summary}\n\n${PATCH_MARKER}\n${capPatch(patch)}`;
+    const patches = [
+      ...(unstaged.stdout.trim()
+        ? [{ staged: false, patch: capPatch(unstaged.stdout.trim()) }]
+        : []),
+      ...(staged.stdout.trim()
+        ? [{ staged: true, patch: capPatch(staged.stdout.trim()) }]
+        : [])
+    ];
+    return { kind: 'diff', summary, patches };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return `${summary}\n\n${PATCH_MARKER}\n(Git patch 读取失败：${message})`;
+    return {
+      kind: 'diff',
+      summary: `${summary}\n\nGit patch 读取失败：${message}`,
+      patches: []
+    };
   }
 }
 

@@ -2,6 +2,7 @@ import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './App';
+import { httpEndpoint } from './cloudClient';
 import { fetchSetupStatus } from './setupApi';
 import { initializePwa } from './pwa';
 import './styles.css';
@@ -12,9 +13,14 @@ function Root() {
   const [token, setToken] = useState(() => localStorage.getItem('kross.token') ?? '');
   const [endpoint, setEndpoint] = useState(() => {
     const saved = localStorage.getItem('kross.endpoint');
-    if (saved) return saved;
-    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${scheme}//${location.host}/ws`;
+    if (saved) {
+      const migrated = httpEndpoint(saved);
+      if (migrated !== saved) {
+        localStorage.setItem('kross.endpoint', migrated);
+      }
+      return migrated;
+    }
+    return `${location.protocol}//${location.host}`;
   });
   const [loginError, setLoginError] = useState<string>();
   const [connecting, setConnecting] = useState(false);

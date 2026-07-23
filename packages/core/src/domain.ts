@@ -115,6 +115,8 @@ export const pendingToolApprovalSchema = z.object({
   toolName: z.string().min(1),
   risk: z.string().min(1),
   reason: z.string().optional(),
+  command: z.string().optional(),
+  workDir: z.string().optional(),
   inputPreview: z.string()
 });
 export type PendingToolApproval = z.infer<typeof pendingToolApprovalSchema>;

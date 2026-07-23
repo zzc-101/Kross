@@ -4,7 +4,7 @@ import type {
   CloudWorkspace,
   WorkspaceProgress
 } from '@kross/protocol';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { memo, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { SetupPanel } from './SetupPanel';
 import { ActionDialog, type DialogAction } from './OperationDialog';
@@ -169,6 +169,12 @@ export function App({ endpoint, token, onLogout }: AppProps) {
         sessionId: action.sessionId,
         title: action.title.trim()
       });
+    } else if (action.kind === 'delete-session' && state.workspaceId) {
+      client.send({
+        type: 'session.delete',
+        workspaceId: state.workspaceId,
+        sessionId: action.sessionId
+      });
     } else if (
       action.kind === 'model' &&
       state.workspaceId &&
@@ -324,6 +330,20 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                 >
                   ✎
                 </button>
+                <button
+                  className="session-delete"
+                  aria-label={`删除会话 ${session.title}`}
+                  title="删除"
+                  onClick={() =>
+                    setDialogAction({
+                      kind: 'delete-session',
+                      sessionId: session.id,
+                      title: session.title
+                    })
+                  }
+                >
+                  ×
+                </button>
               </div>
             ))}
             {visibleSessions.length === 0 && (
@@ -384,7 +404,8 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                   {'Notification' in window && <button className="desktop-action" onClick={() => void enableNotifications()}>通知</button>}
                   <button onClick={() => setDialogAction({
                     kind: 'model',
-                    model: state.snapshot?.model ?? ''
+                    model: state.snapshot?.model ?? state.models[0]?.id ?? '',
+                    options: state.models.map((model) => model.id)
                   })}>模型</button>
                   <select
                     value={state.snapshot.thinkingEffort ?? 'off'}
@@ -428,15 +449,22 @@ export function App({ endpoint, token, onLogout }: AppProps) {
               {state.snapshot.pendingApproval && (
                 <ApprovalCard
                   title={`${state.snapshot.pendingApproval.toolName} 请求执行`}
-                  detail={state.snapshot.pendingApproval.inputPreview}
+                  detail={[
+                    state.snapshot.pendingApproval.command,
+                    state.snapshot.pendingApproval.workDir
+                      ? `工作目录：${state.snapshot.pendingApproval.workDir}`
+                      : undefined,
+                    state.snapshot.pendingApproval.inputPreview
+                  ].filter(Boolean).join('\n\n')}
                   risk={state.snapshot.pendingApproval.risk}
-                  onChoose={(approved) =>
+                  onChoose={(approved, reason) =>
                     client.send({
                       type: 'session.approval',
                       workspaceId: state.workspaceId!,
                       sessionId: state.snapshot!.summary.id,
                       runId: state.snapshot!.pendingApproval!.runId,
-                      approved
+                      approved,
+                      reason
                     })
                   }
                 />
@@ -467,7 +495,11 @@ export function App({ endpoint, token, onLogout }: AppProps) {
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
+                    if (
+                      event.key === 'Enter' &&
+                      !event.shiftKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
                       event.preventDefault();
                       event.currentTarget.form?.requestSubmit();
                     }
@@ -553,8 +585,7 @@ export function App({ endpoint, token, onLogout }: AppProps) {
 
       {state.inspection && (
         <InspectionPanel
-          kind={state.inspection.kind}
-          content={state.inspection.content}
+          inspection={state.inspection}
           onInspect={inspect}
           onClose={cloud.clearInspection}
         />
@@ -607,14 +638,19 @@ export function App({ endpoint, token, onLogout }: AppProps) {
           onClose={() => setDialogAction(undefined)}
         />
       )}
-      {state.error && (
-        <button
-          className="toast"
-          role="alert"
-          onClick={cloud.clearError}
-        >
-          {state.error}
-        </button>
+      {state.errors.length > 0 && (
+        <div className="toast-stack" aria-live="assertive">
+          {state.errors.map((error) => (
+            <button
+              className="toast"
+              role="alert"
+              key={error.id}
+              onClick={() => cloud.clearError(error.id)}
+            >
+              {error.message}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -622,7 +658,7 @@ export function App({ endpoint, token, onLogout }: AppProps) {
 
 type SessionThinkingEffort = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
-function Message({ message }: { message: UiMessage }) {
+const Message = memo(function Message({ message }: { message: UiMessage }) {
   return (
     <article className={`message ${message.from}`}>
       <label>{message.from === 'user' ? '你' : message.from === 'thinking' ? '思考' : 'Kross'}</label>
@@ -631,7 +667,7 @@ function Message({ message }: { message: UiMessage }) {
       ) : <ReactMarkdown>{message.text}</ReactMarkdown>}
     </article>
   );
-}
+});
 
 function ToolCard({
   type,
@@ -707,9 +743,20 @@ function ApprovalCard(props: {
   title: string;
   detail: string;
   risk: string;
-  onChoose: (approved: boolean) => void;
+  onChoose: (approved: boolean, reason?: string) => void;
 }) {
   const risk = riskPresentation(props.risk);
+  const [processing, setProcessing] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState('');
+  const choose = (approved: boolean) => {
+    if (!approved && !rejecting) {
+      setRejecting(true);
+      return;
+    }
+    setProcessing(true);
+    props.onChoose(approved, approved ? undefined : reason.trim() || undefined);
+  };
   return (
     <section
       className={`approval risk-${risk.level}`}
@@ -724,11 +771,27 @@ function ApprovalCard(props: {
         </div>
         <p>{risk.description}</p>
         <pre>{props.detail}</pre>
+        {rejecting && (
+          <textarea
+            aria-label="拒绝原因"
+            placeholder="可选：告诉 Agent 应该如何调整"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            disabled={processing}
+            rows={2}
+          />
+        )}
       </div>
       <div className="approval-actions">
-        <button onClick={() => props.onChoose(false)}>拒绝</button>
-        <button className="primary" onClick={() => props.onChoose(true)}>
-          仅批准这一次
+        <button disabled={processing} onClick={() => choose(false)}>
+          {rejecting ? '确认拒绝' : '拒绝'}
+        </button>
+        <button
+          className="primary"
+          disabled={processing}
+          onClick={() => choose(true)}
+        >
+          {processing ? '处理中…' : '仅批准这一次'}
         </button>
       </div>
     </section>
@@ -1095,7 +1158,10 @@ function verificationLabel(
 }
 
 function connectionLabel(state: string): string {
-  return state === 'online' ? '已连接' : state === 'connecting' ? '连接中' : '正在重连';
+  if (state === 'online') return '已连接';
+  if (state === 'connecting') return '连接中';
+  if (state === 'outdated') return '客户端版本过旧，请更新';
+  return '正在重连';
 }
 
 function decodeVapidKey(value: string): ArrayBuffer {

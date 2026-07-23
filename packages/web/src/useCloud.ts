@@ -8,6 +8,7 @@ import {
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 
 import { CloudClient, type ConnectionState } from './cloudClient';
+import { checkForPwaUpdate } from './pwa';
 
 export interface UiMessage {
   id: string;
@@ -20,30 +21,40 @@ export interface UiMessage {
 interface CloudState {
   workspaces: CloudWorkspace[];
   workspaceId?: string;
+  activeSessionId?: string;
+  pendingSessionCreateRequestId?: string;
   sessions: SessionSnapshot['summary'][];
+  models: Array<{ id: string; label: string; provider: string }>;
   snapshot?: SessionSnapshot;
   messages: UiMessage[];
   traces: Array<{ id: string; type: string; payload: Record<string, unknown> }>;
-  inspection?: { kind: 'trace' | 'diff'; content: string };
+  inspection?: Extract<
+    EventEnvelope['event'],
+    { type: 'inspection.result' }
+  >['data'];
   workspaceProgress?: WorkspaceProgress;
   lastResult?: AgentResult;
-  error?: string;
+  errors: Array<{ id: string; message: string }>;
   running: boolean;
 }
 
 type Action =
   | { type: 'event'; envelope: EventEnvelope }
   | { type: 'select-workspace'; id: string }
+  | { type: 'select-session'; id: string }
+  | { type: 'creating-session'; requestId: string }
   | { type: 'optimistic-user'; text: string }
-  | { type: 'clear-error' }
+  | { type: 'clear-error'; id: string }
   | { type: 'clear-inspection' }
   | { type: 'clear-workspace-progress' };
 
 const initialState: CloudState = {
   workspaces: [],
   sessions: [],
+  models: [],
   messages: [],
   traces: [],
+  errors: [],
   running: false
 };
 
@@ -52,11 +63,29 @@ function reducer(state: CloudState, action: Action): CloudState {
     return {
       ...state,
       workspaceId: action.id,
+      activeSessionId: undefined,
+      pendingSessionCreateRequestId: undefined,
       sessions: [],
       snapshot: undefined,
       messages: [],
       traces: [],
       lastResult: undefined
+    };
+  }
+  if (action.type === 'select-session') {
+    return {
+      ...state,
+      activeSessionId: action.id,
+      snapshot: undefined,
+      messages: [],
+      traces: [],
+      lastResult: undefined
+    };
+  }
+  if (action.type === 'creating-session') {
+    return {
+      ...state,
+      pendingSessionCreateRequestId: action.requestId
     };
   }
   if (action.type === 'optimistic-user') {
@@ -74,7 +103,12 @@ function reducer(state: CloudState, action: Action): CloudState {
       ]
     };
   }
-  if (action.type === 'clear-error') return { ...state, error: undefined };
+  if (action.type === 'clear-error') {
+    return {
+      ...state,
+      errors: state.errors.filter((error) => error.id !== action.id)
+    };
+  }
   if (action.type === 'clear-inspection') {
     return { ...state, inspection: undefined };
   }
@@ -97,6 +131,17 @@ function reducer(state: CloudState, action: Action): CloudState {
     };
   }
   const { event } = action.envelope;
+  if (
+    action.envelope.sessionId &&
+    event.type !== 'session.updated' &&
+    action.envelope.sessionId !== state.activeSessionId &&
+    !(
+      event.type === 'session.snapshot' &&
+      action.envelope.correlationId === state.pendingSessionCreateRequestId
+    )
+  ) {
+    return state;
+  }
   switch (event.type) {
     case 'workspace.list':
       return {
@@ -115,6 +160,8 @@ function reducer(state: CloudState, action: Action): CloudState {
       return { ...state, workspaceProgress: event.data };
     case 'session.list':
       return { ...state, sessions: event.data };
+    case 'models.list':
+      return { ...state, models: event.data };
     case 'session.updated': {
       const sessions = [
         event.data,
@@ -127,6 +174,24 @@ function reducer(state: CloudState, action: Action): CloudState {
           state.snapshot?.summary.id === event.data.id
             ? { ...state.snapshot, summary: event.data }
             : state.snapshot
+      };
+    }
+    case 'session.deleted': {
+      const isActive = state.activeSessionId === event.data.sessionId;
+      return {
+        ...state,
+        sessions: state.sessions.filter(
+          (session) => session.id !== event.data.sessionId
+        ),
+        ...(isActive
+          ? {
+              activeSessionId: undefined,
+              snapshot: undefined,
+              messages: [],
+              traces: [],
+              lastResult: undefined
+            }
+          : {})
       };
     }
     case 'session.snapshot':
@@ -146,12 +211,19 @@ function reducer(state: CloudState, action: Action): CloudState {
       return {
         ...state,
         workspaceId: action.envelope.workspaceId,
+        activeSessionId: action.envelope.sessionId,
+        pendingSessionCreateRequestId: undefined,
         snapshot: event.data,
         sessions: [
           event.data.summary,
           ...state.sessions.filter((session) => session.id !== event.data.summary.id)
         ],
         messages: [...persistedMessages, ...unpersistedMessages],
+        traces: event.data.traces.map((trace) => ({
+          id: trace.id,
+          type: trace.type,
+          payload: trace.payload
+        })),
         running: false
       };
     case 'stream':
@@ -162,7 +234,7 @@ function reducer(state: CloudState, action: Action): CloudState {
         traces: [
           ...state.traces.filter((trace) => trace.id !== event.data.id),
           event.data
-        ]
+        ].slice(-200)
       };
     case 'approval.pending':
       return {
@@ -194,7 +266,21 @@ function reducer(state: CloudState, action: Action): CloudState {
         ]
       };
     case 'request.error':
-      return { ...state, running: false, error: event.message };
+      const errorId =
+        action.envelope.correlationId ??
+        event.requestId ??
+        crypto.randomUUID();
+      return {
+        ...state,
+        running: false,
+        errors: [
+          ...state.errors.filter((error) => error.id !== errorId),
+          {
+            id: errorId,
+            message: event.message
+          }
+        ].slice(-5)
+      };
     default:
       return state;
   }
@@ -266,17 +352,44 @@ function applyStream(
 }
 
 export function useCloud(endpoint: string, token: string) {
-  const client = useMemo(() => new CloudClient(endpoint, token), [endpoint, token]);
+  const client = useMemo(
+    () =>
+      new CloudClient(endpoint, token, {
+        onProtocolMismatch: () => void checkForPwaUpdate()
+      }),
+    [endpoint, token]
+  );
   const [state, dispatch] = useReducer(reducer, initialState);
   const [connection, setConnection] = useState<ConnectionState>('connecting');
 
   useEffect(() => {
-    const offEvent = client.onEvent((event) => dispatch({ type: 'event', envelope: event }));
+    let pendingDelta: EventEnvelope | undefined;
+    let animationFrame: number | undefined;
+    const flushDelta = () => {
+      animationFrame = undefined;
+      if (!pendingDelta) return;
+      dispatch({ type: 'event', envelope: pendingDelta });
+      pendingDelta = undefined;
+    };
+    const offEvent = client.onEvent((event) => {
+      if (isStreamDelta(event)) {
+        const merged = pendingDelta
+          ? mergeStreamDeltas(pendingDelta, event)
+          : undefined;
+        if (pendingDelta && !merged) flushDelta();
+        pendingDelta = merged ?? event;
+        animationFrame ??= requestAnimationFrame(flushDelta);
+        return;
+      }
+      flushDelta();
+      dispatch({ type: 'event', envelope: event });
+    });
     const offState = client.onState(setConnection);
     client.connect();
     return () => {
       offEvent();
       offState();
+      if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
       client.close();
     };
   }, [client]);
@@ -286,6 +399,7 @@ export function useCloud(endpoint: string, token: string) {
       client.clearActiveSession();
       dispatch({ type: 'select-workspace', id: workspaceId });
       client.send({ type: 'session.list', workspaceId, limit: 50 });
+      client.send({ type: 'models.list', workspaceId });
     },
     [client]
   );
@@ -293,6 +407,7 @@ export function useCloud(endpoint: string, token: string) {
   const resumeSession = useCallback(
     (workspaceId: string, sessionId: string) => {
       client.setActiveSession(workspaceId, sessionId);
+      dispatch({ type: 'select-session', id: sessionId });
       client.send({ type: 'session.resume', workspaceId, sessionId, lastSeq: 0 });
     },
     [client]
@@ -300,7 +415,8 @@ export function useCloud(endpoint: string, token: string) {
 
   const createSession = useCallback(
     (workspaceId: string) => {
-      client.send({ type: 'session.create', workspaceId });
+      const requestId = client.send({ type: 'session.create', workspaceId });
+      dispatch({ type: 'creating-session', requestId });
     },
     [client]
   );
@@ -331,9 +447,48 @@ export function useCloud(endpoint: string, token: string) {
     resumeSession,
     createSession,
     sendInput,
-    clearError: () => dispatch({ type: 'clear-error' }),
+    clearError: (id: string) => dispatch({ type: 'clear-error', id }),
     clearInspection: () => dispatch({ type: 'clear-inspection' }),
     clearWorkspaceProgress: () =>
       dispatch({ type: 'clear-workspace-progress' })
+  };
+}
+
+function isStreamDelta(envelope: EventEnvelope): boolean {
+  return (
+    envelope.event.type === 'stream' &&
+    (
+      envelope.event.data.type === 'text-delta' ||
+      envelope.event.data.type === 'thinking-delta'
+    )
+  );
+}
+
+function mergeStreamDeltas(
+  previous: EventEnvelope,
+  next: EventEnvelope
+): EventEnvelope | undefined {
+  if (
+    previous.workspaceId !== next.workspaceId ||
+    previous.sessionId !== next.sessionId ||
+    previous.event.type !== 'stream' ||
+    next.event.type !== 'stream' ||
+    (
+      previous.event.data.type !== 'text-delta' &&
+      previous.event.data.type !== 'thinking-delta'
+    ) ||
+    previous.event.data.type !== next.event.data.type
+  ) {
+    return undefined;
+  }
+  return {
+    ...next,
+    event: {
+      type: 'stream',
+      data: {
+        ...next.event.data,
+        text: previous.event.data.text + next.event.data.text
+      }
+    }
   };
 }

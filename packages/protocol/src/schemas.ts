@@ -27,6 +27,8 @@ export const pendingToolApprovalSchema = z.object({
   toolName: identifierSchema,
   risk: identifierSchema,
   reason: z.string().optional(),
+  command: z.string().optional(),
+  workDir: z.string().optional(),
   inputPreview: z.string()
 });
 const verificationSchema = z.object({
@@ -94,6 +96,45 @@ export const sessionSummarySchema = z.object({
   messageCount: z.number().int().nonnegative()
 });
 
+const toolCallStatusSchema = z.enum([
+  'running',
+  'completed',
+  'failed',
+  'denied',
+  'cancelled',
+  'awaiting'
+]);
+const toolCallItemSchema = z.object({
+  callId: z.string().optional(),
+  path: z.string().optional(),
+  preview: z.string().optional(),
+  status: toolCallStatusSchema,
+  summary: z.string().optional(),
+  durationMs: z.number().nonnegative().optional(),
+  linesAdded: z.number().int().nonnegative().optional(),
+  linesRemoved: z.number().int().nonnegative().optional()
+});
+export const storedToolCallSchema = z.object({
+  callId: z.string().optional(),
+  name: z.string().min(1),
+  risk: z.string().optional(),
+  status: toolCallStatusSchema,
+  summary: z.string().optional(),
+  inputPreview: z.string().optional(),
+  durationMs: z.number().nonnegative().optional(),
+  linesAdded: z.number().int().nonnegative().optional(),
+  linesRemoved: z.number().int().nonnegative().optional(),
+  detailLines: z.array(
+    z.object({
+      text: z.string(),
+      op: z.enum(['add', 'del', 'meta', 'ctx']).optional(),
+      lineNo: z.number().int().positive().optional()
+    })
+  ).optional(),
+  detailTruncated: z.boolean().optional(),
+  items: z.array(toolCallItemSchema).optional()
+});
+
 export const storedMessageSchema = z.object({
   id: z.number().int().nonnegative(),
   from: z.enum(['user', 'agent', 'system', 'tool', 'thinking']),
@@ -101,8 +142,8 @@ export const storedMessageSchema = z.object({
   createdAt: z.string().datetime().optional(),
   durationMs: z.number().nonnegative().optional(),
   expanded: z.boolean().optional(),
-  tool: z.unknown().optional(),
-  verification: z.unknown().optional()
+  tool: storedToolCallSchema.optional(),
+  verification: verificationSchema.optional()
 });
 
 export const streamEventSchema = z.discriminatedUnion('type', [
@@ -144,6 +185,7 @@ export const sessionSnapshotSchema = z.object({
       status: z.enum(['pending', 'in_progress', 'completed', 'cancelled'])
     })
   ),
+  traces: z.array(traceEventSchema).default([]),
   mode: agentModeSchema,
   model: z.string().optional(),
   thinkingEffort: thinkingEffortSchema.optional()
@@ -182,6 +224,12 @@ export const clientCommandSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     ...commandBase,
+    type: z.literal('session.delete'),
+    workspaceId: identifierSchema,
+    sessionId: identifierSchema
+  }),
+  z.object({
+    ...commandBase,
     type: z.literal('session.input'),
     workspaceId: identifierSchema,
     sessionId: identifierSchema,
@@ -195,7 +243,8 @@ export const clientCommandSchema = z.discriminatedUnion('type', [
     workspaceId: identifierSchema,
     sessionId: identifierSchema,
     runId: identifierSchema,
-    approved: z.boolean()
+    approved: z.boolean(),
+    reason: z.string().trim().max(2000).optional()
   }),
   z.object({
     ...commandBase,
@@ -253,6 +302,16 @@ export const clientCommandSchema = z.discriminatedUnion('type', [
   z.object({
     ...commandBase,
     type: z.literal('workspace.stop'),
+    workspaceId: identifierSchema
+  }),
+  z.object({
+    ...commandBase,
+    type: z.literal('workspace.status'),
+    workspaceId: identifierSchema
+  }),
+  z.object({
+    ...commandBase,
+    type: z.literal('models.list'),
     workspaceId: identifierSchema
   }),
   z.object({
@@ -319,8 +378,29 @@ export const serverEventSchema = z.discriminatedUnion('type', [
     type: z.literal('session.updated'),
     data: sessionSummarySchema
   }),
+  z.object({
+    type: z.literal('session.deleted'),
+    data: z.object({ sessionId: identifierSchema })
+  }),
   z.object({ type: z.literal('workspace.list'), data: z.array(workspaceSchema) }),
   z.object({ type: z.literal('workspace.updated'), data: workspaceSchema }),
+  z.object({
+    type: z.literal('workspace.runtime-status'),
+    data: z.object({
+      activeRuns: z.number().int().nonnegative(),
+      loadedSessions: z.number().int().nonnegative()
+    })
+  }),
+  z.object({
+    type: z.literal('models.list'),
+    data: z.array(
+      z.object({
+        id: z.string().min(1),
+        label: z.string().min(1),
+        provider: z.string().min(1)
+      })
+    )
+  }),
   z.object({
     type: z.literal('workspace.progress'),
     data: z.object({
@@ -346,10 +426,19 @@ export const serverEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('inspection.result'),
-    data: z.object({
-      kind: z.enum(['trace', 'diff']),
-      content: z.string()
-    })
+    data: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('trace'), content: z.string() }),
+      z.object({
+        kind: z.literal('diff'),
+        summary: z.string(),
+        patches: z.array(
+          z.object({
+            staged: z.boolean(),
+            patch: z.string()
+          })
+        )
+      })
+    ])
   }),
   z.object({
     type: z.literal('replay.complete'),
@@ -360,8 +449,10 @@ export const serverEventSchema = z.discriminatedUnion('type', [
 
 export const eventEnvelopeSchema = z.object({
   protocolVersion: protocolVersionSchema,
+  source: z.enum(['gateway', 'worker']).optional(),
   workspaceId: identifierSchema,
   sessionId: identifierSchema.optional(),
+  correlationId: identifierSchema.optional(),
   seq: z.number().int().nonnegative(),
   timestamp: z.string().datetime(),
   event: serverEventSchema

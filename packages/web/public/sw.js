@@ -1,4 +1,4 @@
-const CACHE = 'kross-cloud-v2';
+const CACHE = 'kross-cloud-v3';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -27,8 +27,7 @@ self.addEventListener('fetch', (event) => {
   if (
     event.request.method !== 'GET' ||
     url.origin !== self.location.origin ||
-    url.pathname.startsWith('/api') ||
-    url.pathname === '/ws'
+    url.pathname.startsWith('/api')
   ) {
     return;
   }

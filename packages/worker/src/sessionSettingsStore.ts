@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync
 } from 'node:fs';
 import { join } from 'node:path';
@@ -50,6 +51,10 @@ export class SessionSettingsStore {
     });
     renameSync(temporary, path);
     return settings;
+  }
+
+  delete(sessionId: string): void {
+    rmSync(this.pathFor(sessionId), { force: true });
   }
 
   private pathFor(sessionId: string): string {
