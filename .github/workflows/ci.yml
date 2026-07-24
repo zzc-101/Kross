@@ -37,8 +37,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test -- --run
-      - run: npm run build:bundle
-      - run: npm run build:cloud
+      - run: npm run docs:check
+      - run: npm run build:cli
+      - run: npm run build:web
 
   package:
     name: Package smoke test

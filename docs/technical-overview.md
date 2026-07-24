@@ -1,370 +1,177 @@
 # Kross 技术概览
 
-一个本地优先的交互式 agent runtime。当前实现已经覆盖主 Agent 完成质量闭环、可恢复运行和带最终 diff 验收的多 worker 编排。
+Kross 是本地优先的 TypeScript 编程 Agent。Core 提供与界面无关的运行时，TUI
+直接在本机消费 Core；Cloud Worker 在容器内消费同一个 Core，Web 通过 Gateway
+与 Worker 通信。
 
-## 当前能力
+本文只描述当前实现和长期架构边界。安装、配置与命令用法分别见
+[快速上手](getting-started.md)、[配置参考](configuration.md)和
+[命令手册](command-reference.md)。
 
-- 交互式 TUI 入口，启动后像 Claude Code 一样输入自然语言任务。
-- 全屏 TUI 为 Ink 预留安全行，避免高频更新触发整屏 `clearTerminal`；触摸板滚动采用单层帧合并，消息视口复用稳定 paint layout，流式文本按帧批量更新。
-- `auto` / `plan` / `conductor` 三种模式（UI i18n：自动 / 计划 / 指挥家）。
-- **Mode = 策略**（`modePolicy`）：只决定意图/审批/是否派 worker，**不拥有输出管线**。
-- **统一 Runner**：用户可见文本一律 `text-delta` 流式；`complete()` 仅内部短调用（分类 JSON 等）。
-- **auto**：默认 agent tool loop；可自动切 plan/conductor。
-- **plan**：模型判断是否需要计划 → 流式出计划 → `/approve` → 同一 tool loop 开发。
-- **conductor**：高级模型拆任务 → worker 子代理 → 流式验收（≠ 多目录）。
-- **确定性完成门**：mutation 之后必须存在风险匹配的真实验证证据；验证失败或未运行时不能被自然语言覆盖为成功。
-- **运行恢复与调度**：待审批工具调用通过版本化 checkpoint 跨重启恢复；独立 read 调用受控并发，写入和执行调用保持有序。
-- **多目录**：`/add-dir` `/dirs` `/remove-dir`，任意 mode 可用。
-- **Project Instructions**：自动加载每个 workspace root 根目录的 `CLAUDE.md`、`AGENTS.md`、`KROSS.md`，主 agent 与 Task/conductor worker 按 root 隔离遵守。
-- **Skills**：发现 `~/.kross/skills` 与各 root 的 `.agents/skills`，metadata 常驻上下文，正文/资源通过 `ReadSkill` 按需安全读取。
-- **Safe Mutation**：`ApplyPatch` 原子处理多文件补丁；Write/Edit/Delete/Move/ApplyPatch 统一记录 pre/post image，`/undo [runId|transactionId]` 做 hash 冲突保护撤销。
-- JSONL trace store，用于后续任务回放和 agent 迭代分析。
-- 工作区级会话持久化：完整可见消息以 append-only JSONL 保存，SQLite 仅维护可重建的最近会话索引；启动页可选择历史会话，`/resume` 打开选择器，`/resume <sessionId>` 直接恢复。
-- TUI 界面 i18n：默认中文，支持 `/lang en|zh` 与 `AGENT_LANG` / `KROSS_LANG` / `config.locale` 切换英文。
-- SessionContext：以 ConversationThread 为单一事实源，把 system prompt、对话线程、上下文源、工具清单、技能 metadata 组装为 LLM messages；token 预算制（启发式估算 + usage EMA 校准），按优先级与预算选择 sources（支持 pinned 固定注入）。
-- Tool Gateway：统一注册工具、暴露工具 metadata、校验工具入参、阻断高风险工具的未授权调用，并把工具调用事件写入 trace。
-- 内置工具集：文件读写、目录与元信息查询、Git 状态/差异/历史、文本检索、Bash，**Task（子代理）**，以及 **TodoWrite/TodoRead（会话任务清单）** 均已接入 Tool Gateway，支持原生 tool-call loop、审批恢复和 trace 记录。
-- 首次配置导入：首次进入 TUI 时，如果本机检测到 Claude Code 或 Codex 配置，会提示通过 `/import claude`、`/import codex` 或 `/import skip` 导入/跳过；导入后保存到 `~/.kross/config.json`。
+## 包与依赖方向
+
+```mermaid
+flowchart TB
+    TUI["packages/tui"] --> CORE["packages/core"]
+    WORKER["packages/worker"] --> CORE
+    WORKER --> PROTOCOL["packages/protocol"]
+    SERVER["packages/server"] --> PROTOCOL
+    WEB["packages/web"] --> PROTOCOL
+```
+
+| Workspace | 职责 |
+|---|---|
+| `packages/core` | Runtime、上下文、会话、工具、权限、Skills、MCP、模型与验证 |
+| `packages/tui` | Ink 终端交互与本地 Runtime 宿主 |
+| `packages/protocol` | Cloud 命令、事件、回放与快照的 Zod 线协议 |
+| `packages/server` | 认证、SSE/HTTP Gateway、工作区注册与 Docker 编排 |
+| `packages/worker` | 工作区容器内的 headless Runtime 宿主 |
+| `packages/web` | React/Vite Web 与 PWA 客户端 |
+
+Core 不依赖任何界面或 Cloud 包。Protocol 不依赖 Core，并且只包含浏览器安全的
+schema 与类型。产品包之间不得通过穿越目录的相对路径耦合。
+
+## Runtime 组合
+
+`packages/core/src/host/createAgentHost.ts` 是默认组合根，主要通过
+`bootstrapRuntimeTooling` 与 `createRuntimeOptionsFromEnv` 创建：
+
+- 模型客户端与上下文策略；
+- Tool Gateway 与内置工具；
+- workspace roots、Project Instructions 和 Skills；
+- trace、Todo、mutation journal 与后台进程；
+- MCP 客户端和子代理执行器。
+
+`AgentRuntime` 是运行门面，具体职责分别下沉到会话服务、模型会话、模式流程、
+工具循环、Checkpoint 和完成门。TUI 与 Worker 都复用这套组合，不维护独立 Agent
+实现。
+
+源码级扩展入口及稳定性说明见[扩展 Kross](extensions.md)。
+
+## 模式与运行闭环
+
+三种模式只决定工作策略，不拥有各自的输出管线：
+
+- `auto`：直接探索、实施和验证，必要时可选择计划或编排。
+- `plan`：先生成计划，用户批准后进入同一个主 Agent 工具循环。
+- `conductor`：高级模型拆分任务，worker 在隔离上下文执行，最后读取真实 diff
+  进行统一验收。
+
+用户可见回复统一通过流式事件输出。一次运行会经过探索、计划、执行、验证、复核
+与完成等可观测阶段，阶段由真实生命周期和工具事件推导，不依赖模型自行声明。
+
+Harness 对验证、完成门、子代理复核与恢复不变量的详细说明见
+[Agent Harness](harness.md)。
 
 ## 上下文系统
 
-Kross 的上下文以 **ConversationThread** 为单一事实源：会话内所有消息（用户输入、assistant 回复、tool_calls、工具结果、压缩摘要）统一活在 Thread 里，工具循环每轮从 Thread 取、向 Thread 写。会话存储会同时保存 UI 记录和治理后的 Thread 检查点；恢复时优先还原真实模型上下文，旧会话才从 user/assistant 记录兼容重建。
+`ConversationThread` 是模型对话的单一事实源。用户消息、assistant 回复、
+tool calls、工具结果和压缩摘要都写入 Thread；UI 消息和治理后的 Thread
+Checkpoint 同时持久化。
 
-已实现：
+请求前的上下文治理分为三层：
 
-- **统一消息流（Thread）**：轮次生命周期 `beginTurn` → append → `commitTurn` / `abortTurn`；审批挂起时 open-turn 与 run checkpoint 同步持久化，批准后继续 append。
-- **Token 预算制**：输入预算 = `contextWindow - 输出预留`（默认 256K 窗口、32K 预留）；压缩阈值 = 输入预算的 80%。顶栏与 `/context` 显示校准后的「下次请求预估 token / 输入预算」（`snapshot()` 纯读，无副作用）。
-- **三级治理流水线**（请求前 `prepareRequest` + 手动 `/compact` Stage2）：
-  - Stage1 工具结果老化：超配额或距今超过 N 轮时替换为省略占位，保留 tool 消息本体。
-  - Stage2 滚动压缩：旧历史原位替换为唯一摘要，二次压缩吸收旧摘要；按 token 保留最近原文，超长单轮仅在安全 assistant 边界切分。
-  - Stage3 硬截断：单条超大消息 head+tail 截断兜底。
-- **上下文源**：workspace、repo、trace、memory、user、skill、compaction；`pinned` 源（如 session-todos、项目指令）固定注入，不因预算被静默 drop。
-- **工具清单 / Skills**：工具 metadata 进入 system 段；个人/项目 Skill metadata 自动发现并按 scope 注入，正文不常驻，通过 `ReadSkill` 按需加载。
-- **纯读快照**：`inspectContext` / `snapshot()` 产出 section 占用、contributors、included/dropped/pinned sources、estimatedTokens、inputBudget、compactThreshold。
-- **`/context`**：按 token 展示总预估/预算/阈值、各 section（system/thread/sources/skills/tools）、sources 状态、最近治理记录。
-- **`/instructions`**：刷新并展示项目指令的 root、来源、优先级、字节数、截断和跳过诊断；不会打印指令正文。
-- **`/compact [额外要求]`**：手动触发一次 Stage2 滚动压缩，可临时要求保留文件名、精确值等信息。
-- **压缩可配置**：支持默认压缩指令和独立摘要模型；未配置时复用当前模型，失败自动回退到高保真 extractive 摘要。
-- **可恢复检查点**：JSONL 持久化完整 Thread；证据完整的待审批 open turn 可以安全续跑，普通执行中断或 checkpoint 校验失败时转为 aborted，不猜测性重放工具。
-- **治理可感知**：自动治理时写入 `context.compacted` trace，TUI 消息流插入简短 system 提示。
-- **`/trace` / `/diff`**：不变。
+1. 老化超预算的历史工具输出，保留工具消息结构。
+2. 把较早历史滚动压缩成唯一摘要，保留最近完整轮次。
+3. 对无法通过前两层处理的单条超大消息执行 head/tail 硬截断。
 
-尚未实现：
+输入预算由模型上下文窗口减去输出预留得到，使用模型返回的 usage 校准启发式
+token 估算。`/context` 展示预算、来源和治理记录，`/compact` 手动触发滚动压缩。
 
-- embedding/FTS 语义检索和跨 session memory 检索。
-- 子代理之间的共享 context store。
-- tokenizer 库精确计数（当前启发式 + EMA 校准）。
+固定上下文来源包括 Project Instructions、会话 Todo 和 Skills metadata：
 
-### Project Instructions
+- 每个授权 root 加载顶层 `CLAUDE.md`、`AGENTS.md`、`KROSS.md`；
+- 个人 Skill 位于 `~/.kross/skills`，项目 Skill 位于
+  `<workspace>/.agents/skills`；
+- Skill 正文和资源通过 `ReadSkill` 按需读取，不常驻上下文；
+- 子代理只接收个人规则和当前执行 root 的项目规则，避免跨仓库污染。
 
-- 每个已授权 workspace root 只检查根目录的 `CLAUDE.md`、`AGENTS.md`、`KROSS.md`，当前版本不递归扫描嵌套目录。
-- 同一 root 内按 `CLAUDE.md < AGENTS.md < KROSS.md` 注入，后者拥有更高覆盖优先级。
-- 主 agent 能看到所有已加入 root 的带作用域规则；Task 与 conductor worker 只加载它实际执行的 root，避免跨仓库规则污染。
-- 使用 canonical `realpath` 校验，symlink 指向 root 外时拒绝加载并在 `/instructions` 中报告。
-- 默认限制为 16 个文件、单文件 32 KiB、总计 64 KiB；单文件超限保留 UTF-8 安全的 head/tail。
-- 指令在 Runtime 构造、每轮 context 构建、`/context`、`/instructions` 以及成功增删 root 后刷新。内容不进入 session checkpoint，恢复会话时以磁盘当前版本为准。
+所有文件来源都经过 canonical path 校验、大小限制和 UTF-8 检查。
 
-### Skills
+## 工具系统
 
-- 个人 Skills 位于 `~/.kross/skills/<id>/SKILL.md`；项目 Skills 位于 `<root>/.agents/skills/<id>/SKILL.md`。
-- 主 agent 注入所有带 scope metadata；Task/conductor worker 只看到 personal + 当前执行 root。
-- `ReadSkill` 可读取 `SKILL.md` 或 Skill 目录内资源，支持行 offset/limit；symlink 越界、非 UTF-8 和非普通文件会被拒绝。
-- 单次读取最多 64 KiB，同一 run 累计最多 128 KiB；skill scripts 不会自动执行，执行仍需 Bash 审批。
-- `/skills` 只展示 id/name/description/scope 与诊断，不打印正文。
+Tool Gateway 是模型能力与真实副作用之间的边界。每个工具必须声明：
 
-## 工具调用系统
+- 名称、描述与输入 Zod schema；
+- `read`、`write`、`execute` 或 `network` 风险；
+- 执行、超时、取消、摘要和可选 trace 脱敏逻辑。
 
-Kross 的 Tool Gateway 负责把模型可见的工具能力和本地真实执行隔离开。
+默认权限策略自动允许只读工具，其他风险要求用户批准。调用前再次校验输入和动态
+风险，调用结果及审批状态写入 trace。
 
-已实现：
+连续、独立且无需审批的 read 调用最多 4 个并发，并按原始 tool-call 顺序回填；
+write、execute、network、Process、MCP 与动态风险调用保持串行屏障。
 
-- 工具注册：每个工具声明名称、描述、风险等级、可选分类和输入 JSON Schema。
-- 条件启用：工具可以按当前模式等上下文动态出现在 planner prompt 中，例如只在 `conductor` 模式暴露跨仓库扫描工具。
-- 入参校验：执行前用 zod schema 校验模型/调用方给出的输入。
-- 审批策略：默认只自动允许 `read` 工具，`write`、`execute`、`network` 会要求显式批准；也支持自定义 allow/ask/deny 策略并记录拒绝原因。
-- 选项式确认：当模型请求高风险工具时，TUI 会暂停当前运行并显示 Approve / Reject 选项，用户可用方向键切换、Enter 确认，也可按 `a`/`r`。
-- 超时控制：支持 gateway 默认超时和单工具超时。
-- 错误 observation：工具失败时可选择抛错，也可把失败作为结构化结果返回给 agent loop，方便模型换方案。
-- 结果摘要：保留原始输出，同时生成 summary 写入 trace 和上下文，避免大输出污染后续 prompt。
-- Trace：记录 `tool_call.started`、`tool_call.completed`、`tool_call.failed`、`tool_call.approval_required`、`tool_call.denied`。
-- 风险感知调度：连续、独立且策略预检允许的 read 调用最多 4 个并发，按原顺序回填；write、execute、network、Process、MCP 和审批调用保持串行屏障。
-- 统一错误分类：模型、内置工具和 MCP 失败记录 `source`、`category`、`retryable` 与 `recovery`；MCP `isError` 不再作为 completed 事件。
-- 原生 tool-call loop：OpenAI-compatible 解析 `tool_calls`，Anthropic-compatible 解析 `tool_use`，Runtime 执行工具后把 tool result 回填给模型，支持多轮工具迭代直到模型返回最终文本。
-- 内置文件工具：`Read`、`Write`、`Edit`、`Delete`、`Move`、`ApplyPatch`、`Glob`、`Grep`、`Rg`、`List`、`Stat` 默认限制在 workspace 内，并使用真实路径校验阻断 symlink 越界。`ApplyPatch` 先校验全部路径/hunk 再提交，失败会恢复全部 preimage。`Rg` 通过 `@vscode/ripgrep` **随应用内置**各平台 ripgrep 二进制，客户无需单独安装；优先用于内容搜索与文件枚举。`Grep`/`Glob` 为纯 JS 回退。`Edit` 支持 `edits[]` 一次多处替换与失败时附近内容提示。
-- 文件 mutation journal：正文以 content-addressed blobs 存在 `~/.kross/mutations`，JSONL 只保存 hash/ref；`/undo` 默认撤销最近事务，也可指定 run/transaction。当前文件与 postHash 不一致时整次拒绝，不强制覆盖人工新改动。
-- 内置 Git 工具：`GitStatus`、`GitDiff`、`GitLog` 提供只读的结构化仓库检查，并拒绝读取仓库根目录位于 workspace 外的 Git 仓库。
-- `Read` 支持 `offset` / `limit` 分段读取大文件，避免先把超大文件完整塞进上下文。
-- `Bash` 会以 workspace 内目录作为 cwd 启动命令，但当前版本没有 OS 级沙箱；命令本身的系统访问能力主要由审批策略约束。
-- 后台进程工具：`ProcessStart` / `ProcessPoll` / `ProcessWrite` / `ProcessKill` / `ProcessList` 提供 session-scoped 生命周期；stdout/stderr 使用 bounded ring buffer，poll 单次最多 64 KiB，`/processes` 可查看 handle。正常退出 Kross 时会 TERM 全部活跃进程并在 grace period 后 KILL；已返回的 handle 不会因当前 turn 的 ESC 中断而自动终止。与 `Bash` 一样，这只有 cwd 边界、没有 OS 级沙箱。
-- 后台轮询会比较进程状态和输出指纹；连续无进展时从 250ms 指数退避到最多 4 秒，出现新输出或终态后重置。
-- 工具调用循环默认最多 **200 轮**（一轮 = 模型 tool_calls → 执行 → 回填），作死循环安全网，不是“正常任务配额”。触顶时 **软着陆**：丢弃未执行 tool_calls、强制一轮无工具文本总结（`completed`），并记录 `llm.tool_loop.max_iterations` + `llm.soft_land.completed`；可用 `AGENT_MAX_TOOL_ITERATIONS` 覆盖。
-  - 主 Agent 与子代理还共享调用+结果指纹的 stall detector：先注入一次恢复提示，仍无进展则明确失败收口。
+内置工具覆盖文件、搜索、Git、Shell、后台进程、Todo、Skills、子代理与模式切换。
+文件工具使用真实路径限制 workspace；所有 mutation 工具记录 pre/post image，
+`/undo` 只在当前文件仍匹配 post hash 时恢复，避免覆盖后续人工修改。
 
-## Harness 完成闭环
+`Bash` 和后台进程没有 OS 级沙箱。workspace cwd、权限审批和容器隔离的具体安全
+边界见[安全模型](security.md)。
 
-- Prompt 由中英文 JSON Catalog 与 TypeScript 渲染层组成，主 Agent、模式 Overlay、审批恢复和子代理复用同源协议。
-- Verification Report 从 Bash、后台进程和 Verify trace 收集 test/typecheck/build/lint 证据，状态为 `passed`、`failed`、`not-run` 或 `not-needed`。
-- Completion Gate 只接受最后一次 mutation 之后启动并完成的验证；模型过早结束时最多追加一次验证追问，避免形成新的无限循环。
-- Conductor plan 支持 `dependsOn`，独立 worker 最多 3 个并发；下游任务在前置失败时结构化阻塞。
-- worker 缺少有效验证时可派生受限 validation worker；高级 reviewer 必须读取每个 root 的 Git status、暂存与未暂存 diff，并返回明确 verdict。
-- worker 仅在能够证明没有 mutation 时有限重试；不确定写入状态时 fail-closed。
+## Harness 与子代理
 
-更完整的行为、恢复不变量和边界见 [Agent Harness](harness.md)。
+完成状态不由模型的最终文本单独决定：
 
-已实现（Todo list）：
+- Stall Guard 检测重复工具调用和无进展结果；
+- Verification Report 从真实 test、typecheck、build 和 lint trace 汇总证据；
+- 发生 mutation 后，只接受最后一次修改之后完成的验证；
+- 验证失败或无法执行可以结束运行，但必须保留失败或未运行状态；
+- Conductor worker 只有在能够证明没有修改时才允许安全重试；
+- 最终 reviewer 读取各 root 的 Git status 和真实 diff 后给出 verdict。
 
-- **`TodoWrite` / `TodoRead`**：会话级任务清单（pending / in_progress / completed / cancelled）。
-- 默认按 id **merge**；`merge: false` 整表替换。
-- 每轮请求前注入 context source `session-todos`，模型可持续看到进度。
-- **TUI 顶栏右上**：原权限芯片改为 `Todo done/total ▸/▾`；**点击展开**查看全部 todo（完成项 `✓` 打勾），再点收起。权限仍在 Composer 页脚（shift+tab）。
-- Todo、会话 Mode、待确认 plan/conductor 和 `runCheckpoint` 会作为 `work-state.updated` 快照写入会话 JSONL；证据完整且尚未执行的工具审批可在 `/resume` 后恢复，permission mode 不会恢复。
+`Task` 子代理使用独立上下文、受限工具集和最大深度。子代理工具事件带作用域标记，
+不会混入主会话工具历史。
 
-已实现（Subagent P0）：
+## 持久化与恢复
 
-- **`Task` 工具**：主 agent 可派生子代理执行聚焦任务。
-- **专用执行路径**（不走主 `AgentRuntime.run` 规划器壳）：独立 system prompt + 独立工具环。
-- **工具白名单**：Read / ReadSkill / Glob / Grep / Rg / List / Stat / Git* / Edit / Write / ApplyPatch（无 Bash/Delete/Move/Task/MCP）。
-- **子代理内 auto-allow**；**maxDepth=1**。
-- Trace：lifecycle 在父 run；子工具事件带 **`isSubagent: true`**，主 transcript 硬过滤。
-- Project Instructions：子代理只加载自己的执行 root；父 trace 仅记录 filename/rootId/bytes 等 provenance，不记录正文。
-- **TUI**：对话区下单行 `▸ Subagent …`（点击展开）；完成态约保留 60s。
+本地运行数据默认位于 `~/.kross`：
 
-已实现（MCP）：
+| 数据 | 设计 |
+|---|---|
+| 会话 | append-only JSONL 事实源，SQLite 仅作为可重建索引 |
+| Thread | 随会话保存的模型上下文 Checkpoint |
+| Work State | Todo、模式、待确认计划和版本化运行 Checkpoint |
+| Trace | JSONL 工具与生命周期事件 |
+| Mutation | JSONL 元数据与 content-addressed blobs |
 
-- stdio MCP：从 `~/.kross/mcp.json` 或 `~/.kross/config.json` 的 `mcpServers` 启动外部 server。
-- 启动时 `tools/list`，注册为 Gateway 工具，命名 `serverId__toolName`（描述带 `[MCP:serverId]` 前缀）。
-- 调用走现有审批 / 超时 / trace；默认 risk 为 `network`（需确认），可用 tool annotations 的 `readOnlyHint` 降为 `read`，或在 server 配置里写 `risk`。
-- 单 server 失败不阻断启动（stderr 打印 `[kross:mcp] ...`）。
+等待审批时，open turn 与运行 Checkpoint 一起保存。恢复前会核对 tool call、已有
+结果、当前工具定义、动态风险和审批策略。只有明确尚未执行的审批调用可以续跑；
+已完成的写入或执行绝不会猜测性重放。证据不完整时恢复路径 fail-closed。
 
-```json
-// ~/.kross/mcp.json
-{
-  "mcpServers": {
-    "mock": {
-      "command": "npx",
-      "args": ["-y", "some-mcp-server"],
-      "env": {},
-      "disabled": false
-    }
-  }
-}
+Cloud 会话和工作区状态保存在对应 Docker volume 中，Gateway 只保存工作区注册与
+控制面数据。生命周期、备份边界和容器恢复见
+[Cloud Agent 部署与运维](cloud-agent-deployment.md)。
+
+## Cloud 数据流
+
+```mermaid
+sequenceDiagram
+    participant B as Web/PWA
+    participant G as Gateway
+    participant W as Workspace Worker
+    participant R as Agent Runtime
+
+    B->>G: POST /api/commands
+    G->>W: Internal WebSocket command
+    W->>R: Run or resume session
+    R-->>W: Streaming events
+    W-->>G: Sequenced events
+    G-->>B: SSE /api/events
 ```
 
-尚未实现：
+浏览器上行使用 HTTP POST，下行使用 SSE；Gateway 与 Worker 的内部连接使用
+WebSocket。客户端通过 `requestId` 保证命令幂等，通过事件 `seq` 恢复和去重。
+Protocol schema 是 Web、Gateway 与 Worker 的共享边界。
 
-- MCP resources / prompts、SSE/HTTP transport、运行时热重载 MCP 列表。
-- OS 级 Bash 沙箱。
+每个工作区使用独立 Worker、Docker volume 和 bridge 网络。Web 静态文件由独立
+Nginx 容器提供，Gateway 不包含前端产物，因此前后端可以分别构建和发布。
 
+## 当前限制
 
-### 权限和安全边界
-
-Kross 当前默认学习 Claude Code 的交互体验：沙箱不是默认前提，高风险动作通过权限模式和用户确认控制。
-
-- `default` 权限模式下，读类工具默认允许，写入、执行、网络类工具需要确认。
-- `classifier` / `auto` 权限模式可用于更激进的自动化场景，但仍会保留 deny 规则。
-- 文件类工具会做 workspace 边界校验；`Bash` 不是完整沙箱，批准命令前仍需要确认命令意图。
-- 如果后续接入 OS 级沙箱，建议作为可选配置能力接入，不改变当前默认体验。
-
-## 运行
-
-```bash
-npm install
-npm run dev
-```
-
-默认不配置模型也能启动 TUI，会使用本地占位 planner。配置模型后，runtime 会在规划阶段调用 LLM，并把调用结果写入 trace。
-
-### 运行时要求
-
-- Node.js **>= 22.19**（`@earendil-works/pi-ai` 要求；仓库根目录有 `.nvmrc`）。
-
-### 配置优先级
-
-模型配置优先级如下：
-
-1. 环境变量：`AGENT_LLM_PROVIDER` + 对应的 `OPENAI_*` 或 `ANTHROPIC_*`。
-2. Kross 配置：`~/.kross/config.json`，可由首次启动的 `/import` 命令生成。
-3. 未配置：TUI 仍可启动，但普通 agent 回复会提示缺少模型配置。
-
-协议层默认走 **`@earendil-works/pi-ai`**（`PiAiLlmClient`），保留 Kross 内部 `LlmClient` 接口不变。
-可用 `AGENT_LLM_BACKEND=native` 强制回退到自研 HTTP 客户端（测试注入 `fetch` 时也会自动走 native）。
-
-#### 支持的 provider
-
-| `AGENT_LLM_PROVIDER` | 密钥 | 模型 | 默认 baseUrl |
-|---|---|---|---|
-| `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL` | `https://api.openai.com/v1` |
-| `anthropic` | `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN` | `ANTHROPIC_MODEL` | `https://api.anthropic.com` |
-| `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` | `https://openrouter.ai/api/v1` |
-| `deepseek` | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` | `https://api.deepseek.com` |
-| `xai` | `XAI_API_KEY` | `XAI_MODEL` | `https://api.x.ai/v1` |
-
-通用：`AGENT_LLM_MODEL` 可作为模型回退；各 provider 还支持 `*_BASE_URL` 覆盖。
-
-TUI 命令：
-
-- **`ctrl+p` / `/settings` / 单独 `/model`**：打开模型与思考强度面板
-- `/resume` — 打开最近会话选择（↑↓ 选中后 Enter 恢复）；`/resume <sessionId>` 直接恢复指定会话
-- `/lang zh|en` — 切换界面语言（写入 `~/.kross/config.json` 的 `locale`）
-- `/model <modelId>` — 切换当前 Provider 的模型
-- 右下角：`model (effort)`，例如 `claude-sonnet-4-5 (medium)`
-
-模型配置优先序：完整 `AGENT_LLM_*` 环境变量 → `~/.kross/config.json`（`/import`）。
-不完整的 env **不会**覆盖或挡住已导入的配置；写盘时若会导致丢失密钥会拒绝写入。
-
-界面语言优先序：`AGENT_LANG` / `KROSS_LANG` → `~/.kross/config.json` 的 `locale` → 系统 `LANG` → 默认 `zh`。
-
-上下文窗口默认统一为 `256000` token，不再按模型名推断。可在
-`~/.kross/config.json` 的 `llm.contextWindow` 中覆盖：
-
-```json
-{
-  "llm": {
-    "provider": "openai",
-    "model": "gpt-5",
-    "contextWindow": 512000
-  }
-}
-```
-
-`AGENT_CONTEXT_WINDOW`（兼容 `KROSS_CONTEXT_WINDOW`）优先于配置文件。
-顶栏已用 token 采用模型接口最近一次响应返回的 `usage.inputTokens`，接口未返回
-usage 时显示为 `0`，不再使用字符数估算。
-
-上下文治理可在同一配置文件中调整；`summarizer` 与 `llm` 字段结构一致，省略时复用主模型：
-
-```json
-{
-  "context": {
-    "preserveRecentTokens": 20000,
-    "preserveFullTurns": 4,
-    "compactionInstructions": "保留精确文件路径、命令、错误文本和未完成事项",
-    "summarizer": {
-      "provider": "openai",
-      "apiKey": "sk-...",
-      "model": "gpt-5-mini"
-    }
-  }
-}
-```
-
-导入规则：
-
-- Codex：读取 `~/.codex/config.toml`、`~/.codex/auth.json` 和 `OPENAI_*` 环境变量，保存 OpenAI-compatible 的 `baseUrl`、默认模型和 API key。
-- Claude Code：读取 `~/.claude/settings.json`、`~/.claude.json` 和 `ANTHROPIC_*` 环境变量，保存 Anthropic-compatible 的 `baseUrl`、默认模型和 API key。
-- 如果两者都可导入，TUI 会要求二选一。
-
-### OpenAI / OpenRouter / DeepSeek / xAI
-
-```bash
-export AGENT_LLM_PROVIDER=openai
-export OPENAI_API_KEY=sk-...
-export OPENAI_MODEL=gpt-5
-# 可选：export OPENAI_BASE_URL=https://api.openai.com/v1
-
-# 或
-export AGENT_LLM_PROVIDER=openrouter
-export OPENROUTER_API_KEY=...
-export OPENROUTER_MODEL=anthropic/claude-sonnet-4
-
-npm run dev
-```
-
-### Anthropic
-
-```bash
-export AGENT_LLM_PROVIDER=anthropic
-export ANTHROPIC_API_KEY=sk-ant-...
-export ANTHROPIC_MODEL=claude-sonnet-4-5
-
-# 可选，默认 https://api.anthropic.com（可写 .../v1，会自动归一化）
-export ANTHROPIC_BASE_URL=https://api.anthropic.com/v1
-export ANTHROPIC_VERSION=2023-06-01
-
-npm run dev
-```
-
-## 验证
-
-```bash
-npm test -- --run
-npm run typecheck
-npm run check
-```
-
-## 架构
-
-```text
-packages/core
-  context          ConversationThread、TokenEstimator、ContextGovernor、SessionContext
-  domain           共享协议和 zod schema
-  host             组合根：tooling、runtime options、MCP 装配
-  llm              OpenAI-compatible / Anthropic-compatible 模型协议适配
-  modes            auto / plan / conductor 策略与 pending plan 类型
-  runtime          AgentRuntime 薄门面、ModeFlows、完成门、Checkpoint、调度器和双工具环
-  session          append-only JSONL 会话事实源和 SQLite 最近会话索引
-  tools            Tool Gateway、工具注册、权限、入参校验和内置工具
-  trace            JSONL trace 存储（~/.kross/traces/）
-  workspace        workspace roots、项目注册、diff 与 Project Instructions 纯加载器
-
-packages/tui
-  App              交互式终端界面
-  main             消费 core host；trace 写入 ~/.kross/traces/，会话写入 ~/.kross/sessions/
-```
-
-核心依赖方向与运行不变量：
-
-- `modes` 只负责策略与 pending execution schema，不依赖 `runtime`。
-- `host` 提供 `bootstrapRuntimeTooling` / `createRuntimeOptionsFromEnv`；TUI 只保留兼容 re-export。
-- `AgentRuntime` 负责装配、运行分发和公共 API；会话状态、模型绑定、plan/conductor 流程分别委托给 `SessionServices`、`ModelSession`、`ModeFlows`。
-- 主 agent 使用流式、可审批的 `RuntimeToolLoop`；subagent 使用 non-streaming、auto-allow 的 `completeToolLoop`，两者共享工具定义转换、stall guard 和风险感知 read 调度规则。
-- `Task` 只依赖 `SubagentRunner` 类型和纯格式化函数，不反向依赖 runner 实现。
-- `ConversationThread` 是模型对话上下文的单一事实源。
-- `workspace/projectInstructions` 是无 runtime/context/TUI 依赖的纯加载层；`SessionServices` 管理主 agent source lifecycle，subagent 按执行 root 独立注入。
-
-## 后续扩展
-
-本地 Agent 的基础可调试闭环已经完成，短期维护项是：
-
-1. ~~实现 `/trace`~~：已支持最近运行列表与 `/trace <runId>` 详情（工具/审批/失败/context flags）。
-2. ~~实现 `/diff`~~：agent 触达文件 + git status/diff --stat + 建议验证命令；`report.changedFiles` 在 run 结束时从 Write/Edit 回填。
-3. 建立小型临时仓库 Harness Eval，比较 Prompt、模型与 Harness 版本的行为质量。
-
-### 指挥家 vs 多目录（正交）
-
-| 能力 | 命令 / 模式 | 说明 |
-|---|---|---|
-| 自动 agent | `/mode auto` | 默认工具环，可自动切 plan/conductor |
-| 计划优先 | `/mode plan` | 先计划、确认后再**本 agent 开发** |
-| **指挥家** | `/mode conductor` | **高级模型**拆任务 → worker 子代理执行 → **高级模型验收** |
-| 加目录 | `/add-dir <path>` | 会话 allowlist；**任意 mode** 可用 |
-| 列/移目录 | `/dirs` `/remove-dir` | 管理会话 roots |
-
-```bash
-# 多目录（auto 即可）
-/add-dir ~/work/api
-/add-dir ~/work/web
-/mode auto
-
-# 指挥家：模型编排，不是“多仓模式”
-/mode conductor
-# 描述复杂任务 → 确认任务拆分 → worker 执行 → 高级模型验收
-```
-
-可选项目模板 `~/.kross/projects.json`（启动时会尝试 seed 到 roots）：
-
-```json
-{
-  "defaultProjectId": "my-app",
-  "projects": {
-    "my-app": {
-      "repos": [
-        { "id": "api", "path": "/Users/me/work/api", "type": "backend" },
-        { "id": "web", "path": "/Users/me/work/web", "type": "frontend" }
-      ]
-    }
-  }
-}
-```
-
-- 界面语言：`/lang zh|en` 切换 mode 显示名（指挥家 / Conductor）。
+- 本地 `Bash` 与后台进程没有 OS 级沙箱。
+- MCP 当前只支持 stdio tools，不支持 HTTP transport、resources 和 prompts。
+- 没有跨会话语义记忆。
+- Project Instructions 只加载 workspace root 顶层。
+- `packages/core` 与 `packages/protocol` 尚未作为稳定 SDK 单独发布。
+- Cloud 的 Docker、移动端、弱网、Push 与 Git 凭证流程仍需社区持续验证。

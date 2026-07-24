@@ -1,54 +1,69 @@
 # Kross
 
-本地优先、可自托管的编程 Agent：既可以在终端中直接运行，也可以通过响应式 Web/PWA 连接隔离的云端工作区。Kross 能理解项目规则、调用工具修改代码、管理长任务，并在真正执行高风险操作前保留你的控制权。
+**English** | [简体中文](README.zh-CN.md)
 
-> Kross 正在积极开发中。本地 TUI 与自托管 Cloud Agent 的核心流程已经实现，当前适合试用、功能验证和参与开发；云端部署仍建议先在受控环境完成 Docker、移动端、断线恢复、Push 和 Git 流程验收，尚未发布稳定版本。
+[![CI](https://github.com/zzc-101/Kross/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## 为什么是 Kross
+A local-first, self-hostable coding agent for terminal and Web/PWA workflows. Kross understands project instructions, uses tools to modify code, manages long-running tasks, and keeps users in control before high-risk operations are executed.
 
-Kross 不只是一个把提示词转发给模型的聊天界面。它围绕真实开发任务提供完整运行闭环：
+> Kross is under active development. The core local TUI and self-hosted Cloud Agent flows are implemented and ready for evaluation and contribution. Cloud deployments should still be validated in a controlled environment for Docker, mobile, reconnect, Push, and Git workflows before production use. No stable release has been published yet.
 
-- **三种工作模式**：`auto` 直接解决问题，`plan` 先确认计划，`conductor` 拆分任务并交给子代理执行、复核。
-- **本地与云端双形态**：使用 Ink TUI 在本机直接工作，或通过响应式 Web/PWA 访问每工作区独立的 Docker Worker。
-- **可验证的完成契约**：代码修改后根据 mutation 与真实工具 trace 检查验证证据；测试失败或未运行时不会伪装成成功。
-- **抗空转工具循环**：重复调用无进展时先引导模型恢复策略，仍然停滞则有限退出并报告阻塞。
-- **项目规则感知**：自动加载 workspace 根目录中的 `CLAUDE.md`、`AGENTS.md` 和 `KROSS.md`。
-- **可扩展 Skills**：发现个人与项目 Skills，只在需要时安全读取正文和资源。
-- **安全文件修改**：写入前后记录 mutation journal，支持带冲突保护的 `/undo`。
-- **可恢复会话与运行**：消息、上下文、Todo、当前模式、待确认计划和未执行的工具审批可跨重启安全恢复，已完成写操作不会重放。
-- **可管理后台进程**：启动、轮询、输入和终止长时间运行的命令，并按会话隔离进程。
-- **受控工具调度**：独立只读调用可并发执行，写入、执行、Process 和 MCP 调用保持有序；无进展轮询会自动退避。
-- **透明可调试**：通过 `/context`、`/trace` 和 `/diff` 查看上下文、执行轨迹与代码变更。
-- **弱网与移动端支持**：Cloud Agent 使用 SSE 接收事件、HTTP 提交命令，支持断线排队、按序回放、Web Push 审批通知和 PWA 安装。
-- **云端工作区管理**：支持仓库克隆、会话恢复、真实 Git Diff、分支 Push、Pull Request、资源限额与空闲回收。
-- **多模型支持**：兼容 OpenAI、Anthropic、OpenRouter、DeepSeek 和 xAI。
+## Why Kross
 
-## 快速开始
+Kross is more than a chat interface that forwards prompts to a model. It provides a complete execution loop for real development work:
 
-### 环境要求
+- **Three working modes**: `auto` solves tasks directly, `plan` asks for plan approval first, and `conductor` delegates work to subagents and reviews the result.
+- **Local and cloud workflows**: run the Ink TUI directly on your machine or use the responsive Web/PWA with one isolated Docker Worker per workspace.
+- **Verifiable completion contract**: after code changes, Kross checks mutation records and real tool traces for verification evidence. Failed or skipped tests are not presented as success.
+- **Stalled-loop protection**: repeated tool calls without progress first trigger a recovery strategy, then stop with a bounded failure report if no progress is possible.
+- **Project instruction awareness**: automatically loads `CLAUDE.md`, `AGENTS.md`, and `KROSS.md` from authorized workspace roots.
+- **Extensible Skills**: discovers personal and project Skills, loading their instructions and resources only when needed.
+- **Safer file mutations**: records a mutation journal before and after writes and provides conflict-protected `/undo`.
+- **Recoverable sessions and runs**: messages, context, Todos, mode, pending plans, and pending tool approvals survive restarts without replaying completed writes.
+- **Managed background processes**: starts, polls, writes to, and terminates long-running commands with per-session isolation.
+- **Controlled tool scheduling**: independent read-only calls may run concurrently, while writes, execution, Process, and MCP calls remain ordered. Polling without progress automatically backs off.
+- **Transparent inspection**: `/context`, `/trace`, and `/diff` expose context usage, execution traces, and code changes.
+- **Mobile and unreliable-network support**: the Cloud Agent receives events over SSE, submits commands over HTTP, queues offline commands, replays ordered events, sends Web Push approval notifications, and supports PWA installation.
+- **Cloud workspace management**: repository cloning, session recovery, real Git Diff, branch Push, Pull Requests, resource limits, and idle reaping.
+- **Multiple model providers**: OpenAI, Anthropic, OpenRouter, DeepSeek, and xAI.
+
+## Choose a Runtime
+
+| Runtime | Best for | Additional requirements |
+|---|---|---|
+| TUI | Local repositories, terminal workflows, and SSH sessions | Node.js and model credentials |
+| Cloud Web/PWA | Remote access, mobile devices, and isolated workspaces | Docker Engine and Compose |
+| Core/Protocol source extension | Custom hosts, tools, or clients | TypeScript development environment |
+
+Start with the TUI for local use. Deploy Cloud when you need cross-device access or container isolation. To add Skills, MCP servers, custom tools, or clients, read [Extending Kross](docs/extensions.md). The extension guide is currently written in Chinese; English documentation contributions are welcome.
+
+## Quick Start
+
+### Requirements
 
 - Node.js `>= 22.19`
 - npm
 
-### 启动本地 TUI
+### Run the Local TUI
 
-当前公开版本尚未推送到 npm，请先从源码运行：
+The public npm package has not been released yet, so run Kross from source:
 
 ```bash
 git clone https://github.com/zzc-101/Kross.git
 cd Kross
 npm install
-npm run dev
+npm run dev --workspace @kross/tui
 ```
 
-仓库中的发布包名为 `@zzc-101/kross`，安装后的命令保持为 `kross`。首个 npm 版本发布后可使用：
+The planned npm package name is `@zzc-101/kross`, while the installed command remains `kross`. After the first npm release:
 
 ```bash
 npm install -g @zzc-101/kross
 kross
 ```
 
-没有配置模型时也可以启动 TUI，但无法获得真实的 Agent 回复。首次启动若检测到 Claude Code 或 Codex 配置，可直接在 Kross 中导入：
+The TUI can start without a configured model, but it cannot produce real Agent responses. On first launch, Kross can import detected Claude Code or Codex configuration:
 
 ```text
 /import claude
@@ -56,35 +71,33 @@ kross
 /import skip
 ```
 
-也可以通过环境变量配置模型。例如使用 OpenAI：
+You can also configure a model through environment variables. OpenAI example:
 
 ```bash
 export AGENT_LLM_PROVIDER=openai
 export OPENAI_API_KEY=sk-...
 export OPENAI_MODEL=gpt-5
-npm run dev
+npm run dev --workspace @kross/tui
 ```
 
-使用 Anthropic：
+Anthropic example:
 
 ```bash
 export AGENT_LLM_PROVIDER=anthropic
 export ANTHROPIC_API_KEY=sk-ant-...
 export ANTHROPIC_MODEL=claude-sonnet-4-5
-npm run dev
+npm run dev --workspace @kross/tui
 ```
 
-### 启动自托管 Cloud Agent
+### Run the Self-hosted Cloud Agent
 
-Cloud Agent 需要 Docker Engine 和 Docker Compose。首次启动会根据 `.env.example`
-创建 `.env`、生成访问令牌、构建 Web、Gateway 与 Worker 镜像并在后台启动：
+Cloud Agent requires Docker Engine and Docker Compose. On first run, the startup script creates `.env` from `.env.example`, generates an access token, builds the Web, Gateway, and Worker images, and starts them in the background:
 
 ```bash
 ./scripts/start-cloud.sh
 ```
 
-启动后访问 `http://localhost:8787`，使用脚本输出或 `.env` 中的
-`KROSS_ACCESS_TOKEN` 登录。常用管理命令：
+Open `http://localhost:8787` and sign in with the token printed by the script or stored as `KROSS_ACCESS_TOKEN` in `.env`. Common management commands:
 
 ```bash
 ./scripts/start-cloud.sh --no-build
@@ -92,34 +105,32 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次启动会根据 `.en
 ./scripts/start-cloud.sh --stop
 ```
 
-公网部署必须在 Gateway 前配置 TLS 反向代理。Gateway 需要访问 Docker Socket，
-该权限近似宿主机 root 权限，建议部署在专用主机或其他受控环境。完整配置、安全
-边界和验收步骤见[云端部署与运维](docs/cloud-agent-deployment.md)。
+Public deployments must place a TLS reverse proxy in front of the Web entry point. The Gateway requires access to the Docker Socket, which is effectively a privileged host control plane; deploy it only on a dedicated or otherwise controlled host. See [Cloud deployment and operations](docs/cloud-agent-deployment.md) for configuration, security boundaries, and the acceptance checklist.
 
-## 基本使用
+## Basic Usage
 
-启动后直接描述任务即可：
+Describe a task directly:
 
 ```text
-检查当前分支的改动，修复登录流程中的回归，并运行相关测试。
+Review the current branch, fix the regression in the login flow, and run the relevant tests.
 ```
 
-需要先审阅计划时：
+Review a plan before execution:
 
 ```text
 /mode plan
-重构会话持久化模块，保持现有行为不变。
+Refactor session persistence without changing existing behavior.
 /approve
 ```
 
-需要拆分复杂任务时：
+Delegate a complex task:
 
 ```text
 /mode conductor
-梳理前后端认证协议，分别完成修改，最后统一验证。
+Review the frontend and backend authentication protocol, implement the changes separately, then verify them together.
 ```
 
-跨目录工作与模式相互独立：
+Work across multiple directories:
 
 ```text
 /add-dir ~/work/api
@@ -127,25 +138,25 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次启动会根据 `.en
 /dirs
 ```
 
-## 常用命令
+## Common Commands
 
-| 命令 | 用途 |
+| Command | Purpose |
 |---|---|
-| `/mode auto\|plan\|conductor` | 切换 Agent 工作模式 |
-| `/approve` / `/reject` | 批准或拒绝待执行计划 |
-| `/add-dir <path>` / `/dirs` | 添加或查看 workspace roots |
-| `/resume [sessionId]` | 恢复历史会话 |
-| `/undo [runId\|transactionId]` | 安全撤销 Agent 文件修改 |
-| `/context` / `/compact` | 检查或压缩模型上下文 |
-| `/instructions` / `/skills` | 查看已加载的项目规则和 Skills |
-| `/trace [runId]` / `/diff` | 检查执行轨迹和代码变更 |
-| `/processes` | 查看当前会话管理的后台进程 |
-| `/model` / `ctrl+p` | 选择模型和思考强度 |
-| `/lang zh\|en` | 切换界面语言 |
+| `/mode auto\|plan\|conductor` | Change the Agent working mode |
+| `/approve` / `/reject` | Approve or reject a pending plan |
+| `/add-dir <path>` / `/dirs` | Add or inspect authorized workspace roots |
+| `/resume [sessionId]` | Resume a previous session |
+| `/undo [runId\|transactionId]` | Safely revert Agent file mutations |
+| `/context` / `/compact` | Inspect or compact model context |
+| `/instructions` / `/skills` | Inspect loaded project instructions and Skills |
+| `/trace [runId]` / `/diff` | Inspect execution traces and code changes |
+| `/processes` | Inspect managed background processes for the current session |
+| `/model` / `ctrl+p` | Select the model and thinking effort |
+| `/lang zh\|en` | Change the interface language |
 
-## 模型配置
+## Model Configuration
 
-| Provider | `AGENT_LLM_PROVIDER` | API Key | Model |
+| Provider | `AGENT_LLM_PROVIDER` | API key | Model |
 |---|---|---|---|
 | OpenAI | `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL` |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` |
@@ -153,9 +164,9 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次启动会根据 `.en
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` |
 | xAI | `xai` | `XAI_API_KEY` | `XAI_MODEL` |
 
-通过 `/import` 或模型设置保存的配置位于 `~/.kross/config.json`。环境变量优先于配置文件；各 Provider 也支持对应的 `*_BASE_URL`。
+Configuration saved through `/import` or the model settings UI is stored in `~/.kross/config.json`. Environment variables take precedence over the config file. Each provider also supports its corresponding `*_BASE_URL`.
 
-## 核心设计
+## Architecture
 
 ```mermaid
 flowchart TB
@@ -173,71 +184,73 @@ flowchart TB
     G --> P["Processes / MCP / Subagents"]
 ```
 
-仓库采用 TypeScript monorepo：
+Kross is a TypeScript monorepo:
 
-- `packages/core`：Agent runtime、Harness 完成门、上下文治理、会话、工具、权限、Skills、MCP 与模型适配。
-- `packages/tui`：基于 Ink 的交互式终端界面。
-- `packages/protocol`：浏览器安全的 Zod 线协议，定义命令、事件、回放和会话快照。
-- `packages/server`：认证、HTTP/SSE 网关、工作区注册、Docker 编排与 Web Push。
-- `packages/worker`：运行在工作区容器内的 headless Agent 宿主，复用 `packages/core`。
-- `packages/web`：基于 React、Vite 和 Radix/shadcn 的响应式 Web/PWA 客户端，由独立 Nginx 容器托管并反代 Gateway API。
-- `docs`：用户指南、技术概览、Harness 说明和发布文档。
+- `packages/core`: Agent Runtime, Harness completion gate, context governance, sessions, tools, permissions, Skills, MCP, and model adapters.
+- `packages/tui`: Ink-based interactive terminal interface.
+- `packages/protocol`: browser-safe Zod wire protocol for commands, events, replay, and session snapshots.
+- `packages/server`: authentication, HTTP/SSE Gateway, workspace registry, Docker orchestration, and Web Push.
+- `packages/worker`: headless Agent host running inside a workspace container and reusing `packages/core`.
+- `packages/web`: responsive React, Vite, and Radix/shadcn Web/PWA client, served by a dedicated Nginx container that proxies Gateway APIs.
+- `docs`: user guides, technical architecture, Harness documentation, and release notes.
 
-Cloud Agent 当前已完成 P0–P2 规划中的主要代码能力，包括流式会话、工具与计划
-审批、断线回放、工作区隔离、会话与工具历史、Todo 进度、子代理状态、上下文
-容量与手动压缩、Diff/Trace、Web Push、Git Push/PR、资源限额和空闲回收。Web
-端也可通过 `/status`、`/context`、`/compact`、`/instructions`、`/skills`、
-`/processes` 和 `/undo` 调用相应 Core 能力。真实部署仍应按验收清单检查 Docker
-网络、Worker 重启恢复、移动端 PWA、弱网、Push 和远端 Git 凭证流程。
+The Cloud Agent supports streaming sessions, tool and plan approvals, reconnect replay, workspace isolation, session and tool history, Todo progress, subagent state, context usage and manual compaction, Diff/Trace, Web Push, Git Push/PR, resource limits, and idle reaping. The Web client exposes Core commands including `/status`, `/context`, `/compact`, `/instructions`, `/skills`, `/processes`, and `/undo`.
 
-## 文档
+Real deployments should still validate Docker networking, Worker restart recovery, mobile PWA behavior, unreliable networks, Push, and remote Git credentials against the deployment acceptance checklist.
 
-- [文档导航](docs/README.md)
-- [快速上手](docs/getting-started.md)
-- [配置参考](docs/configuration.md)
-- [命令手册](docs/command-reference.md)
-- [安全模型](docs/security.md)
-- [故障排查](docs/troubleshooting.md)
-- [技术概览](docs/technical-overview.md)
+## Documentation
+
+Most detailed documentation is currently in Chinese. English documentation contributions are welcome.
+
+- [Documentation index](docs/README.md)
+- [Getting started](docs/getting-started.md)
+- [Configuration](docs/configuration.md)
+- [Command reference](docs/command-reference.md)
+- [Extending Kross](docs/extensions.md)
+- [Security model](docs/security.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Technical overview](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)
-- [Harness 优化路线图](docs/harness-roadmap.md)
-- [Cloud Agent 架构方案](docs/cloud-agent-plan.md)
-- [Cloud Agent 部署与运维](docs/cloud-agent-deployment.md)
-- [Cloud Agent 架构评审](docs/cloud-agent-architecture-review.md)
-- [发布指南](docs/releasing.md)
-- [参与贡献](CONTRIBUTING.md)
-- [漏洞报告](SECURITY.md)
+- [Cloud deployment and operations](docs/cloud-agent-deployment.md)
+- [Release guide](docs/releasing.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 
-## 安全边界
+## Security Boundaries
 
-- 默认只自动允许读操作；写入、执行和网络操作需要审批。
-- 文件工具使用真实路径校验，限制在已授权 workspace 内。
-- `/undo` 会验证当前文件 hash，检测到人工后续修改时拒绝覆盖。
-- `Bash` 和后台进程工具目前**不是 OS 级沙箱**。批准命令前仍应确认其影响范围。
-- Cloud Worker 以 Docker 容器作为执行边界，并使用独立网络、能力丢弃、`no-new-privileges`、CPU、内存、PID 与磁盘软限额；容器仍可访问外网。
-- Cloud Gateway 默认挂载 Docker Socket，其权限等价于宿主机高权限控制面，不能直接暴露到公网。
-- Skills 中的脚本不会自动执行；执行仍需经过工具审批。
+- Read-only operations are allowed by default; writes, execution, and network operations require approval.
+- File tools resolve real paths and restrict access to authorized workspaces.
+- `/undo` verifies the current file hash and refuses to overwrite later manual changes.
+- `Bash` and managed background processes are **not OS-level sandboxes**. Review commands before approving them.
+- Cloud Workers use Docker containers as an execution boundary with isolated networks, dropped capabilities, `no-new-privileges`, CPU, memory, PID, and soft disk limits. Containers can still access external networks.
+- The Cloud Gateway mounts the Docker Socket by default. Its permissions are equivalent to a privileged host control plane and it must not be exposed directly to the public Internet.
+- Scripts referenced by Skills are not executed automatically and still require normal tool approval.
 
-## 开发与验证
+## Development and Verification
 
 ```bash
-npm run dev
+npm run dev --workspace @kross/tui
 npm test -- --run
 npm run typecheck
+npm run docs:check
 npm run build
 npm run package:check
 ```
 
-`npm run package:check` 会打包并在临时目录真实安装 CLI，然后验证 `kross --help` 和 `kross --version`。
+`npm run package:check` bundles the CLI, installs the tarball in a temporary directory, and verifies `kross --help` and `kross --version`.
 
-Cloud 各组件单独开发可使用：
+Run individual Cloud components from their own workspaces:
 
 ```bash
-npm run dev:cloud:web
-npm run dev:cloud:server
-npm run dev:cloud:worker
+npm run dev --workspace @kross/web
+npm run dev --workspace @kross/server
+npm run dev --workspace @kross/worker
 ```
 
-当前主要待补能力包括本地运行的 OS 级执行沙箱、MCP resources/prompts 与 HTTP
-transport、跨会话语义记忆、嵌套目录级 Project Instructions，以及 Cloud Agent
-在真实 Docker、移动端和公网反向代理环境中的持续端到端验收。
+The repository root intentionally has no default `dev` script. Each runnable workspace owns its development server, while the root coordinates repository-wide builds, tests, packaging, and Cloud lifecycle commands.
+
+Current gaps include an OS-level sandbox for local execution, MCP resources/prompts and HTTP transport, cross-session semantic memory, nested directory-level Project Instructions, and continued end-to-end validation of Cloud Agent deployments on real Docker, mobile, and public reverse-proxy environments.
+
+## Feedback and Contributing
+
+Use the repository Issue templates for regular bugs and feature requests. Do not disclose security issues publicly; follow the [Security Policy](SECURITY.md) instead. Read [Contributing](CONTRIBUTING.md) before opening a pull request, especially when changing tool permissions, Cloud event replay, persistence, or protocol behavior.

@@ -12,7 +12,7 @@ Kross 要求 Node.js `>= 22.19`。然后重新安装依赖并运行：
 
 ```bash
 npm install
-npm run dev
+npm run dev --workspace @kross/tui
 ```
 
 ## TUI 中无法复制文本

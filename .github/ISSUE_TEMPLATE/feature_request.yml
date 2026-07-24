@@ -1,0 +1,49 @@
+name: 功能建议
+description: 建议新的能力、扩展点或体验改进
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: 相关区域
+      options:
+        - Agent Core / Harness
+        - TUI
+        - Cloud
+        - 模型 Provider
+        - Tools / MCP / Skills
+        - 部署与运维
+        - 文档与贡献体验
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 请描述具体工作流和当前阻碍，不要只描述期望按钮或实现。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 如果涉及扩展点，请说明配置、MCP 或现有接口为何不够。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+  - type: textarea
+    id: scope
+    attributes:
+      label: 边界与兼容性
+      description: 是否影响 TUI、Cloud、协议、持久化格式或权限模型？
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: 贡献意愿
+      options:
+        - label: 我愿意在维护者确认方向后提交 PR。

@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "start": "tsx src/main.ts"
+    "dev": "tsx src/main.ts"
   },
   "dependencies": {
     "@kross/core": "0.1.0",

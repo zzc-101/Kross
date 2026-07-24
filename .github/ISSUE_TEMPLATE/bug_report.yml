@@ -1,0 +1,77 @@
+name: Bug 报告
+description: 报告可以复现的 TUI、Cloud、Core 或部署问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。提交前请搜索已有 Issue，并删除日志中的 API key、访问令牌、私有仓库地址和用户目录。
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响区域
+      options:
+        - TUI
+        - Cloud Web
+        - Gateway
+        - Worker
+        - Agent Core / Tools
+        - 安装或部署
+        - 文档
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+      description: 请填写版本号或 `git rev-parse --short HEAD` 的结果。
+      placeholder: v0.1.0 / abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: 操作系统、Node.js、Docker、浏览器及模型 Provider；不要填写密钥。
+      placeholder: macOS 15, Node 22.19, Docker Desktop 4.x, Chrome ...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 启动……
+        2. 输入……
+        3. 点击……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 可以附截图或已脱敏日志。
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 补充诊断
+      description: 相关测试结果、控制台错误、容器日志或最小复现仓库。
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 提交确认
+      options:
+        - label: 我已经搜索过现有 Issue。
+          required: true
+        - label: 我已经移除密钥、访问令牌和其他敏感信息。
+          required: true

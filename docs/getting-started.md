@@ -66,7 +66,7 @@ export ANTHROPIC_MODEL=claude-sonnet-4-5
 从 Kross 仓库启动：
 
 ```bash
-npm run dev
+npm run dev --workspace @kross/tui
 ```
 
 没有模型配置时 TUI 仍会启动，但普通任务只会提示补充模型配置。要处理其他本地项目，可在启动后通过 `/add-dir` 授权对应目录。

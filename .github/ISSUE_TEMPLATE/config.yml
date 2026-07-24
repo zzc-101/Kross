@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞
+    url: https://github.com/zzc-101/Kross/security/advisories/new
+    about: 请通过私密渠道报告漏洞，不要创建公开 Issue。
+  - name: 使用与部署文档
+    url: https://github.com/zzc-101/Kross/tree/main/docs
+    about: 提问前请先检查快速上手、配置参考和故障排查。
