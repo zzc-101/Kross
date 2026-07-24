@@ -53,8 +53,7 @@ const gateway = new GatewayService(
 );
 const server = new GatewayHttpServer(gateway, {
   accessToken,
-  port: Number(process.env.PORT ?? 8787),
-  staticDir: process.env.KROSS_WEB_DIST ?? join(process.cwd(), 'packages/web/dist')
+  port: Number(process.env.PORT ?? 8787)
 });
 const reaper = new IdleWorkspaceReaper(
   registry,

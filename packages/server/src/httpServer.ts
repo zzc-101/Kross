@@ -4,12 +4,6 @@ import {
   type Server,
   type ServerResponse
 } from 'node:http';
-import {
-  existsSync,
-  readFileSync,
-  statSync
-} from 'node:fs';
-import { extname, join, relative, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 
 import {
@@ -26,7 +20,6 @@ export interface GatewayHttpServerOptions {
   accessToken: string;
   host?: string;
   port?: number;
-  staticDir?: string;
   sseHeartbeatMs?: number;
 }
 
@@ -75,17 +68,6 @@ export class GatewayHttpServer {
     if (request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ ok: true }));
-      return;
-    }
-    if (
-      (request.method === 'GET' || request.method === 'HEAD') &&
-      !(request.url ?? '').startsWith('/api/') &&
-      this.serveStatic(
-        request.url ?? '/',
-        response,
-        request.method === 'HEAD'
-      )
-    ) {
       return;
     }
     if (!this.authorized(request.headers.authorization)) {
@@ -215,45 +197,6 @@ export class GatewayHttpServer {
     response.end(JSON.stringify({ error: 'NOT_FOUND' }));
   }
 
-  private serveStatic(
-    url: string,
-    response: ServerResponse,
-    headOnly = false
-  ): boolean {
-    if (!this.options.staticDir) return false;
-    let requestPath: string;
-    try {
-      requestPath = decodeURIComponent(url.split('?')[0] ?? '/');
-    } catch {
-      return false;
-    }
-    const root = resolve(this.options.staticDir);
-    const candidate = resolve(root, `.${requestPath}`);
-    const safeCandidate =
-      relative(root, candidate).startsWith('..') ? undefined : candidate;
-    const file =
-      safeCandidate &&
-      existsSync(safeCandidate) &&
-      statSync(safeCandidate).isFile()
-        ? safeCandidate
-        : join(root, 'index.html');
-    if (!existsSync(file)) return false;
-    response.writeHead(200, {
-      'content-type': contentType(extname(file)),
-      'cache-control':
-        file.endsWith('index.html')
-          ? 'no-cache'
-          : 'public, max-age=31536000, immutable',
-      'content-security-policy':
-        "default-src 'self'; connect-src 'self' https: http:; img-src 'self' data:; style-src 'self'; script-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
-      'x-content-type-options': 'nosniff',
-      'x-frame-options': 'DENY',
-      'referrer-policy': 'no-referrer'
-    });
-    response.end(headOnly ? undefined : readFileSync(file));
-    return true;
-  }
-
   private connectEventStream(response: ServerResponse): void {
     response.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -356,21 +299,6 @@ function isSecureRequest(request: IncomingMessage): boolean {
   );
 }
 
-function contentType(extension: string): string {
-  return (
-    {
-      '.html': 'text/html; charset=utf-8',
-      '.js': 'text/javascript; charset=utf-8',
-      '.css': 'text/css; charset=utf-8',
-      '.json': 'application/json; charset=utf-8',
-      '.webmanifest': 'application/manifest+json',
-      '.svg': 'image/svg+xml',
-      '.png': 'image/png',
-      '.webp': 'image/webp',
-      '.ico': 'image/x-icon'
-    }[extension] ?? 'application/octet-stream'
-  );
-}
 
 function commandFailureEvent(
   requestId: string,

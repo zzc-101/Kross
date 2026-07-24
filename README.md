@@ -77,7 +77,7 @@ npm run dev
 ### 启动自托管 Cloud Agent
 
 Cloud Agent 需要 Docker Engine 和 Docker Compose。首次启动会根据 `.env.example`
-创建 `.env`、生成访问令牌、构建 Gateway 与 Worker 镜像并在后台启动：
+创建 `.env`、生成访问令牌、构建 Web、Gateway 与 Worker 镜像并在后台启动：
 
 ```bash
 ./scripts/start-cloud.sh
@@ -178,9 +178,9 @@ flowchart TB
 - `packages/core`：Agent runtime、Harness 完成门、上下文治理、会话、工具、权限、Skills、MCP 与模型适配。
 - `packages/tui`：基于 Ink 的交互式终端界面。
 - `packages/protocol`：浏览器安全的 Zod 线协议，定义命令、事件、回放和会话快照。
-- `packages/server`：认证、HTTP/SSE 网关、工作区注册、Docker 编排、Web Push 与静态资源托管。
+- `packages/server`：认证、HTTP/SSE 网关、工作区注册、Docker 编排与 Web Push。
 - `packages/worker`：运行在工作区容器内的 headless Agent 宿主，复用 `packages/core`。
-- `packages/web`：基于 React、Vite 和 Radix/shadcn 的响应式 Web/PWA 客户端。
+- `packages/web`：基于 React、Vite 和 Radix/shadcn 的响应式 Web/PWA 客户端，由独立 Nginx 容器托管并反代 Gateway API。
 - `docs`：用户指南、技术概览、Harness 说明和发布文档。
 
 Cloud Agent 当前已完成 P0–P2 规划中的主要代码能力，包括流式会话、工具与计划

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -27,12 +27,8 @@ const unusedOrchestrator: ContainerOrchestrator = {
 };
 
 describe('GatewayHttpServer', () => {
-  it('serves the PWA and exposes authenticated command and SSE APIs', async () => {
+  it('exposes authenticated command and SSE APIs', async () => {
     const root = mkdtempSync(join(tmpdir(), 'kross-http-'));
-    const staticDir = join(root, 'web');
-    mkdirSync(staticDir);
-    writeFileSync(join(staticDir, 'index.html'), '<h1>Kross</h1>');
-    writeFileSync(join(staticDir, 'icon-192.png'), Buffer.from([137, 80, 78, 71]));
     const registry = new WorkspaceRegistry(join(root, 'workspaces.json'));
     const runtimeConfig = new RuntimeConfigStore(
       join(root, 'provider.json'),
@@ -49,29 +45,14 @@ describe('GatewayHttpServer', () => {
       accessToken: 'secret-token',
       host: '127.0.0.1',
       port: 0,
-      staticDir,
       sseHeartbeatMs: 10
     });
     await server.listen();
     const port = server.address()?.port;
     if (!port) throw new Error('missing port');
 
-    const shellResponse = await fetch(`http://127.0.0.1:${port}/`);
-    expect(await shellResponse.text()).toContain('Kross');
-    expect(shellResponse.headers.get('content-security-policy')).toContain(
-      "default-src 'self'"
-    );
-    expect(
-      (
-        await fetch(`http://127.0.0.1:${port}/`, { method: 'HEAD' })
-      ).status
-    ).toBe(200);
-    const iconResponse = await fetch(
-      `http://127.0.0.1:${port}/icon-192.png`,
-      { method: 'HEAD' }
-    );
-    expect(iconResponse.status).toBe(200);
-    expect(iconResponse.headers.get('content-type')).toBe('image/png');
+    expect((await fetch(`http://127.0.0.1:${port}/healthz`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(401);
     expect((await fetch(`http://127.0.0.1:${port}/api/workspaces`)).status).toBe(401);
     expect(
       (

@@ -74,3 +74,6 @@ jobs:
 
       - name: Build gateway image
         run: docker build --file docker/server.Dockerfile --tag kross-server:ci .
+
+      - name: Build web image
+        run: docker build --file docker/web.Dockerfile --tag kross-web:ci .

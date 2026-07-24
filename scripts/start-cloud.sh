@@ -13,7 +13,7 @@ usage() {
   ./scripts/start-cloud.sh             构建镜像并启动 Cloud Agent
   ./scripts/start-cloud.sh --no-build  使用现有镜像启动
   ./scripts/start-cloud.sh --stop      停止服务并保留数据卷
-  ./scripts/start-cloud.sh --logs      持续查看 Gateway 日志
+  ./scripts/start-cloud.sh --logs      持续查看 Web 与 Gateway 日志
   ./scripts/start-cloud.sh --help      显示帮助
 EOF
 }
@@ -84,7 +84,7 @@ ensure_env() {
   fi
 }
 
-wait_for_gateway() {
+wait_for_web() {
   port=$(read_env_value KROSS_PORT)
   if [ -z "$port" ]; then
     port=8787
@@ -99,8 +99,8 @@ wait_for_gateway() {
     sleep 1
   done
 
-  echo "Gateway 未能在 30 秒内就绪，最近日志如下：" >&2
-  docker compose logs --tail 80 gateway >&2
+  echo "Web 入口未能在 30 秒内就绪，最近日志如下：" >&2
+  docker compose logs --tail 80 web gateway >&2
   return 1
 }
 
@@ -112,13 +112,13 @@ case "$command" in
     cd "$PROJECT_DIR"
 
     if [ "$command" = "start" ]; then
-      echo "正在构建 Gateway 和 Worker 镜像……"
+      echo "正在构建 Web、Gateway 和 Worker 镜像……"
       docker compose --profile build build
     fi
 
     echo "正在启动 Cloud Agent……"
-    docker compose up -d gateway
-    wait_for_gateway
+    docker compose up -d web gateway
+    wait_for_web
 
     port=$(read_env_value KROSS_PORT)
     if [ -z "$port" ]; then
@@ -145,7 +145,7 @@ case "$command" in
   --logs)
     require_docker
     cd "$PROJECT_DIR"
-    KROSS_ACCESS_TOKEN=unused docker compose logs -f gateway
+    KROSS_ACCESS_TOKEN=unused docker compose logs -f web gateway
     ;;
   --help | -h)
     usage

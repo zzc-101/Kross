@@ -4,15 +4,12 @@ COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/core/package.json packages/core/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
 COPY packages/server/package.json packages/server/package.json
-COPY packages/web/package.json packages/web/package.json
 RUN npm ci
 COPY scripts/build-cloud-runtime.mjs scripts/build-cloud-runtime.mjs
 COPY packages/core packages/core
 COPY packages/protocol packages/protocol
 COPY packages/server packages/server
-COPY packages/web packages/web
-RUN npm run --workspace @kross/web build \
-  && node scripts/build-cloud-runtime.mjs server build/server.mjs
+RUN node scripts/build-cloud-runtime.mjs server build/server.mjs
 
 FROM node:22-bookworm-slim AS production-deps
 WORKDIR /app
@@ -27,6 +24,5 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-deps /app/node_modules node_modules
 COPY --from=build /app/build/server.mjs dist/server.mjs
-COPY --from=build /app/packages/web/dist packages/web/dist
 EXPOSE 8787
 CMD ["node", "dist/server.mjs"]
