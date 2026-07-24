@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { memo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useTranslation } from 'react-i18next';
+import remarkGfm from 'remark-gfm';
 
 import type { UiMessage } from '../../useCloud';
 import { Badge } from '../ui/badge';
@@ -25,15 +26,33 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Textarea } from '../ui/textarea';
 
 export const Message = memo(function Message({
-  message
+  message,
+  thinking
 }: {
   message: UiMessage;
+  thinking?: string;
 }) {
   const { t } = useTranslation();
+  const thinkingDisclosure = thinking ? (
+    <ToolDisclosure label={t('session.viewThinking')}>
+      <pre>{thinking}</pre>
+    </ToolDisclosure>
+  ) : null;
+  if (message.liveTool) {
+    return (
+      <article className="message tool">
+        {thinkingDisclosure}
+        <ToolCard
+          type={message.liveTool.type}
+          payload={message.liveTool.payload}
+        />
+      </article>
+    );
+  }
   if (message.tool) {
     return (
       <article className="message tool">
-        <div className="message-author">{t('session.toolRecord')}</div>
+        {thinkingDisclosure}
         <HistoricalToolCard
           tool={message.tool}
           fallbackText={message.text}
@@ -44,18 +63,20 @@ export const Message = memo(function Message({
   }
   return (
     <article className={`message ${message.from}`}>
-      <div className="message-author">
-        {message.from === 'user'
-          ? t('session.you')
-          : message.from === 'thinking'
-            ? t('session.thinking')
-            : t('session.assistant')}
-      </div>
       {message.from === 'thinking' ? (
         <ToolDisclosure label={t('session.viewThinking')}>
           <pre>{message.text}</pre>
         </ToolDisclosure>
-      ) : <ReactMarkdown>{message.text}</ReactMarkdown>}
+      ) : (
+        <>
+          {thinkingDisclosure}
+          <div className="markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {message.text}
+            </ReactMarkdown>
+          </div>
+        </>
+      )}
     </article>
   );
 });
@@ -71,30 +92,47 @@ function HistoricalToolCard({
 }) {
   const { t } = useTranslation();
   const details = tool.detailLines ?? [];
+  const hasDetails =
+    Boolean(tool.inputPreview) ||
+    details.length > 0 ||
+    Boolean(tool.items?.length);
+  const hasFooter =
+    tool.linesAdded !== undefined ||
+    tool.linesRemoved !== undefined ||
+    Boolean(verification);
+  const expandable = hasDetails || hasFooter;
   return (
-    <Card className={`tool-card history ${tool.status}`}>
-      <CardHeader className="tool-card-header">
-        <div>
-          <Badge variant="outline">{t('session.tool')}</Badge>
-          <CardTitle>{tool.name}</CardTitle>
-        </div>
-        <Badge variant={toolStatusVariant(tool.status)}>
-          {toolStatusLabel(tool.status, t)}
-        </Badge>
-      </CardHeader>
-      <CardContent className="tool-card-content">
-        <CardDescription>{tool.summary || fallbackText}</CardDescription>
-        {tool.inputPreview && (
-          <ToolDisclosure label={t('session.viewInput')}>
-            <pre>{tool.inputPreview}</pre>
-          </ToolDisclosure>
-        )}
-        {details.length > 0 && (
-          <ToolDisclosure
-            label={t('session.viewDetails', {
+    <Collapsible>
+      <Card className={`tool-card history ${tool.status}`}>
+        <CollapsibleTrigger asChild disabled={!expandable}>
+          <button
+            type="button"
+            className="tool-card-trigger"
+            aria-label={t('session.viewDetails', {
               suffix: tool.detailTruncated ? t('session.truncated') : ''
             })}
           >
+            <ChevronRight className="tool-card-chevron" aria-hidden="true" />
+            <div className="tool-card-main">
+              <CardTitle>{tool.name}</CardTitle>
+              <CardDescription>
+                {compactToolSummary(tool.name, tool.summary || fallbackText)}
+              </CardDescription>
+            </div>
+            <div className="tool-card-state">
+              {tool.durationMs !== undefined && <small>{tool.durationMs} ms</small>}
+              <Badge variant={toolStatusVariant(tool.status)}>
+                {toolStatusLabel(tool.status, t)}
+              </Badge>
+            </div>
+          </button>
+        </CollapsibleTrigger>
+        {expandable && <CollapsibleContent>
+          <CardContent className="tool-card-expanded">
+            {tool.inputPreview && (
+              <pre aria-label={t('session.viewInput')}>{tool.inputPreview}</pre>
+            )}
+            {details.length > 0 && (
             <pre className="tool-detail">
               {details.map((line, index) => (
                 <span className={line.op ? `diff-${line.op}` : undefined} key={index}>
@@ -104,39 +142,39 @@ function HistoricalToolCard({
                 </span>
               ))}
             </pre>
-          </ToolDisclosure>
-        )}
-        {tool.items && tool.items.length > 0 && (
-          <ul className="tool-items">
-            {tool.items.map((item, index) => (
-              <li key={`${item.callId ?? item.path ?? index}`}>
-                <strong>{item.path ?? item.callId ?? t('session.step', { number: index + 1 })}</strong>
-                <Badge variant={toolStatusVariant(item.status)}>
-                  {toolStatusLabel(item.status, t)}
-                </Badge>
-                {(item.summary || item.preview) && (
-                  <small>{item.summary ?? item.preview}</small>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-      <CardFooter className="tool-card-footer">
-        {tool.durationMs !== undefined && <span>{tool.durationMs} ms</span>}
-        {(tool.linesAdded !== undefined || tool.linesRemoved !== undefined) && (
-          <span>
-            <ins>+{tool.linesAdded ?? 0}</ins>{' '}
-            <del>-{tool.linesRemoved ?? 0}</del>
-          </span>
-        )}
-        {verification && (
-          <span>{t('session.verification', {
-            status: verificationLabel(verification.status, t)
-          })}</span>
-        )}
-      </CardFooter>
-    </Card>
+            )}
+            {tool.items && tool.items.length > 0 && (
+              <ul className="tool-items">
+                {tool.items.map((item, index) => (
+                  <li key={`${item.callId ?? item.path ?? index}`}>
+                    <strong>{item.path ?? item.callId ?? t('session.step', { number: index + 1 })}</strong>
+                    <Badge variant={toolStatusVariant(item.status)}>
+                      {toolStatusLabel(item.status, t)}
+                    </Badge>
+                    {(item.summary || item.preview) && (
+                      <small>{item.summary ?? item.preview}</small>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+          {hasFooter && <CardFooter className="tool-card-footer">
+            {(tool.linesAdded !== undefined || tool.linesRemoved !== undefined) && (
+              <span>
+                <ins>+{tool.linesAdded ?? 0}</ins>{' '}
+                <del>-{tool.linesRemoved ?? 0}</del>
+              </span>
+            )}
+            {verification && (
+              <span>{t('session.verification', {
+                status: verificationLabel(verification.status, t)
+              })}</span>
+            )}
+          </CardFooter>}
+        </CollapsibleContent>}
+      </Card>
+    </Collapsible>
   );
 }
 
@@ -168,28 +206,61 @@ export function ToolCard({
 }) {
   const { t } = useTranslation();
   const status = type.split('.').at(-1) ?? 'running';
+  const detail = payload.input ?? payload.contentPreview;
+  const expandable = detail !== undefined;
   return (
-    <Card className={`tool-card ${status}`}>
-      <CardHeader className="tool-card-header">
-        <div>
-          <Badge variant="outline">{t('session.tool')}</Badge>
-          <CardTitle>
-            {String(payload.toolName ?? payload.name ?? 'Tool')}
-          </CardTitle>
-        </div>
-        <Badge variant={toolStatusVariant(status)}>
-          {toolStatusLabel(status, t)}
-        </Badge>
-      </CardHeader>
-      {(payload.input !== undefined || payload.contentPreview !== undefined) && (
-        <CardContent className="tool-card-content">
-          <ToolDisclosure label={t('session.viewCall')}>
-            <pre>{formatToolValue(payload.input ?? payload.contentPreview)}</pre>
-          </ToolDisclosure>
-        </CardContent>
-      )}
-    </Card>
+    <Collapsible>
+      <Card className={`tool-card ${status}`}>
+        <CollapsibleTrigger asChild disabled={!expandable}>
+          <button
+            type="button"
+            className="tool-card-trigger"
+            aria-label={t('session.viewCall')}
+          >
+            <ChevronRight className="tool-card-chevron" aria-hidden="true" />
+            <div className="tool-card-main">
+              <CardTitle>
+                {String(payload.toolName ?? payload.name ?? 'Tool')}
+              </CardTitle>
+              {typeof payload.summary === 'string' && (
+                <CardDescription>
+                  {compactToolSummary(
+                    String(payload.toolName ?? payload.name ?? 'Tool'),
+                    payload.summary
+                  )}
+                </CardDescription>
+              )}
+            </div>
+            <div className="tool-card-state">
+              {typeof payload.durationMs === 'number' && (
+                <small>{payload.durationMs} ms</small>
+              )}
+              <Badge variant={toolStatusVariant(status)}>
+                {toolStatusLabel(status, t)}
+              </Badge>
+            </div>
+          </button>
+        </CollapsibleTrigger>
+        {expandable && (
+          <CollapsibleContent>
+            <CardContent className="tool-card-expanded">
+              <pre>{formatToolValue(detail)}</pre>
+            </CardContent>
+          </CollapsibleContent>
+        )}
+      </Card>
+    </Collapsible>
   );
+}
+
+export function compactToolSummary(toolName: string, summary: string): string {
+  const escapedName = toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return summary
+    .replace(new RegExp(`^${escapedName}\\s*`, 'i'), '')
+    .replace(/→\s*completed:\s*/i, '→ ')
+    .replace(/^→\s*completed:\s*/i, '')
+    .replace(/^completed:\s*/i, '')
+    .trim();
 }
 
 export function ApprovalCard(props: {
@@ -261,61 +332,18 @@ export function ApprovalCard(props: {
   );
 }
 
-export function ExecutionSummary(props: {
-  running: boolean;
-  pendingApproval: boolean;
-  result?: AgentResult;
-}) {
-  const { t } = useTranslation();
-  const status = props.pendingApproval
-    ? t('status.approvalRequired')
-    : props.running
-      ? t('status.running')
-      : props.result
-        ? resultLabel(props.result.status, t)
-        : t('execution.idle');
-  return (
-    <Card className="execution-summary">
-      <CardHeader>
-        <div>
-          <span className={`run-status ${props.running ? 'running' : ''}`} />
-          <CardTitle>{status}</CardTitle>
-        </div>
-      </CardHeader>
-      {props.result && (
-        <CardContent>
-          <CardDescription>{props.result.summary}</CardDescription>
-          <dl>
-            <div>
-              <dt>{t('execution.changedFiles')}</dt>
-              <dd>{props.result.report.changedFiles.length}</dd>
-            </div>
-            <div>
-              <dt>{t('execution.verification')}</dt>
-              <dd>{verificationLabel(props.result.report.verification.status, t)}</dd>
-            </div>
-            <div>
-              <dt>{t('execution.risks')}</dt>
-              <dd>{props.result.report.risks.length}</dd>
-            </div>
-          </dl>
-        </CardContent>
-      )}
-    </Card>
-  );
-}
-
 function toolStatusVariant(
   status: string
 ): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (status === 'failed' || status === 'denied') return 'destructive';
   if (status === 'completed') return 'secondary';
-  if (status === 'running') return 'default';
+  if (status === 'running' || status === 'started') return 'default';
   return 'outline';
 }
 
 function toolStatusLabel(status: string, t: TFunction): string {
   return {
+    started: t('status.running'),
     awaiting: t('status.awaiting'),
     running: t('status.running'),
     completed: t('status.completed'),
@@ -361,15 +389,6 @@ function riskPresentation(value: string, t: TFunction): {
     icon: '✓',
     description: t('approval.controlledDescription')
   };
-}
-
-function resultLabel(status: AgentResult['status'], t: TFunction): string {
-  return {
-    completed: t('execution.completed'),
-    failed: t('execution.failed'),
-    cancelled: t('execution.cancelled'),
-    'approval-required': t('status.approvalRequired')
-  }[status];
 }
 
 function verificationLabel(

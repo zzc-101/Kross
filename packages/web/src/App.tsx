@@ -11,6 +11,7 @@ import {
 } from './components/workspace/WorkspacePanels';
 import { usePwa } from './pwa';
 import { fetchSetupStatus, type SetupStatus } from './setupApi';
+import { parseWebSlashCommand } from './slashCommands';
 import { useCloud } from './useCloud';
 
 interface AppProps {
@@ -41,12 +42,6 @@ export function App({ endpoint, token, onLogout }: AppProps) {
       session.title.toLocaleLowerCase().includes(query) ||
       session.preview.toLocaleLowerCase().includes(query);
   });
-  const persistedToolCallIds = new Set(
-    state.messages.flatMap((message) =>
-      message.tool?.callId ? [message.tool.callId] : []
-    )
-  );
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [state.messages, state.running]);
@@ -94,14 +89,6 @@ export function App({ endpoint, token, onLogout }: AppProps) {
       .catch(() => setSetupStatus(undefined));
   }, [connection, endpoint, token]);
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const value = input.trim();
-    if (!value || state.running) return;
-    cloud.sendInput(value);
-    setInput('');
-  };
-
   const inspect = (kind: 'trace' | 'diff', argument?: string) => {
     if (!state.workspaceId || !state.snapshot) return;
     client.send({
@@ -111,6 +98,142 @@ export function App({ endpoint, token, onLogout }: AppProps) {
       kind,
       argument
     });
+  };
+
+  const sendSessionSettings = (settings: {
+    mode?: 'auto' | 'plan' | 'conductor';
+    model?: string;
+    thinkingEffort?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+    permissionMode?: 'default' | 'classifier' | 'auto';
+  }) => {
+    if (!state.workspaceId || !state.snapshot) return;
+    client.send({
+      type: 'session.settings',
+      workspaceId: state.workspaceId,
+      sessionId: state.snapshot.summary.id,
+      ...settings
+    });
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const value = input.trim();
+    if (!value || state.running) return;
+    if (!value.startsWith('/')) {
+      cloud.sendInput(value);
+      setInput('');
+      return;
+    }
+
+    const { command, argument } = parseWebSlashCommand(value);
+    if (!command) {
+      cloud.appendLocalMessage('system', t('commands.unknown', {
+        command: value.split(/\s+/)[0]
+      }));
+      setInput('');
+      return;
+    }
+
+    const rejectUsage = () =>
+      cloud.appendLocalMessage('system', t('commands.usage', {
+        usage: command.usage
+      }));
+    if (command.id === 'help') {
+      cloud.appendLocalMessage('agent', t('commands.helpText'));
+    } else if (command.id === 'new') {
+      if (state.workspaceId) cloud.createSession(state.workspaceId);
+    } else if (command.id === 'mode') {
+      if (['auto', 'plan', 'conductor'].includes(argument)) {
+        sendSessionSettings({ mode: argument as 'auto' | 'plan' | 'conductor' });
+      } else {
+        rejectUsage();
+      }
+    } else if (command.id === 'model') {
+      if (argument) {
+        if (state.models.some((model) => model.id === argument)) {
+          sendSessionSettings({ model: argument });
+        } else {
+          cloud.appendLocalMessage('system', t('commands.modelUnavailable', {
+            model: argument
+          }));
+        }
+      } else if (state.models.length === 0) {
+        cloud.appendLocalMessage('system', t('commands.noConfiguredModels'));
+      } else {
+        setDialogAction({
+          kind: 'model',
+          model: state.models.some((model) => model.id === state.snapshot?.model)
+            ? state.snapshot!.model!
+            : state.models[0]!.id,
+          options: state.models.map((model) => model.id)
+        });
+      }
+    } else if (command.id === 'think') {
+      if (['off', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(argument)) {
+        sendSessionSettings({
+          thinkingEffort: argument as 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+        });
+      } else {
+        rejectUsage();
+      }
+    } else if (command.id === 'perm') {
+      if (['default', 'classifier', 'auto'].includes(argument)) {
+        sendSessionSettings({
+          permissionMode: argument as 'default' | 'classifier' | 'auto'
+        });
+      } else {
+        rejectUsage();
+      }
+    } else if (command.id === 'context') {
+      const usage = state.snapshot?.contextUsage;
+      cloud.appendLocalMessage(
+        'agent',
+        usage
+          ? t('commands.contextReport', {
+              used: usage.usedTokens.toLocaleString(),
+              max: usage.maxTokens.toLocaleString(),
+              threshold: usage.compactThreshold.toLocaleString(),
+              percent: Math.round(usage.headerRatio * 100)
+            })
+          : t('commands.contextUnavailable')
+      );
+    } else if (command.id === 'compact') {
+      if (state.workspaceId && state.snapshot) {
+        client.send({
+          type: 'session.compact',
+          workspaceId: state.workspaceId,
+          sessionId: state.snapshot.summary.id,
+          ...(argument ? { instructions: argument } : {})
+        });
+      }
+    } else if (command.id === 'status') {
+      cloud.appendLocalMessage('agent', t('commands.statusReport', {
+        mode: state.snapshot?.mode ?? '-',
+        model: state.snapshot?.model ?? '-',
+        thinking: state.snapshot?.thinkingEffort ?? '-',
+        permission: state.snapshot?.permissionMode ?? '-',
+        todos: state.snapshot?.todos.length ?? 0,
+        running: state.running ? t('status.running') : t('execution.idle')
+      }));
+    } else if (
+      command.id === 'instructions' ||
+      command.id === 'skills' ||
+      command.id === 'processes' ||
+      command.id === 'undo'
+    ) {
+      if (state.workspaceId && state.snapshot) {
+        client.send({
+          type: 'session.runtime-command',
+          workspaceId: state.workspaceId,
+          sessionId: state.snapshot.summary.id,
+          name: command.id,
+          ...(argument ? { argument } : {})
+        });
+      }
+    } else if (command.id === 'diff' || command.id === 'trace') {
+      inspect(command.id);
+    }
+    setInput('');
   };
 
   const enableNotifications = async () => {
@@ -239,7 +362,6 @@ export function App({ endpoint, token, onLogout }: AppProps) {
         setupStatus={setupStatus}
         selectedWorkspace={selectedWorkspace}
         visibleSessions={visibleSessions}
-        persistedToolCallIds={persistedToolCallIds}
         input={input}
         onInputChange={setInput}
         onSubmit={submit}

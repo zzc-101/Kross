@@ -1,6 +1,11 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@': new URL('./packages/web/src', import.meta.url).pathname
+    }
+  },
   test: {
     environment: 'node',
     include: ['packages/**/*.test.ts', 'packages/**/*.test.tsx'],

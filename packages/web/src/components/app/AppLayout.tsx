@@ -3,6 +3,9 @@ import type { TFunction } from 'i18next';
 import {
   Activity,
   Bell,
+  ChevronDown,
+  ChevronRight,
+  Command,
   Download,
   GitCompare,
   GitPullRequest,
@@ -15,6 +18,7 @@ import {
   Plus,
   Send,
   Settings,
+  ShieldCheck,
   Square,
   Trash2,
   Upload
@@ -25,17 +29,22 @@ import type {
   RefObject,
   SetStateAction
 } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { DialogAction } from '../../OperationDialog';
+import { approvalIdentity } from '../../approvalIdentity';
 import { applyPwaUpdate, installPwa, type usePwa } from '../../pwa';
+import { sessionPresentationState } from '../../sessionPresentation';
 import type { SetupStatus } from '../../setupApi';
+import { filterWebSlashCommands, type WebSlashCommand } from '../../slashCommands';
+import { latestToolActivities } from '../../toolActivity';
+import { deriveSubagentActivities } from '../../subagentActivity';
+import { groupMessagesForDisplay } from '../../messageGrouping';
 import type { useCloud } from '../../useCloud';
 import {
   ApprovalCard,
-  ExecutionSummary,
-  Message,
-  ToolCard
+  Message
 } from '../session/SessionSurface';
 import { Button } from '../ui/button';
 import {
@@ -43,6 +52,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu';
@@ -55,10 +66,7 @@ import {
   SelectValue
 } from '../ui/select';
 import { Textarea } from '../ui/textarea';
-import {
-  EmptyState,
-  WorkspaceActions
-} from '../workspace/WorkspacePanels';
+import { EmptyState } from '../workspace/WorkspacePanels';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
 type CloudController = ReturnType<typeof useCloud>;
@@ -73,7 +81,6 @@ interface AppLayoutProps {
   setupStatus?: SetupStatus;
   selectedWorkspace?: CloudWorkspace;
   visibleSessions: CloudState['sessions'];
-  persistedToolCallIds: Set<string>;
   input: string;
   onInputChange: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -105,12 +112,13 @@ export function AppLayout(props: AppLayoutProps) {
         onLogout={props.onLogout}
         onOpenWorkspaceForm={props.onOpenWorkspaceForm}
         onOpenSetup={props.onOpenSetup}
+        selectedWorkspace={props.selectedWorkspace}
+        onDialogAction={props.onDialogAction}
       />
 
       <main className="layout">
         <SessionSidebar
           state={state}
-          selectedWorkspace={props.selectedWorkspace}
           visibleSessions={props.visibleSessions}
           sessionQuery={props.sessionQuery}
           mobilePanel={props.mobilePanel}
@@ -126,7 +134,6 @@ export function AppLayout(props: AppLayoutProps) {
           setupStatus={props.setupStatus}
           input={props.input}
           mobilePanel={props.mobilePanel}
-          persistedToolCallIds={props.persistedToolCallIds}
           bottomRef={props.bottomRef}
           onInputChange={props.onInputChange}
           onSubmit={props.onSubmit}
@@ -164,9 +171,11 @@ function AppHeader(props: {
   cloud: CloudController;
   pwa: PwaState;
   setupStatus?: SetupStatus;
+  selectedWorkspace?: CloudWorkspace;
   onLogout: () => void;
   onOpenWorkspaceForm: () => void;
   onOpenSetup: () => void;
+  onDialogAction: Dispatch<SetStateAction<DialogAction | undefined>>;
 }) {
   const { t } = useTranslation();
   return (
@@ -196,9 +205,55 @@ function AppHeader(props: {
             ))}
           </SelectContent>
         </Select>
-        <Button variant="ghost" size="sm" className="icon-button" onClick={props.onOpenWorkspaceForm}>
-          <Plus /> {t('header.addWorkspace')}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="icon-button"
+              aria-label={t('header.workspaceActions')}
+            >
+              <Plus /> {t('header.addWorkspace')}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={props.onOpenWorkspaceForm}>
+              <Plus /> {t('workspace.add')}
+            </DropdownMenuItem>
+            {props.selectedWorkspace && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>{props.selectedWorkspace.name}</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={() => props.cloud.client.send({
+                    type: props.selectedWorkspace!.status === 'stopped'
+                      ? 'workspace.start'
+                      : 'workspace.stop',
+                    workspaceId: props.selectedWorkspace!.id
+                  })}
+                >
+                  <Square />
+                  {props.selectedWorkspace.status === 'stopped'
+                    ? t('workspace.start')
+                    : t('workspace.stop')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={() =>
+                    props.onDialogAction({
+                      kind: 'delete-workspace',
+                      workspaceId: props.selectedWorkspace!.id,
+                      name: props.selectedWorkspace!.name,
+                      removeVolume: false
+                    })
+                  }
+                >
+                  <Trash2 /> {t('common.delete')}
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           variant="ghost"
           size="sm"
@@ -242,7 +297,6 @@ function AppHeader(props: {
 function SessionSidebar(props: {
   state: CloudState;
   cloud: CloudController;
-  selectedWorkspace?: CloudWorkspace;
   visibleSessions: CloudState['sessions'];
   sessionQuery: string;
   mobilePanel: MobilePanel;
@@ -333,23 +387,6 @@ function SessionSidebar(props: {
           <p className="quiet session-empty">{t('session.empty')}</p>
         )}
       </div>
-      {props.selectedWorkspace && (
-        <WorkspaceActions
-          workspace={props.selectedWorkspace}
-          onToggle={() => props.cloud.client.send({
-            type: props.selectedWorkspace!.status === 'stopped'
-              ? 'workspace.start'
-              : 'workspace.stop',
-            workspaceId: props.selectedWorkspace!.id
-          })}
-          onDelete={() => props.onDialogAction({
-            kind: 'delete-workspace',
-            workspaceId: props.selectedWorkspace!.id,
-            name: props.selectedWorkspace!.name,
-            removeVolume: false
-          })}
-        />
-      )}
     </aside>
   );
 }
@@ -361,7 +398,6 @@ function ChatPanel(props: {
   setupStatus?: SetupStatus;
   input: string;
   mobilePanel: MobilePanel;
-  persistedToolCallIds: Set<string>;
   bottomRef: RefObject<HTMLDivElement>;
   onInputChange: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -375,129 +411,52 @@ function ChatPanel(props: {
 }) {
   const { t } = useTranslation();
   const snapshot = props.state.snapshot;
+  const presentationState = sessionPresentationState(props.state);
+  const pendingSessionTitle = props.state.sessions.find(
+    (session) => session.id === props.state.activeSessionId
+  )?.title;
+  const configuredModel = props.state.models.find(
+    (model) => model.id === snapshot?.model
+  );
+  const slashCommands = filterWebSlashCommands(props.input);
+  const [selectedSlashCommand, setSelectedSlashCommand] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [modelPanelOpen, setModelPanelOpen] = useState(false);
+  const [modelPanelSection, setModelPanelSection] = useState<
+    'model' | 'thinking' | 'mode'
+  >();
+  const displayMessages = groupMessagesForDisplay(props.state.messages);
+  useEffect(() => {
+    setSelectedSlashCommand(0);
+    setSlashDismissed(false);
+  }, [props.input]);
+  const showSlashCommands = slashCommands.length > 0 && !slashDismissed;
+  const chooseSlashCommand = (command: WebSlashCommand) => {
+    props.onInputChange(`${command.name}${command.acceptsArgument ? ' ' : ''}`);
+  };
   return (
     <section className={`chat ${props.mobilePanel === 'chat' ? 'mobile-active' : ''}`}>
       {!snapshot ? (
-        <EmptyState
-          hasWorkspace={Boolean(props.state.workspaceId)}
-          setupStatus={props.setupStatus}
-          onCreate={() => props.state.workspaceId && props.cloud.createSession(props.state.workspaceId)}
-          onAddWorkspace={props.onOpenWorkspaceForm}
-          onOpenSetup={props.onOpenSetup}
-        />
+        presentationState === 'loading' ? (
+          <SessionLoadingState title={pendingSessionTitle} />
+        ) : (
+          <EmptyState
+            hasWorkspace={Boolean(props.state.workspaceId)}
+            setupStatus={props.setupStatus}
+            onCreate={() => props.state.workspaceId && props.cloud.createSession(props.state.workspaceId)}
+            onAddWorkspace={props.onOpenWorkspaceForm}
+            onOpenSetup={props.onOpenSetup}
+          />
+        )
       ) : (
         <>
           <div className="chat-head">
-            <div>
-              <h1>{snapshot.summary.title}</h1>
-              <small>{snapshot.model ?? t('session.unconfiguredModel')} · {snapshot.thinkingEffort}</small>
-            </div>
-            <div className="head-actions">
-              <Select
-                value={snapshot.mode}
-                onValueChange={(mode) =>
-                  props.client.send({
-                    type: 'session.settings',
-                    workspaceId: props.state.workspaceId!,
-                    sessionId: snapshot.summary.id,
-                    mode: mode as 'auto' | 'plan' | 'conductor'
-                  })
-                }
-              >
-                <SelectTrigger className="head-select" aria-label={t('session.agentMode')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">Auto</SelectItem>
-                  <SelectItem value="plan">Plan</SelectItem>
-                  <SelectItem value="conductor">Conductor</SelectItem>
-                </SelectContent>
-              </Select>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="desktop-action"
-                    aria-label={t('session.moreActions')}
-                  >
-                    <MoreHorizontal /> {t('session.more')}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>{t('session.inspect')}</DropdownMenuLabel>
-                  <DropdownMenuItem onSelect={() => props.onInspect('diff')}>
-                    <GitCompare /> Diff
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => props.onInspect('trace')}>
-                    <Activity /> Trace
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>{t('session.git')}</DropdownMenuLabel>
-                  <DropdownMenuItem onSelect={props.onPushBranch}>
-                    <Upload /> Push
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={props.onCreatePullRequest}>
-                    <GitPullRequest /> {t('session.createPr')}
-                  </DropdownMenuItem>
-                  {'Notification' in window && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onSelect={() => void props.onEnableNotifications()}>
-                        <Bell /> {t('session.enableNotifications')}
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Button variant="outline" size="sm" onClick={() => props.onDialogAction({
-                kind: 'model',
-                model: snapshot.model ?? props.state.models[0]?.id ?? '',
-                options: props.state.models.map((model) => model.id)
-              })}>{t('session.model')}</Button>
-              <Select
-                value={snapshot.thinkingEffort ?? 'off'}
-                onValueChange={(thinkingEffort) =>
-                  props.client.send({
-                    type: 'session.settings',
-                    workspaceId: props.state.workspaceId!,
-                    sessionId: snapshot.summary.id,
-                    thinkingEffort: thinkingEffort as SessionThinkingEffort
-                  })
-                }
-              >
-                <SelectTrigger className="head-select" aria-label={t('session.thinkingEffort')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {['off', 'minimal', 'low', 'medium', 'high', 'xhigh'].map((effort) => (
-                    <SelectItem key={effort} value={effort}>{effort}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <h1>{snapshot.summary.title}</h1>
           </div>
           <div className="messages">
-            {props.state.messages.map((message) => (
-              <Message key={message.id} message={message} />
+            {displayMessages.map(({ message, thinking }) => (
+              <Message key={message.id} message={message} thinking={thinking} />
             ))}
-            {props.state.traces
-              .filter(
-                (trace) =>
-                  trace.type.startsWith('tool_call.') &&
-                  !(
-                    typeof trace.payload.callId === 'string' &&
-                    props.persistedToolCallIds.has(trace.payload.callId)
-                  )
-              )
-              .slice(-4)
-              .map((trace) => (
-                <ToolCard
-                  key={trace.id}
-                  type={trace.type}
-                  payload={trace.payload}
-                />
-              ))}
             {props.state.running && (
               <div className="running" role="status" aria-live="polite">
                 <i /> {t('session.agentWorking')}
@@ -507,6 +466,7 @@ function ChatPanel(props: {
           </div>
           {snapshot.pendingApproval && (
             <ApprovalCard
+              key={approvalIdentity(snapshot.pendingApproval)}
               title={t('session.pendingApproval', { tool: snapshot.pendingApproval.toolName })}
               detail={[
                 snapshot.pendingApproval.command,
@@ -549,43 +509,359 @@ function ChatPanel(props: {
               }}
             />
           )}
-          <form className="composer" onSubmit={props.onSubmit}>
-            <Textarea
-              value={props.input}
-              onChange={(event) => props.onInputChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key === 'Enter' &&
-                  !event.shiftKey &&
-                  !event.nativeEvent.isComposing
-                ) {
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }
-              }}
-              placeholder={t('session.composerPlaceholder')}
-              rows={2}
-            />
-            {props.state.running ? (
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() =>
-                  props.client.send({
-                    type: 'session.abort',
-                    workspaceId: props.state.workspaceId!,
-                    sessionId: snapshot.summary.id
-                  })
-                }
-              >
-                <Square /> {t('session.stop')}
-              </Button>
-            ) : <Button><Send />{t('session.send')}</Button>}
-          </form>
+          <div className="composer-wrap">
+            {showSlashCommands && (
+              <div className="slash-menu" role="listbox" aria-label={t('commands.menu')}>
+                {slashCommands.map((command, index) => (
+                  <button
+                    key={command.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedSlashCommand === index}
+                    className={selectedSlashCommand === index ? 'active' : ''}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => chooseSlashCommand(command)}
+                  >
+                    <code>{command.name}</code>
+                    <span>{t(`commands.${command.id}`)}</span>
+                    <small>{command.usage}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+            <form className="composer" onSubmit={props.onSubmit}>
+              <Textarea
+                className="composer-input"
+                value={props.input}
+                onChange={(event) => props.onInputChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (showSlashCommands && event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    setSelectedSlashCommand((selectedSlashCommand + 1) % slashCommands.length);
+                    return;
+                  }
+                  if (showSlashCommands && event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    setSelectedSlashCommand(
+                      (selectedSlashCommand - 1 + slashCommands.length) % slashCommands.length
+                    );
+                    return;
+                  }
+                  if (showSlashCommands && event.key === 'Escape') {
+                    event.preventDefault();
+                    setSlashDismissed(true);
+                    return;
+                  }
+                  if (
+                    showSlashCommands &&
+                    event.key === 'Enter' &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    chooseSlashCommand(slashCommands[selectedSlashCommand]!);
+                    return;
+                  }
+                  if (
+                    event.key === 'Enter' &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                placeholder={t('session.composerPlaceholder')}
+                rows={3}
+              />
+              <div className="composer-toolbar">
+                <div className="composer-controls">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="composer-command"
+                    aria-label={t('commands.open')}
+                    title={t('commands.open')}
+                    onClick={() => props.onInputChange('/')}
+                  >
+                    <Command />
+                  </Button>
+                  <Select
+                    value={snapshot.permissionMode}
+                    onValueChange={(permissionMode) =>
+                      props.client.send({
+                        type: 'session.settings',
+                        workspaceId: props.state.workspaceId!,
+                        sessionId: snapshot.summary.id,
+                        permissionMode: permissionMode as 'default' | 'classifier' | 'auto'
+                      })
+                    }
+                  >
+                    <SelectTrigger className="composer-select permission-select" aria-label={t('session.permissionMode')}>
+                      <ShieldCheck />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">{t('session.permissionDefault')}</SelectItem>
+                      <SelectItem value="classifier">{t('session.permissionClassifier')}</SelectItem>
+                      <SelectItem value="auto">{t('session.permissionAuto')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <SessionMoreMenu
+                    onInspect={props.onInspect}
+                    onEnableNotifications={props.onEnableNotifications}
+                    onPushBranch={props.onPushBranch}
+                    onCreatePullRequest={props.onCreatePullRequest}
+                  />
+                </div>
+                <div className="composer-actions">
+                  <DropdownMenu
+                    open={modelPanelOpen}
+                    onOpenChange={(open) => {
+                      setModelPanelOpen(open);
+                      if (!open) setModelPanelSection(undefined);
+                    }}
+                  >
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="composer-model-trigger"
+                        aria-label={t('session.modelAndThinking')}
+                      >
+                        <span className="composer-model-name">
+                          {configuredModel?.label ?? t('session.selectConfiguredModel')}
+                        </span>
+                        <span className="composer-effort">
+                          {thinkingEffortLabel(snapshot.thinkingEffort ?? 'off', t)}
+                        </span>
+                        <ChevronDown />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      side="top"
+                      className="composer-model-panel"
+                    >
+                      <DropdownMenuItem
+                        className="composer-setting-row"
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          setModelPanelSection(
+                            modelPanelSection === 'model' ? undefined : 'model'
+                          );
+                        }}
+                      >
+                        <strong>{t('session.model')}</strong>
+                        <span>
+                          {configuredModel?.label ?? t('session.selectConfiguredModel')}
+                        </span>
+                        <ChevronRight />
+                      </DropdownMenuItem>
+                      {modelPanelSection === 'model' && (
+                        <DropdownMenuRadioGroup
+                          className="composer-panel-options"
+                          value={configuredModel?.id ?? ''}
+                          onValueChange={(model) => {
+                            props.client.send({
+                              type: 'session.settings',
+                              workspaceId: props.state.workspaceId!,
+                              sessionId: snapshot.summary.id,
+                              model
+                            });
+                            setModelPanelOpen(false);
+                          }}
+                        >
+                          {props.state.models.length === 0 ? (
+                            <DropdownMenuItem disabled>
+                              {t('session.noConfiguredModels')}
+                            </DropdownMenuItem>
+                          ) : (
+                            props.state.models.map((model) => (
+                              <DropdownMenuRadioItem key={model.id} value={model.id}>
+                                {model.label}
+                              </DropdownMenuRadioItem>
+                            ))
+                          )}
+                        </DropdownMenuRadioGroup>
+                      )}
+                      <DropdownMenuItem
+                        className="composer-setting-row"
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          setModelPanelSection(
+                            modelPanelSection === 'thinking' ? undefined : 'thinking'
+                          );
+                        }}
+                      >
+                        <strong>{t('session.thinkingEffort')}</strong>
+                        <span>
+                          {thinkingEffortLabel(snapshot.thinkingEffort ?? 'off', t)}
+                        </span>
+                        <ChevronRight />
+                      </DropdownMenuItem>
+                      {modelPanelSection === 'thinking' && (
+                        <DropdownMenuRadioGroup
+                          className="composer-panel-options effort-options"
+                          value={snapshot.thinkingEffort ?? 'off'}
+                          onValueChange={(thinkingEffort) => {
+                            props.client.send({
+                              type: 'session.settings',
+                              workspaceId: props.state.workspaceId!,
+                              sessionId: snapshot.summary.id,
+                              thinkingEffort: thinkingEffort as SessionThinkingEffort
+                            });
+                            setModelPanelOpen(false);
+                          }}
+                        >
+                          {(['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const).map((effort) => (
+                            <DropdownMenuRadioItem key={effort} value={effort}>
+                              {thinkingEffortLabel(effort, t)}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      )}
+                      <DropdownMenuItem
+                        className="composer-setting-row"
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          setModelPanelSection(
+                            modelPanelSection === 'mode' ? undefined : 'mode'
+                          );
+                        }}
+                      >
+                        <strong>{t('session.agentMode')}</strong>
+                        <span>{agentModeLabel(snapshot.mode)}</span>
+                        <ChevronRight />
+                      </DropdownMenuItem>
+                      {modelPanelSection === 'mode' && (
+                        <DropdownMenuRadioGroup
+                          className="composer-panel-options"
+                          value={snapshot.mode}
+                          onValueChange={(mode) => {
+                            props.client.send({
+                              type: 'session.settings',
+                              workspaceId: props.state.workspaceId!,
+                              sessionId: snapshot.summary.id,
+                              mode: mode as 'auto' | 'plan' | 'conductor'
+                            });
+                            setModelPanelOpen(false);
+                          }}
+                        >
+                          {(['auto', 'plan', 'conductor'] as const).map((mode) => (
+                            <DropdownMenuRadioItem key={mode} value={mode}>
+                              {agentModeLabel(mode)}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  {props.state.running ? (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="composer-submit"
+                      onClick={() =>
+                        props.client.send({
+                          type: 'session.abort',
+                          workspaceId: props.state.workspaceId!,
+                          sessionId: snapshot.summary.id
+                        })
+                      }
+                    >
+                      <Square /> <span>{t('session.stop')}</span>
+                    </Button>
+                  ) : (
+                    <Button className="composer-submit">
+                      <Send /> <span>{t('session.send')}</span>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </form>
+          </div>
         </>
       )}
     </section>
   );
+}
+
+function SessionLoadingState(props: { title?: string }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <div className="chat-head">
+        <h1>{props.title ?? t('session.loading')}</h1>
+      </div>
+      <div className="session-loading" role="status" aria-live="polite">
+        <i />
+        <span>{t('session.loading')}</span>
+      </div>
+    </>
+  );
+}
+
+function SessionMoreMenu(props: {
+  onInspect: (kind: 'trace' | 'diff', argument?: string) => void;
+  onEnableNotifications: () => Promise<void>;
+  onPushBranch: () => void;
+  onCreatePullRequest: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="composer-command"
+          aria-label={t('session.moreActions')}
+          title={t('session.moreActions')}
+        >
+          <MoreHorizontal />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="top">
+        <DropdownMenuLabel>{t('session.inspect')}</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => props.onInspect('diff')}>
+          <GitCompare /> Diff
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => props.onInspect('trace')}>
+          <Activity /> Trace
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>{t('session.git')}</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={props.onPushBranch}>
+          <Upload /> Push
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={props.onCreatePullRequest}>
+          <GitPullRequest /> {t('session.createPr')}
+        </DropdownMenuItem>
+        {'Notification' in window && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void props.onEnableNotifications()}>
+              <Bell /> {t('session.enableNotifications')}
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function agentModeLabel(mode: 'auto' | 'plan' | 'conductor'): string {
+  return mode === 'auto' ? 'Auto' : mode === 'plan' ? 'Plan' : 'Conductor';
+}
+
+function thinkingEffortLabel(
+  effort: SessionThinkingEffort,
+  t: TFunction
+): string {
+  return t(`session.thinkingEffortValues.${effort}`);
 }
 
 function SessionDetails(props: {
@@ -597,6 +873,20 @@ function SessionDetails(props: {
   onCreatePullRequest: () => void;
 }) {
   const { t } = useTranslation();
+  const todos = props.state.snapshot?.todos ?? [];
+  const completedTodos = todos.filter(
+    (todo) => todo.status === 'completed'
+  ).length;
+  const todoProgress = todos.length
+    ? Math.round((completedTodos / todos.length) * 100)
+    : 0;
+  const subagents = deriveSubagentActivities(props.state.traces);
+  const contextUsage = props.state.snapshot?.contextUsage;
+  const toolActivities = latestToolActivities(
+    props.state.traces,
+    new Set(),
+    6
+  ).reverse();
   return (
     <aside className={`details ${props.mobilePanel === 'todo' ? 'mobile-active' : ''}`}>
       <div className="mobile-utilities">
@@ -608,25 +898,64 @@ function SessionDetails(props: {
           <Button variant="outline" size="sm" onClick={() => void props.onEnableNotifications()}>{t('session.notifications')}</Button>
         )}
       </div>
-      <h2>{t('execution.progress')}</h2>
-      <ExecutionSummary
-        running={props.state.running}
-        pendingApproval={Boolean(props.state.snapshot?.pendingApproval)}
-        result={props.state.lastResult}
-      />
-      {props.state.snapshot?.todos.length ? props.state.snapshot.todos.map((todo) => (
-        <div className={`todo ${todo.status}`} key={todo.id}>
-          <span>{todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '●' : '○'}</span>
-          <p>{todo.content}</p>
+      {todos.length > 0 && <section className="details-section">
+        <div className="details-heading">
+          <h2>{t('execution.todos')}</h2>
+          <small>{completedTodos}/{todos.length}</small>
         </div>
-      )) : <p className="quiet">{t('execution.noTodos')}</p>}
-      <h2>{t('execution.toolActivity')}</h2>
-      {props.state.traces.slice(-12).reverse().map((trace) => (
-        <div className="trace" key={trace.id}>
-          <strong>{trace.type}</strong>
-          <small>{String(trace.payload.toolName ?? trace.payload.name ?? '')}</small>
+        <div className="todo-progress" aria-label={`${todoProgress}%`}>
+          <span style={{ width: `${todoProgress}%` }} />
         </div>
-      ))}
+        {todos.map((todo) => (
+          <div className={`todo ${todo.status}`} key={todo.id}>
+            <span>{todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '●' : todo.status === 'cancelled' ? '×' : '○'}</span>
+            <p>{todo.content}</p>
+          </div>
+        ))}
+      </section>}
+      {subagents.length > 0 && (
+        <section className="details-section">
+          <div className="details-heading">
+            <h2>{t('execution.subagents')}</h2>
+            <small>{subagents.filter((item) => item.status === 'running').length} {t('status.running')}</small>
+          </div>
+          {subagents.map((activity) => (
+            <div className={`subagent ${activity.status}`} key={activity.subRunId}>
+              <span className="subagent-dot" />
+              <div>
+                <strong>{activity.title || t('execution.subagent')}</strong>
+                <small>
+                  {activity.currentTool
+                    ? `${activity.currentTool} · ${activity.toolCount}`
+                    : activity.summary || t(`status.${activity.status}`)}
+                </small>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+      {contextUsage && (
+        <section className="details-section context-usage">
+          <div className="details-heading">
+            <h2>{t('execution.context')}</h2>
+            <small>{contextUsage.label}</small>
+          </div>
+          <div className={`context-progress ${contextUsage.ratio >= .8 ? 'warning' : ''}`}>
+            <span style={{ width: `${Math.min(100, contextUsage.ratio * 100)}%` }} />
+          </div>
+        </section>
+      )}
+      {toolActivities.length > 0 && (
+        <section className="details-section">
+          <h2>{t('execution.toolActivity')}</h2>
+          {toolActivities.map((trace) => (
+            <div className="trace" key={trace.id}>
+              <strong>{String(trace.payload.toolName ?? trace.payload.name ?? t('session.tool'))}</strong>
+              <small>{toolActivityStatus(trace.type, t)}</small>
+            </div>
+          ))}
+        </section>
+      )}
     </aside>
   );
 }
@@ -671,4 +1000,13 @@ function connectionLabel(state: string, t: TFunction): string {
   if (state === 'connecting') return t('connection.connecting');
   if (state === 'outdated') return t('connection.outdated');
   return t('connection.reconnecting');
+}
+
+function toolActivityStatus(type: string, t: TFunction): string {
+  const status = type.split('.').at(-1);
+  if (status === 'started') return t('status.running');
+  if (status === 'completed') return t('status.completed');
+  if (status === 'failed') return t('status.failed');
+  if (status === 'denied') return t('status.denied');
+  return status ?? '';
 }

@@ -9,12 +9,17 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 
 import { CloudClient, type ConnectionState } from './cloudClient';
 import { checkForPwaUpdate } from './pwa';
+import { isSubagentToolTrace } from './subagentActivity';
 
 export interface UiMessage {
   id: string;
   from: 'user' | 'agent' | 'system' | 'tool' | 'thinking';
   text: string;
   tool?: SessionSnapshot['messages'][number]['tool'];
+  liveTool?: {
+    type: string;
+    payload: Record<string, unknown>;
+  };
   verification?: SessionSnapshot['messages'][number]['verification'];
   streaming?: boolean;
   transient?: boolean;
@@ -32,6 +37,76 @@ export function hydrateSnapshotMessages(
   }));
 }
 
+export function reconcileSnapshotMessages(
+  current: UiMessage[],
+  persisted: SessionSnapshot['messages']
+): UiMessage[] {
+  const hydrated = hydrateSnapshotMessages(persisted);
+  const optimisticUsers = current.filter(
+    (message) =>
+      message.transient &&
+      message.from === 'user' &&
+      !hydrated.some(
+        (candidate) =>
+          candidate.from === 'user' && candidate.text === message.text
+      )
+  );
+  return [...hydrated, ...optimisticUsers];
+}
+
+export function replaceSessionSummary(
+  sessions: SessionSnapshot['summary'][],
+  summary: SessionSnapshot['summary']
+): SessionSnapshot['summary'][] {
+  const index = sessions.findIndex((session) => session.id === summary.id);
+  if (index < 0) return [summary, ...sessions];
+  return sessions.map((session, sessionIndex) =>
+    sessionIndex === index ? summary : session
+  );
+}
+
+export function upsertLiveToolMessage(
+  messages: UiMessage[],
+  trace: SessionSnapshot['traces'][number]
+): UiMessage[] {
+  if (
+    !trace.type.startsWith('tool_call.') ||
+    isSubagentToolTrace(trace)
+  ) {
+    return messages;
+  }
+  const callId =
+    typeof trace.payload.callId === 'string'
+      ? trace.payload.callId
+      : trace.id;
+  const existingIndex = messages.findIndex(
+    (message) =>
+      message.liveTool &&
+      (message.liveTool.payload.callId ?? message.id) === callId
+  );
+  const previous =
+    existingIndex >= 0 ? messages[existingIndex]?.liveTool : undefined;
+  const message: UiMessage = {
+    id: existingIndex >= 0 ? messages[existingIndex]!.id : `live-tool:${callId}`,
+    from: 'tool',
+    text: String(
+      trace.payload.summary ??
+      trace.payload.message ??
+      trace.payload.toolName ??
+      ''
+    ),
+    liveTool: {
+      type: trace.type,
+      payload: { ...previous?.payload, ...trace.payload }
+    },
+    transient: true
+  };
+  if (existingIndex < 0) return [...messages, message];
+  return messages.map((candidate, index) =>
+    index === existingIndex ? message : candidate
+  );
+}
+
 interface CloudState {
   workspaces: CloudWorkspace[];
   workspaceId?: string;
@@ -41,7 +116,7 @@ interface CloudState {
   models: Array<{ id: string; label: string; provider: string }>;
   snapshot?: SessionSnapshot;
   messages: UiMessage[];
-  traces: Array<{ id: string; type: string; payload: Record<string, unknown> }>;
+  traces: SessionSnapshot['traces'];
   inspection?: Extract<
     EventEnvelope['event'],
     { type: 'inspection.result' }
@@ -58,6 +133,7 @@ type Action =
   | { type: 'select-session'; id: string }
   | { type: 'creating-session'; requestId: string }
   | { type: 'optimistic-user'; text: string }
+  | { type: 'local-message'; from: 'agent' | 'system'; text: string }
   | { type: 'clear-error'; id: string }
   | { type: 'clear-inspection' }
   | { type: 'clear-workspace-progress' };
@@ -111,6 +187,20 @@ function reducer(state: CloudState, action: Action): CloudState {
         {
           id: crypto.randomUUID(),
           from: 'user',
+          text: action.text,
+          transient: true
+        }
+      ]
+    };
+  }
+  if (action.type === 'local-message') {
+    return {
+      ...state,
+      messages: [
+        ...state.messages,
+        {
+          id: crypto.randomUUID(),
+          from: action.from,
           text: action.text,
           transient: true
         }
@@ -177,10 +267,7 @@ function reducer(state: CloudState, action: Action): CloudState {
     case 'models.list':
       return { ...state, models: event.data };
     case 'session.updated': {
-      const sessions = [
-        event.data,
-        ...state.sessions.filter((session) => session.id !== event.data.id)
-      ];
+      const sessions = replaceSessionSummary(state.sessions, event.data);
       return {
         ...state,
         sessions,
@@ -209,31 +296,18 @@ function reducer(state: CloudState, action: Action): CloudState {
       };
     }
     case 'session.snapshot':
-      const persistedMessages = hydrateSnapshotMessages(event.data.messages);
-      const unpersistedMessages = state.messages.filter(
-        (message) =>
-          message.transient &&
-          !persistedMessages.some(
-            (persisted) =>
-              persisted.from === message.from && persisted.text === message.text
-          )
-      );
       return {
         ...state,
         workspaceId: action.envelope.workspaceId,
         activeSessionId: action.envelope.sessionId,
         pendingSessionCreateRequestId: undefined,
         snapshot: event.data,
-        sessions: [
-          event.data.summary,
-          ...state.sessions.filter((session) => session.id !== event.data.summary.id)
-        ],
-        messages: [...persistedMessages, ...unpersistedMessages],
-        traces: event.data.traces.map((trace) => ({
-          id: trace.id,
-          type: trace.type,
-          payload: trace.payload
-        })),
+        sessions: replaceSessionSummary(state.sessions, event.data.summary),
+        messages: reconcileSnapshotMessages(
+          state.messages,
+          event.data.messages
+        ),
+        traces: event.data.traces,
         running: false
       };
     case 'stream':
@@ -241,6 +315,7 @@ function reducer(state: CloudState, action: Action): CloudState {
     case 'trace':
       return {
         ...state,
+        messages: upsertLiveToolMessage(state.messages, event.data),
         traces: [
           ...state.traces.filter((trace) => trace.id !== event.data.id),
           event.data
@@ -263,6 +338,19 @@ function reducer(state: CloudState, action: Action): CloudState {
       };
     case 'inspection.result':
       return { ...state, inspection: event.data };
+    case 'runtime-command.result':
+      return {
+        ...state,
+        messages: [
+          ...state.messages,
+          {
+            id: crypto.randomUUID(),
+            from: event.data.ok ? 'agent' : 'system',
+            text: event.data.content,
+            transient: true
+          }
+        ]
+      };
     case 'git.result':
       return {
         ...state,
@@ -457,6 +545,8 @@ export function useCloud(endpoint: string, token: string) {
     resumeSession,
     createSession,
     sendInput,
+    appendLocalMessage: (from: 'agent' | 'system', text: string) =>
+      dispatch({ type: 'local-message', from, text }),
     clearError: (id: string) => dispatch({ type: 'clear-error', id }),
     clearInspection: () => dispatch({ type: 'clear-inspection' }),
     clearWorkspaceProgress: () =>
