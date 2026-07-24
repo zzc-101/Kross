@@ -87,6 +87,8 @@ summary:focus-visible {
 .connection.offline::before { background: #ec6758; }
 .connection.outdated { color: #ec6758; }
 .connection.outdated::before { background: #ec6758; }
+.connection.unauthorized { color: #ec6758; }
+.connection.unauthorized::before { background: #ec6758; }
 .topbar .workspace-select { width: min(220px, 28vw); }
 .language-select { width: 150px; }
 .language-select.compact { width: 118px; }
@@ -103,6 +105,7 @@ summary:focus-visible {
   color: #e6ce8b; font-size: 12px;
 }
 .app-banner.offline { border-color: #6f3832; background: #321f1c; color: #ffc6bd; }
+.app-banner.unauthorized { border-color: #6f3832; background: #321f1c; color: #ffc6bd; }
 .app-banner button { padding: 4px 8px; background: transparent; }
 .layout { min-height: 0; display: grid; grid-template-columns: 244px minmax(360px, 1fr) 280px; }
 .sidebar, .details { overflow: auto; padding: 18px 14px; background: #151916; }

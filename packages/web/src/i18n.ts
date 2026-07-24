@@ -34,8 +34,11 @@ const resources = {
         online: '已连接',
         connecting: '连接中',
         outdated: '客户端版本过旧，请更新',
+        unauthorized: '认证已失效',
         reconnecting: '正在重连',
         offlineBanner: '网络已断开；操作会排队，并在恢复连接后发送。',
+        unauthorizedBanner: '访问令牌无效或已更换，请重新登录。',
+        reLogin: '重新登录',
         updateBanner: 'Kross Cloud 有新版本可用。',
         updateAction: '更新并重新载入'
       },
@@ -339,8 +342,11 @@ const resources = {
         online: 'Connected',
         connecting: 'Connecting',
         outdated: 'Client is outdated. Please update.',
+        unauthorized: 'Signed out',
         reconnecting: 'Reconnecting',
         offlineBanner: 'You are offline. Actions will be queued until the connection returns.',
+        unauthorizedBanner: 'The access token is invalid or has changed. Please sign in again.',
+        reLogin: 'Sign in again',
         updateBanner: 'A new Kross Cloud version is available.',
         updateAction: 'Update and reload'
       },

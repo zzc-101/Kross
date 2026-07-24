@@ -21,6 +21,11 @@ export interface GatewayHttpServerOptions {
   host?: string;
   port?: number;
   sseHeartbeatMs?: number;
+  /**
+   * 跨域来源白名单。缺省允许任意来源：接口全部由 Bearer Token 保护，
+   * 浏览器无法在跨站请求中自动附带该凭据，因此放开来源不引入 CSRF 面。
+   */
+  allowedOrigins?: string[];
 }
 
 export class GatewayHttpServer {
@@ -65,6 +70,16 @@ export class GatewayHttpServer {
     request: IncomingMessage,
     response: ServerResponse
   ): void {
+    this.applyCorsHeaders(request, response);
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204, {
+        'access-control-allow-methods': 'GET, POST, PUT, OPTIONS',
+        'access-control-allow-headers': 'authorization, content-type',
+        'access-control-max-age': '86400'
+      });
+      response.end();
+      return;
+    }
     if (request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ ok: true }));
@@ -259,6 +274,22 @@ export class GatewayHttpServer {
         error instanceof Error ? error.message : String(error)
       ));
     });
+  }
+
+  private applyCorsHeaders(
+    request: IncomingMessage,
+    response: ServerResponse
+  ): void {
+    const origin = request.headers.origin;
+    if (!origin) return;
+    const allowed = this.options.allowedOrigins;
+    if (allowed && allowed.length > 0) {
+      if (!allowed.includes(origin)) return;
+      response.setHeader('access-control-allow-origin', origin);
+      response.setHeader('vary', 'origin');
+      return;
+    }
+    response.setHeader('access-control-allow-origin', '*');
   }
 
   private authorized(authorization: string | undefined): boolean {

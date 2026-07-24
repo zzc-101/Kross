@@ -152,7 +152,75 @@ describe('GatewayHttpServer', () => {
     streamController.abort();
     await server.close();
   });
+
+  it('allows any origin by default and restricts when configured', async () => {
+    const open = await startServer({ accessToken: 'secret-token' });
+    const preflight = await fetch(`${open.url}/api/commands`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'https://web.example',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'authorization,content-type'
+      }
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
+    expect(preflight.headers.get('access-control-allow-methods')).toContain('POST');
+    expect(preflight.headers.get('access-control-allow-headers')).toContain('authorization');
+    const unauthorized = await fetch(`${open.url}/api/workspaces`, {
+      headers: { origin: 'https://web.example' }
+    });
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get('access-control-allow-origin')).toBe('*');
+    await open.server.close();
+
+    const restricted = await startServer({
+      accessToken: 'secret-token',
+      allowedOrigins: ['https://app.example']
+    });
+    const allowed = await fetch(`${restricted.url}/api/workspaces`, {
+      headers: {
+        origin: 'https://app.example',
+        authorization: 'Bearer secret-token'
+      }
+    });
+    expect(allowed.headers.get('access-control-allow-origin')).toBe(
+      'https://app.example'
+    );
+    expect(allowed.headers.get('vary')).toBe('origin');
+    const blocked = await fetch(`${restricted.url}/api/workspaces`, {
+      headers: {
+        origin: 'https://evil.example',
+        authorization: 'Bearer secret-token'
+      }
+    });
+    expect(blocked.headers.get('access-control-allow-origin')).toBeNull();
+    await restricted.server.close();
+  });
 });
+
+async function startServer(options: {
+  accessToken: string;
+  allowedOrigins?: string[];
+}): Promise<{ server: GatewayHttpServer; url: string }> {
+  const root = mkdtempSync(join(tmpdir(), 'kross-http-'));
+  const gateway = new GatewayService(
+    new WorkspaceRegistry(join(root, 'workspaces.json')),
+    unusedOrchestrator,
+    undefined,
+    undefined,
+    { runtimeConfig: new RuntimeConfigStore(join(root, 'provider.json'), {}) }
+  );
+  const server = new GatewayHttpServer(gateway, {
+    ...options,
+    host: '127.0.0.1',
+    port: 0
+  });
+  await server.listen();
+  const port = server.address()?.port;
+  if (!port) throw new Error('missing port');
+  return { server, url: `http://127.0.0.1:${port}` };
+}
 
 async function* sseFrames(
   stream: ReadableStream<Uint8Array>

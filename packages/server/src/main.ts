@@ -53,7 +53,11 @@ const gateway = new GatewayService(
 );
 const server = new GatewayHttpServer(gateway, {
   accessToken,
-  port: Number(process.env.PORT ?? 8787)
+  port: Number(process.env.PORT ?? 8787),
+  allowedOrigins: process.env.KROSS_ALLOWED_ORIGINS
+    ?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
 });
 const reaper = new IdleWorkspaceReaper(
   registry,

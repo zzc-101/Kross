@@ -7,10 +7,13 @@
 - `packages/server`：认证、工作区注册、Docker 编排、SSE/HTTP Gateway、Web Push。
 - `packages/web`：独立构建的响应式 PWA，由 Nginx 容器托管。
 
-Nginx 是唯一对浏览器开放的入口：`/` 提供前端静态文件，`/api/*` 与
-`/healthz` 反向代理到仅在 Compose 网络中暴露的 Gateway。前端与 Gateway
-保持同源，因此无需 CORS；Gateway 镜像不包含前端产物，二者可以独立构建、
-发布和回滚。
+Nginx 是默认对浏览器开放的入口：`/` 提供前端静态文件，`/api/*` 与
+`/healthz` 反向代理到仅在 Compose 网络中暴露的 Gateway，前端与 Gateway
+保持同源。Gateway 自身也默认返回 CORS 头（含 OPTIONS 预检），因此前端
+静态站与 Gateway 部署在不同域名下同样可用；接口全部由 Bearer Token 保护，
+浏览器无法在跨站请求中自动附带凭据，放开来源不会引入 CSRF 面。需要收紧
+时用 `KROSS_ALLOWED_ORIGINS` 配置来源白名单。Gateway 镜像不包含前端产物，
+二者可以独立构建、发布和回滚。
 
 会话消息、上下文 checkpoint 与审批 checkpoint 存在工作区卷的
 `/workspace/.kross`。恢复以 session snapshot 为权威；Worker 只把审批、
@@ -59,7 +62,9 @@ Provider、GitHub、Web Push 与安全传输状态。Provider API Key 可以通�
 生产构建会注册 Service Worker。支持的浏览器会显示“安装”入口；发现新版本时
 界面会提示用户更新并重新载入。网络中断期间，Web 客户端会保留最多 100 个
 带原始 `requestId` 的操作，重连并恢复活动会话后按顺序发送。超过上限会明确
-提示用户等待网络恢复，避免无限占用内存。
+提示用户等待网络恢复，避免无限占用内存。当 Gateway 返回 401（令牌失效或
+已更换）时，客户端会停止自动重连与命令重试，并在界面顶部提示重新登录，
+排队中的操作不会被逐条丢弃。
 
 Web 客户端通过 `POST /api/commands` 上行命令，通过 `GET /api/events` 的
 SSE 流接收实时事件，全部使用标准 Bearer Token。仓库自带的 Nginx 配置已对
@@ -79,6 +84,7 @@ Gateway 与 Worker 的内部链路仍使用 WebSocket。
 | `KROSS_WORKSPACE_PIDS` | 每个容器的进程数上限，默认 256 |
 | `KROSS_WORKSPACE_DISK_BYTES` | 每个工作区的应用层磁盘软限额，默认 10 GiB |
 | `KROSS_STOP_WORKERS_ON_SHUTDOWN` | Gateway 退出时移除 worker 容器并保留工作区卷，默认 `true` |
+| `KROSS_ALLOWED_ORIGINS` | 跨域来源白名单，逗号分隔；留空默认允许任意来源 |
 | `KROSS_MANAGER_ID` | Docker 资源归属标识；同一 Engine 上多实例部署时必须唯一 |
 | `KROSS_VAPID_PUBLIC_KEY` / `KROSS_VAPID_PRIVATE_KEY` | 启用 Web Push |
 | `KROSS_VAPID_SUBJECT` | VAPID 联系主体，如 `mailto:admin@example.com` |

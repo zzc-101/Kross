@@ -278,7 +278,14 @@ function AppHeader(props: {
         </Button>
       </header>
 
-      {(props.pwa.offline || props.pwa.updateAvailable) && (
+      {props.connection === 'unauthorized' ? (
+        <div className="app-banner unauthorized">
+          <span>{t('connection.unauthorizedBanner')}</span>
+          <Button variant="ghost" size="sm" onClick={props.onLogout}>
+            {t('connection.reLogin')}
+          </Button>
+        </div>
+      ) : (props.pwa.offline || props.pwa.updateAvailable) && (
         <div className={`app-banner ${props.pwa.updateAvailable ? 'update' : 'offline'}`}>
           <span>
             {props.pwa.updateAvailable
@@ -999,6 +1006,7 @@ function connectionLabel(state: string, t: TFunction): string {
   if (state === 'online') return t('connection.online');
   if (state === 'connecting') return t('connection.connecting');
   if (state === 'outdated') return t('connection.outdated');
+  if (state === 'unauthorized') return t('connection.unauthorized');
   return t('connection.reconnecting');
 }
 

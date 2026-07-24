@@ -30,11 +30,18 @@ class MockTransport {
   readonly commands: Array<Record<string, unknown>> = [];
   readonly commandResults: Array<() => Promise<Response>> = [];
   readonly encoder = new TextEncoder();
+  eventStreamStatus = 200;
 
   readonly fetch = vi.fn(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/api/events')) {
+        if (this.eventStreamStatus !== 200) {
+          return new Response(
+            JSON.stringify({ error: 'UNAUTHORIZED' }),
+            { status: this.eventStreamStatus }
+          );
+        }
         const signal = init?.signal;
         return new Response(
           new ReadableStream<Uint8Array>({
@@ -169,6 +176,51 @@ describe('CloudClient SSE transport', () => {
       { timeout: 500 }
     );
     expect(states).toContain('offline');
+    client.close();
+  });
+
+  it('stops reconnecting when the event stream is unauthorized', async () => {
+    const transport = new MockTransport();
+    transport.eventStreamStatus = 401;
+    vi.stubGlobal('fetch', transport.fetch);
+    const states: ConnectionState[] = [];
+    const onAuthError = vi.fn();
+    const client = new CloudClient('http://localhost:8787', 'bad-token', {
+      reconnectBaseMs: 1,
+      onAuthError
+    });
+    client.onState((state) => states.push(state));
+    client.connect();
+
+    await vi.waitFor(() => expect(states).toContain('unauthorized'));
+    expect(onAuthError).toHaveBeenCalledTimes(1);
+    const attempts = transport.fetch.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(transport.fetch.mock.calls.length).toBe(attempts);
+    client.close();
+  });
+
+  it('enters unauthorized state when a command returns 401 and keeps it queued', async () => {
+    const transport = new MockTransport();
+    vi.stubGlobal('fetch', transport.fetch);
+    transport.commandResults.push(
+      async () =>
+        new Response(
+          JSON.stringify({ error: 'UNAUTHORIZED' }),
+          { status: 401 }
+        )
+    );
+    const states: ConnectionState[] = [];
+    const client = new CloudClient('http://localhost:8787', 'secret', {
+      reconnectBaseMs: 1
+    });
+    client.onState((state) => states.push(state));
+    client.connect();
+    await vi.waitFor(() => expect(transport.streams).toHaveLength(1));
+    client.send({ type: 'workspace.list' });
+
+    await vi.waitFor(() => expect(states).toContain('unauthorized'));
+    expect(transport.commands).toHaveLength(1);
     client.close();
   });
 

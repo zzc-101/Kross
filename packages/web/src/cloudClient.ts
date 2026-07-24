@@ -9,7 +9,8 @@ export type ConnectionState =
   | 'connecting'
   | 'online'
   | 'offline'
-  | 'outdated';
+  | 'outdated'
+  | 'unauthorized';
 
 type OutgoingCommand = ClientCommand extends infer Command
   ? Command extends ClientCommand
@@ -26,6 +27,7 @@ export interface CloudClientOptions {
   heartbeatTimeoutMs?: number;
   reconnectBaseMs?: number;
   onProtocolMismatch?: () => void;
+  onAuthError?: () => void;
 }
 
 export class CloudClient {
@@ -126,6 +128,10 @@ export class CloudClient {
         cache: 'no-store',
         signal
       });
+      if (response.status === 401) {
+        this.handleUnauthorized();
+        return;
+      }
       if (!response.ok || !response.body) {
         throw new Error(`事件流连接失败（${response.status}）`);
       }
@@ -176,7 +182,7 @@ export class CloudClient {
       this.heartbeatTimer = undefined;
       if (generation !== this.streamGeneration) return;
       this.streamAbort = undefined;
-      if (!this.closed && this.state !== 'outdated') this.reconnect();
+      if (!this.closed && !this.isTerminalState()) this.reconnect();
     }
   }
 
@@ -214,6 +220,10 @@ export class CloudClient {
         if (response.ok) {
           this.queuedCommands.shift();
           continue;
+        }
+        if (response.status === 401) {
+          this.handleUnauthorized();
+          return;
         }
         if (response.status >= 400 && response.status < 500) {
           this.queuedCommands.shift();
@@ -255,12 +265,12 @@ export class CloudClient {
   }
 
   private disconnectStream(): void {
-    if (this.state !== 'outdated') this.emitState('offline');
+    if (!this.isTerminalState()) this.emitState('offline');
     this.streamAbort?.abort();
   }
 
   private reconnect(): void {
-    if (this.closed) return;
+    if (this.closed || this.isTerminalState()) return;
     this.emitState('offline');
     const base = this.options.reconnectBaseMs ?? 600;
     const delay = Math.min(30_000, base * 2 ** this.reconnectAttempt++);
@@ -275,6 +285,17 @@ export class CloudClient {
     this.emitState('outdated');
     this.options.onProtocolMismatch?.();
     this.streamAbort?.abort();
+  }
+
+  private handleUnauthorized(): void {
+    if (this.state === 'unauthorized') return;
+    this.emitState('unauthorized');
+    this.options.onAuthError?.();
+    this.streamAbort?.abort();
+  }
+
+  private isTerminalState(): boolean {
+    return this.state === 'outdated' || this.state === 'unauthorized';
   }
 
   private emitLocalError(requestId: string, message: string): void {
