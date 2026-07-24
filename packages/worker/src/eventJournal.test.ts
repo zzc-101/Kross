@@ -115,6 +115,7 @@ function snapshotData(sessionId: string) {
     messages: [],
     todos: [],
     traces: [],
-    mode: 'auto' as const
+    mode: 'auto' as const,
+    permissionMode: 'default' as const
   };
 }

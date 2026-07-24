@@ -87,4 +87,72 @@ describe('cloud protocol', () => {
     });
     expect(envelope.event.type).toBe('session.updated');
   });
+
+  it('validates context maintenance and runtime inspection commands', () => {
+    expect(
+      clientCommandSchema.parse({
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: 'compact-1',
+        type: 'session.compact',
+        workspaceId: 'w1',
+        sessionId: 's1',
+        instructions: '保留架构决策'
+      }).type
+    ).toBe('session.compact');
+
+    expect(
+      clientCommandSchema.parse({
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: 'skills-1',
+        type: 'session.runtime-command',
+        workspaceId: 'w1',
+        sessionId: 's1',
+        name: 'skills'
+      }).type
+    ).toBe('session.runtime-command');
+  });
+
+  it('validates snapshots with context capacity', () => {
+    const timestamp = new Date().toISOString();
+    const envelope = eventEnvelopeSchema.parse({
+      protocolVersion: PROTOCOL_VERSION,
+      workspaceId: 'w1',
+      sessionId: 's1',
+      seq: 3,
+      timestamp,
+      event: {
+        type: 'session.snapshot',
+        data: {
+          summary: {
+            id: 's1',
+            title: 'Context',
+            preview: '',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            messageCount: 0
+          },
+          messages: [],
+          todos: [],
+          traces: [],
+          contextUsage: {
+            usedChars: 4000,
+            usedTokens: 1000,
+            maxTokens: 100000,
+            compactThreshold: 80000,
+            label: '1K/100K',
+            ratio: 0.0125,
+            headerLabel: '900/128K',
+            headerRatio: 0.007
+          },
+          mode: 'auto',
+          permissionMode: 'default'
+        }
+      }
+    });
+    expect(
+      envelope.event.type === 'session.snapshot'
+        ? envelope.event.data.contextUsage?.usedTokens
+        : undefined
+    ).toBe(1000);
+  });
 });

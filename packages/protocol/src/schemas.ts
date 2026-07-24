@@ -13,6 +13,7 @@ export const thinkingEffortSchema = z.enum([
   'high',
   'xhigh'
 ]);
+export const permissionModeSchema = z.enum(['default', 'classifier', 'auto']);
 export const traceEventSchema = z.object({
   id: identifierSchema,
   runId: identifierSchema,
@@ -20,6 +21,17 @@ export const traceEventSchema = z.object({
   timestamp: z.string().datetime(),
   parentId: identifierSchema.optional(),
   payload: z.record(z.unknown()).default({})
+});
+export const contextUsageSchema = z.object({
+  usedChars: z.number().int().nonnegative(),
+  usedTokens: z.number().int().nonnegative(),
+  maxTokens: z.number().int().positive(),
+  compactThreshold: z.number().int().positive(),
+  lastUsageTokens: z.number().int().nonnegative().optional(),
+  label: z.string(),
+  ratio: z.number().nonnegative(),
+  headerLabel: z.string(),
+  headerRatio: z.number().nonnegative()
 });
 export const pendingToolApprovalSchema = z.object({
   runId: identifierSchema,
@@ -186,9 +198,11 @@ export const sessionSnapshotSchema = z.object({
     })
   ),
   traces: z.array(traceEventSchema).default([]),
+  contextUsage: contextUsageSchema.optional(),
   mode: agentModeSchema,
   model: z.string().optional(),
-  thinkingEffort: thinkingEffortSchema.optional()
+  thinkingEffort: thinkingEffortSchema.optional(),
+  permissionMode: permissionModeSchema.default('default')
 });
 
 const commandBase = {
@@ -267,6 +281,7 @@ export const clientCommandSchema = z.discriminatedUnion('type', [
     sessionId: identifierSchema,
     model: z.string().min(1).optional(),
     thinkingEffort: thinkingEffortSchema.optional(),
+    permissionMode: permissionModeSchema.optional(),
     mode: agentModeSchema.optional()
   }),
   z.object({
@@ -276,6 +291,21 @@ export const clientCommandSchema = z.discriminatedUnion('type', [
     sessionId: identifierSchema,
     kind: z.enum(['trace', 'diff']),
     argument: z.string().optional()
+  }),
+  z.object({
+    ...commandBase,
+    type: z.literal('session.compact'),
+    workspaceId: identifierSchema,
+    sessionId: identifierSchema,
+    instructions: z.string().trim().max(4000).optional()
+  }),
+  z.object({
+    ...commandBase,
+    type: z.literal('session.runtime-command'),
+    workspaceId: identifierSchema,
+    sessionId: identifierSchema,
+    name: z.enum(['instructions', 'skills', 'processes', 'undo']),
+    argument: z.string().trim().max(1000).optional()
   }),
   z.object({
     ...commandBase,
@@ -439,6 +469,14 @@ export const serverEventSchema = z.discriminatedUnion('type', [
         )
       })
     ])
+  }),
+  z.object({
+    type: z.literal('runtime-command.result'),
+    data: z.object({
+      name: z.enum(['instructions', 'skills', 'processes', 'undo']),
+      ok: z.boolean(),
+      content: z.string()
+    })
   }),
   z.object({
     type: z.literal('replay.complete'),

@@ -8,8 +8,7 @@ import {
   bootstrapRuntimeTooling,
   createRuntimeOptionsFromEnv,
   HybridSessionStore,
-  LLM_PROVIDER_DEFINITIONS,
-  isLlmProvider,
+  listProvidersFromEnv,
   type AgentHostTooling,
   type AgentRunStreamEvent,
   type AgentMode,
@@ -218,6 +217,12 @@ export class WorkerService {
       case 'session.inspect':
         await this.inspectSession(command, sink);
         return;
+      case 'session.compact':
+        await this.compactSession(command, sink);
+        return;
+      case 'session.runtime-command':
+        await this.runRuntimeCommand(command, sink);
+        return;
       case 'git.push':
       case 'git.pull-request':
         await this.runGitOperation(command, sink);
@@ -239,28 +244,26 @@ export class WorkerService {
         return;
       case 'models.list': {
         const environment = this.options.env ?? process.env;
-        const provider = environment.AGENT_LLM_PROVIDER ?? 'openai';
-        const definition = isLlmProvider(provider)
-          ? LLM_PROVIDER_DEFINITIONS[provider]
-          : LLM_PROVIDER_DEFINITIONS.openai;
-        const configuredModel =
-          environment.AGENT_LLM_MODEL ??
-          definition.modelEnv
-            .map((name) => environment[name])
-            .find(Boolean);
-        const ids = [
-          ...(configuredModel ? [configuredModel] : []),
-          ...definition.recommendedModels
+        const configuredProviders = listProvidersFromEnv(environment).filter(
+          (provider) => provider.configured && provider.model
+        );
+        const configuredModels = [
+          ...new Map(
+            configuredProviders.map((provider) => [
+              provider.model!,
+              {
+                id: provider.model!,
+                label: provider.model!,
+                provider: provider.name
+              }
+            ])
+          ).values()
         ];
         this.emit(
           undefined,
           {
             type: 'models.list',
-            data: [...new Set(ids)].map((id) => ({
-              id,
-              label: id,
-              provider: definition.name
-            }))
+            data: configuredModels
           },
           sink
         );
@@ -676,11 +679,17 @@ export class WorkerService {
       if (command.thinkingEffort) {
         session.runtime.setThinkingEffort(command.thinkingEffort);
       }
-      if (command.model || command.thinkingEffort) {
+      if (command.permissionMode) {
+        session.runtime.setPermissionMode(command.permissionMode);
+      }
+      if (command.model || command.thinkingEffort || command.permissionMode) {
         this.settings.update(command.sessionId, {
           ...(command.model ? { model: command.model } : {}),
           ...(command.thinkingEffort
             ? { thinkingEffort: command.thinkingEffort }
+            : {}),
+          ...(command.permissionMode
+            ? { permissionMode: command.permissionMode }
             : {})
         });
       }
@@ -756,6 +765,174 @@ export class WorkerService {
         command.requestId,
         'INSPECTION_FAILED',
         error instanceof Error ? error.message : String(error),
+        sink
+      );
+    }
+  }
+
+  private async compactSession(
+    command: Extract<ClientCommand, { type: 'session.compact' }>,
+    sink?: WorkerEventSink
+  ): Promise<void> {
+    const session = await this.requireSession(
+      command.sessionId,
+      command.requestId,
+      sink
+    );
+    if (!session) return;
+    if (session.abortController) {
+      this.emitError(
+        command.sessionId,
+        command.requestId,
+        'SESSION_BUSY',
+        '会话正在运行',
+        sink
+      );
+      return;
+    }
+    const controller = new AbortController();
+    session.abortController = controller;
+    try {
+      const result = await session.runtime.compactNow(
+        {
+          requestedMode: session.runtime.getSessionMode(),
+          currentUserInput: ''
+        },
+        command.instructions,
+        controller.signal
+      );
+      const text = result.compacted
+        ? `上下文压缩完成：${result.tokensBefore} → ${result.tokensAfter} tokens，压缩了 ${result.droppedTurnCount ?? 0} 个历史轮次。`
+        : '当前没有可压缩的历史轮次。';
+      this.persistMessage(session, 'system', text);
+      this.persistState(session);
+      const stored = this.store.loadSession(
+        this.options.workspaceRoot,
+        command.sessionId
+      );
+      if (stored) {
+        this.emit(
+          command.sessionId,
+          {
+            type: 'session.snapshot',
+            data: this.snapshot(session, stored.summary, stored.messages)
+          },
+          sink
+        );
+      }
+      this.emit(
+        command.sessionId,
+        { type: 'request.accepted', requestId: command.requestId },
+        sink
+      );
+    } catch (error) {
+      this.emitError(
+        command.sessionId,
+        command.requestId,
+        'COMPACTION_FAILED',
+        error instanceof Error ? error.message : String(error),
+        sink
+      );
+    } finally {
+      session.abortController = undefined;
+    }
+  }
+
+  private async runRuntimeCommand(
+    command: Extract<ClientCommand, { type: 'session.runtime-command' }>,
+    sink?: WorkerEventSink
+  ): Promise<void> {
+    const session = await this.requireSession(
+      command.sessionId,
+      command.requestId,
+      sink
+    );
+    if (!session) return;
+    if (session.abortController) {
+      this.emitError(
+        command.sessionId,
+        command.requestId,
+        'SESSION_BUSY',
+        '会话正在运行',
+        sink
+      );
+      return;
+    }
+    try {
+      let content: string;
+      if (command.name === 'instructions') {
+        const snapshot = session.runtime.refreshProjectInstructions();
+        content = [
+          `### 项目指令（${snapshot.files.length}）`,
+          snapshot.files.length
+            ? snapshot.files.map((file) =>
+                `- \`${file.relativePath || file.filename}\` · ${file.injectedBytes} bytes${file.truncated ? ' · 已截断' : ''}`
+              ).join('\n')
+            : '当前工作区没有发现 CLAUDE.md、AGENTS.md 或 KROSS.md。',
+          ...snapshot.diagnostics.map((item) =>
+            `- ⚠️ ${item.code}: ${item.message}`
+          )
+        ].join('\n\n');
+      } else if (command.name === 'skills') {
+        const snapshot = session.runtime.refreshSkills();
+        content = [
+          `### Skills（${snapshot.skills.length}）`,
+          snapshot.skills.length
+            ? snapshot.skills.map((skill) =>
+                `- **${skill.name}**（${skill.scope}）— ${skill.description}`
+              ).join('\n')
+            : '当前会话没有发现可用 Skill。',
+          ...snapshot.diagnostics.map((item) =>
+            `- ⚠️ ${item.code}: ${item.message}`
+          )
+        ].join('\n\n');
+      } else if (command.name === 'processes') {
+        const processes = session.runtime.listManagedProcesses();
+        content = processes.length
+          ? [
+              `### 后台进程（${processes.length}）`,
+              ...processes.map((process) =>
+                `- \`${process.processId}\` · ${process.status}` +
+                `${process.exitCode !== undefined ? ` · exit=${process.exitCode}` : ''}` +
+                ` · ${process.command}`
+              )
+            ].join('\n')
+          : '当前会话没有托管的后台进程。';
+      } else {
+        const result = session.runtime.undoMutation(
+          command.argument || undefined
+        );
+        content = `已撤销 ${result.transactions.length} 个变更事务：${result.files.join(', ') || '无文件'}`;
+      }
+      this.emit(
+        command.sessionId,
+        {
+          type: 'runtime-command.result',
+          data: { name: command.name, ok: true, content }
+        },
+        sink
+      );
+      this.emit(
+        command.sessionId,
+        { type: 'request.accepted', requestId: command.requestId },
+        sink
+      );
+    } catch (error) {
+      this.emit(
+        command.sessionId,
+        {
+          type: 'runtime-command.result',
+          data: {
+            name: command.name,
+            ok: false,
+            content: error instanceof Error ? error.message : String(error)
+          }
+        },
+        sink
+      );
+      this.emit(
+        command.sessionId,
+        { type: 'request.accepted', requestId: command.requestId },
         sink
       );
     }
@@ -877,14 +1054,40 @@ export class WorkerService {
     stream: AsyncIterable<AgentRunStreamEvent>,
     sink?: WorkerEventSink
   ): Promise<void> {
-    let text = '';
-    let thinking = '';
+    let segmentFrom: 'agent' | 'thinking' | undefined;
+    let segmentText = '';
+    let segmentMessage: StoredSessionMessage | undefined;
+    let hasAgentText = false;
     let finalResult: Extract<AgentRunStreamEvent, { type: 'result' }>['result'] | undefined;
+    const flushSegment = () => {
+      if (segmentMessage && segmentMessage.text !== segmentText) {
+        this.store.upsertMessage(session.id, {
+          ...segmentMessage,
+          text: segmentText
+        });
+      }
+      segmentFrom = undefined;
+      segmentText = '';
+      segmentMessage = undefined;
+    };
     for await (const data of stream) {
       this.emit(session.id, { type: 'stream', data }, sink, false);
-      if (data.type === 'text-delta') text += data.text;
-      if (data.type === 'thinking-delta') thinking += data.text;
+      if (data.type === 'text-delta' || data.type === 'thinking-delta') {
+        const from = data.type === 'text-delta' ? 'agent' : 'thinking';
+        if (segmentFrom !== from) flushSegment();
+        if (!segmentMessage && data.text) {
+          segmentFrom = from;
+          segmentText = data.text;
+          segmentMessage = this.persistMessage(session, from, segmentText);
+          if (from === 'agent') hasAgentText = true;
+        } else {
+          segmentText += data.text;
+        }
+      }
+      if (data.type === 'turn-start') flushSegment();
+      if (data.type === 'tools-start') flushSegment();
       if (data.type === 'result') {
+        flushSegment();
         finalResult = data.result;
         if (data.result.pendingApproval) {
           this.emit(
@@ -896,9 +1099,8 @@ export class WorkerService {
         }
       }
     }
-    if (thinking) this.persistMessage(session, 'thinking', thinking);
-    if (text) this.persistMessage(session, 'agent', text);
-    if (!text && finalResult?.summary.trim()) {
+    flushSegment();
+    if (!hasAgentText && finalResult?.summary.trim()) {
       this.persistMessage(
         session,
         finalResult.status === 'approval-required' ? 'system' : 'agent',
@@ -999,6 +1201,9 @@ export class WorkerService {
         // Provider may no longer support configurable reasoning effort.
       }
     }
+    if (settings.permissionMode) {
+      handle.runtime.setPermissionMode(settings.permissionMode);
+    }
     handle.runtime.setManagedProcessSession(sessionId);
     const active: ActiveSession = {
       ...handle,
@@ -1007,13 +1212,13 @@ export class WorkerService {
         Math.max(0, ...(stored?.messages.map((message) => message.id) ?? [])) + 1,
       toolMessages: restoredToolMessages(stored?.messages ?? []),
       lastUsedAt: this.now().getTime(),
-      recentTraces: await loadRecentTraces(handle.tooling.traceStore),
+      // TraceStore 的持久化索引按 workspace 组织，不按 Cloud session 隔离。
+      // 历史工具卡片已经保存在当前 session 的 StoredSessionMessage 中；
+      // 此处只接收当前 runtime 后续产生的实时 trace，避免跨会话导入。
+      recentTraces: [],
       unsubscribeTrace: () => undefined,
       unsubscribeWorkState: () => undefined
     };
-    for (const trace of active.recentTraces) {
-      this.persistToolTrace(active, trace);
-    }
     active.unsubscribeTrace = handle.tooling.traceStore.subscribe((trace) => {
       active.recentTraces = [
         ...active.recentTraces.filter((event) => event.id !== trace.id),
@@ -1119,9 +1324,14 @@ export class WorkerService {
       pendingPlan: session.runtime.getPendingModeExecution(),
       todos: session.runtime.getTodoStore()?.list() ?? [],
       traces: session.recentTraces,
+      contextUsage: session.runtime.getContextUsage({
+        requestedMode: session.runtime.getSessionMode(),
+        currentUserInput: ''
+      }),
       mode: session.runtime.getSessionMode(),
       model: session.runtime.getLlmClient()?.model,
-      thinkingEffort: session.runtime.getThinkingEffort()
+      thinkingEffort: session.runtime.getThinkingEffort(),
+      permissionMode: session.runtime.getPermissionMode()
     };
   }
 
@@ -1129,16 +1339,25 @@ export class WorkerService {
     session: ActiveSession,
     from: StoredSessionMessage['from'],
     text: string
-  ): void {
-    this.store.upsertMessage(session.id, {
+  ): StoredSessionMessage {
+    const message: StoredSessionMessage = {
       id: session.nextMessageId++,
       from,
       text,
       createdAt: this.now().toISOString()
-    });
+    };
+    this.store.upsertMessage(session.id, message);
+    return message;
   }
 
   private persistToolTrace(session: ActiveSession, trace: TraceEvent): void {
+    if (
+      trace.runId.startsWith('sub-') ||
+      (trace.payload.isSubagent === true &&
+        !trace.type.startsWith('subagent.'))
+    ) {
+      return;
+    }
     const callId =
       typeof trace.payload.callId === 'string'
         ? trace.payload.callId
@@ -1207,20 +1426,6 @@ export class WorkerService {
       { type: 'request.error', requestId, code, message },
       sink
     );
-  }
-}
-
-async function loadRecentTraces(
-  traceStore: AgentHostTooling['traceStore']
-): Promise<TraceEvent[]> {
-  try {
-    const runIds = (await traceStore.listRunIds()).slice(-20);
-    const runs = await Promise.all(
-      runIds.map((runId) => traceStore.readRun(runId))
-    );
-    return runs.flat().slice(-200);
-  } catch {
-    return [];
   }
 }
 

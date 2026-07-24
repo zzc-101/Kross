@@ -12,12 +12,14 @@ describe('SessionSettingsStore', () => {
     const store = new SessionSettingsStore(root);
     store.update('session-a', {
       model: 'gpt-test',
-      thinkingEffort: 'medium'
+      thinkingEffort: 'medium',
+      permissionMode: 'classifier'
     });
 
     expect(new SessionSettingsStore(root).load('session-a')).toEqual({
       model: 'gpt-test',
-      thinkingEffort: 'medium'
+      thinkingEffort: 'medium',
+      permissionMode: 'classifier'
     });
     expect(store.load('session-b')).toEqual({});
   });

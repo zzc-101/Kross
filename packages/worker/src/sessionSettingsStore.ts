@@ -8,12 +8,16 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 
-import { thinkingEffortSchema } from '@kross/protocol';
+import {
+  permissionModeSchema,
+  thinkingEffortSchema
+} from '@kross/protocol';
 import { z } from 'zod';
 
 const settingsSchema = z.object({
   model: z.string().min(1).optional(),
-  thinkingEffort: thinkingEffortSchema.optional()
+  thinkingEffort: thinkingEffortSchema.optional(),
+  permissionMode: permissionModeSchema.optional()
 });
 
 export type CloudSessionSettings = z.infer<typeof settingsSchema>;

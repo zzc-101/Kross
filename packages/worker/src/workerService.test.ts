@@ -26,7 +26,8 @@ import { describe, expect, it } from 'vitest';
 import { WorkerService, type RuntimeHandle } from './workerService';
 
 class MemoryTraceStore implements TraceStore {
-  events: TraceEvent[] = [];
+  constructor(readonly events: TraceEvent[] = []) {}
+
   async append(event: TraceEvent): Promise<void> {
     this.events.push(event);
   }
@@ -59,6 +60,34 @@ class ApprovalLlm implements LlmClient {
       return;
     }
     yield { type: 'text-delta', text: '执行完成' };
+    yield { type: 'done' };
+  }
+}
+
+class OrderedToolLlm implements LlmClient {
+  readonly provider = 'openai' as const;
+  readonly model = 'test-model';
+  readonly thinkingEffort = 'low' as const;
+  calls = 0;
+
+  async complete(): Promise<LlmResponse> {
+    throw new Error('streaming expected');
+  }
+
+  async *stream(_request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    this.calls += 1;
+    if (this.calls === 1) {
+      yield { type: 'text-delta', text: '我先' };
+      yield { type: 'text-delta', text: '查看目录。' };
+      yield {
+        type: 'tool-call',
+        call: { id: 'list-1', name: 'List', input: { path: '.' } }
+      };
+      yield { type: 'done' };
+      return;
+    }
+    yield { type: 'text-delta', text: '目录内容' };
+    yield { type: 'text-delta', text: '如下。' };
     yield { type: 'done' };
   }
 }
@@ -100,6 +129,220 @@ function send(
 }
 
 describe('WorkerService integration', () => {
+  it('exposes context capacity and Core-backed runtime commands', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-worker-core-command-'));
+    const workspace = join(root, 'repo');
+    mkdirSync(workspace);
+    const service = new WorkerService({
+      workspaceId: 'w1',
+      workspaceRoot: workspace,
+      krossHome: join(root, '.kross'),
+      runtimeFactory: runtimeFactory([])
+    });
+    const events: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'create-core-command',
+      type: 'session.create',
+      workspaceId: 'w1'
+    }, events);
+    const created = events.find(
+      (event) => event.event.type === 'session.snapshot'
+    );
+    if (created?.event.type !== 'session.snapshot' || !created.sessionId) {
+      throw new Error('missing created session');
+    }
+    expect(created.event.data.contextUsage).toEqual(
+      expect.objectContaining({
+        usedTokens: expect.any(Number),
+        maxTokens: expect.any(Number),
+        compactThreshold: expect.any(Number)
+      })
+    );
+
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'inspect-skills',
+      type: 'session.runtime-command',
+      workspaceId: 'w1',
+      sessionId: created.sessionId,
+      name: 'skills'
+    }, events);
+    const result = events.find(
+      (event) =>
+        event.correlationId === 'inspect-skills' &&
+        event.event.type === 'runtime-command.result'
+    );
+    expect(
+      result?.event.type === 'runtime-command.result'
+        ? result.event.data
+        : undefined
+    ).toEqual(
+      expect.objectContaining({
+        name: 'skills',
+        ok: true,
+        content: expect.stringContaining('Skills')
+      })
+    );
+    await service.close();
+  });
+
+  it('persists tool calls between the response segments that surround them', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-worker-message-order-'));
+    const workspace = join(root, 'repo');
+    mkdirSync(workspace);
+    const service = new WorkerService({
+      workspaceId: 'w1',
+      workspaceRoot: workspace,
+      krossHome: join(root, '.kross'),
+      runtimeFactory: async () => {
+        const traceStore = new ObservableTraceStore(new MemoryTraceStore());
+        const gateway = new ToolGateway({ traceStore });
+        gateway.register({
+          name: 'List',
+          description: 'list files',
+          risk: 'read',
+          inputSchema: z.object({ path: z.string() }),
+          async execute() {
+            return { content: 'README.md', summary: 'listed 1 entry' };
+          }
+        });
+        const runtime = new AgentRuntime({
+          traceStore,
+          toolGateway: gateway,
+          llmClient: new OrderedToolLlm(),
+          workspaceRoot: workspace
+        });
+        return {
+          runtime,
+          tooling: {
+            traceStore,
+            close: async () => undefined
+          } as unknown as AgentHostTooling
+        };
+      }
+    });
+    const events: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'create-order',
+      type: 'session.create',
+      workspaceId: 'w1'
+    }, events);
+    const created = events.find(
+      (event) =>
+        event.correlationId === 'create-order' &&
+        event.event.type === 'session.snapshot'
+    );
+    if (created?.event.type !== 'session.snapshot') {
+      throw new Error('missing created session');
+    }
+
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'input-order',
+      type: 'session.input',
+      workspaceId: 'w1',
+      sessionId: created.event.data.summary.id,
+      input: '查看目录',
+      mode: 'auto'
+    }, events);
+    const completed = [...events].reverse().find(
+      (event) => event.event.type === 'session.snapshot'
+    );
+    if (completed?.event.type !== 'session.snapshot') {
+      throw new Error('missing completed snapshot');
+    }
+    expect(
+      completed.event.data.messages.map((message) => ({
+        from: message.from,
+        text: message.text,
+        callId: message.tool?.callId
+      }))
+    ).toEqual([
+      { from: 'user', text: '查看目录', callId: undefined },
+      { from: 'agent', text: '我先查看目录。', callId: undefined },
+      {
+        from: 'tool',
+        text: 'List · listed 1 entry',
+        callId: 'list-1'
+      },
+      { from: 'agent', text: '目录内容如下。', callId: undefined }
+    ]);
+    await service.close();
+  });
+
+  it('does not import tool traces from another Cloud session', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-worker-trace-isolation-'));
+    const workspace = join(root, 'repo');
+    mkdirSync(workspace);
+    const sharedEvents: TraceEvent[] = [];
+    const traceStores: ObservableTraceStore[] = [];
+    const factory = async () => {
+      const traceStore = new ObservableTraceStore(
+        new MemoryTraceStore(sharedEvents)
+      );
+      traceStores.push(traceStore);
+      const gateway = new ToolGateway({ traceStore });
+      const runtime = new AgentRuntime({
+        traceStore,
+        toolGateway: gateway,
+        llmClient: new ApprovalLlm(),
+        workspaceRoot: workspace
+      });
+      return {
+        runtime,
+        tooling: {
+          traceStore,
+          close: async () => undefined
+        } as unknown as AgentHostTooling
+      };
+    };
+    const service = new WorkerService({
+      workspaceId: 'w1',
+      workspaceRoot: workspace,
+      krossHome: join(root, '.kross'),
+      runtimeFactory: factory
+    });
+    const events: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'create-first',
+      type: 'session.create',
+      workspaceId: 'w1'
+    }, events);
+    await traceStores[0]!.append({
+      id: 'trace-first-tool',
+      runId: 'run-first',
+      type: 'tool_call.completed',
+      timestamp: new Date().toISOString(),
+      payload: {
+        callId: 'call-first',
+        toolName: 'List',
+        status: 'completed',
+        summary: 'listed first session'
+      }
+    });
+
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'create-second',
+      type: 'session.create',
+      workspaceId: 'w1'
+    }, events);
+    const secondSnapshot = events.find(
+      (event) =>
+        event.correlationId === 'create-second' &&
+        event.event.type === 'session.snapshot'
+    );
+    if (secondSnapshot?.event.type !== 'session.snapshot') {
+      throw new Error('missing second session snapshot');
+    }
+    expect(secondSnapshot.event.data.messages).toEqual([]);
+    expect(secondSnapshot.event.data.traces).toEqual([]);
+    await service.close();
+  });
+
   it('deduplicates concurrent runtime loads and evicts least-recent idle sessions', async () => {
     const root = mkdtempSync(join(tmpdir(), 'kross-worker-lru-'));
     const workspace = join(root, 'repo');
@@ -179,7 +422,8 @@ describe('WorkerService integration', () => {
       krossHome: join(root, '.kross'),
       env: {
         AGENT_LLM_PROVIDER: 'openai',
-        AGENT_LLM_MODEL: 'custom-model'
+        AGENT_LLM_MODEL: 'custom-model',
+        OPENAI_API_KEY: 'test-key'
       },
       runtimeFactory: runtimeFactory([])
     });
@@ -197,9 +441,9 @@ describe('WorkerService integration', () => {
       modelEvent?.event.type === 'models.list'
         ? modelEvent.event.data
         : []
-    ).toContainEqual(
+    ).toEqual([
       expect.objectContaining({ id: 'custom-model', provider: 'OpenAI' })
-    );
+    ]);
 
     await send(service, {
       protocolVersion: PROTOCOL_VERSION,
