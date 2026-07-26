@@ -36,5 +36,7 @@
   Draft-07 JSON Schema、兼容性守卫和 Python 消费示例。
 - 明确 v0.1 只发布 CLI；Core/Protocol 保持 private，并记录未来独立 SDK 的触发
   条件、兼容承诺和发布门。
+- MCP 协议客户端与 stdio Transport 解耦，统一请求取消、单请求超时、结构化诊断
+  和幂等资源关闭，同时保持现有工具注册与权限语义。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

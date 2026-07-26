@@ -1,4 +1,9 @@
 import { StdioJsonRpcClient, type StdioJsonRpcClientOptions } from './jsonRpcStdio';
+import type {
+  McpTransport,
+  McpTransportDiagnosticListener,
+  McpTransportRequestOptions
+} from './transport';
 import type { McpCallToolResult, McpToolInfo } from './types';
 
 const PROTOCOL_VERSION = '2024-11-05';
@@ -8,28 +13,46 @@ export interface McpStdioClientOptions extends StdioJsonRpcClientOptions {
   clientVersion?: string;
 }
 
+export interface McpClientOptions {
+  clientName?: string;
+  clientVersion?: string;
+}
+
+export interface McpToolClient {
+  connect(): Promise<void>;
+  listTools(options?: McpTransportRequestOptions): Promise<McpToolInfo[]>;
+  callTool(
+    name: string,
+    args?: Record<string, unknown>,
+    options?: McpTransportRequestOptions
+  ): Promise<McpCallToolResult>;
+  onDiagnostic(listener: McpTransportDiagnosticListener): () => void;
+  close(): Promise<void>;
+}
+
 /**
- * Thin MCP client over stdio JSON-RPC: initialize → tools/list → tools/call.
+ * Thin MCP protocol client: initialize → tools/list → tools/call.
  */
-export class McpStdioClient {
-  private readonly rpc: StdioJsonRpcClient;
+export class McpClient implements McpToolClient {
   private initialized = false;
+  private closePromise: Promise<void> | undefined;
   private readonly clientName: string;
   private readonly clientVersion: string;
 
-  constructor(options: McpStdioClientOptions) {
-    this.rpc = new StdioJsonRpcClient(options);
+  constructor(
+    readonly transport: McpTransport,
+    options: McpClientOptions = {}
+  ) {
     this.clientName = options.clientName ?? 'kross';
     this.clientVersion = options.clientVersion ?? '0.1.0';
   }
 
-  get rpcClient(): StdioJsonRpcClient {
-    return this.rpc;
-  }
-
   async connect(): Promise<void> {
-    this.rpc.start();
-    await this.rpc.request('initialize', {
+    if (this.closePromise) {
+      throw new Error('MCP client is closed');
+    }
+    await this.transport.start();
+    await this.transport.request('initialize', {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {
         roots: { listChanged: false },
@@ -40,13 +63,15 @@ export class McpStdioClient {
         version: this.clientVersion
       }
     });
-    this.rpc.notify('notifications/initialized', {});
+    await this.transport.notify('notifications/initialized', {});
     this.initialized = true;
   }
 
-  async listTools(): Promise<McpToolInfo[]> {
+  async listTools(
+    options?: McpTransportRequestOptions
+  ): Promise<McpToolInfo[]> {
     this.ensureInitialized();
-    const result = (await this.rpc.request('tools/list', {})) as {
+    const result = (await this.transport.request('tools/list', {}, options)) as {
       tools?: McpToolInfo[];
     };
     return Array.isArray(result?.tools) ? result.tools : [];
@@ -54,24 +79,49 @@ export class McpStdioClient {
 
   async callTool(
     name: string,
-    args: Record<string, unknown> = {}
+    args: Record<string, unknown> = {},
+    options?: McpTransportRequestOptions
   ): Promise<McpCallToolResult> {
     this.ensureInitialized();
-    const result = await this.rpc.request('tools/call', {
-      name,
-      arguments: args
-    });
+    const result = await this.transport.request(
+      'tools/call',
+      {
+        name,
+        arguments: args
+      },
+      options
+    );
     return (result ?? {}) as McpCallToolResult;
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
     this.initialized = false;
-    await this.rpc.close();
+    this.closePromise ??= this.transport.close();
+    return this.closePromise;
+  }
+
+  onDiagnostic(listener: McpTransportDiagnosticListener): () => void {
+    return this.transport.onDiagnostic(listener);
   }
 
   private ensureInitialized(): void {
     if (!this.initialized) {
       throw new Error('MCP client is not initialized');
     }
+  }
+}
+
+/** Backward-compatible stdio composition over the transport-neutral client. */
+export class McpStdioClient extends McpClient {
+  private readonly rpc: StdioJsonRpcClient;
+
+  constructor(options: McpStdioClientOptions) {
+    const rpc = new StdioJsonRpcClient(options);
+    super(rpc, options);
+    this.rpc = rpc;
+  }
+
+  get rpcClient(): StdioJsonRpcClient {
+    return this.rpc;
   }
 }

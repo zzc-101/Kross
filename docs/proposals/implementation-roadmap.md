@@ -518,6 +518,9 @@ feat(protocol): publish language-neutral wire schemas
 
 ### E1. MCP Transport 抽象
 
+> 基础已完成：协议客户端与 stdio Transport 已解耦，取消、超时、诊断和幂等关闭
+> 已统一；第二种官方真实 Transport 由 E2 Streamable HTTP 完成并关闭本项验收。
+
 - 在保留 stdio 行为的前提下定义 transport lifecycle；
 - 连接、请求、取消、超时、关闭和诊断统一；
 - 用第二种真实 transport 验证抽象；

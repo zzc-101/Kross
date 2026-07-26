@@ -13,7 +13,19 @@ export {
   resolveMcpConfigPath,
   type LoadMcpConfigOptions
 } from './config';
-export { McpStdioClient, type McpStdioClientOptions } from './mcpClient';
+export {
+  McpClient,
+  McpStdioClient,
+  type McpClientOptions,
+  type McpStdioClientOptions,
+  type McpToolClient
+} from './mcpClient';
+export type {
+  McpTransport,
+  McpTransportDiagnostic,
+  McpTransportDiagnosticListener,
+  McpTransportRequestOptions
+} from './transport';
 export {
   StdioJsonRpcClient,
   tryReadFramedMessage,

@@ -6,7 +6,10 @@ import type {
   ToolHandlerResult
 } from '../tools/toolGateway';
 import { loadMcpServersConfig, type LoadMcpConfigOptions } from './config';
-import { McpStdioClient } from './mcpClient';
+import {
+  McpStdioClient,
+  type McpToolClient
+} from './mcpClient';
 import { buildMcpToolName, inferMcpToolRisk } from './risk';
 import type {
   McpCallToolResult,
@@ -32,7 +35,7 @@ export interface ConnectMcpOptions extends LoadMcpConfigOptions {
   createClient?: (
     serverId: string,
     config: McpServerConfig
-  ) => McpStdioClient;
+  ) => McpToolClient;
   /** Soft-fail callback (stderr / startup logs). */
   onWarning?: (message: string) => void;
 }
@@ -46,7 +49,8 @@ export async function connectAndRegisterMcpTools(
   options: ConnectMcpOptions = {}
 ): Promise<McpManager> {
   const servers = loadMcpServersConfig(options);
-  const clients: McpStdioClient[] = [];
+  const clients: McpToolClient[] = [];
+  const unsubscribeDiagnostics: Array<() => void> = [];
   const results: McpConnectResult[] = [];
   const registeredToolNames: string[] = [];
   const warn = options.onWarning ?? (() => undefined);
@@ -61,7 +65,7 @@ export async function connectAndRegisterMcpTools(
       continue;
     }
 
-    let client: McpStdioClient | undefined;
+    let client: McpToolClient | undefined;
     try {
       client =
         options.createClient?.(serverId, config) ??
@@ -75,6 +79,19 @@ export async function connectAndRegisterMcpTools(
           cwd: config.cwd ?? options.workspaceRoot,
           requestTimeoutMs: config.connectTimeoutMs ?? 12_000
         });
+      unsubscribeDiagnostics.push(
+        client.onDiagnostic((diagnostic) => {
+          if (diagnostic.level !== 'debug') {
+            const message =
+              diagnostic.code === 'stderr'
+                ? 'server emitted stderr output'
+                : diagnostic.message;
+            warn(
+              `MCP server "${serverId}" ${diagnostic.code}: ${message}`
+            );
+          }
+        })
+      );
 
       await client.connect();
       const tools = await client.listTools();
@@ -120,6 +137,9 @@ export async function connectAndRegisterMcpTools(
       registeredToolNames: [...registeredToolNames]
     }),
     close: async () => {
+      for (const unsubscribe of unsubscribeDiagnostics.splice(0)) {
+        unsubscribe();
+      }
       await Promise.all(
         clients.map(async (client) => {
           try {
@@ -162,7 +182,7 @@ export function startMcpRegistration(
 export function createMcpToolDefinition(input: {
   serverId: string;
   tool: McpToolInfo;
-  client: McpStdioClient;
+  client: McpToolClient;
   serverRisk?: import('../tools/toolGateway').ToolRisk;
 }): ToolDefinition<Record<string, unknown>> {
   const toolName = buildMcpToolName(input.serverId, input.tool.name);
@@ -195,7 +215,9 @@ export function createMcpToolDefinition(input: {
       if (signal.aborted) {
         throw new Error('MCP tool call aborted');
       }
-      const result = await input.client.callTool(input.tool.name, args ?? {});
+      const result = await input.client.callTool(input.tool.name, args ?? {}, {
+        signal
+      });
       return formatMcpToolResult(result);
     }
   };

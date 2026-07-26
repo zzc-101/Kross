@@ -1,6 +1,13 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 
+import type {
+  McpTransport,
+  McpTransportDiagnostic,
+  McpTransportDiagnosticListener,
+  McpTransportRequestOptions
+} from './transport';
+
 export interface JsonRpcRequest {
   jsonrpc: '2.0';
   id: number | string;
@@ -41,7 +48,8 @@ export interface StdioJsonRpcClientOptions {
  * Minimal MCP-compatible stdio JSON-RPC client.
  * Framing: `Content-Length: N\r\n\r\n<body>` (same as MCP TypeScript SDK).
  */
-export class StdioJsonRpcClient extends EventEmitter {
+export class StdioJsonRpcClient extends EventEmitter implements McpTransport {
+  readonly kind = 'stdio';
   private child: ChildProcessWithoutNullStreams | undefined;
   private nextId = 1;
   private buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
@@ -51,6 +59,7 @@ export class StdioJsonRpcClient extends EventEmitter {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+      removeAbortListener: () => void;
     }
   >();
   private closed = false;
@@ -70,6 +79,9 @@ export class StdioJsonRpcClient extends EventEmitter {
   }
 
   start(): void {
+    if (this.closed) {
+      throw new Error('MCP stdio transport is closed');
+    }
     if (this.child) {
       return;
     }
@@ -85,27 +97,51 @@ export class StdioJsonRpcClient extends EventEmitter {
     this.child = child;
     child.stdout.on('data', (chunk: Buffer) => this.onStdout(chunk));
     child.stderr.on('data', (chunk: Buffer) => {
-      this.emit('stderr', chunk.toString('utf8'));
+      const message = chunk.toString('utf8');
+      this.emit('stderr', message);
+      this.emitDiagnostic({
+        level: 'warning',
+        code: 'stderr',
+        message
+      });
     });
     child.on('error', (error) => {
-      this.failAll(error instanceof Error ? error : new Error(String(error)));
-      this.emit('error', error);
+      const normalized =
+        error instanceof Error ? error : new Error(String(error));
+      this.failAll(normalized);
+      this.emitDiagnostic({
+        level: 'error',
+        code: 'transport-error',
+        message: normalized.message
+      });
+      if (this.listenerCount('error') > 0) {
+        this.emit('error', normalized);
+      }
     });
     child.on('close', (code, signal) => {
       this.closed = true;
-      this.failAll(
-        new Error(
-          `MCP process exited (code=${code ?? 'null'}, signal=${signal ?? 'null'})`
-        )
-      );
+      const message =
+        `MCP process exited (code=${code ?? 'null'}, ` +
+        `signal=${signal ?? 'null'})`;
+      this.failAll(new Error(message));
+      this.emitDiagnostic({
+        level: code === 0 ? 'debug' : 'warning',
+        code: 'transport-closed',
+        message
+      });
       this.emit('close', code, signal);
     });
   }
 
-  async request(method: string, params?: unknown): Promise<unknown> {
+  async request(
+    method: string,
+    params?: unknown,
+    options: McpTransportRequestOptions = {}
+  ): Promise<unknown> {
     if (this.closed || !this.child) {
       throw new Error('MCP client is not running');
     }
+    options.signal?.throwIfAborted();
     const id = this.nextId;
     this.nextId += 1;
     const message: JsonRpcRequest = {
@@ -116,16 +152,32 @@ export class StdioJsonRpcClient extends EventEmitter {
     };
 
     return new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const cancel = (error: Error): void => {
+        const pending = this.pending.get(id);
+        if (!pending) return;
         this.pending.delete(id);
-        reject(new Error(`MCP request timed out: ${method}`));
-      }, this.requestTimeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+        clearTimeout(pending.timer);
+        pending.removeAbortListener();
+        reject(error);
+        this.notifyCancellation(id, error.message);
+      };
+      const timer = setTimeout(
+        () => cancel(new Error(`MCP request timed out: ${method}`)),
+        options.timeoutMs ?? this.requestTimeoutMs
+      );
+      const onAbort = (): void => {
+        cancel(createAbortError(options.signal?.reason));
+      };
+      options.signal?.addEventListener('abort', onAbort, { once: true });
+      const removeAbortListener = (): void =>
+        options.signal?.removeEventListener('abort', onAbort);
+      this.pending.set(id, { resolve, reject, timer, removeAbortListener });
       try {
         this.writeMessage(message);
       } catch (error) {
         clearTimeout(timer);
         this.pending.delete(id);
+        removeAbortListener();
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
@@ -141,6 +193,11 @@ export class StdioJsonRpcClient extends EventEmitter {
       ...(params === undefined ? {} : { params })
     };
     this.writeMessage(message);
+  }
+
+  onDiagnostic(listener: McpTransportDiagnosticListener): () => void {
+    this.on('diagnostic', listener);
+    return () => this.off('diagnostic', listener);
   }
 
   async close(): Promise<void> {
@@ -206,6 +263,7 @@ export class StdioJsonRpcClient extends EventEmitter {
       return;
     }
     clearTimeout(pending.timer);
+    pending.removeAbortListener();
     this.pending.delete(message.id);
     if (message.error) {
       pending.reject(
@@ -221,10 +279,35 @@ export class StdioJsonRpcClient extends EventEmitter {
   private failAll(error: Error): void {
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timer);
+      pending.removeAbortListener();
       pending.reject(error);
       this.pending.delete(id);
     }
   }
+
+  private notifyCancellation(
+    requestId: number | string,
+    reason: string
+  ): void {
+    if (this.closed || !this.child) return;
+    try {
+      this.notify('notifications/cancelled', { requestId, reason });
+    } catch {
+      // Local cancellation has already completed.
+    }
+  }
+
+  private emitDiagnostic(diagnostic: McpTransportDiagnostic): void {
+    this.emit('diagnostic', diagnostic);
+  }
+}
+
+function createAbortError(reason: unknown): Error {
+  const error = new Error(
+    typeof reason === 'string' && reason ? reason : 'MCP request aborted'
+  );
+  error.name = 'AbortError';
+  return error;
 }
 
 /** Exported for unit tests. */

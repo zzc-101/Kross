@@ -117,6 +117,10 @@ write、execute、network、Process、MCP 与动态风险调用保持串行屏�
 文件工具使用真实路径限制 workspace；所有 mutation 工具记录 pre/post image，
 `/undo` 只在当前文件仍匹配 post hash 时恢复，避免覆盖后续人工修改。
 
+MCP 协议客户端通过 Transport 契约使用 JSON-RPC；Transport 负责连接、取消、
+超时、诊断和关闭，协议客户端负责 initialize、capability 与 tools 调用。目前
+只有 stdio 适配器进入用户配置，所有 MCP 工具仍经过同一 Gateway 权限边界。
+
 `Bash` 和后台进程没有 OS 级沙箱。workspace cwd、权限审批和容器隔离的具体安全
 边界见[安全模型](security.md)。
 

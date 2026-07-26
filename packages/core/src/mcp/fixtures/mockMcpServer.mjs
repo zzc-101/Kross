@@ -81,6 +81,18 @@ function handle(message) {
               required: ['message']
             },
             annotations: { readOnlyHint: true }
+          },
+          {
+            name: 'slow',
+            description: 'Resolve after a delay',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                delayMs: { type: 'number' }
+              },
+              required: ['delayMs']
+            },
+            annotations: { readOnlyHint: true }
           }
         ]
       }
@@ -89,6 +101,19 @@ function handle(message) {
   }
   if (message.method === 'tools/call') {
     const args = message.params?.arguments ?? {};
+    if (message.params?.name === 'slow') {
+      setTimeout(() => {
+        write({
+          jsonrpc: '2.0',
+          id: message.id,
+          result: {
+            content: [{ type: 'text', text: 'slow:done' }],
+            isError: false
+          }
+        });
+      }, Number(args.delayMs ?? 100));
+      return;
+    }
     const text = String(args.message ?? '');
     write({
       jsonrpc: '2.0',

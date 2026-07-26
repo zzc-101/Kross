@@ -108,6 +108,11 @@ Kross 启动时只把 Skill 的名称和描述加入上下文，需要时再通�
 - 修改 MCP 配置后需要重启；
 - MCP 子进程拥有当前用户权限，不能把审批等同于 OS 沙箱。
 
+Core 内部已经把 MCP 协议客户端与 Transport 生命周期分离。Transport 统一负责
+连接、JSON-RPC 请求、`AbortSignal` 取消、单请求超时、结构化诊断和幂等关闭；
+当前配置仍只创建 stdio 适配器，尚未把远程 HTTP 或自定义 Transport 暴露为稳定
+扩展 API。工具注册、风险推断与审批继续统一经过 `ToolGateway`。
+
 不要把真实密钥提交到仓库。公开 Issue 中的配置示例也应删除 token、绝对用户名
 路径和私有仓库地址。
 

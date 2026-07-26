@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { ToolGateway } from '../tools/toolGateway';
+import type { McpToolClient } from './mcpClient';
 import { connectAndRegisterMcpTools, formatMcpToolResult } from './register';
 
 const fixtureServer = join(
@@ -106,6 +107,51 @@ describe('connectAndRegisterMcpTools', () => {
       } finally {
         await manager.close();
       }
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('redacts raw stderr from manager warnings', async () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-diagnostic-'));
+    try {
+      const kross = join(homeDir, '.kross');
+      mkdirSync(kross, { recursive: true });
+      writeFileSync(
+        join(kross, 'mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            mock: { command: 'unused' }
+          }
+        })
+      );
+      const warnings: string[] = [];
+      const client = {
+        connect: async () => undefined,
+        listTools: async () => [],
+        callTool: async () => ({}),
+        close: async () => undefined,
+        onDiagnostic: (listener) => {
+          listener({
+            level: 'warning',
+            code: 'stderr',
+            message: 'SECRET_TOKEN=do-not-log'
+          });
+          return () => undefined;
+        }
+      } satisfies McpToolClient;
+
+      const manager = await connectAndRegisterMcpTools(new ToolGateway(), {
+        homeDir,
+        createClient: () => client,
+        onWarning: (message) => warnings.push(message)
+      });
+      await manager.close();
+
+      expect(warnings).toEqual([
+        'MCP server "mock" stderr: server emitted stderr output'
+      ]);
+      expect(warnings.join('\n')).not.toContain('SECRET_TOKEN');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
