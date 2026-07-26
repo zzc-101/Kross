@@ -215,6 +215,7 @@ Most detailed documentation is currently in Chinese. English documentation contr
 - [Technical overview](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)
 - [Deterministic Harness Eval](docs/evaluation.md)
+- [Headless automation](docs/headless.md)
 - [Cloud deployment and operations](docs/cloud-agent-deployment.md)
 - [Release guide](docs/releasing.md)
 - [Contributing](CONTRIBUTING.md)
@@ -243,7 +244,18 @@ npm run build
 npm run package:check
 ```
 
-`npm run package:check` bundles the CLI, installs the tarball in a temporary directory, and verifies `kross --help` and `kross --version`.
+`npm run package:check` bundles the CLI, installs the tarball in a temporary directory, verifies `kross --help` and `kross --version`, starts the TUI without a model, and checks the Headless configuration-error contract.
+
+Run one non-interactive task as versioned NDJSON:
+
+```bash
+kross exec "Review the current changes without modifying files." --json
+```
+
+Headless execution keeps the default approval policy and returns distinct exit
+codes for usage, configuration, approval, runtime, verification, and interrupt
+outcomes. See [Headless automation](docs/headless.md) for the event schema and
+security boundaries.
 
 Run individual Cloud components from their own workspaces:
 

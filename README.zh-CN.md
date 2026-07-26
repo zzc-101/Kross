@@ -221,6 +221,7 @@ Git Push/PR、资源限额和空闲回收。Web
 - [技术概览](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)
 - [确定性 Harness Eval](docs/evaluation.md)
+- [Headless 自动化](docs/headless.md)
 - [Cloud Agent 部署与运维](docs/cloud-agent-deployment.md)
 - [发布指南](docs/releasing.md)
 - [参与贡献](CONTRIBUTING.md)
@@ -249,7 +250,17 @@ npm run build
 npm run package:check
 ```
 
-`npm run package:check` 会打包并在临时目录真实安装 CLI，然后验证 `kross --help` 和 `kross --version`。
+`npm run package:check` 会打包并在临时目录真实安装 CLI，验证 `kross --help`、
+`kross --version`、无模型 TUI 启动和 Headless 配置错误契约。
+
+以版本化 NDJSON 非交互运行单个任务：
+
+```bash
+kross exec "只读审查当前改动，不要修改文件" --json
+```
+
+Headless 保持默认审批策略，并用不同退出码区分参数、配置、审批、Runtime、验证
+和中断结果。事件 schema 与安全边界见 [Headless 自动化](docs/headless.md)。
 
 Cloud 各组件单独开发可使用：
 

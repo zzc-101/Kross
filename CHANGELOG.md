@@ -27,5 +27,6 @@
 - Headless `exec` 的参数、版本化 NDJSON 事件、权限模式与稳定退出码契约。
 - 可运行的 Headless Runtime Host：支持流式 NDJSON、持久化会话恢复、审批阻塞、
   验证失败退出码、SIGINT/SIGTERM 取消和统一资源清理。
+- Headless Event v1 JSON Schema、Shell/Actions 示例、退出码表及权限和密钥文档。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

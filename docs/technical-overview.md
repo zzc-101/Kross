@@ -1,8 +1,8 @@
 # Kross 技术概览
 
 Kross 是本地优先的 TypeScript 编程 Agent。Core 提供与界面无关的运行时，TUI
-直接在本机消费 Core；Cloud Worker 在容器内消费同一个 Core，Web 通过 Gateway
-与 Worker 通信。
+和 `kross exec` Headless Host 直接在本机消费 Core；Cloud Worker 在容器内消费
+同一个 Core，Web 通过 Gateway 与 Worker 通信。
 
 本文只描述当前实现和长期架构边界。安装、配置与命令用法分别见
 [快速上手](getting-started.md)、[配置参考](configuration.md)和
@@ -12,7 +12,8 @@ Kross 是本地优先的 TypeScript 编程 Agent。Core 提供与界面无关的
 
 ```mermaid
 flowchart TB
-    TUI["packages/tui"] --> CORE["packages/core"]
+    TUI["packages/tui · Ink"] --> CORE["packages/core"]
+    HEADLESS["packages/tui · exec"] --> CORE
     WORKER["packages/worker"] --> CORE
     WORKER --> PROTOCOL["packages/protocol"]
     SERVER["packages/server"] --> PROTOCOL
@@ -22,7 +23,7 @@ flowchart TB
 | Workspace | 职责 |
 |---|---|
 | `packages/core` | Runtime、上下文、会话、工具、权限、Skills、MCP、模型与验证 |
-| `packages/tui` | Ink 终端交互与本地 Runtime 宿主 |
+| `packages/tui` | Ink 终端交互、Headless NDJSON 与本地 Runtime 宿主 |
 | `packages/protocol` | Cloud 命令、事件、回放与快照的 Zod 线协议 |
 | `packages/server` | 认证、SSE/HTTP Gateway、工作区注册与 Docker 编排 |
 | `packages/worker` | 工作区容器内的 headless Runtime 宿主 |
@@ -43,8 +44,8 @@ schema 与类型。产品包之间不得通过穿越目录的相对路径耦合�
 - MCP 客户端和子代理执行器。
 
 `AgentRuntime` 是运行门面，具体职责分别下沉到会话服务、模型会话、模式流程、
-工具循环、Checkpoint 和完成门。TUI 与 Worker 都复用这套组合，不维护独立 Agent
-实现。
+工具循环、Checkpoint 和完成门。TUI、Headless 和 Worker 都复用这套组合，不维护
+独立 Agent 实现。
 
 源码级扩展入口及稳定性说明见[扩展 Kross](extensions.md)。
 

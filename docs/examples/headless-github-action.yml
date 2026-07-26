@@ -1,0 +1,39 @@
+name: Kross headless review
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.19.0
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:cli
+
+      - name: Run a read-only Kross review
+        env:
+          AGENT_LLM_PROVIDER: openai
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+        run: |
+          set -o pipefail
+          node dist/kross.js exec \
+            "Review this repository and report risks without changing files." \
+            --json \
+            | tee kross.ndjson
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: kross-headless-events
+          path: kross.ndjson

@@ -2,6 +2,17 @@ import { z } from 'zod';
 
 export const HEADLESS_SCHEMA_VERSION = 1 as const;
 
+export const HEADLESS_EVENT_TYPES = [
+  'run.started',
+  'turn.started',
+  'tools.started',
+  'text.delta',
+  'thinking.delta',
+  'approval.required',
+  'run.completed',
+  'error'
+] as const;
+
 export const headlessExitCodes = {
   success: 0,
   usage: 2,

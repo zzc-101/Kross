@@ -25,6 +25,13 @@
 依赖中的原生模块可能限制极少见 CPU 架构或操作系统版本；项目只对 CI 实际运行的
 组合做出保证。
 
+## Headless CLI
+
+Headless 参数、NDJSON schema、Fixture LLM Runtime、会话恢复、审批阻塞、验证
+退出码和信号清理会随 TUI 测试在 CI Node/OS 矩阵运行。安装 tarball 后的无模型
+配置失败路径在 Ubuntu package job 中验证。真实 Provider 的配额、网络和输出质量
+不属于普通 CI 保证；自动化用法见 [Headless 自动化](headless.md)。
+
 ## Cloud Agent
 
 Cloud Agent 的生产目标是 Linux Docker Engine 与 Docker Compose v2。CI 会在
