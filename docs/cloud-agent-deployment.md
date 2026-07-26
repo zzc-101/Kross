@@ -165,4 +165,6 @@ checkpoint；具体版本清单与恢复原则见[数据格式与备份](data-co
    和 10 GiB 磁盘软限额。
 
 CI 的 `cloud-containers` 任务会解析 Compose 配置并分别构建 Web、Gateway、
-Worker 镜像，防止 Dockerfile、Nginx 配置与 workspace 依赖在后续变更中失效。
+Worker 镜像，再启动临时容器验证 Worker、Gateway、Web 静态入口、鉴权 API 与
+Nginx 反向代理。失败时输出三个容器日志，资源由 smoke 脚本统一清理。本地已按
+CI 标签构建镜像时，也可以运行 `npm run cloud:smoke`。

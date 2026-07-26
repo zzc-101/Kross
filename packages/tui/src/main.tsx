@@ -4,6 +4,7 @@ import { render } from 'ink';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -55,11 +56,16 @@ if (cliAction.kind === 'help') {
   const renderStdout = useAltScreen
     ? createTerminalFrameOutput(process.stdout)
     : process.stdout;
+  const renderStdin =
+    process.env.KROSS_STARTUP_SMOKE === '1'
+      ? createStartupSmokeInput()
+      : process.stdin;
 
   const sessionSetup = createSessionStore();
   let sessionStoreClosed = false;
   let toolingClosePromise: Promise<void> | undefined;
   let appApi: AppTestApi | undefined;
+  let startupSmokeReported = false;
   let shuttingDown = false;
   let shutdownPromise: Promise<void> | undefined;
   let app: ReturnType<typeof render>;
@@ -165,10 +171,19 @@ if (cliAction.kind === 'help') {
         sessionStoreError={sessionSetup.error}
         onReady={(api) => {
           appApi = api;
+          if (
+            process.env.KROSS_STARTUP_SMOKE === '1' &&
+            !startupSmokeReported
+          ) {
+            startupSmokeReported = true;
+            process.stderr.write('[kross:startup-smoke] ready\n');
+            queueMicrotask(exitProcess);
+          }
         }}
         onExitRequest={exitProcess}
       />,
       {
+        stdin: renderStdin,
         stdout: renderStdout,
         // Ctrl+C 交给 App，自行 flush 后再卸载，避免 Ink 抢先关闭进程。
         exitOnCtrlC: false,
@@ -196,6 +211,22 @@ if (cliAction.kind === 'help') {
     restoreTerminal();
     process.exit(1);
   });
+}
+
+type StartupSmokeInput = PassThrough & {
+  isTTY: true;
+  setRawMode(mode: boolean): StartupSmokeInput;
+  ref(): StartupSmokeInput;
+  unref(): StartupSmokeInput;
+};
+
+function createStartupSmokeInput(): NodeJS.ReadStream {
+  const input = new PassThrough() as StartupSmokeInput;
+  Object.defineProperty(input, 'isTTY', { value: true });
+  input.setRawMode = () => input;
+  input.ref = () => input;
+  input.unref = () => input;
+  return input as unknown as NodeJS.ReadStream;
 }
 
 function createSessionStore(): {

@@ -14,5 +14,9 @@
 - 文件、搜索、Git、Shell、后台进程与 stdio MCP 工具。
 - workspace 边界、权限审批、trace、mutation journal 与冲突安全 `/undo`。
 - 持久化会话、上下文治理、Project Instructions 与 Skills。
+- 根包、workspace、lockfile、运行时兜底值和发布标签的版本一致性检查。
+- Trace、Mutation、Cloud 幂等索引、事件序号、会话设置与 Push 订阅的数据版本锚点；
+  兼容旧格式，并拒绝未知未来版本。
+- 安装产物的无模型 TUI 启动 smoke，以及 Web、Gateway、Worker 镜像运行时 smoke。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

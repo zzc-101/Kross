@@ -79,3 +79,6 @@ jobs:
 
       - name: Build web image
         run: docker build --file docker/web.Dockerfile --tag kross-web:ci .
+
+      - name: Smoke test Cloud containers
+        run: ./scripts/cloud-container-smoke.sh

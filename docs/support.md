@@ -28,10 +28,11 @@
 ## Cloud Agent
 
 Cloud Agent 的生产目标是 Linux Docker Engine 与 Docker Compose v2。CI 会在
-Ubuntu Runner 上解析 Compose 配置，并分别构建 Web、Gateway 和 Worker 镜像。
+Ubuntu Runner 上解析 Compose 配置，分别构建 Web、Gateway 和 Worker 镜像，
+并启动三个容器验证进程健康、Gateway 鉴权 API 与 Nginx 反向代理。
 Docker Desktop on macOS/Windows 适合本地开发和自托管试用，属于社区支持范围。
 
-目前 CI 只验证容器构建，不执行跨浏览器端到端测试。Web/PWA 面向当前稳定版
+目前 CI 不执行跨浏览器端到端测试。Web/PWA 面向当前稳定版
 Chrome、Edge、Firefox 和 Safari；浏览器、移动端安装、Push、弱网恢复与远端 Git
 流程应按[部署验收清单](cloud-agent-deployment.md#部署验收清单)在实际环境复验。
 

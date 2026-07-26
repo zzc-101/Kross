@@ -98,3 +98,13 @@ npm uninstall --global @zzc-101/kross
 Cloud 发布还需要分别验证 Web、Gateway、Worker 使用同一标签，执行
 [部署验收清单](cloud-agent-deployment.md#部署验收清单)，并保留上一版本镜像。
 数据卷不应随容器回滚自动删除。
+
+三个 `kross-*:ci` 镜像构建完成后可运行：
+
+```bash
+npm run cloud:smoke
+```
+
+该命令会创建临时网络和容器，验证 Worker health、Gateway health 与鉴权接口、
+Web 静态入口和 Nginx 到 Gateway 的反向代理；成功或失败后都会清理本次创建的
+资源。失败时脚本输出三个容器日志。
