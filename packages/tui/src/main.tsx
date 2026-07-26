@@ -28,7 +28,11 @@ import {
   leaveAlternateScreen
 } from './terminal/alternateScreen';
 import { createTerminalFrameOutput } from './terminal/frameOutput';
-import { formatCliHelp, parseCliArgs } from './cli';
+import { formatCliHelp, formatExecHelp, parseCliArgs } from './cli';
+import {
+  headlessExitCodes,
+  serializeHeadlessEvent
+} from './headless/contract';
 
 const cliAction = parseCliArgs(process.argv.slice(2));
 
@@ -36,9 +40,32 @@ if (cliAction.kind === 'help') {
   console.log(formatCliHelp());
 } else if (cliAction.kind === 'version') {
   console.log(readPackageVersion());
+} else if (cliAction.kind === 'exec-help') {
+  console.log(formatExecHelp());
 } else if (cliAction.kind === 'error') {
   console.error(`${cliAction.message}\nRun "kross --help" for usage.`);
-  process.exitCode = 1;
+  process.exitCode = headlessExitCodes.usage;
+} else if (cliAction.kind === 'exec') {
+  const sessionId = cliAction.request.sessionId ?? 'headless-unavailable';
+  process.stdout.write(
+    serializeHeadlessEvent({
+      schemaVersion: 1,
+      type: 'error',
+      timestamp: new Date().toISOString(),
+      runId: 'headless-unavailable',
+      sessionId,
+      sequence: 0,
+      data: {
+        category: 'configuration',
+        message: 'Headless Runtime Host is not available in this build.',
+        retryable: false
+      }
+    })
+  );
+  console.error(
+    '[kross:exec] Headless Runtime Host is not available in this build.'
+  );
+  process.exitCode = headlessExitCodes.configuration;
 } else {
   initI18n(
     resolveLocale({
