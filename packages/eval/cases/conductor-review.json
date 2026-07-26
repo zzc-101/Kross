@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "id": "conductor-review",
+  "description": "Conductor worker 修改后由高级 reviewer 读取最终 Git diff 并通过验收",
+  "fixture": "fixtures/conductor-review",
+  "prompt": "Use conductor mode to update the result and review the final diff.",
+  "mode": "conductor",
+  "allowedTools": [],
+  "limits": {
+    "maxIterations": 8,
+    "timeoutMs": 15000
+  },
+  "workflow": {
+    "kind": "conductor",
+    "workerChanges": [
+      {
+        "path": "src/result.ts",
+        "content": "export const result = 'after';\n"
+      }
+    ],
+    "workerVerification": "passed",
+    "reviewerVerdict": "PASS",
+    "reviewerInspectsDiff": true
+  },
+  "mustChange": ["src/result.ts"],
+  "mustNotChange": [],
+  "verification": [
+    {
+      "name": "final-content",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');if(!fs.readFileSync('src/result.ts','utf8').includes(\"'after'\"))process.exit(1)"
+      ],
+      "expectedExitCode": 0,
+      "timeoutMs": 5000
+    }
+  ],
+  "assertions": {
+    "resultStatus": "completed",
+    "verificationStatus": "passed",
+    "requiredToolCalls": [],
+    "forbiddenToolCalls": [],
+    "toolCallCounts": {},
+    "requiredTraceEvents": [
+      "conductor.execution.started",
+      "conductor.review.evidence",
+      "conductor.review.completed"
+    ],
+    "forbiddenTraceEvents": []
+  },
+  "tags": ["conductor", "review"],
+  "capabilities": ["subagent-orchestration", "git-diff-review"],
+  "fixtureResponses": [
+    {
+      "text": "not-json",
+      "usage": {
+        "inputTokens": 8,
+        "outputTokens": 2
+      }
+    }
+  ]
+}

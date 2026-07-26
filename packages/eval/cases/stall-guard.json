@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "id": "stall-guard",
+  "description": "重复相同工具调用和结果时只恢复一次，随后由 Stall Guard 失败收口",
+  "fixture": "fixtures/stall-guard",
+  "prompt": "Keep reading input.txt without making progress.",
+  "mode": "auto",
+  "allowedTools": ["Read"],
+  "limits": {
+    "maxIterations": 20,
+    "timeoutMs": 10000
+  },
+  "workflow": {
+    "kind": "run"
+  },
+  "mustChange": [],
+  "mustNotChange": ["input.txt"],
+  "verification": [],
+  "assertions": {
+    "resultStatus": "failed",
+    "verificationStatus": "not-needed",
+    "requiredToolCalls": ["Read"],
+    "forbiddenToolCalls": [],
+    "toolCallCounts": {},
+    "requiredTraceEvents": [
+      "llm.tool_loop.stall_detected",
+      "llm.tool_loop.stall_recovery",
+      "llm.tool_loop.stalled"
+    ],
+    "forbiddenTraceEvents": ["llm.tool_loop.max_iterations"]
+  },
+  "tags": ["stall", "negative"],
+  "capabilities": ["filesystem-read", "stall-guard"],
+  "fixtureResponses": [
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "id": "read-1",
+          "name": "Read",
+          "input": {
+            "path": "input.txt"
+          }
+        }
+      ]
+    },
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "id": "read-2",
+          "name": "Read",
+          "input": {
+            "path": "input.txt"
+          }
+        }
+      ]
+    },
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "id": "read-3",
+          "name": "Read",
+          "input": {
+            "path": "input.txt"
+          }
+        }
+      ]
+    },
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "id": "read-4",
+          "name": "Read",
+          "input": {
+            "path": "input.txt"
+          }
+        }
+      ]
+    }
+  ]
+}

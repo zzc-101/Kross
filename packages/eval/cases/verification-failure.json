@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "verification-failure",
+  "description": "修改后测试失败时保留 failed 验证状态，不接受模型的成功文案",
+  "fixture": "fixtures/verification-failure",
+  "prompt": "Change src/value.ts, run the tests, and report the result honestly.",
+  "mode": "auto",
+  "allowedTools": ["Write", "Bash"],
+  "limits": {
+    "maxIterations": 6,
+    "timeoutMs": 15000
+  },
+  "workflow": {
+    "kind": "run"
+  },
+  "mustChange": ["src/value.ts"],
+  "mustNotChange": ["test/value.test.mjs"],
+  "verification": [
+    {
+      "name": "expected-regression",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');process.exit(fs.readFileSync('src/value.ts','utf8').includes('return 42;')?0:1)"
+      ],
+      "expectedExitCode": 1,
+      "timeoutMs": 10000
+    }
+  ],
+  "assertions": {
+    "resultStatus": "failed",
+    "verificationStatus": "failed",
+    "requiredToolCalls": ["Write", "Bash"],
+    "forbiddenToolCalls": [],
+    "toolCallCounts": {
+      "Write": 1,
+      "Bash": 1
+    },
+    "requiredTraceEvents": ["run.verification.completed"],
+    "forbiddenTraceEvents": []
+  },
+  "tags": ["completion", "negative"],
+  "capabilities": ["filesystem-write", "verification"],
+  "fixtureResponses": [
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "id": "write-regression",
+          "name": "Write",
+          "input": {
+            "path": "src/value.ts",
+            "content": "export function value(): number {\n  return 0;\n}\n"
+          }
+        },
+        {
+          "id": "verify-regression",
+          "name": "Bash",
+          "input": {
+            "command": "npm test --silent",
+            "timeoutMs": 10000
+          }
+        }
+      ],
+      "usage": {
+        "inputTokens": 10,
+        "outputTokens": 4
+      }
+    },
+    {
+      "text": "All checks passed.",
+      "usage": {
+        "inputTokens": 8,
+        "outputTokens": 3
+      }
+    }
+  ]
+}

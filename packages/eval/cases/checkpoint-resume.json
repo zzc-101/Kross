@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "id": "checkpoint-resume",
+  "description": "审批 Checkpoint 跨 Runtime 恢复时不重放已完成的读取或写入",
+  "fixture": "fixtures/checkpoint-resume",
+  "prompt": "Read README.md, update it, then run the tests.",
+  "mode": "auto",
+  "allowedTools": ["Read", "Write", "Bash"],
+  "limits": {
+    "maxIterations": 8,
+    "timeoutMs": 15000
+  },
+  "workflow": {
+    "kind": "checkpoint-resume",
+    "approvalTool": "Write"
+  },
+  "mustChange": ["README.md"],
+  "mustNotChange": ["test/readme.test.mjs"],
+  "verification": [
+    {
+      "name": "approved-content",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');process.exit(fs.readFileSync('README.md','utf8')==='approved content\\n'?0:1)"
+      ],
+      "expectedExitCode": 0,
+      "timeoutMs": 10000
+    }
+  ],
+  "assertions": {
+    "resultStatus": "completed",
+    "verificationStatus": "passed",
+    "requiredToolCalls": ["Read", "Write", "Bash"],
+    "forbiddenToolCalls": [],
+    "toolCallCounts": {
+      "Read": 1,
+      "Write": 1,
+      "Bash": 1
+    },
+    "requiredTraceEvents": [
+      "tool_call.approval_required",
+      "tool_call.started",
+      "tool_call.completed"
+    ],
+    "forbiddenTraceEvents": []
+  },
+  "tags": ["checkpoint", "approval", "recovery"],
+  "capabilities": ["filesystem-write", "checkpoint-recovery"],
+  "fixtureResponses": [
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "id": "read-before-restart",
+          "name": "Read",
+          "input": {
+            "path": "README.md"
+          }
+        },
+        {
+          "id": "write-after-approval",
+          "name": "Write",
+          "input": {
+            "path": "README.md",
+            "content": "approved content\n"
+          }
+        },
+        {
+          "id": "verify-after-write",
+          "name": "Bash",
+          "input": {
+            "command": "npm test --silent",
+            "timeoutMs": 10000
+          }
+        }
+      ],
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 5
+      }
+    },
+    {
+      "text": "Approved update completed and verified.",
+      "usage": {
+        "inputTokens": 8,
+        "outputTokens": 4
+      }
+    }
+  ]
+}

@@ -23,5 +23,8 @@
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "vitest.config.ts"
+  ],
+  "exclude": [
+    "packages/eval/fixtures"
   ]
 }

@@ -1,4 +1,10 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -52,6 +58,14 @@ describe('fixture eval runner', () => {
       failureCategory: 'assertion'
     });
     expect(outcome.retainedWorkspacePath).toBeDefined();
+    expect(outcome.reportPath).toBeDefined();
+    expect(existsSync(outcome.reportPath ?? '')).toBe(true);
+    expect(
+      JSON.parse(readFileSync(outcome.reportPath ?? '', 'utf8'))
+    ).toMatchObject({
+      caseId: 'read-fixture',
+      status: 'failed'
+    });
   });
 });
 
@@ -73,13 +87,17 @@ function baseCase(): EvalCase {
     mode: 'auto',
     allowedTools: ['Read'],
     limits: { maxIterations: 4, timeoutMs: 5_000 },
+    workflow: { kind: 'run' },
     mustChange: [],
     mustNotChange: ['input.txt'],
     verification: [],
     assertions: {
       resultStatus: 'completed',
       requiredToolCalls: ['Read'],
-      forbiddenToolCalls: ['Write']
+      forbiddenToolCalls: ['Write'],
+      toolCallCounts: {},
+      requiredTraceEvents: [],
+      forbiddenTraceEvents: []
     },
     tags: ['smoke'],
     capabilities: ['filesystem-read'],

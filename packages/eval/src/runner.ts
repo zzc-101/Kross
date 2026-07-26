@@ -1,22 +1,28 @@
 import { createHash } from 'node:crypto';
 import {
   cpSync,
+  existsSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
-  statSync
+  statSync,
+  symlinkSync,
+  writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import {
   AgentRuntime,
   createBuiltinTools,
   MutationCoordinator,
+  SessionContext,
   ToolGateway,
   WorkspaceRoots,
+  type AgentRuntimeOptions,
   type AgentResult,
   type TraceEvent,
   type TraceStore
@@ -42,6 +48,7 @@ interface RunEvalCaseOptions {
 export interface EvalRunOutcome {
   report: EvalReport;
   retainedWorkspacePath?: string;
+  reportPath?: string;
 }
 
 export async function runEvalCase(
@@ -61,20 +68,31 @@ export async function runEvalCase(
       throw new Error(`Fixture is not a directory: ${fixturePath}`);
     }
     cpSync(fixturePath, workspace, { recursive: true });
+    if (definition.workflow.kind === 'conductor') {
+      initializeGitFixture(workspace);
+    } else {
+      linkRepositoryDependencies(options.packageRoot, workspace);
+    }
     const before = snapshotWorkspace(workspace);
     const traceStore = new MemoryTraceStore();
     const allowedTools = new Set(definition.allowedTools);
+    const evalApprovalPolicy = ({ tool }: {
+      tool: { name: string };
+    }) =>
+      allowedTools.has(tool.name)
+        ? definition.workflow.kind === 'checkpoint-resume' &&
+          definition.workflow.approvalTool === tool.name
+          ? { action: 'ask' as const, reason: 'Eval checkpoint boundary' }
+          : { action: 'allow' as const }
+        : {
+            action: 'deny' as const,
+            reason: `Tool ${tool.name} is outside the eval allowlist`
+          };
     const gateway = new ToolGateway({
       traceStore,
       now: deterministicClock(),
       defaultRetry: false,
-      approvalPolicy: ({ tool }) =>
-        allowedTools.has(tool.name)
-          ? { action: 'allow' }
-          : {
-              action: 'deny',
-              reason: `Tool ${tool.name} is outside the eval allowlist`
-            }
+      approvalPolicy: evalApprovalPolicy
     });
     const krossHome = join(temporaryRoot, '.kross');
     const mutations = new MutationCoordinator(krossHome);
@@ -94,7 +112,7 @@ export async function runEvalCase(
     }
 
     const llm = new FixtureLlmClient(definition.fixtureResponses);
-    const runtime = new AgentRuntime({
+    const baseRuntimeOptions: AgentRuntimeOptions = {
       traceStore,
       llmClient: llm,
       toolGateway: gateway,
@@ -103,8 +121,22 @@ export async function runEvalCase(
       now: deterministicClock(),
       workspaceRoot: workspace,
       workspaceRoots: new WorkspaceRoots(workspace),
-      mutationCoordinator: mutations
-    });
+      mutationCoordinator: mutations,
+      runSubagent:
+        definition.workflow.kind === 'conductor'
+          ? createConductorFixtureRunner(definition, workspace)
+          : undefined
+    };
+    const createRuntime = (sessionContext?: SessionContext) => {
+      const created = new AgentRuntime({
+        ...baseRuntimeOptions,
+        sessionContext
+      });
+      created.setPermissionMode('auto');
+      gateway.setApprovalPolicy(evalApprovalPolicy);
+      return created;
+    };
+    let runtime = createRuntime();
     const abort = new AbortController();
     const timeout = setTimeout(
       () => abort.abort(new Error('Eval case timed out')),
@@ -115,11 +147,65 @@ export async function runEvalCase(
     let result: AgentResult | undefined;
     let runtimeError: unknown;
     try {
-      result = await runtime.run({
-        input: definition.prompt,
-        requestedMode: definition.mode,
-        signal: abort.signal
-      });
+      if (definition.workflow.kind === 'checkpoint-resume') {
+        const pending = await runtime.run({
+          input: definition.prompt,
+          requestedMode: definition.mode,
+          signal: abort.signal
+        });
+        if (
+          pending.status !== 'approval-required' ||
+          pending.pendingApproval?.toolName !==
+            definition.workflow.approvalTool
+        ) {
+          throw new EvalConfigurationError(
+            `Case ${definition.id} did not stop at the expected approval boundary`
+          );
+        }
+        const contextState = runtime.exportContextState();
+        const workState = runtime.exportWorkState();
+        const restoredContext = new SessionContext();
+        if (
+          !restoredContext.restoreState(contextState, {
+            preserveOpenTurn: true
+          })
+        ) {
+          throw new Error('Eval could not restore the open conversation turn');
+        }
+        runtime = createRuntime(restoredContext);
+        if (!runtime.restoreWorkState(workState)) {
+          throw new Error('Eval could not restore the run checkpoint');
+        }
+        result = await runtime.resolveToolApproval({
+          runId: pending.runId,
+          approved: true,
+          signal: abort.signal
+        });
+      } else if (definition.workflow.kind === 'conductor') {
+        const pending = await runtime.run({
+          input: definition.prompt,
+          requestedMode: 'conductor',
+          approvals: { plan: false },
+          signal: abort.signal
+        });
+        if (pending.cancellationReason !== 'approval-gate') {
+          throw new EvalConfigurationError(
+            `Case ${definition.id} did not produce a Conductor plan`
+          );
+        }
+        result = await runtime.run({
+          input: definition.prompt,
+          requestedMode: 'conductor',
+          approvals: { plan: true },
+          signal: abort.signal
+        });
+      } else {
+        result = await runtime.run({
+          input: definition.prompt,
+          requestedMode: definition.mode,
+          signal: abort.signal
+        });
+      }
     } catch (error) {
       runtimeError = error;
     } finally {
@@ -142,12 +228,14 @@ export async function runEvalCase(
             ? 'completed' as const
             : 'failed' as const
       }));
+    const traceEvents = traceStore.events.map((event) => event.type);
     const assertions = evaluateAssertions({
       definition,
       result,
       changedFiles,
       verification,
-      toolCalls
+      toolCalls,
+      traceEvents
     });
     const passed = assertions.every((assertion) => assertion.passed);
     const timedOut = abort.signal.aborted;
@@ -164,6 +252,7 @@ export async function runEvalCase(
       caseId: definition.id,
       description: definition.description,
       deterministic: true,
+      workflow: definition.workflow.kind,
       runtime: {
         applicationVersion,
         promptVersion: EVAL_PROMPT_VERSION,
@@ -178,6 +267,7 @@ export async function runEvalCase(
       changedFiles,
       verification,
       toolCalls,
+      traceEvents,
       toolIterations: maxToolIteration(traceStore.events),
       durationMs: 0,
       usage: {
@@ -209,9 +299,13 @@ export async function runEvalCase(
       capabilities: definition.capabilities
     });
     shouldKeep ||= report.status !== 'passed';
+    const reportPath = shouldKeep
+      ? writeRetainedReport(temporaryRoot, report)
+      : undefined;
     return {
       report,
-      ...(shouldKeep ? { retainedWorkspacePath: workspace } : {})
+      ...(shouldKeep ? { retainedWorkspacePath: workspace } : {}),
+      ...(reportPath ? { reportPath } : {})
     };
   } catch (error) {
     shouldKeep = true;
@@ -220,6 +314,7 @@ export async function runEvalCase(
       caseId: definition.id,
       description: definition.description,
       deterministic: true,
+      workflow: definition.workflow.kind,
       runtime: {
         applicationVersion,
         promptVersion: EVAL_PROMPT_VERSION,
@@ -231,6 +326,7 @@ export async function runEvalCase(
       changedFiles: [],
       verification: [],
       toolCalls: [],
+      traceEvents: [],
       toolIterations: 0,
       durationMs: 0,
       usage: {
@@ -248,7 +344,11 @@ export async function runEvalCase(
       tags: definition.tags,
       capabilities: definition.capabilities
     });
-    return { report, retainedWorkspacePath: workspace };
+    return {
+      report,
+      retainedWorkspacePath: workspace,
+      reportPath: writeRetainedReport(temporaryRoot, report)
+    };
   } finally {
     if (!shouldKeep) {
       rmSync(temporaryRoot, { recursive: true, force: true });
@@ -350,7 +450,9 @@ function runVerification(
     return {
       name: verification.name,
       command: [verification.command, ...verification.args].join(' '),
-      ok: result.status === 0 && !result.error,
+      ok:
+        result.status === verification.expectedExitCode &&
+        !result.error,
       exitCode: result.status,
       stdout: normalizeOutput(result.stdout),
       stderr: normalizeOutput(
@@ -366,15 +468,35 @@ function evaluateAssertions(input: {
   changedFiles: Array<{ path: string; kind: string }>;
   verification: Array<{ name: string; ok: boolean }>;
   toolCalls: Array<{ name: string; status: string }>;
+  traceEvents: string[];
 }): Array<{ name: string; passed: boolean; details: string }> {
   const changed = new Set(input.changedFiles.map((file) => file.path));
   const called = new Set(input.toolCalls.map((call) => call.name));
+  const traceEvents = new Set(input.traceEvents);
+  const toolCallCounts = input.toolCalls.reduce<Record<string, number>>(
+    (counts, call) => {
+      counts[call.name] = (counts[call.name] ?? 0) + 1;
+      return counts;
+    },
+    {}
+  );
   const assertions = [
     {
       name: 'result-status',
       passed: input.result?.status === input.definition.assertions.resultStatus,
       details: `expected=${input.definition.assertions.resultStatus} actual=${input.result?.status ?? 'none'}`
     },
+    ...(input.definition.assertions.verificationStatus
+      ? [{
+          name: 'verification-status',
+          passed:
+            input.result?.report.verification.status ===
+            input.definition.assertions.verificationStatus,
+          details:
+            `expected=${input.definition.assertions.verificationStatus} ` +
+            `actual=${input.result?.report.verification.status ?? 'none'}`
+        }]
+      : []),
     ...input.definition.mustChange.map((path) => ({
       name: `must-change:${path}`,
       passed: changed.has(path),
@@ -395,6 +517,23 @@ function evaluateAssertions(input: {
       passed: !called.has(name),
       details: called.has(name) ? 'called' : 'not-called'
     })),
+    ...Object.entries(input.definition.assertions.toolCallCounts).map(
+      ([name, expected]) => ({
+        name: `tool-count:${name}`,
+        passed: (toolCallCounts[name] ?? 0) === expected,
+        details: `expected=${expected} actual=${toolCallCounts[name] ?? 0}`
+      })
+    ),
+    ...input.definition.assertions.requiredTraceEvents.map((type) => ({
+      name: `required-trace:${type}`,
+      passed: traceEvents.has(type),
+      details: traceEvents.has(type) ? 'observed' : 'missing'
+    })),
+    ...input.definition.assertions.forbiddenTraceEvents.map((type) => ({
+      name: `forbidden-trace:${type}`,
+      passed: !traceEvents.has(type),
+      details: traceEvents.has(type) ? 'observed' : 'absent'
+    })),
     ...input.verification.map((verification) => ({
       name: `verification:${verification.name}`,
       passed: verification.ok,
@@ -402,6 +541,210 @@ function evaluateAssertions(input: {
     }))
   ];
   return assertions;
+}
+
+function linkRepositoryDependencies(
+  packageRoot: string,
+  workspace: string
+): void {
+  const repositoryNodeModules = resolve(packageRoot, '../..', 'node_modules');
+  const workspaceNodeModules = join(workspace, 'node_modules');
+  if (
+    existsSync(repositoryNodeModules) &&
+    !existsSync(workspaceNodeModules)
+  ) {
+    symlinkSync(repositoryNodeModules, workspaceNodeModules, 'junction');
+  }
+}
+
+function initializeGitFixture(workspace: string): void {
+  runRequiredCommand('git', ['init', '--quiet'], workspace);
+  runRequiredCommand('git', ['add', '--all'], workspace);
+  runRequiredCommand(
+    'git',
+    [
+      '-c',
+      'user.name=Kross Eval',
+      '-c',
+      'user.email=kross-eval@localhost',
+      'commit',
+      '--quiet',
+      '--message',
+      'fixture baseline'
+    ],
+    workspace
+  );
+}
+
+function createConductorFixtureRunner(
+  definition: EvalCase,
+  workspace: string
+): NonNullable<AgentRuntimeOptions['runSubagent']> {
+  if (definition.workflow.kind !== 'conductor') {
+    throw new EvalConfigurationError(
+      `Case ${definition.id} is not a Conductor workflow`
+    );
+  }
+  const workflow = definition.workflow;
+  return async (request) => {
+    if (request.role === 'worker') {
+      for (const change of workflow.workerChanges) {
+        const absolute = resolve(workspace, change.path);
+        if (
+          absolute !== workspace &&
+          !absolute.startsWith(`${workspace}/`)
+        ) {
+          throw new EvalConfigurationError(
+            `Conductor change escapes workspace: ${change.path}`
+          );
+        }
+        mkdirSync(dirname(absolute), { recursive: true });
+        writeFileSync(absolute, change.content, 'utf8');
+      }
+      const verification =
+        workflow.workerVerification === 'passed'
+          ? {
+              status: 'passed' as const,
+              commands: ['fixture verification'],
+              evidence: ['fixture verification: passed']
+            }
+          : workflow.workerVerification === 'failed'
+            ? {
+                status: 'failed' as const,
+                commands: ['fixture verification'],
+                evidence: ['fixture verification: failed'],
+                reason: 'Fixture worker verification failed'
+              }
+            : {
+                status: 'not-run' as const,
+                commands: [],
+                evidence: [],
+                reason: 'Fixture worker did not run verification'
+              };
+      return {
+        subRunId: `eval-${definition.id}-worker`,
+        mode: 'general',
+        modeForcedToExplore: false,
+        result: {
+          status: 'completed',
+          summary: 'Fixture worker completed',
+          changedFiles: workflow.workerChanges.map((change) => change.path),
+          diffSummary: [],
+          commandsRun: verification.commands,
+          toolsUsed: ['Write', ...(verification.commands.length ? ['Bash'] : [])],
+          verification,
+          evidence: ['Fixture worker changed the declared files'],
+          risks: [],
+          needsReview: []
+        }
+      };
+    }
+
+    if (request.role === 'validator') {
+      return {
+        subRunId: `eval-${definition.id}-validator`,
+        mode: 'explore',
+        modeForcedToExplore: false,
+        result: {
+          status:
+            workflow.workerVerification === 'failed'
+              ? 'failed'
+              : 'completed',
+          summary: 'Fixture validator inspected worker changes',
+          changedFiles: [],
+          diffSummary: [],
+          commandsRun: ['fixture verification'],
+          toolsUsed: ['Read', 'Verify'],
+          verification: {
+            status:
+              workflow.workerVerification === 'failed'
+                ? 'failed'
+                : 'passed',
+            commands: ['fixture verification'],
+            evidence: [
+              `fixture verification: ${workflow.workerVerification}`
+            ]
+          },
+          evidence: ['Fixture validator completed'],
+          risks: [],
+          needsReview: []
+        }
+      };
+    }
+
+    const status = runRequiredCommand(
+      'git',
+      ['status', '--short'],
+      workspace
+    );
+    const unstaged = runRequiredCommand(
+      'git',
+      ['diff', '--no-ext-diff'],
+      workspace
+    );
+    const staged = runRequiredCommand(
+      'git',
+      ['diff', '--cached', '--no-ext-diff'],
+      workspace
+    );
+    const toolsUsed = workflow.reviewerInspectsDiff
+      ? [
+          'GitStatus',
+          'GitDiff',
+          'GitDiff:unstaged',
+          'GitDiff:staged'
+        ]
+      : [];
+    return {
+      subRunId: `eval-${definition.id}-reviewer`,
+      mode: 'explore',
+      modeForcedToExplore: false,
+      result: {
+        status: 'completed',
+        summary:
+          `status=${normalizeOutput(status.stdout)} ` +
+          `unstagedBytes=${Buffer.byteLength(unstaged.stdout)} ` +
+          `stagedBytes=${Buffer.byteLength(staged.stdout)}\n` +
+          `VERDICT: ${workflow.reviewerVerdict}`,
+        changedFiles: [],
+        diffSummary: [],
+        commandsRun: [],
+        toolsUsed,
+        verification: {
+          status: 'not-needed',
+          commands: [],
+          evidence: []
+        },
+        evidence: ['Fixture reviewer read the final Git diff'],
+        risks: [],
+        needsReview: []
+      }
+    };
+  };
+}
+
+function runRequiredCommand(
+  command: string,
+  args: string[],
+  cwd: string
+): { stdout: string; stderr: string } {
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1' }
+  });
+  if (result.status !== 0 || result.error) {
+    throw new Error(
+      `${command} ${args.join(' ')} failed: ` +
+      normalizeOutput(
+        [result.stderr, result.error?.message].filter(Boolean).join('\n')
+      )
+    );
+  }
+  return {
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? ''
+  };
 }
 
 function maxToolIteration(events: TraceEvent[]): number {
@@ -415,6 +758,15 @@ function maxToolIteration(events: TraceEvent[]): number {
 
 function normalizeOutput(value: string | null | undefined): string {
   return (value ?? '').replace(/\r\n/gu, '\n').trim();
+}
+
+function writeRetainedReport(
+  temporaryRoot: string,
+  report: EvalReport
+): string {
+  const path = join(temporaryRoot, 'report.json');
+  writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  return path;
 }
 
 function readApplicationVersion(packageRoot: string): string {

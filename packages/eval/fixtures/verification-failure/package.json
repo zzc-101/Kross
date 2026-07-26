@@ -1,0 +1,7 @@
+{
+  "name": "verification-failure-fixture",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

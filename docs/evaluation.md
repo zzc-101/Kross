@@ -18,8 +18,8 @@ npm run eval -- --fixture
 npm run eval -- --fixture --case read-fixture
 ```
 
-默认情况下，通过的临时工作区会被删除，失败的工作区会保留并把路径写到
-`stderr`。排查通过用例时也可以保留工作区：
+默认情况下，通过的临时工作区会被删除；失败的工作区和 `report.json` 会保留，
+两个路径都会写到 `stderr`。排查通过用例时也可以保留工作区和报告：
 
 ```bash
 npm run eval -- --fixture --case read-fixture --keep
@@ -38,7 +38,7 @@ Case 定义：
 - 允许使用的工具；
 - 最大工具迭代数和超时时间；
 - 必须修改或不得修改的相对文件路径；
-- 不通过 shell 执行的验证命令及参数；
+- 不通过 shell 执行的验证命令、参数及预期退出码；
 - 预期结果状态、必需工具调用和禁止工具调用；
 - 标签、能力和按顺序返回的 Fixture LLM 响应。
 
@@ -62,6 +62,17 @@ Fixture 模式使用固定时钟、固定 run id、脚本响应和零成本，`d
 `0`，因此 JSON 可以稳定比较。断言依赖结构化结果、文件 hash、Trace 与命令退出
 状态，不匹配模型自然语言的精确措辞。
 
+## 当前 Case
+
+| Case | 保护的契约 |
+|---|---|
+| `read-fixture` | 真实 Runtime/Trace 的最小只读闭环 |
+| `typescript-fix` | 单文件 TypeScript 修复后由真实 `tsc` 验证 |
+| `verification-failure` | 测试失败不能被模型的成功文案覆盖 |
+| `stall-guard` | 相同调用与结果只恢复一次，随后失败收口 |
+| `checkpoint-resume` | 审批边界跨 Runtime 恢复且不重放已完成调用 |
+| `conductor-review` | Worker 变更必须经过最终 Git diff reviewer 验收 |
+
 ## 添加 Case
 
 1. 在 `packages/eval/fixtures/<case-id>/` 创建最小输入项目。
@@ -77,5 +88,4 @@ Fixture 应尽量小、可跨平台且不包含依赖缓存。验证命令必须
 
 - 当前只有确定性 Fixture 通道，还没有真实模型、方差和预算控制。
 - Fixture LLM 用于验证 Harness 合约，不代表任何模型的实际任务质量。
-- 目前 Case 集只是最小基线，后续会覆盖修改与验证失败、Stall Guard、审批
-  Checkpoint 恢复和 Conductor 最终 diff 验收。
+- Case 集保护关键完成与恢复契约，但不是通用编码能力 Benchmark。

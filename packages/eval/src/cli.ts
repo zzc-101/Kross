@@ -39,6 +39,11 @@ for (const file of caseFiles) {
       `[kross:eval] ${definition.id} workspace: ${outcome.retainedWorkspacePath}`
     );
   }
+  if (outcome.reportPath) {
+    console.error(
+      `[kross:eval] ${definition.id} report: ${outcome.reportPath}`
+    );
+  }
 }
 
 console.log(`${JSON.stringify(reports, null, 2)}\n`);

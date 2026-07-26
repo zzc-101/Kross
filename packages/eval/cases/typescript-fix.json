@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "typescript-fix",
+  "description": "修复单文件 TypeScript 类型错误并用真实 tsc 验证",
+  "fixture": "fixtures/typescript-fix",
+  "prompt": "Fix the TypeScript error in src/value.ts and run the configured typecheck.",
+  "mode": "auto",
+  "allowedTools": ["Write", "Bash"],
+  "limits": {
+    "maxIterations": 6,
+    "timeoutMs": 15000
+  },
+  "workflow": {
+    "kind": "run"
+  },
+  "mustChange": ["src/value.ts"],
+  "mustNotChange": ["package.json", "tsconfig.json"],
+  "verification": [
+    {
+      "name": "typecheck",
+      "command": "npm",
+      "args": ["run", "typecheck", "--silent"],
+      "expectedExitCode": 0,
+      "timeoutMs": 10000
+    }
+  ],
+  "assertions": {
+    "resultStatus": "completed",
+    "verificationStatus": "passed",
+    "requiredToolCalls": ["Write", "Bash"],
+    "forbiddenToolCalls": [],
+    "toolCallCounts": {
+      "Write": 1,
+      "Bash": 1
+    },
+    "requiredTraceEvents": [
+      "run.verification.started",
+      "run.verification.completed"
+    ],
+    "forbiddenTraceEvents": []
+  },
+  "tags": ["completion", "typescript"],
+  "capabilities": ["filesystem-write", "verification"],
+  "fixtureResponses": [
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "id": "write-fix",
+          "name": "Write",
+          "input": {
+            "path": "src/value.ts",
+            "content": "export const value: number = 42;\n"
+          }
+        },
+        {
+          "id": "verify-fix",
+          "name": "Bash",
+          "input": {
+            "command": "npm run typecheck --silent",
+            "timeoutMs": 10000
+          }
+        }
+      ],
+      "usage": {
+        "inputTokens": 10,
+        "outputTokens": 4
+      }
+    },
+    {
+      "text": "TypeScript fix completed and verified.",
+      "usage": {
+        "inputTokens": 8,
+        "outputTokens": 4
+      }
+    }
+  ]
+}
