@@ -18,5 +18,7 @@
 - Trace、Mutation、Cloud 幂等索引、事件序号、会话设置与 Push 订阅的数据版本锚点；
   兼容旧格式，并拒绝未知未来版本。
 - 安装产物的无模型 TUI 启动 smoke，以及 Web、Gateway、Worker 镜像运行时 smoke。
+- 不带发布权限的 Release Candidate Workflow：校验 tag/changelog，生成 npm
+  tarball、校验和、构建元数据，并构建同版本与 commit 标签的三个 Cloud 镜像。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

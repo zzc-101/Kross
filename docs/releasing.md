@@ -4,6 +4,10 @@ Kross 的公开 npm 包名是 `@zzc-101/kross`，安装后的命令是 `kross`�
 人工确认发布：CI 验证代码与安装产物，但不会自动创建标签、推送镜像或发布 npm
 包。首次公开发布前仍需由项目所有者确认 License、npm scope 和 GitHub 权限。
 
+仓库中的 `release-candidate.yml` 只生成候选产物，没有 `contents: write`、
+`packages: write` 或 npm 发布权限。它不会创建 GitHub Release、推送容器镜像或
+执行 `npm publish`。
+
 ## 版本契约
 
 Kross 使用一个应用版本：
@@ -72,6 +76,21 @@ npm pack --dry-run
 npm login
 npm publish --access public
 ```
+
+推送 `v*` 标签会触发 Release Candidate Workflow。也可以在 Actions 页面手动
+输入一个已经存在的标签重新验证。Workflow 会：
+
+1. checkout 指定标签并验证 tag、package version 和 changelog；
+2. 运行完整 `npm run check`；
+3. 生成 npm tarball；
+4. 使用应用版本和 12 位 commit SHA 分别标记 Web、Gateway、Worker 本地镜像；
+5. 运行 Cloud 容器 smoke；
+6. 上传保留 14 天的候选 artifact，其中包含 tarball、容器镜像元数据、
+   `release-metadata.json` 和 `SHA256SUMS`。
+
+候选 metadata 中的三个 publication 标志固定为 `false`，用来明确区分“已验证”
+和“已发布”。正式自动发布仍要等待 License、npm scope、镜像仓库和受保护
+Environment 决策。
 
 最后创建对应的 GitHub Release，并使用 `CHANGELOG.md` 的版本内容作为发布说明。
 若任何发布步骤失败，不要复用已公开的版本号；修复后递增补丁版本。

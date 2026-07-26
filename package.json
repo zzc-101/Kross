@@ -42,6 +42,7 @@
     "cloud:stop": "./scripts/start-cloud.sh --stop",
     "cloud:smoke": "./scripts/cloud-container-smoke.sh",
     "docs:check": "node scripts/check-doc-links.mjs",
+    "release:metadata": "node scripts/release-metadata.mjs",
     "version:check": "node scripts/check-version-consistency.mjs",
     "test": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.base.json",

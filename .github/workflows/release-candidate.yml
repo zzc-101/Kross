@@ -1,0 +1,108 @@
+name: Release candidate
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build release candidate
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.19.0
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Validate release contract
+        run: npm run version:check -- --tag "$RELEASE_TAG" --release
+
+      - name: Verify source and package
+        run: npm run check
+
+      - name: Prepare npm tarball
+        run: |
+          mkdir release
+          npm pack --ignore-scripts --pack-destination release
+
+      - name: Resolve image tags
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          SHORT_SHA=$(git rev-parse --short=12 HEAD)
+          RELEASE_COMMIT=$(git rev-parse HEAD)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "RELEASE_COMMIT=$RELEASE_COMMIT" >> "$GITHUB_ENV"
+
+      - name: Build versioned Worker image
+        run: |
+          docker build --file docker/worker.Dockerfile \
+            --tag "kross-worker:$VERSION" \
+            --tag "kross-worker:$SHORT_SHA" \
+            --tag kross-worker:ci .
+
+      - name: Build versioned Gateway image
+        run: |
+          docker build --file docker/server.Dockerfile \
+            --tag "kross-server:$VERSION" \
+            --tag "kross-server:$SHORT_SHA" \
+            --tag kross-server:ci .
+
+      - name: Build versioned Web image
+        run: |
+          docker build --file docker/web.Dockerfile \
+            --tag "kross-web:$VERSION" \
+            --tag "kross-web:$SHORT_SHA" \
+            --tag kross-web:ci .
+
+      - name: Smoke test release images
+        run: npm run cloud:smoke
+
+      - name: Record container image metadata
+        run: |
+          for component in web server worker; do
+            printf '%s ' "$component" >> release/container-images.txt
+            docker image inspect \
+              "kross-$component:$VERSION" \
+              --format '{{json .RepoTags}} {{.Id}}' \
+              >> release/container-images.txt
+          done
+
+      - name: Generate checksums and release metadata
+        run: |
+          npm run release:metadata -- \
+            --tag "$RELEASE_TAG" \
+            --commit "$RELEASE_COMMIT" \
+            --artifacts release
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: kross-${{ env.VERSION }}-release-candidate
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
