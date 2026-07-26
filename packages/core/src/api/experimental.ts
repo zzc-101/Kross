@@ -70,6 +70,18 @@ export {
 } from '../skills/skillDiscovery';
 
 export {
+  TRACE_REPLAY_EVENT_TYPES,
+  TRACE_REPLAY_VERSION,
+  TraceReplayError,
+  formatTraceReplay,
+  replayTraceEvents,
+  type TraceReplayErrorCode,
+  type TraceReplayEventType,
+  type TraceReplayFrame,
+  type TraceReplayResult
+} from '../trace/traceReplay';
+
+export {
   ExperimentalLifecycleHooks,
   type ExperimentalLifecycleHook,
   type ExperimentalLifecycleHookContext,

@@ -10,6 +10,12 @@ import {
   type RunTraceSummary
 } from '../trace/traceSummary';
 import {
+  formatTraceReplay,
+  replayTraceEvents,
+  TraceReplayError,
+  type TraceReplayResult
+} from '../trace/traceReplay';
+import {
   buildDiffInspection,
   collectGitWorkspaceSnapshot,
   formatDiffInspection,
@@ -63,11 +69,48 @@ export class RuntimeInspection {
     }
   }
 
+  async replayTrace(runId: string): Promise<TraceReplayResult | null> {
+    if (!isSafeRunId(runId)) return null;
+    const events = await this.options.traceStore.readRun(runId);
+    if (events.length === 0) return null;
+    return replayTraceEvents(runId, events);
+  }
+
   async formatTraceCommand(argument?: string): Promise<string> {
     const runId = argument?.trim();
     if (!runId) {
       const summaries = await this.listTraces({ limit: 10 });
       return formatTraceList(summaries, { limit: 10 });
+    }
+
+    if (runId === 'replay' || runId.startsWith('replay ')) {
+      const replayRunId = runId.slice('replay'.length).trim();
+      if (!replayRunId) {
+        return '用法：/trace replay <runId>';
+      }
+      if (!isSafeRunId(replayRunId)) {
+        return [
+          `无效 runId：${replayRunId}`,
+          'runId 仅允许字母数字与 ._-，且不能包含路径分隔符。'
+        ].join('\n');
+      }
+      try {
+        const replay = await this.replayTrace(replayRunId);
+        return replay
+          ? formatTraceReplay(replay)
+          : `未找到 run：${replayRunId}`;
+      } catch (error) {
+        if (error instanceof TraceReplayError) {
+          return [
+            `Trace replay 失败：${error.code}`,
+            error.message,
+            ...(error.eventIndex !== undefined
+              ? [`eventIndex: ${error.eventIndex}`]
+              : [])
+          ].join('\n');
+        }
+        throw error;
+      }
     }
 
     if (!isSafeRunId(runId)) {

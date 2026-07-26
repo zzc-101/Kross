@@ -62,6 +62,11 @@ Fixture 模式使用固定时钟、固定 run id、脚本响应和零成本，`d
 `0`，因此 JSON 可以稳定比较。断言依赖结构化结果、文件 hash、Trace 与命令退出
 状态，不匹配模型自然语言的精确措辞。
 
+每个产生结果的 Fixture Case 还必须通过 `trace-replay` 断言：Runner 只选择最终
+结果对应的 run，严格验证事件 ID、run id、时间顺序、已知事件类型、起止边界与
+工具生命周期，再派生状态。回放是纯函数，不会再次执行 Fixture 工具；该断言曾
+直接发现 Runtime 与 Tool Gateway 使用不同确定性时钟导致的事件倒序。
+
 ## 当前 Case
 
 | Case | 保护的契约 |

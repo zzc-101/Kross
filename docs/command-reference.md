@@ -53,6 +53,7 @@
 | `/mcp prompt <serverId> <name> [JSON]` | 预览 Prompt，不自动执行 |
 | `/trace` | 列出最近运行 |
 | `/trace <runId>` | 显示指定运行的 trace 摘要 |
+| `/trace replay <runId>` | 严格重放事件并显示派生状态，不执行历史副作用 |
 | `/diff [runId]` | 显示文件触达和 Git diff 摘要 |
 | `/expand` | 展开或折叠最近一条可折叠消息 |
 

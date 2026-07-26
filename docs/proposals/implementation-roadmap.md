@@ -567,6 +567,10 @@ feat(protocol): publish language-neutral wire schemas
 
 ### F1. Trace Replay
 
+> 已完成：提供 version 1 严格纯函数回放、状态帧和稳定错误码；TUI/Cloud 共用
+> `/trace replay <runId>`，所有 Fixture Eval 自动执行 `trace-replay` 断言。
+> 回放只读取事件，不调用 LLM、工具、Git 或其他外部系统。
+
 - 重放的是事件和状态派生，不重新执行外部副作用；
 - 用于 UI、诊断和 Eval；
 - 对缺失、乱序和未知事件明确失败。

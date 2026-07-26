@@ -232,7 +232,7 @@ export function App({ endpoint, token, onLogout }: AppProps) {
         });
       }
     } else if (command.id === 'diff' || command.id === 'trace') {
-      inspect(command.id);
+      inspect(command.id, argument || undefined);
     }
     setInput('');
   };

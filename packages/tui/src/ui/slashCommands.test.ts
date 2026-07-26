@@ -17,6 +17,7 @@ describe('slashCommands', () => {
     expect(formatSlashHelp()).toContain('/mcp [list|reload|resource');
     expect(formatSlashHelp()).toContain('/undo');
     expect(formatSlashHelp()).toContain('/compact');
+    expect(formatSlashHelp()).toContain('/trace [runId|replay <runId>]');
     expect(formatSlashHelp()).toContain('/resume [sessionId]');
     expect(formatSlashHelp()).toContain('/lang zh|en');
     expect(formatSlashHelp()).toContain('/model [modelId]');

@@ -24,6 +24,7 @@ import {
   WorkspaceRoots,
   type AgentRuntimeOptions,
   type AgentResult,
+  replayTraceEvents,
   type TraceEvent,
   type TraceStore
 } from '@kross/core';
@@ -75,6 +76,7 @@ export async function runEvalCase(
     }
     const before = snapshotWorkspace(workspace);
     const traceStore = new MemoryTraceStore();
+    const now = deterministicClock();
     const allowedTools = new Set(definition.allowedTools);
     const evalApprovalPolicy = ({ tool }: {
       tool: { name: string };
@@ -90,7 +92,7 @@ export async function runEvalCase(
           };
     const gateway = new ToolGateway({
       traceStore,
-      now: deterministicClock(),
+      now,
       defaultRetry: false,
       approvalPolicy: evalApprovalPolicy
     });
@@ -112,13 +114,14 @@ export async function runEvalCase(
     }
 
     const llm = new FixtureLlmClient(definition.fixtureResponses);
+    let runSequence = 0;
     const baseRuntimeOptions: AgentRuntimeOptions = {
       traceStore,
       llmClient: llm,
       toolGateway: gateway,
       maxToolIterations: definition.limits.maxIterations,
-      createRunId: () => `eval-${definition.id}`,
-      now: deterministicClock(),
+      createRunId: () => `eval-${definition.id}-${++runSequence}`,
+      now,
       workspaceRoot: workspace,
       workspaceRoots: new WorkspaceRoots(workspace),
       mutationCoordinator: mutations,
@@ -229,13 +232,28 @@ export async function runEvalCase(
             : 'failed' as const
       }));
     const traceEvents = traceStore.events.map((event) => event.type);
+    let traceReplayError: string | undefined;
+    if (result) {
+      try {
+        replayTraceEvents(
+          result.runId,
+          traceStore.events.filter((event) => event.runId === result.runId)
+        );
+      } catch (error) {
+        traceReplayError =
+          error instanceof Error ? error.message : String(error);
+      }
+    } else {
+      traceReplayError = 'run did not produce a result';
+    }
     const assertions = evaluateAssertions({
       definition,
       result,
       changedFiles,
       verification,
       toolCalls,
-      traceEvents
+      traceEvents,
+      traceReplayError
     });
     const passed = assertions.every((assertion) => assertion.passed);
     const timedOut = abort.signal.aborted;
@@ -469,6 +487,7 @@ function evaluateAssertions(input: {
   verification: Array<{ name: string; ok: boolean }>;
   toolCalls: Array<{ name: string; status: string }>;
   traceEvents: string[];
+  traceReplayError?: string;
 }): Array<{ name: string; passed: boolean; details: string }> {
   const changed = new Set(input.changedFiles.map((file) => file.path));
   const called = new Set(input.toolCalls.map((call) => call.name));
@@ -481,6 +500,11 @@ function evaluateAssertions(input: {
     {}
   );
   const assertions = [
+    {
+      name: 'trace-replay',
+      passed: input.traceReplayError === undefined,
+      details: input.traceReplayError ?? 'strict replay passed'
+    },
     {
       name: 'result-status',
       passed: input.result?.status === input.definition.assertions.resultStatus,

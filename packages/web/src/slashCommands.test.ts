@@ -46,6 +46,10 @@ describe('parseWebSlashCommand', () => {
       argument: 'run-1'
     });
     expect(parseWebSlashCommand('/skills').command?.id).toBe('skills');
+    expect(parseWebSlashCommand('/trace replay run-1')).toEqual({
+      command: expect.objectContaining({ id: 'trace' }),
+      argument: 'replay run-1'
+    });
     expect(parseWebSlashCommand('/mcp resource docs file:///guide.md')).toEqual({
       command: expect.objectContaining({ id: 'mcp' }),
       argument: 'resource docs file:///guide.md'

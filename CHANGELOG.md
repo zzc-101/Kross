@@ -47,5 +47,7 @@
   保留旧配置，成功后让旧连接等待在途调用排空再关闭。
 - Experimental Lifecycle Hooks：Host 可接收冻结、脱敏、版本化的运行与工具
   生命周期通知；Hook 异常不影响 Agent，并受超时、pending 上限与事件限流保护。
+- Trace Replay v1：严格校验 run、事件 ID、时间、已知类型、起止和工具生命周期，
+  通过 `/trace replay <runId>` 生成纯派生状态；Fixture Eval 自动验证回放契约。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

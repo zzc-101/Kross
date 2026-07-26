@@ -166,6 +166,12 @@ Context Source 加入当前会话；Prompts 仅通过 `/mcp prompt` 预览，不
 结果、当前工具定义、动态风险和审批策略。只有明确尚未执行的审批调用可以续跑；
 已完成的写入或执行绝不会猜测性重放。证据不完整时恢复路径 fail-closed。
 
+Trace Replay 与运行恢复是两条不同路径。`/trace replay <runId>` 只读取事件并生成
+版本化状态帧和汇总，不调用 LLM、Tool Gateway、Git 或外部系统。它要求事件来自
+同一 run、ID 唯一、时间单调、类型已知、以 `run.started` 开始且终态后无追加；
+可关联的工具终态必须有对应 start。缺失、乱序和未知事件返回稳定错误码，供
+TUI、Cloud 检查面板和确定性 Eval 共用。
+
 Cloud 会话和工作区状态保存在对应 Docker volume 中，Gateway 只保存工作区注册与
 控制面数据。生命周期、备份边界和容器恢复见
 [Cloud Agent 部署与运维](cloud-agent-deployment.md)。各 JSON/JSONL/SQLite

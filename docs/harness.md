@@ -77,6 +77,8 @@ Session Work State 会持久化版本化 `runCheckpoint`，其中包含运行阶
 ## 可观测性
 
 - `/trace [runId]`：查看阶段迁移、工具调用、审批、验证、重试和失败。
+- `/trace replay <runId>`：按持久化顺序严格派生状态；同一 run、事件 ID、时间、
+  已知类型和工具生命周期不一致时显式失败，不重新执行任何工具或外部副作用。
 - `/diff`：查看本轮涉及的文件和 Git diff 摘要。
 - `/context`：查看 token 预算、上下文来源与治理记录。
 - Verification Report：在最终消息中展示真实验证状态、命令和风险。

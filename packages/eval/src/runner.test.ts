@@ -28,7 +28,7 @@ describe('fixture eval runner', () => {
       status: 'passed',
       deterministic: true,
       durationMs: 0,
-      score: { earned: 4, possible: 4 },
+      score: { earned: 5, possible: 5 },
       usage: {
         inputTokens: 7,
         outputTokens: 3,

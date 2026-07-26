@@ -22,6 +22,22 @@ describe('RuntimeInspection', () => {
     expect(await inspection.formatTraceCommand('../bad')).toContain(
       '无效 runId'
     );
+    const replay = await inspection.formatTraceCommand('replay run-1');
+    expect(replay).toContain('Trace Replay：run-1');
+    expect(replay).toContain('不会重新执行工具');
+  });
+
+  it('reports strict replay failures with a stable error code', async () => {
+    const traceStore = new MemoryTraceStore([
+      event('run-bad', 'run.started', { input: 'inspect' }, 'e1'),
+      event('run-bad', 'future.event', {}, 'e2')
+    ]);
+    const inspection = new RuntimeInspection({ traceStore });
+
+    const replay = await inspection.formatTraceCommand('replay run-bad');
+
+    expect(replay).toContain('Trace replay 失败：unknown-event');
+    expect(replay).toContain('eventIndex: 1');
   });
 
   it('formats diff output with injected git evidence', async () => {

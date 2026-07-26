@@ -123,7 +123,7 @@ export function listSlashCommands(): SlashCommand[] {
     {
       name: '/trace',
       description: t('slash.trace.desc'),
-      usage: '/trace [runId]',
+      usage: '/trace [runId|replay <runId>]',
       category: 'inspection'
     },
     {

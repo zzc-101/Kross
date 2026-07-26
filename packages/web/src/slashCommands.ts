@@ -90,7 +90,12 @@ export const WEB_SLASH_COMMANDS: WebSlashCommand[] = [
     acceptsArgument: true
   },
   { id: 'diff', name: '/diff', usage: '/diff', acceptsArgument: false },
-  { id: 'trace', name: '/trace', usage: '/trace', acceptsArgument: false }
+  {
+    id: 'trace',
+    name: '/trace',
+    usage: '/trace [runId|replay <runId>]',
+    acceptsArgument: true
+  }
 ];
 
 export function filterWebSlashCommands(query: string): WebSlashCommand[] {

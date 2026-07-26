@@ -61,6 +61,7 @@ import type {
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { ListRunsOptions } from '../trace/traceStore';
 import type { RunTraceDetail, RunTraceSummary } from '../trace/traceSummary';
+import type { TraceReplayResult } from '../trace/traceReplay';
 import type {
   AgentRunInput,
   AgentRunStreamEvent,
@@ -663,6 +664,10 @@ export class AgentRuntime extends EventEmitter {
 
   async inspectTrace(runId: string): Promise<RunTraceDetail | null> {
     return this.inspection.inspectTrace(runId);
+  }
+
+  async replayTrace(runId: string): Promise<TraceReplayResult | null> {
+    return this.inspection.replayTrace(runId);
   }
 
   async formatTraceCommand(argument?: string): Promise<string> {
