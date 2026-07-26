@@ -28,5 +28,7 @@
 - 可运行的 Headless Runtime Host：支持流式 NDJSON、持久化会话恢复、审批阻塞、
   验证失败退出码、SIGINT/SIGTERM 取消和统一资源清理。
 - Headless Event v1 JSON Schema、Shell/Actions 示例、退出码表及权限和密钥文档。
+- Core 顶层 API 收敛为显式 public / experimental barrel，并使用 TypeScript
+  Checker 快照阻止未分类导出和内部编排模块泄漏。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

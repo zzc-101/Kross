@@ -244,6 +244,7 @@ npm run dev --workspace @kross/tui
 npm test -- --run
 npm run typecheck
 npm run version:check
+npm run api:check
 npm run eval -- --fixture
 npm run docs:check
 npm run build

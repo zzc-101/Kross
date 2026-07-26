@@ -11,9 +11,17 @@ Kross 提供三层扩展方式。优先选择配置和文件约定；只有这�
 | 源码扩展 | 自定义工具、审批策略、Runtime 宿主 | 预览接口，升级时需要跟随类型检查 |
 | 协议扩展 | 自定义 Web、移动端或远程 Worker | 以 `PROTOCOL_VERSION` 和 Zod schema 为准 |
 
-`packages/core` 和 `packages/protocol` 目前是 monorepo 私有 workspace，尚未作为稳定
-SDK 单独发布。可以在 Fork 或同一仓库中复用它们，但不要假设所有导出都遵循稳定
-语义化版本。
+`packages/core` 和 `packages/protocol` 目前是 monorepo 私有 workspace，尚未作为
+稳定 SDK 单独发布。Core 顶层导出分为：
+
+- `public`：面向自定义本地 Host 的最小组合契约，`0.x` 期间变更会进入
+  `CHANGELOG.md`；
+- `experimental`：供首方 TUI、Worker 与开发工具复用，可能在次版本调整；
+- `internal`：不从 `@kross/core` 顶层导出，禁止通过源码深路径依赖。
+
+权威清单位于
+[`packages/core/api-surface.json`](../packages/core/api-surface.json)。这里的
+`public` 仍是预发布源码 API，不等于已经承诺长期 SemVer 的独立 SDK。
 
 ## Project Instructions
 
@@ -219,6 +227,10 @@ Cloud 的线协议由 `packages/protocol` 中的 Zod schema 定义。客户端�
 - TUI/Web 组件层级和 CSS class；
 - 未从 package `index.ts` 导出的源码文件。
 
+`ModeFlows`、`ModelSession`、`SessionServices`、`RuntimeToolLoop` 和 Conductor
+执行器属于内部编排实现，即使在历史版本中曾被顶层 barrel 意外导出，也不构成
+兼容承诺。
+
 需要这些能力时，请先创建 Feature Request，说明使用场景。更合适的处理通常是
 新增一个窄而稳定的扩展接口，而不是把内部实现永久公开。
 
@@ -233,3 +245,18 @@ Cloud 的线协议由 `packages/protocol` 中的 Zod schema 定义。客户端�
 - 对 TUI、Cloud Worker 和协议兼容性的影响。
 
 贡献流程见[参与贡献](../CONTRIBUTING.md)。
+
+修改 Core 顶层导出时先选择 public 或 experimental barrel，然后运行：
+
+```bash
+npm run api:check
+```
+
+只有确认边界变化、补齐测试和 `CHANGELOG.md` 后，才运行：
+
+```bash
+npm run api:update
+```
+
+CI 会使用 TypeScript Checker 读取包含 type-only 在内的真实导出，并检查分类快照、
+重复名称和禁止进入顶层的内部模块。

@@ -32,6 +32,10 @@ flowchart TB
 Core 不依赖任何界面或 Cloud 包。Protocol 不依赖 Core，并且只包含浏览器安全的
 schema 与类型。产品包之间不得通过穿越目录的相对路径耦合。
 
+Core 顶层只由 `src/api/public.ts` 和 `src/api/experimental.ts` 组成；内部模块不
+允许通过新的 `export *` 泄漏。`packages/core/api-surface.json` 保存包含类型导出
+的稳定快照，`npm run api:check` 在 CI 中阻止未经分类的增删。
+
 ## Runtime 组合
 
 `packages/core/src/host/createAgentHost.ts` 是默认组合根，主要通过

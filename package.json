@@ -38,6 +38,8 @@
     "build": "npm run typecheck && npm run build:cli && npm run build:web",
     "build:cli": "node scripts/build-cli.mjs",
     "build:web": "npm run --workspace @kross/web build",
+    "api:check": "node scripts/check-core-api-surface.mjs",
+    "api:update": "node scripts/check-core-api-surface.mjs --update",
     "cloud:start": "./scripts/start-cloud.sh",
     "cloud:stop": "./scripts/start-cloud.sh --stop",
     "cloud:smoke": "./scripts/cloud-container-smoke.sh",
@@ -48,7 +50,7 @@
     "test": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.base.json",
     "package:check": "npm run build && node scripts/package-smoke.mjs",
-    "check": "npm run version:check && npm run typecheck && npm test -- --run && npm run docs:check && npm run package:check",
+    "check": "npm run version:check && npm run api:check && npm run typecheck && npm test -- --run && npm run docs:check && npm run package:check",
     "prepack": "npm run build"
   },
   "dependencies": {

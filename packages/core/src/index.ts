@@ -1,68 +1,9 @@
-export * from './abort';
-export * from './context/sessionContext';
-export * from './context/tokenEstimator';
-export * from './context/contextPolicy';
-export * from './context/conversationThread';
-export * from './context/contextGovernor';
-export * from './context/summarizer';
-export * from './config/configImport';
-export * from './i18n';
-export * from './mcp';
-export * from './mutations/mutationJournal';
-export * from './mutations/mutationService';
-export * from './process/processManager';
-export * from './prompts';
-export * from './domain';
-export * from './errors/runtimeError';
-export * from './llm/anthropicProtocolClient';
-export * from './llm/createLlmClient';
-export * from './llm/freeModels';
-export * from './llm/llmProviders';
-export * from './llm/modelCommand';
-export * from './llm/openAiProtocolClient';
-export * from './llm/piAiConvert';
-export * from './llm/piAiLlmClient';
-export * from './llm/piAiModels';
-export * from './llm/publicModels';
-export * from './llm/resolveCredentials';
-export * from './llm/thinkingEffort';
-export * from './llm/types';
-export * from './llm/modelContextWindows';
-export * from './modes/modeDetector';
-export * from './modes/modePolicy';
-
-export * from './runtime/agentRuntime';
-export * from './runtime/agentRuntimeTypes';
-export { ModelSession } from './runtime/modelSession';
-export { ModeFlows, type ModeFlowsDeps } from './runtime/modeFlows';
-export * from './runtime/runtimeInspection';
-export { SessionServices, type SessionServicesOptions } from './runtime/sessionServices';
-export * from './runtime/subagentRunner';
-export * from './runtime/toolLoop';
-export * from './runtime/runPhase';
-export * from './runtime/runCheckpoint';
-export * from './session/sessionStore';
-export * from './session/sessionWorkState';
-export * from './skills/skillDiscovery';
-export * from './skills/skillRegistry';
-export * from './todo';
-export * from './tools/toolGateway';
-export * from './tools/toolRetry';
-export * from './tools/permissionModes';
-export * from './tools/formatToolInputPreview';
-export * from './tools/diffPreview';
-export * from './tools/builtin';
-export * from './tools/builtin/fileChangeStats';
-export * from './trace/runId';
-export * from './trace/traceStore';
-export * from './trace/sessionTraceStore';
-export * from './trace/traceSummary';
-export * from './trace/observableTraceStore';
-export * from './workspace/changedFiles';
-export * from './verification';
-export * from './workspace/projectRegistry';
-export * from './workspace/projectInstructions';
-export * from './workspace/workspaceDiff';
-export * from './workspace/workspaceRoots';
-export * from './runtime/conductorOrchestration';
-export * from './host/createAgentHost';
+/**
+ * @kross/core top-level API.
+ *
+ * Public contracts are intended for custom local hosts during 0.x.
+ * Experimental exports support first-party clients and may change between
+ * minor versions. Implementation modules must not be re-exported here.
+ */
+export * from './api/public';
+export * from './api/experimental';
