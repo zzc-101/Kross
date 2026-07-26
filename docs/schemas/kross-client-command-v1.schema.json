@@ -469,7 +469,8 @@
                 "instructions",
                 "skills",
                 "processes",
-                "undo"
+                "undo",
+                "mcp"
               ]
             },
             "argument": {

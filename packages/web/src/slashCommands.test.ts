@@ -9,7 +9,7 @@ describe('filterWebSlashCommands', () => {
   it('suggests commands while the first slash token is being typed', () => {
     expect(
       filterWebSlashCommands('/m').map((command) => command.name)
-    ).toEqual(['/mode', '/model']);
+    ).toEqual(['/mode', '/model', '/mcp']);
   });
 
   it('closes suggestions after an argument starts', () => {
@@ -46,5 +46,9 @@ describe('parseWebSlashCommand', () => {
       argument: 'run-1'
     });
     expect(parseWebSlashCommand('/skills').command?.id).toBe('skills');
+    expect(parseWebSlashCommand('/mcp resource docs file:///guide.md')).toEqual({
+      command: expect.objectContaining({ id: 'mcp' }),
+      argument: 'resource docs file:///guide.md'
+    });
   });
 });

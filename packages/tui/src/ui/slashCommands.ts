@@ -97,6 +97,13 @@ export function listSlashCommands(): SlashCommand[] {
       category: 'inspection'
     },
     {
+      name: '/mcp',
+      description: t('slash.mcp.desc'),
+      usage:
+        '/mcp [list|resource <server> <uri>|prompt <server> <name> [JSON]]',
+      category: 'inspection'
+    },
+    {
       name: '/processes',
       description: t('slash.processes.desc'),
       category: 'inspection'

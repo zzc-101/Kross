@@ -151,6 +151,22 @@ export function handleCommand(
     return true;
   }
 
+  if (value === '/mcp' || value.startsWith('/mcp ')) {
+    const argument =
+      value === '/mcp' ? '' : value.slice('/mcp'.length).trim();
+    void runtime
+      .runMcpCommand(argument)
+      .then((content) => append('agent', content, { expanded: true }))
+      .catch((error: unknown) =>
+        append(
+          'system',
+          error instanceof Error ? error.message : String(error),
+          { expanded: true }
+        )
+      );
+    return true;
+  }
+
   if (value === '/processes') {
     const processes = runtime.listManagedProcesses();
     append(

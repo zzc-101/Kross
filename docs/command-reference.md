@@ -47,10 +47,16 @@
 | `/compact [要求]` | 手动压缩旧上下文，可附加保真要求 |
 | `/instructions` | 刷新并显示 Project Instructions 来源与诊断 |
 | `/skills` | 刷新并显示 Skill metadata 与诊断 |
+| `/mcp` 或 `/mcp list` | 列出已连接服务公开的 Resources 与 Prompts |
+| `/mcp resource <serverId> <uri>` | 显式把文本 Resource 加入当前会话上下文 |
+| `/mcp prompt <serverId> <name> [JSON]` | 预览 Prompt，不自动执行 |
 | `/trace` | 列出最近运行 |
 | `/trace <runId>` | 显示指定运行的 trace 摘要 |
 | `/diff [runId]` | 显示文件触达和 Git diff 摘要 |
 | `/expand` | 展开或折叠最近一条可折叠消息 |
+
+MCP Resource 被标记为外部、不可信来源；Prompt 预览不会覆盖系统指令。工具仍由
+模型按正常 Tool Gateway 权限流程调用，不通过 `/mcp` 手动执行。
 
 ## 权限与导入
 

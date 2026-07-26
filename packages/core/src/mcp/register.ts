@@ -15,7 +15,11 @@ import { buildMcpToolName, inferMcpToolRisk } from './risk';
 import { StreamableHttpTransport } from './streamableHttp';
 import type {
   McpCallToolResult,
+  McpCatalogPrompt,
+  McpCatalogResource,
   McpConnectResult,
+  McpSelectedPrompt,
+  McpSelectedResource,
   McpManagerSnapshot,
   McpServerConfig,
   McpToolInfo
@@ -26,6 +30,19 @@ const mcpInputSchema = z.record(z.string(), z.unknown());
 export interface McpManager {
   /** Connect results for UI/debug. */
   snapshot(): McpManagerSnapshot;
+  listResources(signal?: AbortSignal): Promise<McpCatalogResource[]>;
+  readResource(
+    serverId: string,
+    uri: string,
+    signal?: AbortSignal
+  ): Promise<McpSelectedResource>;
+  listPrompts(signal?: AbortSignal): Promise<McpCatalogPrompt[]>;
+  getPrompt(
+    serverId: string,
+    name: string,
+    args?: Record<string, string>,
+    signal?: AbortSignal
+  ): Promise<McpSelectedPrompt>;
   close(): Promise<void>;
 }
 
@@ -34,6 +51,8 @@ export interface ConnectMcpOptions extends LoadMcpConfigOptions {
   workspaceRoot?: string;
   env?: Record<string, string | undefined>;
   httpFetch?: typeof fetch;
+  maxResourceBytes?: number;
+  maxPromptBytes?: number;
   /** Inject clients in tests. */
   createClient?: (
     serverId: string,
@@ -53,6 +72,7 @@ export async function connectAndRegisterMcpTools(
 ): Promise<McpManager> {
   const servers = loadMcpServersConfig(options);
   const clients: McpToolClient[] = [];
+  const clientsByServer = new Map<string, McpToolClient>();
   const unsubscribeDiagnostics: Array<() => void> = [];
   const results: McpConnectResult[] = [];
   const registeredToolNames: string[] = [];
@@ -88,7 +108,11 @@ export async function connectAndRegisterMcpTools(
       );
 
       await client.connect();
-      const tools = await client.listTools();
+      const capabilities = client.getCapabilities();
+      const tools =
+        capabilities.tools === undefined && Object.keys(capabilities).length > 0
+          ? []
+          : await client.listTools();
       const names: string[] = [];
 
       for (const tool of tools) {
@@ -112,7 +136,18 @@ export async function connectAndRegisterMcpTools(
       }
 
       clients.push(client);
-      results.push({ serverId, toolNames: names });
+      clientsByServer.set(serverId, client);
+      results.push({
+        serverId,
+        toolNames: names,
+        capabilities: {
+          tools:
+            capabilities.tools !== undefined ||
+            Object.keys(capabilities).length === 0,
+          resources: capabilities.resources !== undefined,
+          prompts: capabilities.prompts !== undefined
+        }
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       warn(`MCP server "${serverId}" failed: ${message}`);
@@ -132,6 +167,50 @@ export async function connectAndRegisterMcpTools(
       results: [...results],
       registeredToolNames: [...registeredToolNames]
     }),
+    listResources: (signal) =>
+      listCatalogItems(
+        clientsByServer,
+        'resources',
+        signal
+      ),
+    readResource: async (serverId, uri, signal) => {
+      const client = requireMcpClient(clientsByServer, serverId);
+      const resource = (await client.listResources({ signal })).find(
+        (item) => item.uri === uri
+      );
+      if (!resource) {
+        throw new Error(`MCP resource not found: ${serverId}/${uri}`);
+      }
+      const result = await client.readResource(uri, { signal });
+      enforcePayloadLimit(
+        result,
+        options.maxResourceBytes ?? 128 * 1024,
+        'resource'
+      );
+      return { serverId, resource, result };
+    },
+    listPrompts: (signal) =>
+      listCatalogItems(
+        clientsByServer,
+        'prompts',
+        signal
+      ),
+    getPrompt: async (serverId, name, args = {}, signal) => {
+      const client = requireMcpClient(clientsByServer, serverId);
+      const prompt = (await client.listPrompts({ signal })).find(
+        (item) => item.name === name
+      );
+      if (!prompt) {
+        throw new Error(`MCP prompt not found: ${serverId}/${name}`);
+      }
+      const result = await client.getPrompt(name, args, { signal });
+      enforcePayloadLimit(
+        result,
+        options.maxPromptBytes ?? 64 * 1024,
+        'prompt'
+      );
+      return { serverId, prompt, result };
+    },
     close: async () => {
       for (const unsubscribe of unsubscribeDiagnostics.splice(0)) {
         unsubscribe();
@@ -146,8 +225,69 @@ export async function connectAndRegisterMcpTools(
         })
       );
       clients.length = 0;
+      clientsByServer.clear();
     }
   };
+}
+
+async function listCatalogItems(
+  clients: Map<string, McpToolClient>,
+  kind: 'resources',
+  signal?: AbortSignal
+): Promise<McpCatalogResource[]>;
+async function listCatalogItems(
+  clients: Map<string, McpToolClient>,
+  kind: 'prompts',
+  signal?: AbortSignal
+): Promise<McpCatalogPrompt[]>;
+async function listCatalogItems(
+  clients: Map<string, McpToolClient>,
+  kind: 'resources' | 'prompts',
+  signal?: AbortSignal
+): Promise<Array<McpCatalogResource | McpCatalogPrompt>> {
+  const catalog: Array<McpCatalogResource | McpCatalogPrompt> = [];
+  for (const [serverId, client] of clients) {
+    const capabilities = client.getCapabilities();
+    if (capabilities[kind] === undefined) continue;
+    try {
+      const items =
+        kind === 'resources'
+          ? await client.listResources({ signal })
+          : await client.listPrompts({ signal });
+      catalog.push(...items.map((item) => ({ ...item, serverId })));
+    } catch (error) {
+      throw new Error(
+        `MCP ${kind} listing failed for ${serverId}: ${safeMcpError(error)}`
+      );
+    }
+  }
+  return catalog;
+}
+
+function requireMcpClient(
+  clients: Map<string, McpToolClient>,
+  serverId: string
+): McpToolClient {
+  const client = clients.get(serverId);
+  if (!client) throw new Error(`MCP server is not connected: ${serverId}`);
+  return client;
+}
+
+function enforcePayloadLimit(
+  value: unknown,
+  limit: number,
+  kind: 'resource' | 'prompt'
+): void {
+  const bytes = Buffer.byteLength(JSON.stringify(value), 'utf8');
+  if (bytes > limit) {
+    throw new Error(
+      `MCP ${kind} payload exceeds ${limit} bytes (received ${bytes})`
+    );
+  }
+}
+
+function safeMcpError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

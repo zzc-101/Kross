@@ -40,5 +40,8 @@
   和幂等资源关闭，同时保持现有工具注册与权限语义。
 - MCP 2025-11-25 Streamable HTTP：支持 JSON/SSE 响应、会话重建、cursor
   恢复、显式取消、远程默认风险和不落盘的 Bearer 环境变量引用。
+- MCP Resources 与 Prompts：按 capability 建立目录，Resource 仅在显式选择后
+  作为带来源的不可信文本 Context Source 注入，Prompt 仅预览；TUI 与 Cloud
+  共享 `/mcp` 命令，并限制远端响应大小。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

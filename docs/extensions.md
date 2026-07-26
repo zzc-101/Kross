@@ -114,7 +114,10 @@ Kross 启动时只把 Skill 的名称和描述加入上下文，需要时再通�
 
 - 支持 stdio 与 Streamable HTTP，远程 HTTP 自动处理 session、JSON/SSE 响应、
   SSE cursor 恢复、404 重新初始化和 DELETE 关闭；
-- 支持 tools，不支持 resources 和 prompts；
+- 支持 tools、resources 和 prompts；Resources 通过 `/mcp resource` 显式加入
+  带来源标识的 Context Source，Prompts 通过 `/mcp prompt` 显式预览；
+- Resource 只接收文本内容，响应默认限制为 128 KiB；Prompt 响应默认限制为
+  64 KiB，且不会自动执行或覆盖系统指令；
 - 单个 MCP 连接失败不会阻止其他服务或 Kross 启动；
 - 修改 MCP 配置后需要重启；
 - MCP 子进程拥有当前用户权限，远程 MCP 拥有网络与服务端权限；不能把审批等同于
@@ -123,6 +126,10 @@ Kross 启动时只把 Skill 的名称和描述加入上下文，需要时再通�
 Core 把 MCP 协议客户端与 Transport 生命周期分离。Transport 统一负责
 连接、JSON-RPC 请求、`AbortSignal` 取消、单请求超时、结构化诊断和幂等关闭；
 工具注册、风险推断与审批继续统一经过 `ToolGateway`。
+
+Resources 和 Prompts 不伪装为工具：Core 先按 initialize capability 建立目录，
+读取前再次确认目标仍在服务端目录中。这样可以保留 server、URI 或 prompt name
+等来源信息，也避免远端内容在没有明确用户动作时影响 Agent。
 
 HTTP 实现遵循
 [MCP 2025-11-25 Transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)

@@ -67,13 +67,93 @@ export interface McpCallToolResult {
   [key: string]: unknown;
 }
 
+export interface McpServerCapabilities {
+  tools?: Record<string, unknown>;
+  resources?: Record<string, unknown>;
+  prompts?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface McpResourceInfo {
+  uri: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  size?: number;
+  [key: string]: unknown;
+}
+
+export interface McpResourceContent {
+  uri: string;
+  mimeType?: string;
+  text?: string;
+  blob?: string;
+  [key: string]: unknown;
+}
+
+export interface McpReadResourceResult {
+  contents?: McpResourceContent[];
+  [key: string]: unknown;
+}
+
+export interface McpPromptArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+export interface McpPromptInfo {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: McpPromptArgument[];
+  [key: string]: unknown;
+}
+
+export interface McpPromptMessage {
+  role: 'user' | 'assistant';
+  content: McpContentItem;
+}
+
+export interface McpGetPromptResult {
+  description?: string;
+  messages?: McpPromptMessage[];
+  [key: string]: unknown;
+}
+
 export interface McpConnectResult {
   serverId: string;
   toolNames: string[];
+  capabilities?: {
+    tools: boolean;
+    resources: boolean;
+    prompts: boolean;
+  };
   error?: string;
 }
 
 export interface McpManagerSnapshot {
   results: McpConnectResult[];
   registeredToolNames: string[];
+}
+
+export interface McpCatalogResource extends McpResourceInfo {
+  serverId: string;
+}
+
+export interface McpCatalogPrompt extends McpPromptInfo {
+  serverId: string;
+}
+
+export interface McpSelectedResource {
+  serverId: string;
+  resource: McpResourceInfo;
+  result: McpReadResourceResult;
+}
+
+export interface McpSelectedPrompt {
+  serverId: string;
+  prompt: McpPromptInfo;
+  result: McpGetPromptResult;
 }

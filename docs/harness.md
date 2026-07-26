@@ -94,5 +94,5 @@ Harness 契约。普通 CI 不读取模型凭证或访问模型服务，断言�
 
 - `Bash` 和后台进程没有 OS 级沙箱；审批与 workspace cwd 不能替代操作系统隔离。
 - 已建立确定性 Fixture Eval 基线，但尚未提供真实模型、方差与预算控制通道。
-- 跨会话语义记忆、MCP HTTP transport、resources 和 prompts 尚未实现。
+- 跨会话语义记忆尚未实现；MCP 尚不支持运行时热重载和交互式 OAuth。
 - 嵌套目录级 Project Instructions 尚未实现，目前按 workspace root 加载。

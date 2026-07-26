@@ -10,6 +10,7 @@ export type WebSlashCommandId =
   | 'status'
   | 'instructions'
   | 'skills'
+  | 'mcp'
   | 'processes'
   | 'undo'
   | 'diff'
@@ -69,6 +70,13 @@ export const WEB_SLASH_COMMANDS: WebSlashCommand[] = [
     acceptsArgument: false
   },
   { id: 'skills', name: '/skills', usage: '/skills', acceptsArgument: false },
+  {
+    id: 'mcp',
+    name: '/mcp',
+    usage:
+      '/mcp [list|resource <server> <uri>|prompt <server> <name> [JSON]]',
+    acceptsArgument: true
+  },
   {
     id: 'processes',
     name: '/processes',

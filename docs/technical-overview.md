@@ -118,9 +118,13 @@ write、execute、network、Process、MCP 与动态风险调用保持串行屏�
 `/undo` 只在当前文件仍匹配 post hash 时恢复，避免覆盖后续人工修改。
 
 MCP 协议客户端通过 Transport 契约使用 JSON-RPC；Transport 负责连接、取消、
-超时、诊断和关闭，协议客户端负责 initialize、capability 与 tools 调用。stdio
+超时、诊断和关闭，协议客户端负责 initialize、capability、tools、resources 与
+prompts 调用。stdio
 和 Streamable HTTP 共用这一生命周期；HTTP 额外维护 session、JSON/SSE 响应、
 cursor 恢复和协议版本 header。所有 MCP 工具仍经过同一 Gateway 权限边界。
+Resources 只有在用户执行 `/mcp resource` 后才作为带 server/URI 来源的外部
+Context Source 加入当前会话；Prompts 仅通过 `/mcp prompt` 预览，不会静默改变
+系统行为。
 
 `Bash` 和后台进程没有 OS 级沙箱。workspace cwd、权限审批和容器隔离的具体安全
 边界见[安全模型](security.md)。
@@ -189,7 +193,7 @@ Nginx 容器提供，Gateway 不包含前端产物，因此前后端可以分别
 ## 当前限制
 
 - 本地 `Bash` 与后台进程没有 OS 级沙箱。
-- MCP 当前只支持 stdio tools，不支持 HTTP transport、resources 和 prompts。
+- MCP 尚不支持运行时热重载和交互式 OAuth。
 - 没有跨会话语义记忆。
 - Project Instructions 只加载 workspace root 顶层。
 - `packages/core` 与 `packages/protocol` 尚未作为稳定 SDK 单独发布。

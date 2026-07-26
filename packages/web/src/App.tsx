@@ -218,6 +218,7 @@ export function App({ endpoint, token, onLogout }: AppProps) {
     } else if (
       command.id === 'instructions' ||
       command.id === 'skills' ||
+      command.id === 'mcp' ||
       command.id === 'processes' ||
       command.id === 'undo'
     ) {

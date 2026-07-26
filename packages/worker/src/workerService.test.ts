@@ -234,6 +234,31 @@ describe('WorkerService integration', () => {
         content: expect.stringContaining('Skills')
       })
     );
+
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'inspect-mcp',
+      type: 'session.runtime-command',
+      workspaceId: 'w1',
+      sessionId: created.sessionId,
+      name: 'mcp'
+    }, events);
+    const mcpResult = events.find(
+      (event) =>
+        event.correlationId === 'inspect-mcp' &&
+        event.event.type === 'runtime-command.result'
+    );
+    expect(
+      mcpResult?.event.type === 'runtime-command.result'
+        ? mcpResult.event.data
+        : undefined
+    ).toEqual(
+      expect.objectContaining({
+        name: 'mcp',
+        ok: true,
+        content: expect.stringContaining('MCP Resources')
+      })
+    );
     await service.close();
   });
 

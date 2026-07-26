@@ -137,6 +137,7 @@ export function createRuntimeOptionsFromEnv(
     | 'workspaceRoots'
     | 'skillRegistry'
     | 'mutationCoordinator'
+    | 'mcpManager'
   > & Partial<Pick<AgentHostTooling, 'processManager'>>
 ): AgentRuntimeOptions {
   const savedConfig = loadKrossConfig(options);
@@ -233,6 +234,7 @@ export function createRuntimeOptionsFromEnv(
     personalSkillsDir: resolvePersonalSkillsDir(options),
     mutationCoordinator,
     processManager,
+    mcpManager: tooling?.mcpManager,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
     sessionContext,

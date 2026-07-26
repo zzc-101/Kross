@@ -110,6 +110,20 @@ describe('cloud protocol', () => {
         name: 'skills'
       }).type
     ).toBe('session.runtime-command');
+
+    const mcpCommand = clientCommandSchema.parse({
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'mcp-1',
+      type: 'session.runtime-command',
+      workspaceId: 'w1',
+      sessionId: 's1',
+      name: 'mcp',
+      argument: 'resource docs file:///guide.md'
+    });
+    expect(mcpCommand).toMatchObject({
+      type: 'session.runtime-command',
+      name: 'mcp'
+    });
   });
 
   it('validates snapshots with context capacity', () => {

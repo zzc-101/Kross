@@ -24,7 +24,15 @@ export type {
 
 export interface ContextSource {
   id: string;
-  kind: 'workspace' | 'repo' | 'trace' | 'memory' | 'user' | 'skill' | 'compaction';
+  kind:
+    | 'workspace'
+    | 'repo'
+    | 'trace'
+    | 'memory'
+    | 'user'
+    | 'skill'
+    | 'mcp'
+    | 'compaction';
   title: string;
   content: string;
   priority?: number;

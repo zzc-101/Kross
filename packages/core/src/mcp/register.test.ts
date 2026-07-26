@@ -128,8 +128,13 @@ describe('connectAndRegisterMcpTools', () => {
       const warnings: string[] = [];
       const client = {
         connect: async () => undefined,
+        getCapabilities: () => ({}),
         listTools: async () => [],
         callTool: async () => ({}),
+        listResources: async () => [],
+        readResource: async () => ({}),
+        listPrompts: async () => [],
+        getPrompt: async () => ({}),
         close: async () => undefined,
         onDiagnostic: (listener) => {
           listener({
@@ -152,6 +157,71 @@ describe('connectAndRegisterMcpTools', () => {
         'MCP server "mock" stderr: server emitted stderr output'
       ]);
       expect(warnings.join('\n')).not.toContain('SECRET_TOKEN');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('lists only advertised catalogs and enforces resource payload limits', async () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-catalog-'));
+    try {
+      const kross = join(homeDir, '.kross');
+      mkdirSync(kross, { recursive: true });
+      writeFileSync(
+        join(kross, 'mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            catalog: { command: 'unused' }
+          }
+        })
+      );
+      const client = {
+        connect: async () => undefined,
+        getCapabilities: () => ({ resources: {}, prompts: {} }),
+        listTools: async () => [],
+        callTool: async () => ({}),
+        listResources: async () => [
+          { uri: 'file:///large.txt', name: 'large' }
+        ],
+        readResource: async () => ({
+          contents: [
+            {
+              uri: 'file:///large.txt',
+              text: 'payload larger than the configured boundary'
+            }
+          ]
+        }),
+        listPrompts: async () => [{ name: 'review' }],
+        getPrompt: async () => ({
+          messages: [
+            { role: 'user' as const, content: { type: 'text', text: 'Review' } }
+          ]
+        }),
+        close: async () => undefined,
+        onDiagnostic: () => () => undefined
+      } satisfies McpToolClient;
+
+      const manager = await connectAndRegisterMcpTools(new ToolGateway(), {
+        homeDir,
+        maxResourceBytes: 24,
+        createClient: () => client
+      });
+      try {
+        expect(await manager.listResources()).toEqual([
+          expect.objectContaining({
+            serverId: 'catalog',
+            uri: 'file:///large.txt'
+          })
+        ]);
+        expect(await manager.listPrompts()).toEqual([
+          expect.objectContaining({ serverId: 'catalog', name: 'review' })
+        ]);
+        await expect(
+          manager.readResource('catalog', 'file:///large.txt')
+        ).rejects.toThrow('payload exceeds 24 bytes');
+      } finally {
+        await manager.close();
+      }
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }

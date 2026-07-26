@@ -539,6 +539,11 @@ feat(protocol): publish language-neutral wire schemas
 
 ### E3. Resources 与 Prompts
 
+> 已完成：按 server capability 建立 Resources/Prompts 目录；Resource 仅在用户
+> 显式选择后作为带来源的外部 Context Source 加入当前会话，并限制为文本和
+> 128 KiB；Prompt 仅显式预览、限制为 64 KiB，不自动执行或覆盖系统指令。
+> TUI 与 Cloud Web/Worker 共用 `/mcp` 最小入口。
+
 - Resources 作为可追踪 Context Source，而不是伪装成工具输出；
 - Prompts 作为显式用户选择的模板，不静默覆盖系统行为；
 - 明确大小、刷新、来源和可信边界；

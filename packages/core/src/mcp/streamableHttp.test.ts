@@ -5,7 +5,10 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { TraceEvent } from '../domain';
 import { ToolGateway } from '../tools/toolGateway';
+import { AgentRuntime } from '../runtime/agentRuntime';
+import type { TraceStore } from '../trace/traceStore';
 import { McpClient } from './mcpClient';
 import { connectAndRegisterMcpTools } from './register';
 import { StreamableHttpTransport } from './streamableHttp';
@@ -70,6 +73,52 @@ describe('StreamableHttpTransport', () => {
       expect(fixture.state.authenticatedRequests).toBeGreaterThan(0);
       expect(fixture.state.badAuthorizationHeader).toBe(false);
       expect(fixture.state.badProtocolHeader).toBe(false);
+
+      expect(await manager.listResources()).toEqual([
+        expect.objectContaining({
+          serverId: 'remote',
+          uri: 'file:///fixture/readme.md'
+        })
+      ]);
+      expect(
+        (await manager.readResource(
+          'remote',
+          'file:///fixture/readme.md'
+        )).result.contents?.[0]?.text
+      ).toBe('# Fixture resource');
+      expect(await manager.listPrompts()).toEqual([
+        expect.objectContaining({
+          serverId: 'remote',
+          name: 'review'
+        })
+      ]);
+      expect(
+        (await manager.getPrompt('remote', 'review', {
+          target: 'README.md'
+        })).result.messages?.[0]?.content.text
+      ).toBe('Review README.md');
+
+      const runtime = new AgentRuntime({
+        traceStore: new MemoryTraceStore(),
+        mcpManager: manager
+      });
+      const attached = await runtime.runMcpCommand(
+        'resource remote file:///fixture/readme.md'
+      );
+      expect(attached).toContain('external / untrusted');
+      expect(
+        runtime.inspectContext({
+          requestedMode: 'auto',
+          currentUserInput: ''
+        }).includedSources
+      ).toContain(
+        'mcp-resource:remote:file:///fixture/readme.md'
+      );
+      const promptPreview = await runtime.runMcpCommand(
+        'prompt remote review {"target":"README.md"}'
+      );
+      expect(promptPreview).toContain('未自动执行');
+      expect(promptPreview).toContain('Review README.md');
     } finally {
       await manager.close();
     }
@@ -252,7 +301,11 @@ async function handleFixtureRequest(
         id: message.id,
         result: {
           protocolVersion: '2025-11-25',
-          capabilities: { tools: {} },
+          capabilities: {
+            tools: {},
+            resources: {},
+            prompts: {}
+          },
           serverInfo: { name: 'fixture', version: '1.0.0' }
         }
       })
@@ -298,6 +351,59 @@ async function handleFixtureRequest(
     );
     return;
   }
+  if (message.method === 'resources/list') {
+    sendJsonResult(response, message.id, {
+      resources: [
+        {
+          uri: 'file:///fixture/readme.md',
+          name: 'Fixture README',
+          mimeType: 'text/markdown'
+        }
+      ]
+    });
+    return;
+  }
+  if (message.method === 'resources/read') {
+    sendJsonResult(response, message.id, {
+      contents: [
+        {
+          uri: 'file:///fixture/readme.md',
+          mimeType: 'text/markdown',
+          text: '# Fixture resource'
+        }
+      ]
+    });
+    return;
+  }
+  if (message.method === 'prompts/list') {
+    sendJsonResult(response, message.id, {
+      prompts: [
+        {
+          name: 'review',
+          description: 'Review a target',
+          arguments: [{ name: 'target', required: true }]
+        }
+      ]
+    });
+    return;
+  }
+  if (message.method === 'prompts/get') {
+    const args = message.params?.arguments as
+      | Record<string, string>
+      | undefined;
+    sendJsonResult(response, message.id, {
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Review ${args?.target ?? ''}`
+          }
+        }
+      ]
+    });
+    return;
+  }
   if (message.method === 'tools/call' && message.params?.name === 'echo') {
     state.pendingCallId = message.id;
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -319,4 +425,29 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+}
+
+function sendJsonResult(
+  response: ServerResponse,
+  id: number | undefined,
+  result: unknown
+): void {
+  response.writeHead(200, { 'Content-Type': 'application/json' });
+  response.end(JSON.stringify({ jsonrpc: '2.0', id, result }));
+}
+
+class MemoryTraceStore implements TraceStore {
+  private readonly events: TraceEvent[] = [];
+
+  async append(event: TraceEvent): Promise<void> {
+    this.events.push(event);
+  }
+
+  async readRun(runId: string): Promise<TraceEvent[]> {
+    return this.events.filter((event) => event.runId === runId);
+  }
+
+  async listRunIds(): Promise<string[]> {
+    return [...new Set(this.events.map((event) => event.runId))];
+  }
 }

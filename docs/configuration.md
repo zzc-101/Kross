@@ -127,7 +127,19 @@ stdio 或 Streamable HTTP MCP server 可放在 `~/.kross/mcp.json`，也可写�
 
 `risk` 可为 `read`、`write`、`execute` 或 `network`。远程 MCP 默认始终按
 `network` 要求审批；stdio 未覆盖时参考 tool annotations，无法判断也按
-`network` 处理。当前需要重启 Kross 才能重新加载 MCP 列表。
+`network` 处理。
+
+支持的 Resources 和 Prompts 不会静默进入模型上下文。先用 `/mcp` 或
+`/mcp list` 查看目录，再显式执行：
+
+```text
+/mcp resource <serverId> <uri>
+/mcp prompt <serverId> <name> [JSON arguments]
+```
+
+Resource 只把文本内容作为带来源标识的外部、不可信 Context Source 加入当前
+会话，默认响应上限为 128 KiB；Prompt 默认响应上限为 64 KiB，只展示预览，
+不会自动执行或覆盖系统指令。当前需要重启 Kross 才能重新加载 MCP 配置。
 
 ## 多仓项目模板
 

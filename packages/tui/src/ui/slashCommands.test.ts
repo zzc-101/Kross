@@ -14,6 +14,7 @@ describe('slashCommands', () => {
     expect(formatSlashHelp()).toContain('/context');
     expect(formatSlashHelp()).toContain('/instructions');
     expect(formatSlashHelp()).toContain('/skills');
+    expect(formatSlashHelp()).toContain('/mcp [list|resource');
     expect(formatSlashHelp()).toContain('/undo');
     expect(formatSlashHelp()).toContain('/compact');
     expect(formatSlashHelp()).toContain('/resume [sessionId]');
@@ -42,6 +43,9 @@ describe('slashCommands', () => {
     ).toEqual(['/instructions']);
     expect(filterSlashCommands('/ski').map((command) => command.name)).toEqual([
       '/skills'
+    ]);
+    expect(filterSlashCommands('/mcp').map((command) => command.name)).toEqual([
+      '/mcp'
     ]);
     expect(filterSlashCommands('/fr').map((command) => command.name)).toEqual([
       '/free'

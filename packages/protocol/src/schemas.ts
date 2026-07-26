@@ -304,7 +304,7 @@ export const clientCommandSchema = z.discriminatedUnion('type', [
     type: z.literal('session.runtime-command'),
     workspaceId: identifierSchema,
     sessionId: identifierSchema,
-    name: z.enum(['instructions', 'skills', 'processes', 'undo']),
+    name: z.enum(['instructions', 'skills', 'processes', 'undo', 'mcp']),
     argument: z.string().trim().max(1000).optional()
   }),
   z.object({
@@ -473,7 +473,7 @@ export const serverEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('runtime-command.result'),
     data: z.object({
-      name: z.enum(['instructions', 'skills', 'processes', 'undo']),
+      name: z.enum(['instructions', 'skills', 'processes', 'undo', 'mcp']),
       ok: z.boolean(),
       content: z.string()
     })

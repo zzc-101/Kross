@@ -893,6 +893,8 @@ export class WorkerService {
       );
       return;
     }
+    const controller = new AbortController();
+    session.abortController = controller;
     try {
       let content: string;
       if (command.name === 'instructions') {
@@ -933,6 +935,11 @@ export class WorkerService {
               )
             ].join('\n')
           : '当前会话没有托管的后台进程。';
+      } else if (command.name === 'mcp') {
+        content = await session.runtime.runMcpCommand(
+          command.argument || '',
+          controller.signal
+        );
       } else {
         const result = session.runtime.undoMutation(
           command.argument || undefined
@@ -970,6 +977,8 @@ export class WorkerService {
         { type: 'request.accepted', requestId: command.requestId },
         sink
       );
+    } finally {
+      session.abortController = undefined;
     }
   }
 

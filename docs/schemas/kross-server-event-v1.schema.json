@@ -1188,7 +1188,8 @@
                     "instructions",
                     "skills",
                     "processes",
-                    "undo"
+                    "undo",
+                    "mcp"
                   ]
                 },
                 "ok": {

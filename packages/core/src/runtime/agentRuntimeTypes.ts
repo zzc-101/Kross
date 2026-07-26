@@ -18,6 +18,7 @@ import type { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationCoordinator } from '../mutations/mutationService';
 import type { ProcessManager } from '../process/processManager';
+import type { McpManager } from '../mcp/register';
 
 export type {
   PendingConductorExecution,
@@ -63,6 +64,8 @@ export interface AgentRuntimeOptions {
   mutationCoordinator?: MutationCoordinator;
   /** Main-session background process owner. Handles are never persisted. */
   processManager?: ProcessManager;
+  /** Shared MCP catalog and explicit resource/prompt access. */
+  mcpManager?: McpManager;
   /** Loaded ~/.kross/projects.json (optional project template / seed). */
   projectRegistry?: ProjectRegistry;
   /** Absolute path of the registry file (for prompts / errors). */
