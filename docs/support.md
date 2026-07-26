@@ -56,7 +56,8 @@ Gateway 默认使用 Docker Socket 管理 Worker，其权限近似宿主机 root
 - 当前只维护 `main` 和最新预发布版本，不为旧的 `0.x` 分支承诺长期安全更新。
 - `packages/core` 当前是源码扩展边界，不是稳定 SDK。稳定级别见
   [扩展 Kross](extensions.md)；public / experimental 分类描述预发布维护意图，
-  不代表已经发布独立 Core 包。
+  不代表已经发布独立 Core 包。独立发布的触发条件见
+  [SDK 发布决策](sdk-publication.md)。
 
 遇到问题时先查看[故障排查](troubleshooting.md)。可复现问题请附上操作系统、
 Node.js、Docker/Compose、浏览器版本和最小日志；安全问题按

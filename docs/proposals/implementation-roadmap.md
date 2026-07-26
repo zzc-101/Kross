@@ -504,6 +504,9 @@ feat(protocol): publish language-neutral wire schemas
 
 ### D4. SDK 发布决策
 
+> 已完成：v0.1 只发布 CLI，Core/Protocol 继续保持 private；跨语言消费者使用
+> 固定版本 JSON Schema，并为未来 Protocol/Core 独立发布定义产品信号和发布门。
+
 完成 D1–D3 后评估 D4：
 
 - 若只有仓库内部调用方，继续保持 private；

@@ -3,6 +3,8 @@
 Kross 的公开 npm 包名是 `@zzc-101/kross`，安装后的命令是 `kross`。当前采用
 人工确认发布：CI 验证代码与安装产物，但不会自动创建标签、推送镜像或发布 npm
 包。首次公开发布前仍需由项目所有者确认 License、npm scope 和 GitHub 权限。
+`@kross/core` 与 `@kross/protocol` 当前保持 private；原因和独立发布门见
+[SDK 发布决策](sdk-publication.md)。
 
 仓库中的 `release-candidate.yml` 只生成候选产物，没有 `contents: write`、
 `packages: write` 或 npm 发布权限。它不会创建 GitHub Release、推送容器镜像或

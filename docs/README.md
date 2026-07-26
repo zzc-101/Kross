@@ -26,6 +26,7 @@
 | 理解完成门、验证、恢复与工具调度 | [Agent Harness](harness.md) |
 | 运行或扩展确定性 Harness Eval | [确定性 Eval](evaluation.md) |
 | 添加 Skills、MCP、工具、模型或客户端 | [扩展 Kross](extensions.md) |
+| 判断是否直接依赖或发布 Core/Protocol | [SDK 发布决策](sdk-publication.md) |
 | 检查 npm 包并准备版本发布 | [发布指南](releasing.md) |
 
 ## 维护约定

@@ -34,5 +34,7 @@
   支持替换 Runtime、会话级资源隔离和幂等关闭。
 - Cloud Protocol v1 的 Client Command、Server Event 与 Event Envelope
   Draft-07 JSON Schema、兼容性守卫和 Python 消费示例。
+- 明确 v0.1 只发布 CLI；Core/Protocol 保持 private，并记录未来独立 SDK 的触发
+  条件、兼容承诺和发布门。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

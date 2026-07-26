@@ -12,7 +12,8 @@ Kross 提供三层扩展方式。优先选择配置和文件约定；只有这�
 | 协议扩展 | 自定义 Web、移动端或远程 Worker | 以 `PROTOCOL_VERSION` 和 Zod schema 为准 |
 
 `packages/core` 和 `packages/protocol` 目前是 monorepo 私有 workspace，尚未作为
-稳定 SDK 单独发布。Core 顶层导出分为：
+稳定 SDK 单独发布；发布门和未来 SaaS 的消费边界见
+[Core 与 Protocol SDK 发布决策](sdk-publication.md)。Core 顶层导出分为：
 
 - `public`：面向自定义本地 Host 的最小组合契约，`0.x` 期间变更会进入
   `CHANGELOG.md`；
