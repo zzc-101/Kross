@@ -5,5 +5,6 @@ export * from './httpServer';
 export * from './idleReaper';
 export * from './pushService';
 export * from './runtimeConfig';
+export * from './serverMigrations';
 export * from './workerClient';
 export * from './workspaceRegistry';

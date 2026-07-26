@@ -36,6 +36,11 @@ token delta 不落盘。序号通过预留区间保持进程崩溃后的单调�
 `./scripts/start-cloud.sh --logs` 查看日志，使用
 `./scripts/start-cloud.sh --stop` 停止服务并保留数据卷。
 
+升级版本前如需迁移 Gateway 控制面数据，先停止服务并运行
+`./scripts/start-cloud.sh --migrate` 查看只读计划，确认后再运行
+`./scripts/start-cloud.sh --migrate-apply`。完整的备份、回滚和数据边界见
+[数据格式与备份](data-compatibility.md#cloud-控制面迁移命令)。
+
 也可以按以下步骤手动启动：
 
 ```bash

@@ -27,9 +27,9 @@ Kross 生成的运行状态。它们由各自 schema 校验，但当前不承诺
 
 | 数据 | 容器内位置 | 当前版本 | 兼容行为 |
 |---|---|---:|---|
-| 工作区注册表 | Gateway 数据目录 `workspaces.json` | 1 | 未来版本拒绝 |
-| Provider 配置 | Gateway 数据目录 `provider.json` | 1 | 未来版本拒绝 |
-| Push 订阅 | Gateway 数据目录 `push-subscriptions.json` | 1 | 读取旧数组；新写入版本化对象 |
+| 工作区注册表 | Gateway 数据目录 `workspaces.json` | 1 | 旧数组/无版本对象由 Cloud 迁移命令升级；未来版本拒绝 |
+| Provider 配置 | Gateway 数据目录 `provider.json` | 1 | 无版本对象由 Cloud 迁移命令升级；未来版本拒绝 |
+| Push 订阅 | Gateway 数据目录 `push-subscriptions.json` | 1 | 旧数组/无版本对象由 Cloud 迁移命令升级；未来版本拒绝 |
 | Worker 事件 | 工作区 `.kross/cloud-events/*.jsonl` | Protocol 1 | 未来协议版本拒绝 |
 | 请求幂等索引 | 工作区 `.kross/cloud-events/**/requests/*.json` | 1 | 读取旧数组；新写入版本化对象 |
 | 事件序号预留 | 工作区 `.kross/cloud-events/**/sequences/*.seq` | 1 | 读取旧整数；新写入版本化对象 |
@@ -107,6 +107,33 @@ Apply 会在 `~/.kross/.migration.lock` 获取独占锁，重新核对文件没�
 
 工作区删除操作和 `docker compose down -v` 会改变可恢复范围。永久删除前至少
 保留一次可验证归档；单纯停止容器不会删除数据卷。
+
+### Cloud 控制面迁移命令
+
+Cloud 数据使用独立于 `kross migrate` 的迁移入口。先停止 Gateway，再默认只读
+查看计划：
+
+```bash
+./scripts/start-cloud.sh --stop
+./scripts/start-cloud.sh --migrate
+```
+
+确认计划后才显式应用：
+
+```bash
+./scripts/start-cloud.sh --migrate-apply
+```
+
+命令在 `kross-server-data` 卷内执行，只处理 Gateway 数据目录中的
+`workspaces.json`、`provider.json` 和 `push-subscriptions.json`，不会进入任何
+Worker 工作区卷。Apply 会获取 `.cloud-migration.lock`，重新验证规划后文件没有
+变化，把原文件和 SHA-256 manifest 备份到
+`.migration-backups/cloud-<timestamp>/`，再原子替换。后续写入失败时，已经写入
+的文件会自动回滚。
+
+报告的 `boundary` 固定为 `cloud-control-plane`，状态与本地迁移相同。Gateway
+运行时脚本会拒绝执行，以避免控制面继续写入造成不一致。备份可能包含 Git 地址、
+Worker Token、Provider API Key 和 Push endpoint，应按密钥材料保护。
 
 ## 格式变更要求
 

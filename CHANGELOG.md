@@ -51,5 +51,8 @@
   通过 `/trace replay <runId>` 生成纯派生状态；Fixture Eval 自动验证回放契约。
 - Core 本地迁移 F2a：`kross migrate` 默认 dry-run，显式 apply 使用独占锁、
   SHA-256 备份 manifest、原子替换和失败回滚；首批为旧配置与项目模板补 v1。
+- Cloud 控制面迁移 F2b：停止 Gateway 后可独立 dry-run/apply
+  `kross-server-data`，对旧工作区、Provider 和 Push 数据执行备份、原子升级与
+  失败回滚，不跨入 Worker 工作区卷。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

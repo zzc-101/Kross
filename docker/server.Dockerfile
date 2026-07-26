@@ -10,6 +10,7 @@ COPY packages/core packages/core
 COPY packages/protocol packages/protocol
 COPY packages/server packages/server
 RUN node scripts/build-cloud-runtime.mjs server build/server.mjs
+RUN node scripts/build-cloud-runtime.mjs server-migrate build/server-migrate.mjs
 
 FROM node:22-bookworm-slim AS production-deps
 WORKDIR /app
@@ -24,5 +25,6 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-deps /app/node_modules node_modules
 COPY --from=build /app/build/server.mjs dist/server.mjs
+COPY --from=build /app/build/server-migrate.mjs dist/server-migrate.mjs
 EXPOSE 8787
 CMD ["node", "dist/server.mjs"]

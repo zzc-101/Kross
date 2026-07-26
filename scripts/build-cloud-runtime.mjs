@@ -6,9 +6,14 @@ import { build } from 'esbuild';
 const target = process.argv[2];
 const output = process.argv[3];
 
-if ((target !== 'server' && target !== 'worker') || !output) {
+if (
+  (target !== 'server' &&
+    target !== 'server-migrate' &&
+    target !== 'worker') ||
+  !output
+) {
   throw new Error(
-    '用法: node scripts/build-cloud-runtime.mjs <server|worker> <output>'
+    '用法: node scripts/build-cloud-runtime.mjs <server|server-migrate|worker> <output>'
   );
 }
 
@@ -17,7 +22,9 @@ const entryPoint = resolve(
   root,
   target === 'server'
     ? 'packages/server/src/main.ts'
-    : 'packages/worker/src/main.ts'
+    : target === 'server-migrate'
+      ? 'packages/server/src/migrate.ts'
+      : 'packages/worker/src/main.ts'
 );
 const outfile = resolve(root, output);
 

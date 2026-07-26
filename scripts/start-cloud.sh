@@ -14,6 +14,9 @@ usage() {
   ./scripts/start-cloud.sh --no-build  使用现有镜像启动
   ./scripts/start-cloud.sh --stop      停止服务并保留数据卷
   ./scripts/start-cloud.sh --logs      持续查看 Web 与 Gateway 日志
+  ./scripts/start-cloud.sh --migrate   只读检查 Gateway 数据迁移计划
+  ./scripts/start-cloud.sh --migrate-apply
+                                      备份并迁移 Gateway 数据
   ./scripts/start-cloud.sh --help      显示帮助
 EOF
 }
@@ -146,6 +149,20 @@ case "$command" in
     require_docker
     cd "$PROJECT_DIR"
     KROSS_ACCESS_TOKEN=unused docker compose logs -f web gateway
+    ;;
+  --migrate | --migrate-apply)
+    require_docker
+    cd "$PROJECT_DIR"
+    if docker compose ps --status running --services | grep -q '^gateway$'; then
+      echo "错误：执行 Cloud 数据迁移前必须先停止 Gateway。" >&2
+      exit 1
+    fi
+    migrate_flag="--dry-run"
+    if [ "$command" = "--migrate-apply" ]; then
+      migrate_flag="--apply"
+    fi
+    KROSS_ACCESS_TOKEN=unused docker compose run --rm --no-deps gateway \
+      node dist/server-migrate.mjs "$migrate_flag"
     ;;
   --help | -h)
     usage
