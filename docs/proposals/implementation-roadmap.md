@@ -487,6 +487,9 @@ refactor(core): expose a minimal host lifecycle
 
 ### D3. Protocol 语言无关产物
 
+> 已完成：从 Zod 事实源生成版本化 Client Command、Server Event 与 Event
+> Envelope JSON Schema；CI 检查漂移和同版本破坏性变化，并提供 Python 示例。
+
 - 从 Zod schema 导出 JSON Schema 或等价稳定描述；
 - 版本、命令、事件、错误和重放语义进入产物；
 - TypeScript 类型继续从 schema 推导；

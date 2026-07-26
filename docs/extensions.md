@@ -212,7 +212,8 @@ Cloud 的线协议由 `packages/protocol` 中的 Zod schema 定义。客户端�
 当前 HTTP 路由、容器名称、Worker 持久化目录和 Web 组件树属于内部实现，不是稳定
 扩展 API。协议入口见
 [`packages/protocol/src/schemas.ts`](../packages/protocol/src/schemas.ts)，现有 Web
-客户端是首选参考实现。
+客户端是首选 TypeScript 参考实现。其他语言使用版本化 JSON Schema、错误与回放
+语义，详见 [Cloud Protocol](cloud-protocol.md)。
 
 ## 不应依赖的内部细节
 

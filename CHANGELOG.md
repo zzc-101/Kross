@@ -32,5 +32,7 @@
   Checker 快照阻止未分类导出和内部编排模块泄漏。
 - 最小 `createAgentHost` 生命周期：TUI、Headless 和 Worker 复用同一组合入口，
   支持替换 Runtime、会话级资源隔离和幂等关闭。
+- Cloud Protocol v1 的 Client Command、Server Event 与 Event Envelope
+  Draft-07 JSON Schema、兼容性守卫和 Python 消费示例。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

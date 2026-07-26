@@ -1,0 +1,1282 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/zzc-101/Kross/main/docs/schemas/kross-event-envelope-v1.schema.json",
+  "title": "KrossEventEnvelopeV1",
+  "description": "Sequenced Kross Cloud event envelope used for replay.",
+  "x-kross-protocol-version": 1,
+  "$ref": "#/definitions/KrossEventEnvelopeV1",
+  "definitions": {
+    "KrossEventEnvelopeV1": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "gateway",
+            "worker"
+          ]
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "sessionId": {
+          "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+        },
+        "correlationId": {
+          "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "event": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "request.accepted"
+                },
+                "requestId": {
+                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                }
+              },
+              "required": [
+                "type",
+                "requestId"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "request.error"
+                },
+                "requestId": {
+                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                },
+                "code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "stream"
+                },
+                "data": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "turn-start"
+                        },
+                        "iteration": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "iteration"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "tools-start"
+                        },
+                        "iteration": {
+                          "type": "integer"
+                        },
+                        "count": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "iteration",
+                        "count"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "text-delta"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "thinking-delta"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "result"
+                        },
+                        "result": {
+                          "type": "object",
+                          "properties": {
+                            "runId": {
+                              "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                            },
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "auto",
+                                "plan",
+                                "conductor"
+                              ]
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "completed",
+                                "failed",
+                                "cancelled",
+                                "approval-required"
+                              ]
+                            },
+                            "cancellationReason": {
+                              "type": "string",
+                              "enum": [
+                                "user-interrupt",
+                                "approval-gate",
+                                "pending-approval",
+                                "missing-workspace-root",
+                                "system"
+                              ]
+                            },
+                            "summary": {
+                              "type": "string"
+                            },
+                            "thinking": {
+                              "type": "string"
+                            },
+                            "report": {
+                              "type": "object",
+                              "properties": {
+                                "changedFiles": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "evidence": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "risks": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "verification": {
+                                  "type": "object",
+                                  "properties": {
+                                    "status": {
+                                      "type": "string",
+                                      "enum": [
+                                        "passed",
+                                        "failed",
+                                        "not-run",
+                                        "not-needed"
+                                      ]
+                                    },
+                                    "commands": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "evidence": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "reason": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "status",
+                                    "commands",
+                                    "evidence"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "changedFiles",
+                                "evidence",
+                                "risks",
+                                "verification"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "pendingApproval": {
+                              "type": "object",
+                              "properties": {
+                                "runId": {
+                                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                                },
+                                "toolCallId": {
+                                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                                },
+                                "toolName": {
+                                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                                },
+                                "risk": {
+                                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                                },
+                                "reason": {
+                                  "type": "string"
+                                },
+                                "command": {
+                                  "type": "string"
+                                },
+                                "workDir": {
+                                  "type": "string"
+                                },
+                                "inputPreview": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "runId",
+                                "toolCallId",
+                                "toolName",
+                                "risk",
+                                "inputPreview"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "runId",
+                            "mode",
+                            "status",
+                            "summary",
+                            "report"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "trace"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                    },
+                    "runId": {
+                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                    },
+                    "type": {
+                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "parentId": {
+                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                    },
+                    "payload": {
+                      "type": "object",
+                      "additionalProperties": {},
+                      "default": {}
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "runId",
+                    "type",
+                    "timestamp"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "approval.pending"
+                },
+                "data": {
+                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/2/properties/data/anyOf/4/properties/result/properties/pendingApproval"
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "session.snapshot"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "preview": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "messageCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "preview",
+                        "createdAt",
+                        "updatedAt",
+                        "messageCount"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "from": {
+                            "type": "string",
+                            "enum": [
+                              "user",
+                              "agent",
+                              "system",
+                              "tool",
+                              "thinking"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "expanded": {
+                            "type": "boolean"
+                          },
+                          "tool": {
+                            "type": "object",
+                            "properties": {
+                              "callId": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "risk": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "running",
+                                  "completed",
+                                  "failed",
+                                  "denied",
+                                  "cancelled",
+                                  "awaiting"
+                                ]
+                              },
+                              "summary": {
+                                "type": "string"
+                              },
+                              "inputPreview": {
+                                "type": "string"
+                              },
+                              "durationMs": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "linesAdded": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "linesRemoved": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "detailLines": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "text": {
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "type": "string",
+                                      "enum": [
+                                        "add",
+                                        "del",
+                                        "meta",
+                                        "ctx"
+                                      ]
+                                    },
+                                    "lineNo": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0
+                                    }
+                                  },
+                                  "required": [
+                                    "text"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "detailTruncated": {
+                                "type": "boolean"
+                              },
+                              "items": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "callId": {
+                                      "type": "string"
+                                    },
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "preview": {
+                                      "type": "string"
+                                    },
+                                    "status": {
+                                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/5/properties/data/properties/messages/items/properties/tool/properties/status"
+                                    },
+                                    "summary": {
+                                      "type": "string"
+                                    },
+                                    "durationMs": {
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "linesAdded": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "linesRemoved": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    }
+                                  },
+                                  "required": [
+                                    "status"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "status"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "verification": {
+                            "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/2/properties/data/anyOf/4/properties/result/properties/report/properties/verification"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "from",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "pendingApproval": {
+                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/2/properties/data/anyOf/4/properties/result/properties/pendingApproval"
+                    },
+                    "pendingPlan": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "plan"
+                            },
+                            "goal": {
+                              "type": "string"
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "plan"
+                            },
+                            "planText": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "goal",
+                            "mode",
+                            "planText"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "conductor"
+                            },
+                            "goal": {
+                              "type": "string"
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "conductor"
+                            },
+                            "plan": {}
+                          },
+                          "required": [
+                            "kind",
+                            "goal",
+                            "mode"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "todos": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                          },
+                          "content": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "in_progress",
+                              "completed",
+                              "cancelled"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "content",
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "traces": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/3/properties/data"
+                      },
+                      "default": []
+                    },
+                    "contextUsage": {
+                      "type": "object",
+                      "properties": {
+                        "usedChars": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "usedTokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "maxTokens": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "compactThreshold": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "lastUsageTokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "ratio": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "headerLabel": {
+                          "type": "string"
+                        },
+                        "headerRatio": {
+                          "type": "number",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "usedChars",
+                        "usedTokens",
+                        "maxTokens",
+                        "compactThreshold",
+                        "label",
+                        "ratio",
+                        "headerLabel",
+                        "headerRatio"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "mode": {
+                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/2/properties/data/anyOf/4/properties/result/properties/mode"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "thinkingEffort": {
+                      "type": "string",
+                      "enum": [
+                        "off",
+                        "minimal",
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh"
+                      ]
+                    },
+                    "permissionMode": {
+                      "type": "string",
+                      "enum": [
+                        "default",
+                        "classifier",
+                        "auto"
+                      ],
+                      "default": "default"
+                    }
+                  },
+                  "required": [
+                    "summary",
+                    "messages",
+                    "todos",
+                    "mode"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "session.list"
+                },
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/5/properties/data/properties/summary"
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "session.updated"
+                },
+                "data": {
+                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/5/properties/data/properties/summary"
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "session.deleted"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "sessionId": {
+                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                    }
+                  },
+                  "required": [
+                    "sessionId"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "workspace.list"
+                },
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      "gitUrl": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "defaultBranch": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "creating",
+                          "ready",
+                          "stopped",
+                          "error"
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "lastActiveAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "gitUrl",
+                      "status",
+                      "createdAt",
+                      "updatedAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "workspace.updated"
+                },
+                "data": {
+                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/9/properties/data/items"
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "workspace.runtime-status"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "activeRuns": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "loadedSessions": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "activeRuns",
+                    "loadedSessions"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "models.list"
+                },
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "provider": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "provider"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "workspace.progress"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "requestId": {
+                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                    },
+                    "workspaceId": {
+                      "$ref": "#/definitions/KrossEventEnvelopeV1/properties/workspaceId"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "stage": {
+                      "type": "string",
+                      "enum": [
+                        "validating",
+                        "provisioning",
+                        "cloning",
+                        "starting",
+                        "ready",
+                        "failed"
+                      ]
+                    },
+                    "message": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "requestId",
+                    "workspaceId",
+                    "name",
+                    "stage",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "todo.snapshot"
+                },
+                "data": {
+                  "$ref": "#/definitions/KrossEventEnvelopeV1/properties/event/anyOf/5/properties/data/properties/todos"
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "git.result"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "operation": {
+                      "type": "string",
+                      "enum": [
+                        "push",
+                        "pull-request"
+                      ]
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "output": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "operation",
+                    "ok",
+                    "output"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "inspection.result"
+                },
+                "data": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "trace"
+                        },
+                        "content": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "content"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "diff"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "patches": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "staged": {
+                                "type": "boolean"
+                              },
+                              "patch": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "staged",
+                              "patch"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "summary",
+                        "patches"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "runtime-command.result"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "enum": [
+                        "instructions",
+                        "skills",
+                        "processes",
+                        "undo"
+                      ]
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "ok",
+                    "content"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "replay.complete"
+                },
+                "fromSeq": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "toSeq": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "type",
+                "fromSeq",
+                "toSeq"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "workspaceId",
+        "seq",
+        "timestamp",
+        "event"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

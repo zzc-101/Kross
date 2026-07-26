@@ -174,7 +174,9 @@ sequenceDiagram
 
 浏览器上行使用 HTTP POST，下行使用 SSE；Gateway 与 Worker 的内部连接使用
 WebSocket。客户端通过 `requestId` 保证命令幂等，通过事件 `seq` 恢复和去重。
-Protocol schema 是 Web、Gateway 与 Worker 的共享边界。
+Protocol schema 是 Web、Gateway 与 Worker 的共享边界，同时导出版本化 JSON
+Schema 供非 TypeScript 客户端消费。版本、错误和回放语义见
+[Cloud Protocol](cloud-protocol.md)。
 
 每个工作区使用独立 Worker、Docker volume 和 bridge 网络。Web 静态文件由独立
 Nginx 容器提供，Gateway 不包含前端产物，因此前后端可以分别构建和发布。

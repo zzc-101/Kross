@@ -1,0 +1,12 @@
+{
+  "protocolVersion": 1,
+  "source": "gateway",
+  "workspaceId": "workspace-demo",
+  "correlationId": "request-demo",
+  "seq": 1,
+  "timestamp": "2026-01-01T00:00:00.000Z",
+  "event": {
+    "type": "request.accepted",
+    "requestId": "request-demo"
+  }
+}

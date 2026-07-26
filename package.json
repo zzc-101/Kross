@@ -50,7 +50,9 @@
     "test": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.base.json",
     "package:check": "npm run build && node scripts/package-smoke.mjs",
-    "check": "npm run version:check && npm run api:check && npm run typecheck && npm test -- --run && npm run docs:check && npm run package:check",
+    "protocol:check": "tsx scripts/generate-protocol-schemas.ts --check",
+    "protocol:update": "tsx scripts/generate-protocol-schemas.ts --update",
+    "check": "npm run version:check && npm run api:check && npm run protocol:check && npm run typecheck && npm test -- --run && npm run docs:check && npm run package:check",
     "prepack": "npm run build"
   },
   "dependencies": {
@@ -66,10 +68,12 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.18",
+    "ajv": "^8.17.1",
     "esbuild": "^0.28.1",
     "ink-testing-library": "^3.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "zod-to-json-schema": "^3.25.0"
   }
 }

@@ -1,0 +1,866 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/zzc-101/Kross/main/docs/schemas/kross-client-command-v1.schema.json",
+  "title": "KrossClientCommandV1",
+  "description": "Commands accepted by the Kross Cloud Gateway and Worker.",
+  "x-kross-protocol-version": 1,
+  "$ref": "#/definitions/KrossClientCommandV1",
+  "definitions": {
+    "KrossClientCommandV1": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "type": "number",
+              "const": 1
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "type": {
+              "type": "string",
+              "const": "session.create"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.list"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "limit": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.resume"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "lastSeq": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.rename"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId",
+            "title"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.delete"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.input"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "input": {
+              "type": "string",
+              "minLength": 1
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "plan",
+                "conductor"
+              ],
+              "default": "auto"
+            },
+            "planApproved": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId",
+            "input"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.approval"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "runId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "approved": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId",
+            "runId",
+            "approved"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.plan-approval"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "approved": {
+              "type": "boolean"
+            },
+            "input": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId",
+            "approved"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.abort"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.settings"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "thinkingEffort": {
+              "type": "string",
+              "enum": [
+                "off",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
+            },
+            "permissionMode": {
+              "type": "string",
+              "enum": [
+                "default",
+                "classifier",
+                "auto"
+              ]
+            },
+            "mode": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/5/properties/mode"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.inspect"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "trace",
+                "diff"
+              ]
+            },
+            "argument": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.compact"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "instructions": {
+              "type": "string",
+              "maxLength": 4000
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "session.runtime-command"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "name": {
+              "type": "string",
+              "enum": [
+                "instructions",
+                "skills",
+                "processes",
+                "undo"
+              ]
+            },
+            "argument": {
+              "type": "string",
+              "maxLength": 1000
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "workspace.list"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "workspace.create"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "gitUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "defaultBranch": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+            },
+            "credential": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "https-token"
+                    },
+                    "token": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "token"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "ssh-key"
+                    },
+                    "privateKey": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "privateKey"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "name",
+            "gitUrl"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "workspace.start"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "workspace.stop"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "workspace.status"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "models.list"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "workspace.delete"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "removeVolume": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "git.push"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "remote": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/14/properties/defaultBranch",
+              "default": "origin"
+            },
+            "branch": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/14/properties/defaultBranch"
+            },
+            "setUpstream": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId",
+            "branch"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "git.pull-request"
+            },
+            "workspaceId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "sessionId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "body": {
+              "type": "string",
+              "default": ""
+            },
+            "base": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/14/properties/defaultBranch"
+            },
+            "head": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/14/properties/defaultBranch"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "workspaceId",
+            "sessionId",
+            "title",
+            "base",
+            "head"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/protocolVersion"
+            },
+            "requestId": {
+              "$ref": "#/definitions/KrossClientCommandV1/anyOf/0/properties/requestId"
+            },
+            "type": {
+              "type": "string",
+              "const": "push.subscribe"
+            },
+            "subscription": {
+              "type": "object",
+              "properties": {
+                "endpoint": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "expirationTime": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "keys": {
+                  "type": "object",
+                  "properties": {
+                    "p256dh": {
+                      "type": "string"
+                    },
+                    "auth": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "p256dh",
+                    "auth"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "endpoint",
+                "keys"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "requestId",
+            "type",
+            "subscription"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}
