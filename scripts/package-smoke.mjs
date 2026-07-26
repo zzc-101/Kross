@@ -135,6 +135,39 @@ try {
   ]) {
     delete smokeEnvironment[name];
   }
+  const headless = spawnSync(
+    process.execPath,
+    [installedEntry, 'exec', 'inspect the package', '--json'],
+    {
+      cwd: installDirectory,
+      encoding: 'utf8',
+      env: smokeEnvironment,
+      timeout: 15_000
+    }
+  );
+  if (headless.error) {
+    throw new Error(
+      `Installed headless startup failed: ${headless.error.message}`
+    );
+  }
+  const headlessLines = headless.stdout.trim().split('\n').filter(Boolean);
+  const headlessEvents = headlessLines.map((line) => JSON.parse(line));
+  if (
+    headless.status !== 3 ||
+    headlessEvents.length !== 1 ||
+    headlessEvents[0]?.schemaVersion !== 1 ||
+    headlessEvents[0]?.type !== 'error' ||
+    headlessEvents[0]?.data?.category !== 'configuration'
+  ) {
+    throw new Error(
+      [
+        `Installed headless config smoke exited with ${String(headless.status)}`,
+        headless.stdout,
+        headless.stderr
+      ].join('\n')
+    );
+  }
+
   const startup = spawnSync(process.execPath, [installedEntry], {
     cwd: installDirectory,
     encoding: 'utf8',
@@ -162,7 +195,7 @@ try {
   }
 
   console.log(
-    `Package smoke test passed: ${packageJson.name}@${packageJson.version} (${packedFiles.size} files, TUI ready)`
+    `Package smoke test passed: ${packageJson.name}@${packageJson.version} (${packedFiles.size} files, TUI/headless ready)`
   );
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
