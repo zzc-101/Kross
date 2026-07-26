@@ -578,10 +578,10 @@ feat(protocol): publish language-neutral wire schemas
 
 ### F2. 完整迁移框架
 
-> 进度：Core 本地 F2a 已完成。`kross migrate` 默认 dry-run，显式 apply 时使用
-> 独占锁、并发变更校验、SHA-256 manifest、原文件备份、原子替换和失败回滚；
-> 首批只迁移无版本 `config.json` / `projects.json` 到 v1。Cloud 控制面数据保持
-> 独立，待 F2b 实现，不能由 Core 命令跨边界修改。
+> 已完成：Core 本地 F2a 使用 `kross migrate`；Cloud F2b 使用停止 Gateway 后
+> 独立执行的 `--migrate` / `--migrate-apply`。两条迁移链都默认 dry-run，具备
+> 独占锁、并发变更校验、SHA-256 manifest、原文件备份、原子替换和失败回滚，
+> 且不会跨数据边界写入。
 
 - 在 A2 的版本锚点基础上引入逐版本迁移；
 - 迁移前备份、失败回滚和 dry-run；
@@ -589,11 +589,19 @@ feat(protocol): publish language-neutral wire schemas
 
 ### F3. Provider Capability
 
+> 已完成：Capability v1 在 Provider Adapter/模型目录边界声明工具调用、思考、
+> structured output、prompt caching 和多模态读取；Runtime、Worker 和 Web
+> 只消费声明，未知模型使用保守默认值，不增加模型名称判断。
+
 - 工具调用、thinking、structured output、prompt caching、多模态读取；
 - 能力检测留在 Provider Adapter；
 - Runtime 不增加模型名称判断。
 
 ### F4. 成本与兼容性报告
+
+> 已完成：LLM Client 记录不含 prompt/正文/密钥的 token、估算费用、延迟、
+> 限流和稳定错误类别；Eval `--matrix` 只根据实际 Case 报告聚合 Provider/模型
+> capability 证据和费用覆盖率，不为缺失价格或未经测试的模型编造结论。
 
 - Token、费用、延迟、限流和错误类别；
 - 结合 Eval 输出 Provider 矩阵；
