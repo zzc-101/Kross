@@ -22,6 +22,10 @@ import {
   capabilitiesForNativeAdapter,
   type LlmCapabilities
 } from './providerCapabilities';
+import {
+  LlmCallMetricsRecorder,
+  type LlmCallMetrics
+} from './providerObservability';
 
 interface OpenAiChatResponse {
   model?: string;
@@ -46,6 +50,9 @@ interface OpenAiChatResponse {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
+    cost?: number;
   };
 }
 
@@ -69,6 +76,9 @@ interface OpenAiStreamResponse {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
+    cost?: number;
   };
 }
 
@@ -83,6 +93,7 @@ export class OpenAiProtocolClient implements LlmClient {
   private _model: string;
   private _thinkingEffort: ThinkingEffort;
   private _lastUsage: LlmUsage | undefined;
+  private readonly metrics = new LlmCallMetricsRecorder();
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
 
@@ -118,8 +129,13 @@ export class OpenAiProtocolClient implements LlmClient {
     return this._lastUsage;
   }
 
+  get lastCallMetrics(): LlmCallMetrics | undefined {
+    return this.metrics.last;
+  }
+
   clearLastUsage(): void {
     this._lastUsage = undefined;
+    this.metrics.clear();
   }
 
   setModel(model: string): void {
@@ -135,14 +151,25 @@ export class OpenAiProtocolClient implements LlmClient {
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
-    const response = await this.fetchImpl(this.url(), {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(this.body(request, false)),
-      signal: request.signal
-    });
-
-    await ensureOk(this.provider, response);
+    const started = this.metrics.start();
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.url(), {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(this.body(request, false)),
+        signal: request.signal
+      });
+      await ensureOk(this.provider, response);
+    } catch (error) {
+      this.metrics.fail(
+        this.provider,
+        request.model ?? this._model,
+        started,
+        error
+      );
+      throw error;
+    }
     const raw = (await response.json()) as OpenAiChatResponse;
     const message = raw.choices?.[0]?.message;
     const thinking = extractOpenAiThinking(message);
@@ -157,24 +184,40 @@ export class OpenAiProtocolClient implements LlmClient {
       usage: {
         inputTokens: raw.usage?.prompt_tokens,
         outputTokens: raw.usage?.completion_tokens,
-        totalTokens: raw.usage?.total_tokens
+        totalTokens: raw.usage?.total_tokens,
+        cacheReadTokens: raw.usage?.prompt_tokens_details?.cached_tokens,
+        reasoningTokens:
+          raw.usage?.completion_tokens_details?.reasoning_tokens,
+        estimatedCostUsd: raw.usage?.cost
       }
     };
     this._lastUsage = result.usage;
+    this.metrics.complete(this.provider, result.model, started, result.usage);
     return result;
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    const started = this.metrics.start();
     throwIfAborted(request.signal);
     this._lastUsage = undefined;
-    const response = await this.fetchImpl(this.url(), {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(this.body(request, true)),
-      signal: request.signal
-    });
-
-    await ensureOk(this.provider, response);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.url(), {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(this.body(request, true)),
+        signal: request.signal
+      });
+      await ensureOk(this.provider, response);
+    } catch (error) {
+      this.metrics.fail(
+        this.provider,
+        request.model ?? this._model,
+        started,
+        error
+      );
+      throw error;
+    }
 
     const pendingToolCalls = new Map<number, StreamingToolCallAccumulator>();
     let usage: LlmUsage | undefined;
@@ -187,6 +230,12 @@ export class OpenAiProtocolClient implements LlmClient {
       if (event.data === '[DONE]') {
         yield* flushToolCalls(pendingToolCalls);
         this._lastUsage = usage;
+        this.metrics.complete(
+          this.provider,
+          request.model ?? this._model,
+          started,
+          usage
+        );
         yield { type: 'done', ...(usage ? { usage } : {}) };
         return;
       }
@@ -196,7 +245,12 @@ export class OpenAiProtocolClient implements LlmClient {
         usage = {
           inputTokens: parsed.usage.prompt_tokens,
           outputTokens: parsed.usage.completion_tokens,
-          totalTokens: parsed.usage.total_tokens
+          totalTokens: parsed.usage.total_tokens,
+          cacheReadTokens:
+            parsed.usage.prompt_tokens_details?.cached_tokens,
+          reasoningTokens:
+            parsed.usage.completion_tokens_details?.reasoning_tokens,
+          estimatedCostUsd: parsed.usage.cost
         };
       }
       const delta = parsed.choices?.[0]?.delta;
@@ -226,6 +280,12 @@ export class OpenAiProtocolClient implements LlmClient {
 
     yield* flushToolCalls(pendingToolCalls);
     this._lastUsage = usage;
+    this.metrics.complete(
+      this.provider,
+      request.model ?? this._model,
+      started,
+      usage
+    );
     yield { type: 'done', ...(usage ? { usage } : {}) };
   }
 

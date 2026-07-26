@@ -110,7 +110,7 @@ export const evalReportSchema = z.object({
   runtime: z.object({
     applicationVersion: z.string(),
     promptVersion: z.number().int().positive(),
-    provider: z.literal('fixture'),
+    provider: z.string().min(1),
     model: z.string()
   }),
   status: z.enum(['passed', 'failed', 'error', 'timeout']),
@@ -131,7 +131,7 @@ export const evalReportSchema = z.object({
     inputTokens: z.number().int().nonnegative(),
     outputTokens: z.number().int().nonnegative(),
     totalTokens: z.number().int().nonnegative(),
-    estimatedCostUsd: z.number().nonnegative()
+    estimatedCostUsd: z.number().nonnegative().optional()
   }),
   result: z
     .object({
@@ -161,6 +161,19 @@ export const evalReportSchema = z.object({
       'runtime',
       'timeout',
       'verification'
+    ])
+    .optional(),
+  providerErrorCategory: z
+    .enum([
+      'authentication',
+      'permission',
+      'rate-limit',
+      'invalid-request',
+      'server',
+      'network',
+      'timeout',
+      'aborted',
+      'unknown'
     ])
     .optional(),
   error: z.string().optional(),

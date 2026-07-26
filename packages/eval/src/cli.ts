@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 
 import { evalCaseSchema } from './schema';
 import { caseNameFromPath, runEvalCase } from './runner';
+import { buildProviderMatrix } from './providerMatrix';
 
 const packageRoot = resolve(import.meta.dirname, '..');
 const args = parseArgs(process.argv.slice(2));
@@ -46,7 +47,13 @@ for (const file of caseFiles) {
   }
 }
 
-console.log(`${JSON.stringify(reports, null, 2)}\n`);
+console.log(
+  `${JSON.stringify(
+    args.matrix ? { reports, providerMatrix: buildProviderMatrix(reports) } : reports,
+    null,
+    2
+  )}\n`
+);
 if (reports.some((report) => report.status !== 'passed')) {
   process.exitCode = 1;
 }
@@ -55,12 +62,14 @@ function parseArgs(values: string[]): {
   fixture: boolean;
   caseId?: string;
   keep: boolean;
+  matrix: boolean;
 } {
   const parsed: {
     fixture: boolean;
     caseId?: string;
     keep: boolean;
-  } = { fixture: false, keep: false };
+    matrix: boolean;
+  } = { fixture: false, keep: false, matrix: false };
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (value === '--fixture') {
@@ -69,6 +78,10 @@ function parseArgs(values: string[]): {
     }
     if (value === '--keep') {
       parsed.keep = true;
+      continue;
+    }
+    if (value === '--matrix') {
+      parsed.matrix = true;
       continue;
     }
     if (value === '--case' && values[index + 1]) {

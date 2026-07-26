@@ -24,6 +24,10 @@ import {
   capabilitiesForNativeAdapter,
   type LlmCapabilities
 } from './providerCapabilities';
+import {
+  LlmCallMetricsRecorder,
+  type LlmCallMetrics
+} from './providerObservability';
 
 interface AnthropicMessageResponse {
   model?: string;
@@ -39,6 +43,8 @@ interface AnthropicMessageResponse {
   usage?: {
     input_tokens?: number;
     output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
   };
 }
 
@@ -64,11 +70,15 @@ interface AnthropicStreamResponse {
     usage?: {
       input_tokens?: number;
       output_tokens?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
     };
   };
   usage?: {
     input_tokens?: number;
     output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
   };
 }
 
@@ -83,6 +93,7 @@ export class AnthropicProtocolClient implements LlmClient {
   private _model: string;
   private _thinkingEffort: ThinkingEffort;
   private _lastUsage: LlmUsage | undefined;
+  private readonly metrics = new LlmCallMetricsRecorder();
   private readonly baseUrl: string;
   private readonly fetchImpl: LlmFetch;
   private readonly anthropicVersion: string;
@@ -119,8 +130,13 @@ export class AnthropicProtocolClient implements LlmClient {
     return this._lastUsage;
   }
 
+  get lastCallMetrics(): LlmCallMetrics | undefined {
+    return this.metrics.last;
+  }
+
   clearLastUsage(): void {
     this._lastUsage = undefined;
+    this.metrics.clear();
   }
 
   setModel(model: string): void {
@@ -136,14 +152,25 @@ export class AnthropicProtocolClient implements LlmClient {
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
-    const response = await this.fetchImpl(this.url(), {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(this.body(request, false)),
-      signal: request.signal
-    });
-
-    await ensureOk(this.provider, response);
+    const started = this.metrics.start();
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.url(), {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(this.body(request, false)),
+        signal: request.signal
+      });
+      await ensureOk(this.provider, response);
+    } catch (error) {
+      this.metrics.fail(
+        this.provider,
+        request.model ?? this._model,
+        started,
+        error
+      );
+      throw error;
+    }
     const raw = (await response.json()) as AnthropicMessageResponse;
     const inputTokens = raw.usage?.input_tokens;
     const outputTokens = raw.usage?.output_tokens;
@@ -166,24 +193,38 @@ export class AnthropicProtocolClient implements LlmClient {
         totalTokens:
           inputTokens !== undefined && outputTokens !== undefined
             ? inputTokens + outputTokens
-            : undefined
+            : undefined,
+        cacheReadTokens: raw.usage?.cache_read_input_tokens,
+        cacheWriteTokens: raw.usage?.cache_creation_input_tokens
       }
     };
     this._lastUsage = result.usage;
+    this.metrics.complete(this.provider, result.model, started, result.usage);
     return result;
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    const started = this.metrics.start();
     throwIfAborted(request.signal);
     this._lastUsage = undefined;
-    const response = await this.fetchImpl(this.url(), {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(this.body(request, true)),
-      signal: request.signal
-    });
-
-    await ensureOk(this.provider, response);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.url(), {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(this.body(request, true)),
+        signal: request.signal
+      });
+      await ensureOk(this.provider, response);
+    } catch (error) {
+      this.metrics.fail(
+        this.provider,
+        request.model ?? this._model,
+        started,
+        error
+      );
+      throw error;
+    }
 
     const pendingToolUses = new Map<number, StreamingToolUseAccumulator>();
     let usage: LlmUsage | undefined;
@@ -195,6 +236,12 @@ export class AnthropicProtocolClient implements LlmClient {
     )) {
       if (event.event === 'message_stop') {
         this._lastUsage = usage;
+        this.metrics.complete(
+          this.provider,
+          request.model ?? this._model,
+          started,
+          usage
+        );
         yield { type: 'done', ...(usage ? { usage } : {}) };
         return;
       }
@@ -210,7 +257,11 @@ export class AnthropicProtocolClient implements LlmClient {
           totalTokens:
             inputTokens !== undefined && outputTokens !== undefined
               ? inputTokens + outputTokens
-              : undefined
+              : undefined,
+          cacheReadTokens:
+            eventUsage.cache_read_input_tokens ?? usage?.cacheReadTokens,
+          cacheWriteTokens:
+            eventUsage.cache_creation_input_tokens ?? usage?.cacheWriteTokens
         };
       }
       if (parsed.type === 'error' || parsed.error) {
@@ -274,6 +325,12 @@ export class AnthropicProtocolClient implements LlmClient {
     }
 
     this._lastUsage = usage;
+    this.metrics.complete(
+      this.provider,
+      request.model ?? this._model,
+      started,
+      usage
+    );
     yield { type: 'done', ...(usage ? { usage } : {}) };
   }
 

@@ -57,5 +57,8 @@
 - Provider Capability v1：由 Provider Adapter/模型目录声明工具调用、思考、
   structured output、prompt caching 和多模态读取能力；Runtime 与 Cloud 只消费
   声明，不再需要新增模型名称判断。
+- Provider 调用指标与 Eval 兼容矩阵：记录不含内容的 token、估算费用、延迟、
+  限流和稳定错误类别；按实测 case 聚合 Provider/模型能力，不为缺失价格或未经
+  测试的模型编造结论。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

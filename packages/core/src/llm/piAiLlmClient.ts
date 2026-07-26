@@ -42,6 +42,10 @@ import {
   capabilitiesForPiModel,
   type LlmCapabilities
 } from './providerCapabilities';
+import {
+  LlmCallMetricsRecorder,
+  type LlmCallMetrics
+} from './providerObservability';
 
 /** 流式两次 chunk 之间最长空闲；超时当作取消，避免半开连接死等 + UI 空转 */
 const STREAM_IDLE_MS = 180_000;
@@ -56,6 +60,7 @@ export class PiAiLlmClient implements LlmClient {
   private _model: string;
   private _thinkingEffort: ThinkingEffort;
   private _lastUsage: LlmUsage | undefined;
+  private readonly metrics = new LlmCallMetricsRecorder();
 
   private readonly models: MutableModels;
   private piModel: Model<Api>;
@@ -103,8 +108,13 @@ export class PiAiLlmClient implements LlmClient {
     return this._lastUsage;
   }
 
+  get lastCallMetrics(): LlmCallMetrics | undefined {
+    return this.metrics.last;
+  }
+
   clearLastUsage(): void {
     this._lastUsage = undefined;
+    this.metrics.clear();
   }
 
   setModel(model: string): void {
@@ -124,6 +134,7 @@ export class PiAiLlmClient implements LlmClient {
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
+    const started = this.metrics.start();
     throwIfAborted(request.signal);
     const model = this.modelForRequest(request);
     const context = toPiContext(request.messages, request.tools, {
@@ -133,14 +144,20 @@ export class PiAiLlmClient implements LlmClient {
     });
 
     // raceAbort：即使 pi-ai 未及时响应 signal，await 也能在 Esc 时立刻解开
-    const message = await raceAbort(
-      this.models.completeSimple(
-        model,
-        context,
-        this.simpleStreamOptions(request, model)
-      ),
-      request.signal
-    );
+    let message;
+    try {
+      message = await raceAbort(
+        this.models.completeSimple(
+          model,
+          context,
+          this.simpleStreamOptions(request, model)
+        ),
+        request.signal
+      );
+    } catch (error) {
+      this.metrics.fail(this.provider, model.id, started, error);
+      throw error;
+    }
 
     if (message.stopReason === 'aborted' || request.signal?.aborted) {
       throw abortReason(request.signal, message.errorMessage ?? 'request aborted');
@@ -154,10 +171,17 @@ export class PiAiLlmClient implements LlmClient {
 
     const response = fromPiAssistantMessage(message, this.provider);
     this._lastUsage = response.usage;
+    this.metrics.complete(
+      this.provider,
+      response.model || model.id,
+      started,
+      response.usage
+    );
     return response;
   }
 
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    const started = this.metrics.start();
     throwIfAborted(request.signal);
     this._lastUsage = undefined;
     const model = this.modelForRequest(request);
@@ -196,10 +220,17 @@ export class PiAiLlmClient implements LlmClient {
         }
         if (mapped.type === 'done') {
           this._lastUsage = mapped.usage;
+          this.metrics.complete(
+            this.provider,
+            model.id,
+            started,
+            mapped.usage
+          );
         }
         yield mapped;
       }
     } catch (error) {
+      this.metrics.fail(this.provider, model.id, started, error);
       if (isOperationAborted(error, request.signal)) {
         throw error instanceof Error ? error : abortReason(request.signal);
       }

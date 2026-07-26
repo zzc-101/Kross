@@ -253,7 +253,11 @@ function fromPiUsage(usage: Usage | undefined): LlmUsage | undefined {
   return {
     inputTokens: usage.input,
     outputTokens: usage.output,
-    totalTokens: usage.totalTokens
+    totalTokens: usage.totalTokens,
+    cacheReadTokens: usage.cacheRead,
+    cacheWriteTokens: usage.cacheWrite,
+    reasoningTokens: usage.reasoning,
+    estimatedCostUsd: usage.cost.total
   };
 }
 

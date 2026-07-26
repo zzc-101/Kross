@@ -72,6 +72,14 @@ export {
 } from '../llm/providerCapabilities';
 
 export {
+  LLM_CALL_METRICS_VERSION,
+  classifyLlmError,
+  withLlmObservability,
+  type LlmCallMetrics,
+  type LlmErrorCategory
+} from '../llm/providerObservability';
+
+export {
   LLM_PROVIDERS,
   getLlmProviderDefinition,
   hasProviderCredentialsFromEnv,

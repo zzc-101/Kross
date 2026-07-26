@@ -28,6 +28,7 @@
 | 添加 Skills、MCP、工具、模型或客户端 | [扩展 Kross](extensions.md) |
 | 判断是否直接依赖或发布 Core/Protocol | [SDK 发布决策](sdk-publication.md) |
 | 理解模型能力检测和兼容边界 | [Provider 能力](provider-capabilities.md) |
+| 查看 LLM token、费用、延迟和错误观测边界 | [Provider 调用观测](provider-observability.md) |
 | 检查 npm 包并准备版本发布 | [发布指南](releasing.md) |
 | 查看当前实施暂停点和恢复顺序 | [2026-07-27 实施进度快照](proposals/implementation-progress-2026-07-27.md) |
 

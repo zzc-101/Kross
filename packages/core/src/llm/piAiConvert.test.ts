@@ -176,7 +176,15 @@ describe('piAiConvert', () => {
       })
     ).toEqual({
       type: 'done',
-      usage: { inputTokens: 12, outputTokens: 3, totalTokens: 15 }
+      usage: {
+        inputTokens: 12,
+        outputTokens: 3,
+        totalTokens: 15,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: undefined,
+        estimatedCostUsd: 0
+      }
     });
     expect(
       mapPiStreamEvent({

@@ -269,6 +269,7 @@ export async function* runStreamingToolLoop(
         textPreview: turnText.slice(0, 240),
         thinkingPreview: turnThinking.slice(0, 240) || undefined,
         toolCallCount: toolCalls.length,
+        metrics: deps.llmClient.lastCallMetrics,
         ...(purpose === 'planner' ? {} : { iteration })
       });
 

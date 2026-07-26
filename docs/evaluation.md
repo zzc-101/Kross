@@ -25,6 +25,12 @@ npm run eval -- --fixture --case read-fixture
 npm run eval -- --fixture --case read-fixture --keep
 ```
 
+生成逐案例报告和 Provider/模型聚合矩阵：
+
+```bash
+npm run eval -- --fixture --matrix
+```
+
 JSON 报告始终单独写到 `stdout`，便于 CI 或后续工具消费。只要有一个 Case
 未通过，命令就以非零状态退出。未显式提供 `--fixture` 时命令会拒绝运行，防止
 普通 CI 意外使用真实模型或产生费用。
@@ -57,6 +63,11 @@ Mutation Coordinator、Workspace Roots、Tool Gateway、Trace Store 和真实
 - 真实 Trace 中的工具调用与工具迭代；
 - token 用量、估算成本和结果验证状态；
 - Case 标签和能力。
+
+`--matrix` 输出中的 `providerMatrix` 按 `provider/model` 聚合通过率、每项
+capability 的通过/失败证据、token、总延迟/平均延迟/p95、限流和稳定错误类别。
+费用缺失时 `pricingCoverage` 为 `partial` 或 `unavailable`，不会使用未经验证的
+静态价格补零。
 
 Fixture 模式使用固定时钟、固定 run id、脚本响应和零成本，`durationMs` 固定为
 `0`，因此 JSON 可以稳定比较。断言依赖结构化结果、文件 hash、Trace 与命令退出
@@ -93,4 +104,6 @@ Fixture 应尽量小、可跨平台且不包含依赖缓存。验证命令必须
 
 - 当前只有确定性 Fixture 通道，还没有真实模型、方差和预算控制。
 - Fixture LLM 用于验证 Harness 合约，不代表任何模型的实际任务质量。
+- Fixture 矩阵只证明报告算法和 Runtime 契约；具体模型兼容结论必须来自相同 Case
+  的真实 Provider 数据。
 - Case 集保护关键完成与恢复契约，但不是通用编码能力 Benchmark。

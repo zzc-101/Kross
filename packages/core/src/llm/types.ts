@@ -6,6 +6,7 @@ import {
 } from './llmProviders';
 import type { ThinkingEffort } from './thinkingEffort';
 import type { LlmCapabilities } from './providerCapabilities';
+import type { LlmCallMetrics } from './providerObservability';
 
 export { llmProviderSchema, type LlmProvider };
 export type { ThinkingEffort };
@@ -58,6 +59,11 @@ export interface LlmUsage {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  /** USD from a provider response or the active model catalog; absent is unknown. */
+  estimatedCostUsd?: number;
 }
 
 export interface LlmResponse {
@@ -103,6 +109,8 @@ export interface LlmClient {
   readonly contextWindow?: number;
   /** 最近一次模型响应返回的真实 usage。 */
   readonly lastUsage?: LlmUsage;
+  /** Last completed/failed call; contains no prompts, output text, keys, or bodies. */
+  readonly lastCallMetrics?: LlmCallMetrics;
   /** 会话内切换模型 id（同 provider）。 */
   setModel?(model: string): void;
   setThinkingEffort?(effort: ThinkingEffort): void;
