@@ -8,6 +8,7 @@ import {
 import { dirname } from 'node:path';
 
 import { z } from 'zod';
+import { assertServerDataVersion } from './persistenceVersion';
 
 export const providerIdSchema = z.enum([
   'openai',
@@ -162,9 +163,12 @@ export class RuntimeConfigStore {
 
   private load(): void {
     if (!existsSync(this.path)) return;
-    const parsed = savedProviderSchema.safeParse(
-      JSON.parse(readFileSync(this.path, 'utf8'))
-    );
+    const raw = JSON.parse(readFileSync(this.path, 'utf8')) as unknown;
+    assertServerDataVersion(raw, {
+      format: 'Provider config',
+      supportedVersion: 1
+    });
+    const parsed = savedProviderSchema.safeParse(raw);
     if (!parsed.success) {
       throw new Error(`Provider 配置损坏: ${this.path}`);
     }

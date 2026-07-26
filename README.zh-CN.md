@@ -215,6 +215,7 @@ Git Push/PR、资源限额和空闲回收。Web
 - [扩展 Kross](docs/extensions.md)
 - [安全模型](docs/security.md)
 - [支持范围与兼容策略](docs/support.md)
+- [数据格式与备份](docs/data-compatibility.md)
 - [故障排查](docs/troubleshooting.md)
 - [技术概览](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)

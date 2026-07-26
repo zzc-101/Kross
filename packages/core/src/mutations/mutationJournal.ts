@@ -8,6 +8,10 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 
+import { assertSupportedDataVersion } from '../persistence/version';
+
+const MUTATION_EVENT_FORMAT_VERSION = 1;
+
 export type MutationToolName =
   | 'ApplyPatch'
   | 'Write'
@@ -136,32 +140,88 @@ export class MutationJournal {
 
   private append(event: MutationEvent): void {
     mkdirSync(this.workspaceDir, { recursive: true });
-    appendFileSync(this.journalPath, `${JSON.stringify(event)}\n`, 'utf8');
+    appendFileSync(
+      this.journalPath,
+      `${JSON.stringify({
+        schemaVersion: MUTATION_EVENT_FORMAT_VERSION,
+        ...event
+      })}\n`,
+      'utf8'
+    );
   }
 
   private load(): void {
     if (!existsSync(this.journalPath)) return;
     for (const line of readFileSync(this.journalPath, 'utf8').split('\n')) {
       if (!line.trim()) continue;
+      let raw: unknown;
       try {
-        const event = JSON.parse(line) as MutationEvent;
-        if (event.type === 'mutation.prepared') {
-          this.prepared.set(event.mutation.transactionId, event.mutation);
-        } else if (event.type === 'mutation.committed') {
-          const prepared = this.prepared.get(event.transactionId);
-          if (prepared) {
-            this.committed.set(event.transactionId, { ...prepared, post: event.post });
-            this.prepared.delete(event.transactionId);
-          }
-        } else if (event.type === 'mutation.rolled_back') {
-          this.prepared.delete(event.transactionId);
-          this.inactive.add(event.transactionId);
-        } else if (event.type === 'mutation.undone') {
-          this.inactive.add(event.transactionId);
-        }
+        raw = JSON.parse(line);
       } catch {
         // A malformed tail must not hide earlier valid mutation history.
+        continue;
+      }
+      assertSupportedDataVersion(raw, {
+        format: 'Mutation journal event',
+        field: 'schemaVersion',
+        supportedVersion: MUTATION_EVENT_FORMAT_VERSION,
+        allowMissing: true
+      });
+      const event = parseMutationEvent(raw);
+      if (!event) continue;
+      if (event.type === 'mutation.prepared') {
+        this.prepared.set(event.mutation.transactionId, event.mutation);
+      } else if (event.type === 'mutation.committed') {
+        const prepared = this.prepared.get(event.transactionId);
+        if (prepared) {
+          this.committed.set(event.transactionId, { ...prepared, post: event.post });
+          this.prepared.delete(event.transactionId);
+        }
+      } else if (event.type === 'mutation.rolled_back') {
+        this.prepared.delete(event.transactionId);
+        this.inactive.add(event.transactionId);
+      } else if (event.type === 'mutation.undone') {
+        this.inactive.add(event.transactionId);
       }
     }
   }
+}
+
+function parseMutationEvent(value: unknown): MutationEvent | undefined {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return undefined;
+  }
+  if (
+    value.type === 'mutation.prepared' &&
+    isRecord(value.mutation) &&
+    typeof value.mutation.transactionId === 'string'
+  ) {
+    return value as unknown as MutationEvent;
+  }
+  if (
+    value.type === 'mutation.committed' &&
+    typeof value.transactionId === 'string' &&
+    Array.isArray(value.post)
+  ) {
+    return value as unknown as MutationEvent;
+  }
+  if (
+    value.type === 'mutation.rolled_back' &&
+    typeof value.transactionId === 'string' &&
+    typeof value.reason === 'string'
+  ) {
+    return value as unknown as MutationEvent;
+  }
+  if (
+    value.type === 'mutation.undone' &&
+    typeof value.transactionId === 'string' &&
+    typeof value.undoneAt === 'string'
+  ) {
+    return value as unknown as MutationEvent;
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

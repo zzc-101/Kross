@@ -209,6 +209,7 @@ Most detailed documentation is currently in Chinese. English documentation contr
 - [Extending Kross](docs/extensions.md)
 - [Security model](docs/security.md)
 - [Supported environments and compatibility](docs/support.md)
+- [Data formats and backup](docs/data-compatibility.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Technical overview](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)

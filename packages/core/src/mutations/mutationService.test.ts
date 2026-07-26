@@ -180,4 +180,34 @@ describe('MutationService', () => {
     expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('before');
     expect(recovered.journal.listIncomplete()).toEqual([]);
   });
+
+  it('writes versioned events, reads legacy events, and rejects future versions', async () => {
+    const { workspace, krossHome } = setup();
+    writeFileSync(join(workspace, 'a.txt'), 'before');
+    const first = new MutationService(workspace, krossHome);
+    await first.record({
+      runId: 'run-version',
+      toolName: 'Write',
+      paths: ['a.txt'],
+      action: async () => writeFileSync(join(workspace, 'a.txt'), 'after')
+    });
+
+    const journalPath = first.journal.journalPath;
+    const versioned = readFileSync(journalPath, 'utf8');
+    expect(versioned).toContain('"schemaVersion":1');
+
+    writeFileSync(
+      journalPath,
+      versioned.replaceAll('"schemaVersion":1,', '')
+    );
+    expect(new MutationService(workspace, krossHome).listActive()).toHaveLength(1);
+
+    writeFileSync(
+      journalPath,
+      versioned.replace('"schemaVersion":1', '"schemaVersion":2')
+    );
+    expect(() => new MutationService(workspace, krossHome)).toThrow(
+      'Mutation journal event 使用不受支持的数据版本 2'
+    );
+  });
 });

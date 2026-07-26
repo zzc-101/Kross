@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  utimes,
+  writeFile
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -27,6 +34,9 @@ describe('JsonlTraceStore', () => {
     await store.append(second);
 
     await expect(store.readRun('run-1')).resolves.toEqual([first, second]);
+    await expect(
+      readFile(join(rootDir, 'run-1', 'events.jsonl'), 'utf8')
+    ).resolves.toContain('"schemaVersion":1');
   });
 
   it('creates run directories automatically', async () => {
@@ -142,6 +152,30 @@ describe('JsonlTraceStore', () => {
     await expect(store.readRun('run-bad')).resolves.toEqual([]);
     await expect(store.readRun('../escape')).resolves.toEqual([]);
     await expect(store.inspectRun('..')).resolves.toBeNull();
+  });
+
+  it('reads legacy unversioned events and rejects future versions', async () => {
+    const legacyDir = join(rootDir, 'legacy-run');
+    await mkdir(legacyDir, { recursive: true });
+    const legacy = event('legacy-run', 'run.started', { source: 'legacy' });
+    await writeFile(
+      join(legacyDir, 'events.jsonl'),
+      `${JSON.stringify(legacy)}\n`,
+      'utf8'
+    );
+    const store = new JsonlTraceStore(rootDir);
+    await expect(store.readRun('legacy-run')).resolves.toEqual([legacy]);
+
+    const futureDir = join(rootDir, 'future-run');
+    await mkdir(futureDir, { recursive: true });
+    await writeFile(
+      join(futureDir, 'events.jsonl'),
+      `${JSON.stringify({ schemaVersion: 2, ...event('future-run', 'run.started') })}\n`,
+      'utf8'
+    );
+    await expect(store.readRun('future-run')).rejects.toThrow(
+      'Trace event 使用不受支持的数据版本 2'
+    );
   });
 });
 

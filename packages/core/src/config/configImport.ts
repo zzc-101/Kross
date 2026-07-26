@@ -36,6 +36,8 @@ export interface ImportedLlmConfig {
 }
 
 export interface KrossConfig {
+  /** Version 1 is omitted only by legacy files and added on the next write. */
+  version?: 1;
   /** UI language preference (`zh` | `en`). */
   locale?: AppLocale;
   llm?: ImportedLlmConfig;
@@ -208,7 +210,9 @@ export function loadKrossConfig(
     return undefined;
   }
 
-  return readJsonFile<KrossConfig>(configPath);
+  const config = readJsonFile<unknown>(configPath);
+  assertSupportedConfigVersion(config, configPath);
+  return config as KrossConfig | undefined;
 }
 
 export function createLlmClientFromKrossConfig(
@@ -559,7 +563,26 @@ function discoverClaudeCodeConfig(
 
 function writeKrossConfig(configPath: string, config: KrossConfig): void {
   mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  writeFileSync(
+    configPath,
+    `${JSON.stringify({ ...config, version: 1 }, null, 2)}\n`,
+    'utf8'
+  );
+}
+
+function assertSupportedConfigVersion(
+  config: unknown,
+  configPath: string
+): void {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    return;
+  }
+  const version = (config as Record<string, unknown>).version;
+  if (version !== undefined && version !== 1) {
+    throw new Error(
+      `Kross 配置 ${configPath} 使用不受支持的数据版本 ${String(version)}；当前仅支持版本 1`
+    );
+  }
 }
 
 function parseFlatToml(content: string): Record<string, string> {

@@ -29,6 +29,8 @@ export type ProjectConfig = z.infer<typeof projectConfigSchema>;
 
 /** ~/.kross/projects.json — multi-repo project registry (no codegraph required). */
 export const projectRegistrySchema = z.object({
+  /** Version 1 is optional only for compatibility with pre-v0.1 registries. */
+  version: z.literal(1).optional(),
   /** Optional default project when cwd does not match a repo path. */
   defaultProjectId: z.string().min(1).optional(),
   projects: z.record(projectConfigSchema)

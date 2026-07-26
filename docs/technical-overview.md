@@ -141,7 +141,8 @@ write、execute、network、Process、MCP 与动态风险调用保持串行屏�
 
 Cloud 会话和工作区状态保存在对应 Docker volume 中，Gateway 只保存工作区注册与
 控制面数据。生命周期、备份边界和容器恢复见
-[Cloud Agent 部署与运维](cloud-agent-deployment.md)。
+[Cloud Agent 部署与运维](cloud-agent-deployment.md)。各 JSON/JSONL/SQLite
+格式的版本与升级约束见[数据格式与备份](data-compatibility.md)。
 
 ## Cloud 数据流
 

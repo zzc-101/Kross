@@ -145,6 +145,10 @@ Gateway 正常退出时默认移除动态 worker 容器，使 Compose 网络能�
 会话时再按需启动。只有显式执行“删除工作区并删除数据卷”才会永久删除仓库、
 会话和审批 checkpoint。
 
+升级、降级或迁移主机前，应同时备份 `kross-server-data` 和全部
+`kross-workspace-*` 卷。只备份 Gateway 卷无法恢复仓库、会话和 Worker
+checkpoint；具体版本清单与恢复原则见[数据格式与备份](data-compatibility.md)。
+
 ## 部署验收清单
 
 1. 创建工作区，确认仓库只出现在对应命名卷中。

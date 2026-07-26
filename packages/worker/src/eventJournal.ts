@@ -15,12 +15,19 @@ import {
   type EventEnvelope,
   type ServerEvent
 } from '@kross/protocol';
+import {
+  assertWorkerDataVersion,
+  isRecord
+} from './persistenceVersion';
 
 interface CompletedRequest {
   requestId: string;
   completedAt: string;
   events: EventEnvelope[];
 }
+
+const REQUEST_INDEX_VERSION = 1;
+const SEQUENCE_RESERVATION_VERSION = 1;
 
 export class EventJournal {
   private readonly lastSequences = new Map<string, number>();
@@ -108,7 +115,13 @@ export class EventJournal {
     const retained = entries.slice(-500);
     this.requestIndexes.set(path, retained);
     mkdirSync(dirname(path), { recursive: true });
-    atomicWrite(path, `${JSON.stringify(retained)}\n`);
+    atomicWrite(
+      path,
+      `${JSON.stringify({
+        version: REQUEST_INDEX_VERSION,
+        requests: retained
+      })}\n`
+    );
   }
 
   deleteSession(workspaceId: string, sessionId: string): void {
@@ -130,8 +143,9 @@ export class EventJournal {
     const sequencePath = this.sequencePathFor(workspaceId, sessionId);
     let reserved = 0;
     if (existsSync(sequencePath)) {
-      const value = Number(readFileSync(sequencePath, 'utf8').trim());
-      if (Number.isSafeInteger(value) && value > 0) reserved = value;
+      reserved = readSequenceReservation(
+        readFileSync(sequencePath, 'utf8')
+      );
     }
     const baseline = Math.max(persisted, reserved);
     this.lastSequences.set(key, baseline);
@@ -148,7 +162,13 @@ export class EventJournal {
     const limit = after + 10_000;
     const path = this.sequencePathFor(workspaceId, sessionId);
     mkdirSync(dirname(path), { recursive: true });
-    atomicWrite(path, `${limit}\n`);
+    atomicWrite(
+      path,
+      `${JSON.stringify({
+        version: SEQUENCE_RESERVATION_VERSION,
+        limit
+      })}\n`
+    );
     this.sequenceLimits.set(key, limit);
   }
 
@@ -161,12 +181,21 @@ export class EventJournal {
     const events: EventEnvelope[] = [];
     for (const line of readFileSync(path, 'utf8').split('\n')) {
       if (!line.trim()) continue;
+      let raw: unknown;
       try {
-        const parsed = eventEnvelopeSchema.safeParse(JSON.parse(line));
-        if (parsed.success) events.push(parsed.data);
+        raw = JSON.parse(line);
       } catch {
         // 崩溃可能留下半行；此前的完整事件仍可安全回放。
+        continue;
       }
+      assertWorkerDataVersion(raw, {
+        format: 'Worker event journal',
+        field: 'protocolVersion',
+        supportedVersion: PROTOCOL_VERSION,
+        allowMissing: true
+      });
+      const parsed = eventEnvelopeSchema.safeParse(raw);
+      if (parsed.success) events.push(parsed.data);
     }
     return events;
   }
@@ -182,8 +211,11 @@ export class EventJournal {
     if (existsSync(path)) {
       try {
         const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-        if (Array.isArray(raw)) {
-          entries = raw.flatMap((candidate) => {
+        const candidates = Array.isArray(raw)
+          ? raw
+          : readVersionedRequests(raw);
+        if (candidates) {
+          entries = candidates.flatMap((candidate) => {
             if (
               !candidate ||
               typeof candidate !== 'object' ||
@@ -194,6 +226,12 @@ export class EventJournal {
             }
             const events = (candidate as CompletedRequest).events.flatMap(
               (event) => {
+                assertWorkerDataVersion(event, {
+                  format: 'Worker request event',
+                  field: 'protocolVersion',
+                  supportedVersion: PROTOCOL_VERSION,
+                  allowMissing: true
+                });
                 const parsed = eventEnvelopeSchema.safeParse(event);
                 return parsed.success ? [parsed.data] : [];
               }
@@ -208,7 +246,13 @@ export class EventJournal {
             }];
           });
         }
-      } catch {
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.name === 'UnsupportedWorkerDataVersionError'
+        ) {
+          throw error;
+        }
         // 索引损坏时允许命令重新执行，不能阻塞工作区恢复。
       }
     }
@@ -262,4 +306,37 @@ function atomicWrite(path: string, content: string): void {
   const temporary = `${path}.tmp-${process.pid}`;
   writeFileSync(temporary, content, { encoding: 'utf8', mode: 0o600 });
   renameSync(temporary, path);
+}
+
+function readVersionedRequests(value: unknown): unknown[] | undefined {
+  if (!isRecord(value)) return undefined;
+  assertWorkerDataVersion(value, {
+    format: 'Worker request index',
+    supportedVersion: REQUEST_INDEX_VERSION
+  });
+  return Array.isArray(value.requests) ? value.requests : undefined;
+}
+
+function readSequenceReservation(content: string): number {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith('{')) {
+    const legacy = Number(trimmed);
+    return Number.isSafeInteger(legacy) && legacy > 0 ? legacy : 0;
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(trimmed);
+  } catch {
+    return 0;
+  }
+  assertWorkerDataVersion(raw, {
+    format: 'Worker sequence reservation',
+    supportedVersion: SEQUENCE_RESERVATION_VERSION
+  });
+  if (!isRecord(raw)) return 0;
+  return typeof raw.limit === 'number' &&
+    Number.isSafeInteger(raw.limit) &&
+    raw.limit > 0
+    ? raw.limit
+    : 0;
 }

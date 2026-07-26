@@ -14,10 +14,19 @@ import {
 } from '@kross/protocol';
 import { z } from 'zod';
 
+import {
+  assertWorkerDataVersion,
+  isRecord
+} from './persistenceVersion';
+
 const settingsSchema = z.object({
   model: z.string().min(1).optional(),
   thinkingEffort: thinkingEffortSchema.optional(),
   permissionMode: permissionModeSchema.optional()
+});
+const persistedSettingsSchema = z.object({
+  version: z.literal(1),
+  settings: settingsSchema
 });
 
 export type CloudSessionSettings = z.infer<typeof settingsSchema>;
@@ -28,14 +37,22 @@ export class SessionSettingsStore {
   load(sessionId: string): CloudSessionSettings {
     const path = this.pathFor(sessionId);
     if (!existsSync(path)) return {};
+    let raw: unknown;
     try {
-      const parsed = settingsSchema.safeParse(
-        JSON.parse(readFileSync(path, 'utf8'))
-      );
-      return parsed.success ? parsed.data : {};
+      raw = JSON.parse(readFileSync(path, 'utf8'));
     } catch {
       return {};
     }
+    if (isRecord(raw) && raw.version !== undefined) {
+      assertWorkerDataVersion(raw, {
+        format: 'Worker session settings',
+        supportedVersion: 1
+      });
+      const parsed = persistedSettingsSchema.safeParse(raw);
+      return parsed.success ? parsed.data.settings : {};
+    }
+    const legacy = settingsSchema.safeParse(raw);
+    return legacy.success ? legacy.data : {};
   }
 
   update(
@@ -49,10 +66,14 @@ export class SessionSettingsStore {
     mkdirSync(this.root, { recursive: true });
     const path = this.pathFor(sessionId);
     const temporary = `${path}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(settings, null, 2)}\n`, {
-      encoding: 'utf8',
-      mode: 0o600
-    });
+    writeFileSync(
+      temporary,
+      `${JSON.stringify({ version: 1, settings }, null, 2)}\n`,
+      {
+        encoding: 'utf8',
+        mode: 0o600
+      }
+    );
     renameSync(temporary, path);
     return settings;
   }

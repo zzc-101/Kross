@@ -13,8 +13,13 @@ import {
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
-import { traceEventSchema, type TraceEvent } from '../domain';
+import type { TraceEvent } from '../domain';
 import { isSafeRunId } from './runId';
+import {
+  isUnsupportedTraceVersion,
+  parseStoredTraceEvent,
+  serializeTraceEvent
+} from './tracePersistence';
 import {
   buildTraceDetail,
   summarizeTraceEvents,
@@ -88,12 +93,13 @@ export class SessionTraceStore implements TraceStore {
   }
 
   async append(event: TraceEvent): Promise<void> {
-    const parsed = traceEventSchema.parse(event);
+    const serialized = serializeTraceEvent(event);
+    const parsed = parseStoredTraceEvent(serialized)!;
     if (!isSafeRunId(parsed.runId)) {
       throw new Error(`Unsafe runId: ${parsed.runId}`);
     }
 
-    appendFileSync(this.sessionFilePath, `${JSON.stringify(parsed)}\n`, 'utf8');
+    appendFileSync(this.sessionFilePath, `${serialized}\n`, 'utf8');
     this.upsertRunIndex(parsed);
   }
 
@@ -145,7 +151,10 @@ export class SessionTraceStore implements TraceStore {
         if (summary) {
           summaries.push(summary);
         }
-      } catch {
+      } catch (error) {
+        if (isUnsupportedTraceVersion(error)) {
+          throw error;
+        }
         // 单 run 失败不影响列表
       }
     }
@@ -160,7 +169,10 @@ export class SessionTraceStore implements TraceStore {
     try {
       const events = await this.readRun(runId);
       return buildTraceDetail(runId, events);
-    } catch {
+    } catch (error) {
+      if (isUnsupportedTraceVersion(error)) {
+        throw error;
+      }
       return null;
     }
   }
@@ -301,13 +313,9 @@ function readEventsFromFile(filePath: string, runId: string): TraceEvent[] {
     if (line.trim().length === 0) {
       continue;
     }
-    try {
-      const parsed = traceEventSchema.parse(JSON.parse(line));
-      if (parsed.runId === runId) {
-        events.push(parsed);
-      }
-    } catch {
-      // 跳过坏行，避免单行损坏拖垮整次 run 读取
+    const parsed = parseStoredTraceEvent(line);
+    if (parsed?.runId === runId) {
+      events.push(parsed);
     }
   }
   return events;

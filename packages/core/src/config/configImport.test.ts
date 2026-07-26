@@ -16,6 +16,40 @@ import {
 } from './configImport';
 
 describe('config import', () => {
+  it('adds a version on write and rejects future config versions', () => {
+    const homeDir = createTempHome();
+    try {
+      const configDir = join(homeDir, '.kross');
+      mkdirSync(configDir, { recursive: true });
+      const configPath = join(configDir, 'config.json');
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          llm: {
+            provider: 'openai',
+            apiKey: 'legacy-key',
+            model: 'legacy-model'
+          }
+        })
+      );
+
+      const legacy = loadKrossConfig({ homeDir });
+      expect(legacy?.llm?.model).toBe('legacy-model');
+      updateKrossLlmConfig(
+        { provider: 'openai', model: 'next-model' },
+        { homeDir }
+      );
+      expect(JSON.parse(readFileSync(configPath, 'utf8')).version).toBe(1);
+
+      writeFileSync(configPath, JSON.stringify({ version: 2 }));
+      expect(() => loadKrossConfig({ homeDir })).toThrow(
+        '使用不受支持的数据版本 2'
+      );
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('discovers Codex config from ~/.codex/config.toml and env key', () => {
     const homeDir = createTempHome();
     try {

@@ -12,6 +12,7 @@
 | 查询斜杠命令和快捷键 | [命令手册](command-reference.md) |
 | 了解审批、文件边界和数据风险 | [安全模型](security.md) |
 | 确认受支持的平台、版本和兼容策略 | [支持范围与兼容策略](support.md) |
+| 备份数据并了解持久化格式兼容性 | [数据格式与备份](data-compatibility.md) |
 | 排查启动、模型、撤销或 MCP 问题 | [故障排查](troubleshooting.md) |
 | 部署和维护 Cloud Agent | [Cloud Agent 部署与运维](cloud-agent-deployment.md) |
 

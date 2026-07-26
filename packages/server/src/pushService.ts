@@ -9,11 +9,17 @@ import { dirname } from 'node:path';
 
 import type { ClientCommand } from '@kross/protocol';
 import webpush from 'web-push';
+import {
+  assertServerDataVersion,
+  isRecord
+} from './persistenceVersion';
 
 type Subscription = Extract<
   ClientCommand,
   { type: 'push.subscribe' }
 >['subscription'];
+
+const PUSH_SUBSCRIPTIONS_VERSION = 1;
 
 export interface PushServiceOptions {
   path: string;
@@ -70,7 +76,10 @@ export class PushService {
 
   private load(): void {
     if (!existsSync(this.options.path)) return;
-    const values = JSON.parse(readFileSync(this.options.path, 'utf8')) as Subscription[];
+    const raw = JSON.parse(readFileSync(this.options.path, 'utf8')) as unknown;
+    const values = Array.isArray(raw)
+      ? raw as Subscription[]
+      : readVersionedSubscriptions(raw);
     for (const value of values) this.subscriptions.set(value.endpoint, value);
   }
 
@@ -79,9 +88,27 @@ export class PushService {
     const temporary = `${this.options.path}.${process.pid}.tmp`;
     writeFileSync(
       temporary,
-      `${JSON.stringify([...this.subscriptions.values()], null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          version: PUSH_SUBSCRIPTIONS_VERSION,
+          subscriptions: [...this.subscriptions.values()]
+        },
+        null,
+        2
+      )}\n`,
       { encoding: 'utf8', mode: 0o600 }
     );
     renameSync(temporary, this.options.path);
   }
+}
+
+function readVersionedSubscriptions(value: unknown): Subscription[] {
+  assertServerDataVersion(value, {
+    format: 'Push subscriptions',
+    supportedVersion: PUSH_SUBSCRIPTIONS_VERSION
+  });
+  if (!isRecord(value) || !Array.isArray(value.subscriptions)) {
+    throw new Error('Push subscriptions 数据损坏');
+  }
+  return value.subscriptions as Subscription[];
 }

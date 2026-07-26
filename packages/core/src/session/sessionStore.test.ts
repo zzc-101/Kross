@@ -69,7 +69,7 @@ describe('HybridSessionStore', () => {
     reopened.close();
   });
 
-  it('ignores an unknown work-state version without blocking session recovery', () => {
+  it('rejects an unknown work-state version without replaying it', () => {
     const { root, workspace, store } = createStore();
     const created = store.createSession(workspace);
     store.upsertMessage(created.id, { id: 1, from: 'user', text: '> recover me' });
@@ -91,10 +91,94 @@ describe('HybridSessionStore', () => {
     );
 
     const reopened = new HybridSessionStore({ krossHome: join(root, '.kross') });
-    const restored = reopened.loadSession(workspace, created.id);
-    expect(restored?.messages[0]?.text).toBe('> recover me');
-    expect(restored?.workState).toBeUndefined();
+    expect(() => reopened.loadSession(workspace, created.id)).toThrow(
+      'Session work state 使用不受支持的数据版本 99'
+    );
     reopened.close();
+  });
+
+  it('rejects a future session event schema version', () => {
+    const { root, workspace, store } = createStore();
+    const created = store.createSession(workspace);
+    store.close();
+
+    const [eventPath] = findEventFiles(join(root, '.kross', 'sessions'));
+    appendFileSync(
+      eventPath!,
+      `${JSON.stringify({
+        schemaVersion: 2,
+        eventId: 'future-event',
+        sessionId: created.id,
+        seq: 2,
+        type: 'session.renamed',
+        timestamp: '2026-07-14T10:00:09.000Z',
+        payload: { title: 'future' }
+      })}\n`,
+      'utf8'
+    );
+
+    const reopened = new HybridSessionStore({ krossHome: join(root, '.kross') });
+    expect(() => reopened.loadSession(workspace, created.id)).toThrow(
+      'Session event 使用不受支持的数据版本 2'
+    );
+    reopened.close();
+  });
+
+  it('rejects future nested context and checkpoint versions', () => {
+    const cases = [
+      {
+        eventId: 'future-thread',
+        type: 'context.updated',
+        payload: {
+          contextState: {
+            version: 1,
+            thread: { version: 2 }
+          }
+        },
+        expected: 'Conversation thread state 使用不受支持的数据版本 2'
+      },
+      {
+        eventId: 'future-checkpoint',
+        type: 'work-state.updated',
+        payload: {
+          workState: {
+            version: 1,
+            todos: [],
+            sessionMode: 'auto',
+            runCheckpoint: { version: 2 }
+          }
+        },
+        expected: 'Run checkpoint 使用不受支持的数据版本 2'
+      }
+    ];
+
+    for (const [index, candidate] of cases.entries()) {
+      const { root, workspace, store } = createStore();
+      const created = store.createSession(workspace);
+      store.close();
+      const [eventPath] = findEventFiles(join(root, '.kross', 'sessions'));
+      appendFileSync(
+        eventPath!,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          eventId: candidate.eventId,
+          sessionId: created.id,
+          seq: index + 2,
+          type: candidate.type,
+          timestamp: '2026-07-14T10:00:09.000Z',
+          payload: candidate.payload
+        })}\n`,
+        'utf8'
+      );
+
+      const reopened = new HybridSessionStore({
+        krossHome: join(root, '.kross')
+      });
+      expect(() => reopened.loadSession(workspace, created.id)).toThrow(
+        candidate.expected
+      );
+      reopened.close();
+    }
   });
 
   it('writes canonical JSONL events and lists the SQLite projection', () => {

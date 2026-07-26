@@ -1,4 +1,9 @@
-import { mkdtempSync, readFileSync, statSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -58,5 +63,22 @@ describe('RuntimeConfigStore', () => {
       hasApiKey: true,
       source: 'environment'
     });
+  });
+
+  it('rejects future provider config versions', () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-provider-version-'));
+    const path = join(root, 'provider.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 2,
+        provider: 'openai',
+        model: 'future',
+        apiKey: 'secret'
+      })
+    );
+    expect(() => new RuntimeConfigStore(path, {})).toThrow(
+      'Provider config 使用不受支持的数据版本 2'
+    );
   });
 });

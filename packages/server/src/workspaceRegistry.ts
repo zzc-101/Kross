@@ -12,6 +12,7 @@ import {
   type CloudWorkspace
 } from '@kross/protocol';
 import { z } from 'zod';
+import { assertServerDataVersion } from './persistenceVersion';
 
 const recordSchema = z.object({
   workspace: workspaceSchema,
@@ -59,9 +60,12 @@ export class WorkspaceRegistry {
 
   private load(): void {
     if (!existsSync(this.path)) return;
-    const parsed = registrySchema.safeParse(
-      JSON.parse(readFileSync(this.path, 'utf8'))
-    );
+    const raw = JSON.parse(readFileSync(this.path, 'utf8')) as unknown;
+    assertServerDataVersion(raw, {
+      format: 'Workspace registry',
+      supportedVersion: 1
+    });
+    const parsed = registrySchema.safeParse(raw);
     if (!parsed.success) {
       throw new Error(`工作区注册表损坏: ${this.path}`);
     }

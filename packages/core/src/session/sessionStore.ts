@@ -25,6 +25,7 @@ import {
   isSessionWorkState,
   type SessionWorkStateV1
 } from './sessionWorkState';
+import { assertSupportedDataVersion } from '../persistence/version';
 
 export type StoredSessionMessageFrom =
   | 'user'
@@ -609,8 +610,12 @@ function readStateFromFile(eventPath: string): SessionState | null {
     }
     if (
       event.type === 'context.updated' &&
-      isSessionContextState(event.payload.contextState)
+      event.payload.contextState !== undefined
     ) {
+      assertSessionContextVersions(event.payload.contextState);
+      if (!isSessionContextState(event.payload.contextState)) {
+        continue;
+      }
       state.contextState = cloneContextState(event.payload.contextState);
       state.contextMessageId = normalizeMessageId(
         event.payload.contextMessageId
@@ -623,8 +628,12 @@ function readStateFromFile(eventPath: string): SessionState | null {
     }
     if (
       event.type === 'work-state.updated' &&
-      isSessionWorkState(event.payload.workState)
+      event.payload.workState !== undefined
     ) {
+      assertSessionWorkStateVersions(event.payload.workState);
+      if (!isSessionWorkState(event.payload.workState)) {
+        continue;
+      }
       state.workState = cloneSessionWorkState(event.payload.workState);
       state.workStateSignature = JSON.stringify(state.workState);
       continue;
@@ -666,6 +675,12 @@ function ensureTrailingNewline(eventPath: string): void {
 function parseEvent(line: string): SessionEvent | null {
   try {
     const value = JSON.parse(line) as Partial<SessionEvent>;
+    assertSupportedDataVersion(value, {
+      format: 'Session event',
+      field: 'schemaVersion',
+      supportedVersion: SESSION_SCHEMA_VERSION,
+      allowMissing: true
+    });
     if (
       value.schemaVersion !== SESSION_SCHEMA_VERSION ||
       typeof value.eventId !== 'string' ||
@@ -683,8 +698,47 @@ function parseEvent(line: string): SessionEvent | null {
       return null;
     }
     return value as SessionEvent;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'UnsupportedDataVersionError') {
+      throw error;
+    }
     return null;
+  }
+}
+
+function assertSessionContextVersions(value: unknown): void {
+  assertSupportedDataVersion(value, {
+    format: 'Session context state',
+    supportedVersion: 1,
+    allowMissing: true
+  });
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    assertSupportedDataVersion(
+      (value as Record<string, unknown>).thread,
+      {
+        format: 'Conversation thread state',
+        supportedVersion: 1,
+        allowMissing: true
+      }
+    );
+  }
+}
+
+function assertSessionWorkStateVersions(value: unknown): void {
+  assertSupportedDataVersion(value, {
+    format: 'Session work state',
+    supportedVersion: 1,
+    allowMissing: true
+  });
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const checkpoint = (value as Record<string, unknown>).runCheckpoint;
+    if (checkpoint !== undefined) {
+      assertSupportedDataVersion(checkpoint, {
+        format: 'Run checkpoint',
+        supportedVersion: 1,
+        allowMissing: true
+      });
+    }
   }
 }
 

@@ -57,6 +57,14 @@ describe('projectRegistry', () => {
     expect(loaded?.registry.projects.demo?.repos[0]?.path).toBe(api);
   });
 
+  it('accepts legacy registries and rejects future versions', () => {
+    tmp = mkdtempSync(join(tmpdir(), 'kross-reg-version-'));
+    const path = join(tmp, 'projects.json');
+    writeFileSync(path, JSON.stringify({ version: 2, projects: {} }));
+
+    expect(() => loadProjectRegistry({ registryPath: path })).toThrow();
+  });
+
   it('selects project by cwd match, then default, then sole', () => {
     const registry = {
       defaultProjectId: 'demo',

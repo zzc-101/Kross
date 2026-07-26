@@ -1,8 +1,13 @@
 import { appendFile, mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { traceEventSchema, type TraceEvent } from '../domain';
+import type { TraceEvent } from '../domain';
 import { isSafeRunId } from './runId';
+import {
+  isUnsupportedTraceVersion,
+  parseStoredTraceEvent,
+  serializeTraceEvent
+} from './tracePersistence';
 import {
   buildTraceDetail,
   summarizeTraceEvents,
@@ -30,14 +35,15 @@ export class JsonlTraceStore implements TraceStore {
   constructor(private readonly rootDir: string) {}
 
   async append(event: TraceEvent): Promise<void> {
-    const parsed = traceEventSchema.parse(event);
+    const serialized = serializeTraceEvent(event);
+    const parsed = parseStoredTraceEvent(serialized)!;
     if (!isSafeRunId(parsed.runId)) {
       throw new Error(`Unsafe runId: ${parsed.runId}`);
     }
     const dir = this.runDir(parsed.runId);
 
     await mkdir(dir, { recursive: true });
-    await appendFile(this.eventsPath(parsed.runId), `${JSON.stringify(parsed)}\n`, 'utf8');
+    await appendFile(this.eventsPath(parsed.runId), `${serialized}\n`, 'utf8');
   }
 
   async readRun(runId: string): Promise<TraceEvent[]> {
@@ -52,11 +58,8 @@ export class JsonlTraceStore implements TraceStore {
         if (line.trim().length === 0) {
           continue;
         }
-        try {
-          events.push(traceEventSchema.parse(JSON.parse(line)));
-        } catch {
-          // 跳过坏行，避免单行损坏拖垮整次 run 读取
-        }
+        const event = parseStoredTraceEvent(line);
+        if (event) events.push(event);
       }
       return events;
     } catch (error) {
@@ -95,7 +98,10 @@ export class JsonlTraceStore implements TraceStore {
               timestamp: eventTimestamp ?? info.mtimeMs,
               mtime: info.mtimeMs
             };
-          } catch {
+          } catch (error) {
+            if (isUnsupportedTraceVersion(error)) {
+              throw error;
+            }
             // 缺 events 或 stat 失败：跳过，不拖垮整表
             return null;
           }
@@ -142,7 +148,10 @@ export class JsonlTraceStore implements TraceStore {
         if (summary) {
           summaries.push(summary);
         }
-      } catch {
+      } catch (error) {
+        if (isUnsupportedTraceVersion(error)) {
+          throw error;
+        }
         // 单 run 失败不影响列表
       }
     }
@@ -157,7 +166,10 @@ export class JsonlTraceStore implements TraceStore {
     try {
       const events = await this.readRun(runId);
       return buildTraceDetail(runId, events);
-    } catch {
+    } catch (error) {
+      if (isUnsupportedTraceVersion(error)) {
+        throw error;
+      }
       return null;
     }
   }

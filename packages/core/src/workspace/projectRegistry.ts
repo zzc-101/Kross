@@ -112,6 +112,7 @@ export function normalizeRegistryPaths(
     };
   }
   return {
+    version: registry.version,
     defaultProjectId: registry.defaultProjectId,
     projects
   };
