@@ -49,5 +49,7 @@
   生命周期通知；Hook 异常不影响 Agent，并受超时、pending 上限与事件限流保护。
 - Trace Replay v1：严格校验 run、事件 ID、时间、已知类型、起止和工具生命周期，
   通过 `/trace replay <runId>` 生成纯派生状态；Fixture Eval 自动验证回放契约。
+- Core 本地迁移 F2a：`kross migrate` 默认 dry-run，显式 apply 使用独占锁、
+  SHA-256 备份 manifest、原子替换和失败回滚；首批为旧配置与项目模板补 v1。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

@@ -136,8 +136,12 @@
     "traceEventSchema"
   ],
   "experimental": [
+    "CORE_MIGRATION_REPORT_VERSION",
     "ConfigImportController",
     "ConfigImportPrompt",
+    "CoreMigrationChange",
+    "CoreMigrationOptions",
+    "CoreMigrationReport",
     "ExperimentalLifecycleHook",
     "ExperimentalLifecycleHookContext",
     "ExperimentalLifecycleHookDiagnostic",
@@ -179,6 +183,7 @@
     "normalizeAgentMode",
     "replayTraceEvents",
     "resolveLocale",
+    "runCoreMigrations",
     "setLocale",
     "t",
     "updateKrossLlmConfig",

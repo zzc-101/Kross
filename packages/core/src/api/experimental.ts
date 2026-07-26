@@ -82,6 +82,14 @@ export {
 } from '../trace/traceReplay';
 
 export {
+  CORE_MIGRATION_REPORT_VERSION,
+  runCoreMigrations,
+  type CoreMigrationChange,
+  type CoreMigrationOptions,
+  type CoreMigrationReport
+} from '../persistence/coreMigrations';
+
+export {
   ExperimentalLifecycleHooks,
   type ExperimentalLifecycleHook,
   type ExperimentalLifecycleHookContext,

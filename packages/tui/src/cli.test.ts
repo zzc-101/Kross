@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatCliHelp, formatExecHelp, parseCliArgs } from './cli';
+import {
+  formatCliHelp,
+  formatExecHelp,
+  formatMigrateHelp,
+  parseCliArgs
+} from './cli';
 
 describe('parseCliArgs', () => {
   it('starts the TUI without arguments', () => {
@@ -94,6 +99,29 @@ describe('parseCliArgs', () => {
     });
     expect(formatExecHelp()).toContain('--permission');
   });
+
+  it('parses safe-by-default migration commands', () => {
+    expect(parseCliArgs(['migrate'])).toEqual({
+      kind: 'migrate',
+      request: { apply: false }
+    });
+    expect(
+      parseCliArgs(['migrate', '--apply', '--home', '/tmp/user'])
+    ).toEqual({
+      kind: 'migrate',
+      request: { apply: true, homeDir: '/tmp/user' }
+    });
+    expect(parseCliArgs(['migrate', '--help'])).toEqual({
+      kind: 'migrate-help'
+    });
+    expect(
+      parseCliArgs(['migrate', '--apply', '--dry-run'])
+    ).toEqual({
+      kind: 'error',
+      message: 'use either --apply or --dry-run, not both'
+    });
+    expect(formatMigrateHelp()).toContain('Plan only; this is the default');
+  });
 });
 
 describe('formatCliHelp', () => {
@@ -102,5 +130,6 @@ describe('formatCliHelp', () => {
     expect(help).toContain('kross');
     expect(help).toContain('--help');
     expect(help).toContain('--version');
+    expect(help).toContain('kross migrate');
   });
 });

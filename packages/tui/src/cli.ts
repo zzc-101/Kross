@@ -10,6 +10,11 @@ export type CliAction =
   | { kind: 'version' }
   | { kind: 'exec-help' }
   | { kind: 'exec'; request: HeadlessExecRequest }
+  | { kind: 'migrate-help' }
+  | {
+      kind: 'migrate';
+      request: { apply: boolean; homeDir?: string };
+    }
   | { kind: 'error'; message: string };
 
 export function parseCliArgs(args: readonly string[]): CliAction {
@@ -28,10 +33,56 @@ export function parseCliArgs(args: readonly string[]): CliAction {
   if (args[0] === 'exec') {
     return parseExecArgs(args.slice(1));
   }
+  if (args[0] === 'migrate') {
+    return parseMigrateArgs(args.slice(1));
+  }
 
   return {
     kind: 'error',
     message: `Unknown argument: ${args.join(' ')}`
+  };
+}
+
+function parseMigrateArgs(args: readonly string[]): CliAction {
+  if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
+    return { kind: 'migrate-help' };
+  }
+  let apply = false;
+  let explicitDryRun = false;
+  let homeDir: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (value === '--apply') {
+      if (apply) return cliError('--apply can only be provided once');
+      apply = true;
+      continue;
+    }
+    if (value === '--dry-run') {
+      if (explicitDryRun) {
+        return cliError('--dry-run can only be provided once');
+      }
+      explicitDryRun = true;
+      continue;
+    }
+    if (value === '--home') {
+      const optionValue = args[index + 1];
+      if (!optionValue) return cliError('--home requires a value');
+      if (homeDir) return cliError('--home can only be provided once');
+      homeDir = optionValue;
+      index += 1;
+      continue;
+    }
+    return cliError(`Unknown migrate option: ${value}`);
+  }
+  if (apply && explicitDryRun) {
+    return cliError('use either --apply or --dry-run, not both');
+  }
+  return {
+    kind: 'migrate',
+    request: {
+      apply,
+      ...(homeDir ? { homeDir } : {})
+    }
   };
 }
 
@@ -132,12 +183,29 @@ export function formatCliHelp(): string {
     'Usage:',
     '  kross              Start the interactive TUI in the current directory',
     '  kross exec ...     Run one non-interactive task as NDJSON',
+    '  kross migrate ...  Plan or apply local data migrations',
     '  kross --help       Show this help message',
     '  kross --version    Show the installed version',
     '',
     'Options:',
     '  -h, --help         Show help',
     '  -v, --version      Show version'
+  ].join('\n');
+}
+
+export function formatMigrateHelp(): string {
+  return [
+    'Kross local data migration',
+    '',
+    'Usage:',
+    '  kross migrate [--dry-run] [--home <path>]',
+    '  kross migrate --apply [--home <path>]',
+    '',
+    'Options:',
+    '  --dry-run      Plan only; this is the default',
+    '  --apply        Back up, apply atomically, and roll back on failure',
+    '  --home <path>  Override the user home containing .kross',
+    '  -h, --help'
   ].join('\n');
 }
 

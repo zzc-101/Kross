@@ -263,6 +263,15 @@ kross exec "只读审查当前改动，不要修改文件" --json
 Headless 保持默认审批策略，并用不同退出码区分参数、配置、审批、Runtime、验证
 和中断结果。事件 schema 与安全边界见 [Headless 自动化](docs/headless.md)。
 
+本地数据迁移默认只查看计划，确认后再显式应用：
+
+```bash
+kross migrate
+kross migrate --apply
+```
+
+备份、失败回滚和当前覆盖格式见[数据格式与备份](docs/data-compatibility.md)。
+
 Cloud 各组件单独开发可使用：
 
 ```bash

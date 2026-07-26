@@ -115,6 +115,40 @@ try {
     throw new Error('Installed CLI help output is incomplete');
   }
 
+  const smokeKrossHome = join(smokeHome, '.kross');
+  const smokeConfig = join(smokeKrossHome, 'config.json');
+  await mkdir(smokeKrossHome);
+  await writeFile(
+    smokeConfig,
+    `${JSON.stringify({ locale: 'en' })}\n`,
+    'utf8'
+  );
+  const migrationPlan = JSON.parse(
+    execFileSync(bin, ['migrate', '--home', smokeHome], {
+      cwd: installDirectory,
+      encoding: 'utf8'
+    })
+  );
+  if (
+    migrationPlan.status !== 'planned' ||
+    migrationPlan.mode !== 'dry-run' ||
+    JSON.parse(await readFile(smokeConfig, 'utf8')).version !== undefined
+  ) {
+    throw new Error('Installed migration dry-run changed data or missed plan');
+  }
+  const migrationApply = JSON.parse(
+    execFileSync(bin, ['migrate', '--apply', '--home', smokeHome], {
+      cwd: installDirectory,
+      encoding: 'utf8'
+    })
+  );
+  if (
+    migrationApply.status !== 'applied' ||
+    JSON.parse(await readFile(smokeConfig, 'utf8')).version !== 1
+  ) {
+    throw new Error('Installed migration apply smoke failed');
+  }
+
   const smokeEnvironment = {
     ...process.env,
     HOME: smokeHome,
@@ -195,7 +229,7 @@ try {
   }
 
   console.log(
-    `Package smoke test passed: ${packageJson.name}@${packageJson.version} (${packedFiles.size} files, TUI/headless ready)`
+    `Package smoke test passed: ${packageJson.name}@${packageJson.version} (${packedFiles.size} files, TUI/headless/migrate ready)`
   );
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

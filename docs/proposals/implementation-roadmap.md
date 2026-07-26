@@ -577,6 +577,11 @@ feat(protocol): publish language-neutral wire schemas
 
 ### F2. 完整迁移框架
 
+> 进度：Core 本地 F2a 已完成。`kross migrate` 默认 dry-run，显式 apply 时使用
+> 独占锁、并发变更校验、SHA-256 manifest、原文件备份、原子替换和失败回滚；
+> 首批只迁移无版本 `config.json` / `projects.json` 到 v1。Cloud 控制面数据保持
+> 独立，待 F2b 实现，不能由 Core 命令跨边界修改。
+
 - 在 A2 的版本锚点基础上引入逐版本迁移；
 - 迁移前备份、失败回滚和 dry-run；
 - Core 本地数据与 Cloud 控制面数据分别处理。

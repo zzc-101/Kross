@@ -258,6 +258,16 @@ codes for usage, configuration, approval, runtime, verification, and interrupt
 outcomes. See [Headless automation](docs/headless.md) for the event schema and
 security boundaries.
 
+Preview local data migrations without writing, then apply explicitly:
+
+```bash
+kross migrate
+kross migrate --apply
+```
+
+Migration backups, rollback behavior, and current format coverage are documented
+in [Data formats and backup](docs/data-compatibility.md).
+
 Run individual Cloud components from their own workspaces:
 
 ```bash

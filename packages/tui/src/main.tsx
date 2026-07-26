@@ -13,7 +13,8 @@ import {
   HybridSessionStore,
   initI18n,
   loadKrossConfig,
-  resolveLocale
+  resolveLocale,
+  runCoreMigrations
 } from '@kross/core';
 import { App, type AppTestApi } from './App';
 import { formatSessionStoreInitializationError } from './app/sessionStartup';
@@ -29,7 +30,12 @@ import {
   leaveAlternateScreen
 } from './terminal/alternateScreen';
 import { createTerminalFrameOutput } from './terminal/frameOutput';
-import { formatCliHelp, formatExecHelp, parseCliArgs } from './cli';
+import {
+  formatCliHelp,
+  formatExecHelp,
+  formatMigrateHelp,
+  parseCliArgs
+} from './cli';
 import { headlessExitCodes } from './headless/contract';
 import { runHeadlessCommand } from './headless/runHeadless';
 
@@ -41,11 +47,18 @@ if (cliAction.kind === 'help') {
   console.log(readPackageVersion());
 } else if (cliAction.kind === 'exec-help') {
   console.log(formatExecHelp());
+} else if (cliAction.kind === 'migrate-help') {
+  console.log(formatMigrateHelp());
 } else if (cliAction.kind === 'error') {
   console.error(`${cliAction.message}\nRun "kross --help" for usage.`);
   process.exitCode = headlessExitCodes.usage;
 } else if (cliAction.kind === 'exec') {
   process.exitCode = await runHeadlessCommand(cliAction.request);
+} else if (cliAction.kind === 'migrate') {
+  const report = await runCoreMigrations(cliAction.request);
+  console.log(JSON.stringify(report, null, 2));
+  process.exitCode =
+    report.status === 'blocked' || report.status === 'rolled-back' ? 1 : 0;
 } else {
   initI18n(
     resolveLocale({

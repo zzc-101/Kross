@@ -68,6 +68,34 @@ cp -a ~/.kross ~/.kross.backup-YYYYMMDD
 配置一起备份。该目录可能包含 API Key、源码片段、命令参数和历史文件正文，备份
 应加密并限制访问。
 
+### Core 本地迁移命令
+
+先退出所有 Kross 进程，然后默认以只读方式查看计划：
+
+```bash
+kross migrate
+kross migrate --home /path/to/user-home
+```
+
+只有显式提供 `--apply` 才会写入：
+
+```bash
+kross migrate --apply
+```
+
+当前首批步骤只为无版本旧文件 `config.json` 和 `projects.json` 补 `version: 1`。
+命令不会迁移会话、Trace、Mutation、SQLite、MCP 配置或 Cloud 数据。
+
+Apply 会在 `~/.kross/.migration.lock` 获取独占锁，重新核对文件没有在规划后变化，
+再把原文件及 SHA-256 manifest 保存到
+`~/.kross/.migration-backups/<timestamp>/`。文件通过同目录临时文件原子替换，并
+保留原权限；后续写入失败时，已经写入的文件会自动恢复。报告状态含 `noop`、
+`planned`、`applied`、`rolled-back` 和 `blocked`。`blocked` 或
+`rolled-back` 会返回非零退出码，备份仍保留供人工检查。
+
+迁移备份与主数据具有同等敏感性。确认新版本稳定前不要删除；如果报告
+`rollback failed`，停止启动 Kross，并从报告中的 `backupPath` 人工恢复。
+
 ## Cloud 备份与恢复
 
 1. 使用 `./scripts/start-cloud.sh --stop` 停止 Web、Gateway 和动态 Worker。
