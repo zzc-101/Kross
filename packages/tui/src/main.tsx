@@ -18,8 +18,9 @@ import {
 import { App, type AppTestApi } from './App';
 import { formatSessionStoreInitializationError } from './app/sessionStartup';
 import {
-  bootstrapRuntimeTooling,
+  createAgentHost,
   createRuntimeOptionsFromEnv,
+  type AgentHost,
   type RuntimeTooling
 } from './createRuntime';
 import {
@@ -76,6 +77,7 @@ if (cliAction.kind === 'help') {
   let shutdownPromise: Promise<void> | undefined;
   let app: ReturnType<typeof render>;
   let tooling: RuntimeTooling | undefined;
+  let agentHost: AgentHost | undefined;
 
   const restoreTerminal = (): void => {
     if (useAltScreen) {
@@ -96,10 +98,12 @@ if (cliAction.kind === 'help') {
   };
 
   const closeTooling = async (): Promise<void> => {
-    if (!tooling) {
+    if (!agentHost && !tooling) {
       return;
     }
-    toolingClosePromise ??= tooling.close().catch(() => undefined);
+    toolingClosePromise ??= (
+      agentHost?.close() ?? tooling?.close() ?? Promise.resolve()
+    ).catch(() => undefined);
     await toolingClosePromise;
   };
 
@@ -128,7 +132,11 @@ if (cliAction.kind === 'help') {
   async function main(): Promise<void> {
     const cwd = process.cwd();
     try {
-      tooling = await bootstrapRuntimeTooling(cwd, process.env);
+      agentHost = await createAgentHost({
+        workspaceRoot: cwd,
+        env: process.env
+      });
+      tooling = agentHost.tooling;
     } catch (error) {
       // MCP bootstrap should soft-fail inside connectAndRegister; this is a hard failure.
       console.error(
@@ -138,31 +146,12 @@ if (cliAction.kind === 'help') {
       tooling = undefined;
     }
 
-    const sharedTooling = tooling
-      ? {
-          toolGateway: tooling.toolGateway,
-          traceStore: tooling.traceStore,
-          todoStore: tooling.todoStore,
-          setLlmClient: tooling.setLlmClient,
-          runSubagent: tooling.runSubagent,
-          workspaceRoots: tooling.workspaceRoots,
-          skillRegistry: tooling.skillRegistry,
-          mutationCoordinator: tooling.mutationCoordinator,
-          processManager: tooling.processManager
-        }
-      : undefined;
-
     app = render(
       <App
         createRuntime={() =>
+          agentHost?.createRuntime() ??
           new AgentRuntime(
-            createRuntimeOptionsFromEnv(
-              cwd,
-              process.env,
-              undefined,
-              {},
-              sharedTooling
-            )
+            createRuntimeOptionsFromEnv(cwd, process.env)
           )
         }
         configImportController={createConfigImportController({

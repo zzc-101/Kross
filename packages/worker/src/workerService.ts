@@ -5,8 +5,7 @@ import { promisify } from 'node:util';
 
 import {
   AgentRuntime,
-  bootstrapRuntimeTooling,
-  createRuntimeOptionsFromEnv,
+  createAgentHost,
   HybridSessionStore,
   listProvidersFromEnv,
   type AgentHostTooling,
@@ -51,6 +50,7 @@ export interface WorkerServiceOptions {
 export interface RuntimeHandle {
   runtime: AgentRuntime;
   tooling: AgentHostTooling;
+  close?: () => Promise<void>;
 }
 
 interface ActiveSession extends RuntimeHandle {
@@ -80,6 +80,7 @@ export class WorkerService {
   private readonly diskCheckTimer: ReturnType<typeof setInterval>;
   private diskUsageCache?: { bytes: number; checkedAt: number };
   private diskUsageRefresh?: Promise<number>;
+  private closePromise?: Promise<void>;
 
   constructor(private readonly options: WorkerServiceOptions) {
     this.now = options.now ?? (() => new Date());
@@ -120,6 +121,16 @@ export class WorkerService {
     };
     this.sinkCorrelations.set(sink, command.requestId);
     if (target) this.sinkTargets.set(sink, target);
+    if (this.closePromise) {
+      this.emitError(
+        'sessionId' in command ? command.sessionId : undefined,
+        command.requestId,
+        'WORKER_CLOSED',
+        'Worker 已关闭，不能再接收命令',
+        sink
+      );
+      return;
+    }
     if (
       'workspaceId' in command &&
       command.workspaceId !== this.options.workspaceId
@@ -305,16 +316,40 @@ export class WorkerService {
     }
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    this.closePromise ??= this.performClose();
+    return this.closePromise;
+  }
+
+  private async performClose(): Promise<void> {
     clearInterval(this.diskCheckTimer);
-    for (const session of this.sessions.values()) {
+    await Promise.allSettled(this.loadingSessions.values());
+
+    const sessions = [...this.sessions.values()];
+    this.sessions.clear();
+    for (const session of sessions) {
       session.abortController?.abort('worker shutdown');
       session.unsubscribeTrace();
       session.unsubscribeWorkState();
-      await session.tooling.close();
     }
-    this.sessions.clear();
-    this.store.close();
+
+    const results = await Promise.allSettled(
+      sessions.map((session) => closeRuntimeHandle(session))
+    );
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    try {
+      this.store.close();
+    } catch (error) {
+      failures.push(error);
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        'WorkerService resource cleanup failed'
+      );
+    }
   }
 
   private async createSession(
@@ -437,7 +472,7 @@ export class WorkerService {
       this.sessions.delete(sessionId);
       loaded.unsubscribeTrace();
       loaded.unsubscribeWorkState();
-      await loaded.tooling.close();
+      await closeRuntimeHandle(loaded);
     }
     if (!this.store.deleteSession(sessionId)) {
       this.emitError(
@@ -1259,7 +1294,7 @@ export class WorkerService {
       this.sessions.delete(session.id);
       session.unsubscribeTrace();
       session.unsubscribeWorkState();
-      await session.tooling.close();
+      await closeRuntimeHandle(session);
     }
   }
 
@@ -1289,27 +1324,19 @@ export class WorkerService {
   }
 
   private async createDefaultRuntime(): Promise<RuntimeHandle> {
-    const tooling = await bootstrapRuntimeTooling(
-      this.options.workspaceRoot,
-      this.options.env ?? process.env,
-      {
+    const host = await createAgentHost({
+      workspaceRoot: this.options.workspaceRoot,
+      env: this.options.env ?? process.env,
+      config: {
         homeDir: this.options.krossHome,
         krossHome: this.options.krossHome
       }
-    );
-    const runtime = new AgentRuntime(
-      createRuntimeOptionsFromEnv(
-        this.options.workspaceRoot,
-        this.options.env ?? process.env,
-        undefined,
-        {
-          homeDir: this.options.krossHome,
-          krossHome: this.options.krossHome
-        },
-        tooling
-      )
-    );
-    return { runtime, tooling };
+    });
+    return {
+      runtime: host.createRuntime(),
+      tooling: host.tooling,
+      close: () => host.close()
+    };
   }
 
   private snapshot(
@@ -1427,6 +1454,10 @@ export class WorkerService {
       sink
     );
   }
+}
+
+function closeRuntimeHandle(handle: RuntimeHandle): Promise<void> {
+  return handle.close?.() ?? handle.tooling.close();
 }
 
 function sanitizeStoredMessage(

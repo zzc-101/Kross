@@ -139,17 +139,16 @@ Anthropic-compatible 服务使用对应的 `ANTHROPIC_*` 字段。兼容端点�
 
 ```ts
 import { z } from 'zod';
-import {
-  AgentRuntime,
-  bootstrapRuntimeTooling,
-  createRuntimeOptionsFromEnv
-} from '@kross/core';
+import { createAgentHost } from '@kross/core';
 
 export async function createCustomRuntime() {
   const cwd = process.cwd();
-  const tooling = await bootstrapRuntimeTooling(cwd, process.env);
+  const host = await createAgentHost({
+    workspaceRoot: cwd,
+    env: process.env
+  });
 
-  tooling.toolGateway.register({
+  host.tooling.toolGateway.register({
     name: 'ProjectMetadata',
     description: '读取当前项目的公开元数据',
     risk: 'read',
@@ -163,14 +162,10 @@ export async function createCustomRuntime() {
     }
   });
 
-  const runtime = new AgentRuntime(
-    createRuntimeOptionsFromEnv(cwd, process.env, undefined, {}, tooling)
-  );
-
   return {
-    runtime,
+    runtime: host.createRuntime(),
     // 宿主退出时必须释放 MCP、进程和 trace 资源。
-    close: () => tooling.close()
+    close: () => host.close()
   };
 }
 ```
@@ -188,6 +183,9 @@ export async function createCustomRuntime() {
 [`packages/core/src/host/createAgentHost.ts`](../packages/core/src/host/createAgentHost.ts)；
 工具契约位于
 [`packages/core/src/tools/toolGateway.ts`](../packages/core/src/tools/toolGateway.ts)。
+`createAgentHost` 的 `close()` 可安全重复调用；开始关闭后不能再创建 Runtime。
+自定义宿主应自行持有当前运行的 `AbortController`，退出时先取消运行，再关闭
+Host。
 如果需要长期维护大量自定义工具，优先实现 MCP server，减少与 Core 内部结构的
 耦合。
 

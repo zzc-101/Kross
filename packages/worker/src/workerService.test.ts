@@ -21,7 +21,7 @@ import {
   type EventEnvelope
 } from '@kross/protocol';
 import { z } from 'zod';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { WorkerService, type RuntimeHandle } from './workerService';
 
@@ -129,6 +129,56 @@ function send(
 }
 
 describe('WorkerService integration', () => {
+  it('closes each session host once and rejects commands after shutdown', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-worker-close-'));
+    const workspace = join(root, 'repo');
+    mkdirSync(workspace);
+    const closeHost = vi.fn(async () => undefined);
+    const service = new WorkerService({
+      workspaceId: 'w1',
+      workspaceRoot: workspace,
+      krossHome: join(root, '.kross'),
+      runtimeFactory: async () => {
+        const traceStore = new ObservableTraceStore(new MemoryTraceStore());
+        return {
+          runtime: new AgentRuntime({
+            traceStore,
+            workspaceRoot: workspace
+          }),
+          tooling: {
+            traceStore,
+            close: async () => undefined
+          } as unknown as AgentHostTooling,
+          close: closeHost
+        };
+      }
+    });
+    const events: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'create-before-close',
+      type: 'session.create',
+      workspaceId: 'w1'
+    }, events);
+
+    await service.close();
+    await service.close();
+
+    expect(closeHost).toHaveBeenCalledTimes(1);
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'list-after-close',
+      type: 'session.list',
+      workspaceId: 'w1'
+    }, events);
+    expect(events.at(-1)?.event).toEqual(
+      expect.objectContaining({
+        type: 'request.error',
+        code: 'WORKER_CLOSED'
+      })
+    );
+  });
+
   it('exposes context capacity and Core-backed runtime commands', async () => {
     const root = mkdtempSync(join(tmpdir(), 'kross-worker-core-command-'));
     const workspace = join(root, 'repo');

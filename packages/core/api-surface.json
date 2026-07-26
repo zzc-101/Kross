@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "public": [
+    "AgentHost",
     "AgentHostTooling",
     "AgentMode",
     "AgentReport",
@@ -17,6 +18,7 @@
     "ContextMaintenanceResult",
     "ContextSection",
     "CreateAgentHostConfigOptions",
+    "CreateAgentHostOptions",
     "CreateBuiltinToolsOptions",
     "HybridSessionStore",
     "HybridSessionStoreOptions",
@@ -107,6 +109,7 @@
     "agentResultSchema",
     "bootstrapRuntimeTooling",
     "builtinToolNames",
+    "createAgentHost",
     "createApprovalPolicy",
     "createBuiltinTools",
     "createLlmClient",

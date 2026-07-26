@@ -30,5 +30,7 @@
 - Headless Event v1 JSON Schema、Shell/Actions 示例、退出码表及权限和密钥文档。
 - Core 顶层 API 收敛为显式 public / experimental barrel，并使用 TypeScript
   Checker 快照阻止未分类导出和内部编排模块泄漏。
+- 最小 `createAgentHost` 生命周期：TUI、Headless 和 Worker 复用同一组合入口，
+  支持替换 Runtime、会话级资源隔离和幂等关闭。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

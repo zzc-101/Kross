@@ -6,7 +6,11 @@ import { join } from 'node:path';
 
 import { OpenAiProtocolClient } from '../llm/openAiProtocolClient';
 import { PiAiLlmClient } from '../llm/piAiLlmClient';
-import { bootstrapRuntimeTooling, createRuntimeOptionsFromEnv } from './createAgentHost';
+import {
+  bootstrapRuntimeTooling,
+  createAgentHost,
+  createRuntimeOptionsFromEnv
+} from './createAgentHost';
 
 const managedHomes: string[] = [];
 
@@ -23,6 +27,32 @@ function createManagedHome(): string {
 }
 
 describe('createRuntimeOptionsFromEnv', () => {
+  it('creates replacement runtimes over shared tooling and closes once', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-agent-host-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-agent-host-home-'));
+    const host = await createAgentHost({
+      workspaceRoot: workspace,
+      env: {},
+      config: { homeDir, krossHome: join(homeDir, '.kross') }
+    });
+    const closeSpy = vi.spyOn(host.tooling, 'close');
+    try {
+      const first = host.createRuntime();
+      const second = host.createRuntime();
+
+      expect(first).not.toBe(second);
+      expect(first.getTodoStore()).toBe(second.getTodoStore());
+      await host.close();
+      await host.close();
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+      expect(() => host.createRuntime()).toThrow('AgentHost is closed');
+    } finally {
+      await host.close();
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('host close terminates all active managed processes', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-host-process-'));
     const homeDir = mkdtempSync(join(tmpdir(), 'kross-host-home-'));

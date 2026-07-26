@@ -38,8 +38,7 @@ Core 顶层只由 `src/api/public.ts` 和 `src/api/experimental.ts` 组成；内
 
 ## Runtime 组合
 
-`packages/core/src/host/createAgentHost.ts` 是默认组合根，主要通过
-`bootstrapRuntimeTooling` 与 `createRuntimeOptionsFromEnv` 创建：
+`createAgentHost` 是默认组合根。它一次性创建并拥有：
 
 - 模型客户端与上下文策略；
 - Tool Gateway 与内置工具；
@@ -47,9 +46,16 @@ Core 顶层只由 `src/api/public.ts` 和 `src/api/experimental.ts` 组成；内
 - trace、Todo、mutation journal 与后台进程；
 - MCP 客户端和子代理执行器。
 
-`AgentRuntime` 是运行门面，具体职责分别下沉到会话服务、模型会话、模式流程、
-工具循环、Checkpoint 和完成门。TUI、Headless 和 Worker 都复用这套组合，不维护
-独立 Agent 实现。
+Host 可以在同一组 Tooling 资源上创建替换用的 `AgentRuntime`，并通过幂等
+`close()` 统一释放 MCP、后台进程和 trace。调用方仍拥有当前运行的
+`AbortController`，必须先取消前台运行，再关闭 Host。TUI 和 Headless 每个进程
+使用一个 Host；Cloud Worker 为每个活跃会话创建独立 Host，保持会话之间的工具、
+trace 和运行状态隔离。
+
+`AgentRuntime` 是运行门面，负责 run、resume、approval 和 cancel 语义，具体职责
+分别下沉到会话服务、模型会话、模式流程、工具循环、Checkpoint 和完成门。三个
+宿主只组合和驱动 Runtime，不维护独立 Agent 实现。需要更底层组装时仍可使用
+experimental 的 `bootstrapRuntimeTooling` 与 `createRuntimeOptionsFromEnv`。
 
 源码级扩展入口及稳定性说明见[扩展 Kross](extensions.md)。
 

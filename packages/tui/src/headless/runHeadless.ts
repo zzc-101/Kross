@@ -3,12 +3,10 @@ import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
-  AgentRuntime,
   HybridSessionStore,
-  bootstrapRuntimeTooling,
+  createAgentHost,
   createLlmClientFromEnv,
   createLlmClientFromKrossConfig,
-  createRuntimeOptionsFromEnv,
   loadKrossConfig,
   type AgentRunInput,
   type AgentRunStreamEvent,
@@ -359,24 +357,20 @@ async function createDefaultHeadlessHost(input: {
     );
   }
 
-  const tooling = await bootstrapRuntimeTooling(input.cwd, input.env);
+  const host = await createAgentHost({
+    workspaceRoot: input.cwd,
+    env: input.env
+  });
   try {
-    const runtime = new AgentRuntime({
-      ...createRuntimeOptionsFromEnv(
-        input.cwd,
-        input.env,
-        undefined,
-        {},
-        tooling
-      ),
+    const runtime = host.createRuntime({
       createRunId: () => input.runId
     });
     return {
       runtime,
-      close: () => tooling.close()
+      close: () => host.close()
     };
   } catch (error) {
-    await tooling.close();
+    await host.close();
     throw error;
   }
 }

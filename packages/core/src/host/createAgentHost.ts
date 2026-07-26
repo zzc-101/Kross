@@ -15,6 +15,7 @@ import {
   type McpManager
 } from '../mcp';
 import type { AgentRuntimeOptions } from '../runtime/agentRuntimeTypes';
+import { AgentRuntime } from '../runtime/agentRuntime';
 import {
   createDefaultSubagentRunner,
   type SubagentRunDeps
@@ -54,6 +55,66 @@ export interface AgentHostTooling {
   mcpManager?: McpManager;
   closeTraceStore: () => void;
   close: () => Promise<void>;
+}
+
+export interface CreateAgentHostOptions {
+  workspaceRoot: string;
+  env?: Record<string, string | undefined>;
+  fetch?: LlmFetch;
+  config?: CreateAgentHostConfigOptions;
+  runtimeOptions?: Partial<AgentRuntimeOptions>;
+}
+
+export interface AgentHost {
+  tooling: AgentHostTooling;
+  createRuntime(
+    overrides?: Partial<AgentRuntimeOptions>
+  ): AgentRuntime;
+  close(): Promise<void>;
+}
+
+/**
+ * Shared composition root for local Runtime hosts.
+ *
+ * The host owns Tooling resources and may create replacement Runtime instances
+ * over the same gateway/session services. Callers still own foreground run
+ * AbortControllers and must cancel them before awaiting close().
+ */
+export async function createAgentHost(
+  options: CreateAgentHostOptions
+): Promise<AgentHost> {
+  const env = options.env ?? process.env;
+  const config = options.config ?? {};
+  const tooling = await bootstrapRuntimeTooling(
+    options.workspaceRoot,
+    env,
+    config
+  );
+  let closePromise: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closePromise ??= tooling.close();
+    return closePromise;
+  };
+  return {
+    tooling,
+    createRuntime: (overrides = {}) => {
+      if (closePromise) {
+        throw new Error('AgentHost is closed');
+      }
+      return new AgentRuntime({
+        ...createRuntimeOptionsFromEnv(
+          options.workspaceRoot,
+          env,
+          options.fetch,
+          config,
+          tooling
+        ),
+        ...options.runtimeOptions,
+        ...overrides
+      });
+    },
+    close
+  };
 }
 
 /**

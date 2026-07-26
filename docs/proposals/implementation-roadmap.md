@@ -471,6 +471,9 @@ refactor(core): define and guard the public api surface
 
 ### D2. Host API 收敛
 
+> 已完成：新增最小 `createAgentHost`，TUI、Headless 与 Worker 已迁移；Host
+> 统一拥有 Tooling 资源并提供幂等关闭，前台取消仍由各宿主负责。
+
 - 用真实 TUI、Worker、headless 三个宿主验证最小组合接口；
 - 评估是否新增真正的 `createAgentHost`，而不是把文件名误当成现有函数；
 - 收敛 Runtime lifecycle、close、resume、approval 和 abort；

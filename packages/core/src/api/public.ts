@@ -26,9 +26,12 @@ export {
 
 export {
   bootstrapRuntimeTooling,
+  createAgentHost,
   createRuntimeOptionsFromEnv,
+  type AgentHost,
   type AgentHostTooling,
-  type CreateAgentHostConfigOptions
+  type CreateAgentHostConfigOptions,
+  type CreateAgentHostOptions
 } from '../host/createAgentHost';
 
 export {
