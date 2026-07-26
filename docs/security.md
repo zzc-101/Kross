@@ -69,9 +69,13 @@ mutation blobs 位于 `~/.kross/mutations`，其中可能包含历史文件正�
 
 ## MCP
 
-- MCP server 是由 Kross 启动的外部本地进程，应只配置可信程序。
-- MCP tool 默认按 `network` 风险处理，除非 annotations 或配置提供其他风险级别。
-- server 的 `env` 可能包含密钥，配置文件应受到保护。
+- stdio MCP server 是由 Kross 启动的外部本地进程，应只配置可信程序。
+- Streamable HTTP endpoint 是远程信任边界；除 localhost 外强制 HTTPS，并默认
+  将所有工具按 `network` 风险处理。
+- server 的 `env` 可能包含密钥。远程 Bearer token 只允许通过环境变量名引用，
+  不允许写入静态 header，且不会进入 Trace 或 Session。
+- 不要把其他服务签发的 token 透传给 MCP server；预先取得的 token 必须绑定到
+  目标 MCP resource。
 - MCP 返回内容会进入 Agent 上下文，应视为潜在的不可信指令或数据。
 
 ## Secrets 与本地数据
@@ -89,7 +93,7 @@ ProcessStart 的 trace 使用受限 command-shape preview，ProcessWrite 只记�
 
 - 没有 OS 级 Bash/进程沙箱。
 - 没有容器级网络或文件系统隔离。
-- MCP 仅支持 stdio，且没有运行时热重载。
+- MCP 没有运行时热重载、交互式 OAuth 客户端、resources 或 prompts。
 - Project Instructions 当前只扫描 root 顶层。
 - 权限 classifier 是启发式规则，不是安全证明。
 - API key 存储尚未接入系统钥匙串。

@@ -91,12 +91,13 @@ Anthropic 还支持 `ANTHROPIC_VERSION`。
 
 ## MCP
 
-stdio MCP server 可放在 `~/.kross/mcp.json`，也可写入 `config.json` 的 `mcpServers`。同名 server 以 `config.json` 为准。
+stdio 或 Streamable HTTP MCP server 可放在 `~/.kross/mcp.json`，也可写入
+`config.json` 的 `mcpServers`。同名 server 以 `config.json` 为准。
 
 ```json
 {
   "mcpServers": {
-    "example": {
+    "local": {
       "command": "npx",
       "args": ["-y", "some-mcp-server"],
       "env": {},
@@ -104,12 +105,29 @@ stdio MCP server 可放在 `~/.kross/mcp.json`，也可写入 `config.json` 的 
       "risk": "network",
       "connectTimeoutMs": 12000,
       "disabled": false
+    },
+    "remote": {
+      "transport": "streamable-http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "X-Tenant": "team-a"
+      },
+      "authorization": {
+        "type": "bearer-env",
+        "env": "MCP_REMOTE_TOKEN"
+      }
     }
   }
 }
 ```
 
-`risk` 可为 `read`、`write`、`execute` 或 `network`。未覆盖时优先参考 MCP tool annotations，否则按 `network` 处理。当前需要重启 Kross 才能重新加载 MCP 列表。
+远程 token 只通过环境变量名引用，不能放入 `headers`；`Authorization`、Cookie、
+会话和协议版本等保留 header 会被配置加载器丢弃。远程 endpoint 必须使用 HTTPS，
+只有 `localhost`/`127.0.0.1`/`::1` 可以使用 HTTP。
+
+`risk` 可为 `read`、`write`、`execute` 或 `network`。远程 MCP 默认始终按
+`network` 要求审批；stdio 未覆盖时参考 tool annotations，无法判断也按
+`network` 处理。当前需要重启 Kross 才能重新加载 MCP 列表。
 
 ## 多仓项目模板
 

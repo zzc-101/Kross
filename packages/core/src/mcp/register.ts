@@ -7,10 +7,12 @@ import type {
 } from '../tools/toolGateway';
 import { loadMcpServersConfig, type LoadMcpConfigOptions } from './config';
 import {
+  McpClient,
   McpStdioClient,
   type McpToolClient
 } from './mcpClient';
 import { buildMcpToolName, inferMcpToolRisk } from './risk';
+import { StreamableHttpTransport } from './streamableHttp';
 import type {
   McpCallToolResult,
   McpConnectResult,
@@ -31,6 +33,7 @@ export interface ConnectMcpOptions extends LoadMcpConfigOptions {
   /** Workspace cwd; used as default process cwd for servers without explicit cwd. */
   workspaceRoot?: string;
   env?: Record<string, string | undefined>;
+  httpFetch?: typeof fetch;
   /** Inject clients in tests. */
   createClient?: (
     serverId: string,
@@ -69,16 +72,7 @@ export async function connectAndRegisterMcpTools(
     try {
       client =
         options.createClient?.(serverId, config) ??
-        new McpStdioClient({
-          command: config.command,
-          args: config.args,
-          env: {
-            ...options.env,
-            ...config.env
-          },
-          cwd: config.cwd ?? options.workspaceRoot,
-          requestTimeoutMs: config.connectTimeoutMs ?? 12_000
-        });
+        createConfiguredClient(config, options);
       unsubscribeDiagnostics.push(
         client.onDiagnostic((diagnostic) => {
           if (diagnostic.level !== 'debug') {
@@ -102,7 +96,9 @@ export async function connectAndRegisterMcpTools(
           serverId,
           tool,
           client,
-          serverRisk: config.risk
+          serverRisk:
+            config.risk ??
+            (config.transport === 'streamable-http' ? 'network' : undefined)
         });
         if (gatewayHasTool(gateway, definition.name)) {
           warn(
@@ -216,11 +212,48 @@ export function createMcpToolDefinition(input: {
         throw new Error('MCP tool call aborted');
       }
       const result = await input.client.callTool(input.tool.name, args ?? {}, {
-        signal
+        signal,
+        timeoutMs: 120_000
       });
       return formatMcpToolResult(result);
     }
   };
+}
+
+function createConfiguredClient(
+  config: McpServerConfig,
+  options: ConnectMcpOptions
+): McpToolClient {
+  if (config.transport === 'streamable-http') {
+    const env = options.env ?? process.env;
+    const token = config.authorization
+      ? env[config.authorization.env]
+      : undefined;
+    if (config.authorization && !token) {
+      throw new Error(
+        `MCP bearer token environment variable is not set: ${config.authorization.env}`
+      );
+    }
+    return new McpClient(
+      new StreamableHttpTransport({
+        endpoint: config.url,
+        headers: config.headers,
+        bearerToken: token,
+        requestTimeoutMs: config.connectTimeoutMs ?? 12_000,
+        fetchImpl: options.httpFetch
+      })
+    );
+  }
+  return new McpStdioClient({
+    command: config.command,
+    args: config.args,
+    env: {
+      ...options.env,
+      ...config.env
+    },
+    cwd: config.cwd ?? options.workspaceRoot,
+    requestTimeoutMs: config.connectTimeoutMs ?? 12_000
+  });
 }
 
 export function formatMcpToolResult(result: McpCallToolResult): ToolHandlerResult {

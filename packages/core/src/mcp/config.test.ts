@@ -57,7 +57,48 @@ describe('loadMcpServersConfig', () => {
         })
       );
       const servers = loadMcpServersConfig({ homeDir });
-      expect(servers.demo?.command).toBe('npx');
+      expect(servers.demo).toMatchObject({ command: 'npx' });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('normalizes Streamable HTTP config and drops reserved secret headers', () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-http-config-'));
+    try {
+      const kross = join(homeDir, '.kross');
+      mkdirSync(kross, { recursive: true });
+      writeFileSync(
+        join(kross, 'mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            remote: {
+              transport: 'streamable-http',
+              url: 'https://mcp.example.com/mcp',
+              headers: {
+                'X-Tenant': 'demo',
+                Authorization: 'Bearer must-not-survive',
+                Cookie: 'must-not-survive',
+                'Bad\nHeader': 'value'
+              },
+              authorization: {
+                type: 'bearer-env',
+                env: 'MCP_REMOTE_TOKEN'
+              }
+            }
+          }
+        })
+      );
+
+      expect(loadMcpServersConfig({ homeDir }).remote).toEqual({
+        transport: 'streamable-http',
+        url: 'https://mcp.example.com/mcp',
+        headers: { 'X-Tenant': 'demo' },
+        authorization: {
+          type: 'bearer-env',
+          env: 'MCP_REMOTE_TOKEN'
+        }
+      });
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }

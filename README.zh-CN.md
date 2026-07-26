@@ -274,8 +274,8 @@ npm run dev --workspace @kross/worker
 根目录不再提供默认 `dev` 入口。开发服务器由对应 workspace 自己管理，避免根包
 隐式绑定到某一种产品形态。
 
-当前主要待补能力包括本地运行的 OS 级执行沙箱、MCP resources/prompts 与 HTTP
-transport、跨会话语义记忆、嵌套目录级 Project Instructions，以及 Cloud Agent
+当前主要待补能力包括本地运行的 OS 级执行沙箱、MCP resources/prompts 与交互式
+OAuth、跨会话语义记忆、嵌套目录级 Project Instructions，以及 Cloud Agent
 在真实 Docker、移动端和公网反向代理环境中的持续端到端验收。
 
 ## 反馈与贡献

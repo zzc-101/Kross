@@ -518,8 +518,8 @@ feat(protocol): publish language-neutral wire schemas
 
 ### E1. MCP Transport 抽象
 
-> 基础已完成：协议客户端与 stdio Transport 已解耦，取消、超时、诊断和幂等关闭
-> 已统一；第二种官方真实 Transport 由 E2 Streamable HTTP 完成并关闭本项验收。
+> 已完成：协议客户端与 stdio Transport 已解耦，取消、超时、诊断和幂等关闭已
+> 统一，并由 E2 的真实 Streamable HTTP Transport 验证。
 
 - 在保留 stdio 行为的前提下定义 transport lifecycle；
 - 连接、请求、取消、超时、关闭和诊断统一；
@@ -527,6 +527,10 @@ feat(protocol): publish language-neutral wire schemas
 - 不先重写 MCP Tool Gateway 集成。
 
 ### E2. Streamable HTTP
+
+> 已完成：按 MCP 2025-11-25 实现 JSON/SSE、session、cursor 恢复、404
+> 重新初始化、显式取消和 DELETE 关闭；支持 Bearer token 环境变量引用并默认按
+> `network` 风险。交互式 OAuth/PKCE 客户端不在本批次。
 
 - 以实施时最新的 MCP 官方规范为唯一协议依据；
 - 支持认证引用、重连、capability 协商和明确错误；

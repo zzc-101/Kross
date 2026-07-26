@@ -4,9 +4,10 @@ import type {
   McpTransportDiagnosticListener,
   McpTransportRequestOptions
 } from './transport';
+import { McpTransportSessionExpiredError } from './transport';
 import type { McpCallToolResult, McpToolInfo } from './types';
 
-const PROTOCOL_VERSION = '2024-11-05';
+export const MCP_PROTOCOL_VERSION = '2025-11-25';
 
 export interface McpStdioClientOptions extends StdioJsonRpcClientOptions {
   clientName?: string;
@@ -36,6 +37,7 @@ export interface McpToolClient {
 export class McpClient implements McpToolClient {
   private initialized = false;
   private closePromise: Promise<void> | undefined;
+  private connectPromise: Promise<void> | undefined;
   private readonly clientName: string;
   private readonly clientVersion: string;
 
@@ -51,18 +53,30 @@ export class McpClient implements McpToolClient {
     if (this.closePromise) {
       throw new Error('MCP client is closed');
     }
+    if (this.initialized) return;
+    this.connectPromise ??= this.initialize().finally(() => {
+      this.connectPromise = undefined;
+    });
+    return this.connectPromise;
+  }
+
+  private async initialize(): Promise<void> {
     await this.transport.start();
-    await this.transport.request('initialize', {
-      protocolVersion: PROTOCOL_VERSION,
+    const result = (await this.transport.request('initialize', {
+      protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: {
-        roots: { listChanged: false },
-        sampling: {}
+        // Server-to-client roots and sampling requests are not implemented.
       },
       clientInfo: {
         name: this.clientName,
         version: this.clientVersion
       }
-    });
+    })) as { protocolVersion?: unknown };
+    const negotiatedVersion =
+      typeof result?.protocolVersion === 'string'
+        ? result.protocolVersion
+        : MCP_PROTOCOL_VERSION;
+    this.transport.setProtocolVersion?.(negotiatedVersion);
     await this.transport.notify('notifications/initialized', {});
     this.initialized = true;
   }
@@ -71,7 +85,11 @@ export class McpClient implements McpToolClient {
     options?: McpTransportRequestOptions
   ): Promise<McpToolInfo[]> {
     this.ensureInitialized();
-    const result = (await this.transport.request('tools/list', {}, options)) as {
+    const result = (await this.requestWithReconnect(
+      'tools/list',
+      {},
+      options
+    )) as {
       tools?: McpToolInfo[];
     };
     return Array.isArray(result?.tools) ? result.tools : [];
@@ -83,7 +101,7 @@ export class McpClient implements McpToolClient {
     options?: McpTransportRequestOptions
   ): Promise<McpCallToolResult> {
     this.ensureInitialized();
-    const result = await this.transport.request(
+    const result = await this.requestWithReconnect(
       'tools/call',
       {
         name,
@@ -92,6 +110,24 @@ export class McpClient implements McpToolClient {
       options
     );
     return (result ?? {}) as McpCallToolResult;
+  }
+
+  private async requestWithReconnect(
+    method: string,
+    params: unknown,
+    options?: McpTransportRequestOptions
+  ): Promise<unknown> {
+    try {
+      return await this.transport.request(method, params, options);
+    } catch (error) {
+      if (!(error instanceof McpTransportSessionExpiredError)) {
+        throw error;
+      }
+      options?.signal?.throwIfAborted();
+      this.initialized = false;
+      await this.connect();
+      return this.transport.request(method, params, options);
+    }
   }
 
   close(): Promise<void> {

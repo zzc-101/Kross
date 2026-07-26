@@ -3,7 +3,11 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { McpClient, McpStdioClient } from './mcpClient';
+import {
+  McpClient,
+  McpStdioClient,
+  MCP_PROTOCOL_VERSION
+} from './mcpClient';
 import type {
   McpTransport,
   McpTransportDiagnosticListener,
@@ -37,6 +41,10 @@ describe('McpClient transport lifecycle', () => {
       'tools/list',
       'tools/call'
     ]);
+    expect(transport.initializeParams).toMatchObject({
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      capabilities: {}
+    });
     expect(transport.close).toHaveBeenCalledTimes(1);
   });
 
@@ -91,6 +99,7 @@ class RecordingTransport implements McpTransport {
   readonly kind = 'recording';
   readonly methods: string[] = [];
   readonly close = vi.fn(async () => undefined);
+  initializeParams?: unknown;
 
   start(): void {
     this.methods.push('initialize');
@@ -103,6 +112,8 @@ class RecordingTransport implements McpTransport {
   ): Promise<unknown> {
     if (method !== 'initialize') {
       this.methods.push(method);
+    } else {
+      this.initializeParams = params;
     }
     if (method === 'tools/list') {
       return { tools: [{ name: 'echo' }] };

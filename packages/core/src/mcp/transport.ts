@@ -13,6 +13,13 @@ export type McpTransportDiagnosticListener = (
   diagnostic: McpTransportDiagnostic
 ) => void;
 
+export class McpTransportSessionExpiredError extends Error {
+  constructor(message = 'MCP transport session expired') {
+    super(message);
+    this.name = 'McpTransportSessionExpiredError';
+  }
+}
+
 /**
  * JSON-RPC lifecycle required by the MCP protocol client.
  *
@@ -22,6 +29,7 @@ export type McpTransportDiagnosticListener = (
 export interface McpTransport {
   readonly kind: string;
   start(): void | Promise<void>;
+  setProtocolVersion?(version: string): void;
   request(
     method: string,
     params?: unknown,

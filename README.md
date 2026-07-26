@@ -268,7 +268,7 @@ npm run dev --workspace @kross/worker
 
 The repository root intentionally has no default `dev` script. Each runnable workspace owns its development server, while the root coordinates repository-wide builds, tests, packaging, and Cloud lifecycle commands.
 
-Current gaps include an OS-level sandbox for local execution, MCP resources/prompts and HTTP transport, cross-session semantic memory, nested directory-level Project Instructions, and continued end-to-end validation of Cloud Agent deployments on real Docker, mobile, and public reverse-proxy environments.
+Current gaps include an OS-level sandbox for local execution, MCP resources/prompts and interactive OAuth, cross-session semantic memory, nested directory-level Project Instructions, and continued end-to-end validation of Cloud Agent deployments on real Docker, mobile, and public reverse-proxy environments.
 
 ## Feedback and Contributing
 

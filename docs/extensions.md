@@ -75,13 +75,15 @@ Kross 启动时只把 Skill 的名称和描述加入上下文，需要时再通�
 
 ## MCP 工具
 
-无需修改 Kross 源码即可通过 stdio MCP server 增加工具。配置文件可以放在
+无需修改 Kross 源码即可通过 stdio 或 Streamable HTTP MCP server 增加工具。
+配置文件可以放在
 `~/.kross/mcp.json`，也可以写入 `~/.kross/config.json` 的 `mcpServers`：
 
 ```json
 {
   "mcpServers": {
     "example": {
+      "transport": "stdio",
       "command": "node",
       "args": ["/absolute/path/to/server.js"],
       "env": {
@@ -91,6 +93,14 @@ Kross 启动时只把 Skill 的名称和描述加入上下文，需要时再通�
       "risk": "network",
       "connectTimeoutMs": 12000,
       "disabled": false
+    },
+    "remote": {
+      "transport": "streamable-http",
+      "url": "https://mcp.example.com/mcp",
+      "authorization": {
+        "type": "bearer-env",
+        "env": "MCP_REMOTE_TOKEN"
+      }
     }
   }
 }
@@ -102,16 +112,23 @@ Kross 启动时只把 Skill 的名称和描述加入上下文，需要时再通�
 
 当前边界：
 
-- 只支持 stdio transport；
+- 支持 stdio 与 Streamable HTTP，远程 HTTP 自动处理 session、JSON/SSE 响应、
+  SSE cursor 恢复、404 重新初始化和 DELETE 关闭；
 - 支持 tools，不支持 resources 和 prompts；
 - 单个 MCP 连接失败不会阻止其他服务或 Kross 启动；
 - 修改 MCP 配置后需要重启；
-- MCP 子进程拥有当前用户权限，不能把审批等同于 OS 沙箱。
+- MCP 子进程拥有当前用户权限，远程 MCP 拥有网络与服务端权限；不能把审批等同于
+  OS 沙箱。
 
-Core 内部已经把 MCP 协议客户端与 Transport 生命周期分离。Transport 统一负责
+Core 把 MCP 协议客户端与 Transport 生命周期分离。Transport 统一负责
 连接、JSON-RPC 请求、`AbortSignal` 取消、单请求超时、结构化诊断和幂等关闭；
-当前配置仍只创建 stdio 适配器，尚未把远程 HTTP 或自定义 Transport 暴露为稳定
-扩展 API。工具注册、风险推断与审批继续统一经过 `ToolGateway`。
+工具注册、风险推断与审批继续统一经过 `ToolGateway`。
+
+HTTP 实现遵循
+[MCP 2025-11-25 Transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+规范。当前接受预先取得的 Bearer token 环境变量引用，并会把 401 challenge 中的
+Protected Resource Metadata 与 scope 作为结构化错误暴露；尚未内置需要浏览器
+交互的 OAuth 2.1/PKCE 授权流程。token 不写入 Trace、Session、错误或诊断。
 
 不要把真实密钥提交到仓库。公开 Issue 中的配置示例也应删除 token、绝对用户名
 路径和私有仓库地址。

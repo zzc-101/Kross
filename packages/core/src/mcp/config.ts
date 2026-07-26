@@ -8,6 +8,18 @@ import type { McpServerConfig, McpServersConfig } from './types';
 import type { ToolRisk } from '../tools/toolGateway';
 
 const TOOL_RISKS: ToolRisk[] = ['read', 'write', 'execute', 'network'];
+const RESERVED_HTTP_HEADERS = new Set([
+  'accept',
+  'authorization',
+  'connection',
+  'content-length',
+  'content-type',
+  'cookie',
+  'host',
+  'last-event-id',
+  'mcp-protocol-version',
+  'mcp-session-id'
+]);
 
 export interface LoadMcpConfigOptions extends ConfigPersistenceOptions {
   /** Optional absolute path override for mcp.json */
@@ -92,7 +104,8 @@ function looksLikeServersMap(root: Record<string, unknown>): boolean {
       entry &&
       typeof entry === 'object' &&
       !Array.isArray(entry) &&
-      typeof (entry as { command?: unknown }).command === 'string'
+      (typeof (entry as { command?: unknown }).command === 'string' ||
+        (entry as { transport?: unknown }).transport === 'streamable-http')
   );
 }
 
@@ -101,6 +114,21 @@ function normalizeServerConfig(value: unknown): McpServerConfig | undefined {
     return undefined;
   }
   const entry = value as Record<string, unknown>;
+  const common = normalizeCommonConfig(entry);
+  if (entry.transport === 'streamable-http') {
+    const url = typeof entry.url === 'string' ? entry.url.trim() : '';
+    if (!isHttpUrl(url)) return undefined;
+    const headers = normalizeHttpHeaders(entry.headers);
+    const authorization = normalizeHttpAuthorization(entry.authorization);
+    return {
+      transport: 'streamable-http',
+      url,
+      ...common,
+      ...(headers ? { headers } : {}),
+      ...(authorization ? { authorization } : {})
+    };
+  }
+
   const command = typeof entry.command === 'string' ? entry.command.trim() : '';
   if (!command) {
     return undefined;
@@ -116,6 +144,24 @@ function normalizeServerConfig(value: unknown): McpServerConfig | undefined {
           )
         )
       : undefined;
+  return {
+    transport: 'stdio',
+    command,
+    ...(args ? { args } : {}),
+    ...(env && Object.keys(env).length > 0 ? { env } : {}),
+    ...(typeof entry.cwd === 'string' && entry.cwd.trim()
+      ? { cwd: entry.cwd.trim() }
+      : {}),
+    ...common
+  };
+}
+
+function normalizeCommonConfig(
+  entry: Record<string, unknown>
+): Pick<
+  McpServerConfig,
+  'disabled' | 'risk' | 'connectTimeoutMs'
+> {
   const risk =
     typeof entry.risk === 'string' && TOOL_RISKS.includes(entry.risk as ToolRisk)
       ? (entry.risk as ToolRisk)
@@ -126,18 +172,69 @@ function normalizeServerConfig(value: unknown): McpServerConfig | undefined {
     entry.connectTimeoutMs > 0
       ? Math.floor(entry.connectTimeoutMs)
       : undefined;
-
   return {
-    command,
-    ...(args ? { args } : {}),
-    ...(env && Object.keys(env).length > 0 ? { env } : {}),
     ...(entry.disabled === true ? { disabled: true } : {}),
-    ...(typeof entry.cwd === 'string' && entry.cwd.trim()
-      ? { cwd: entry.cwd.trim() }
-      : {}),
     ...(risk ? { risk } : {}),
     ...(connectTimeoutMs ? { connectTimeoutMs } : {})
   };
+}
+
+function normalizeHttpHeaders(
+  value: unknown
+): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const headers: Record<string, string> = {};
+  for (const [name, headerValue] of Object.entries(
+    value as Record<string, unknown>
+  )) {
+    if (
+      typeof headerValue === 'string' &&
+      isHttpHeaderName(name) &&
+      !RESERVED_HTTP_HEADERS.has(name.toLowerCase()) &&
+      !headerValue.includes('\r') &&
+      !headerValue.includes('\n')
+    ) {
+      headers[name] = headerValue;
+    }
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+function normalizeHttpAuthorization(
+  value: unknown
+): { type: 'bearer-env'; env: string } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const entry = value as Record<string, unknown>;
+  const env = typeof entry.env === 'string' ? entry.env.trim() : '';
+  if (
+    entry.type !== 'bearer-env' ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(env)
+  ) {
+    return undefined;
+  }
+  return { type: 'bearer-env', env };
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === 'https:' || url.protocol === 'http:') &&
+      !url.username &&
+      !url.password &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isHttpHeaderName(value: string): boolean {
+  return /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value);
 }
 
 /** Exposed for tests: which config path would be used for kross config. */

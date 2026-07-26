@@ -3,8 +3,11 @@ export type {
   McpConnectResult,
   McpContentItem,
   McpManagerSnapshot,
+  McpHttpAuthorizationReference,
+  McpHttpServerConfig,
   McpServerConfig,
   McpServersConfig,
+  McpStdioServerConfig,
   McpToolAnnotations,
   McpToolInfo
 } from './types';
@@ -16,6 +19,7 @@ export {
 export {
   McpClient,
   McpStdioClient,
+  MCP_PROTOCOL_VERSION,
   type McpClientOptions,
   type McpStdioClientOptions,
   type McpToolClient
@@ -26,11 +30,18 @@ export type {
   McpTransportDiagnosticListener,
   McpTransportRequestOptions
 } from './transport';
+export { McpTransportSessionExpiredError } from './transport';
 export {
   StdioJsonRpcClient,
   tryReadFramedMessage,
   type StdioJsonRpcClientOptions
 } from './jsonRpcStdio';
+export {
+  McpHttpError,
+  McpSessionExpiredError,
+  StreamableHttpTransport,
+  type StreamableHttpTransportOptions
+} from './streamableHttp';
 export {
   buildMcpToolName,
   inferMcpToolRisk,
