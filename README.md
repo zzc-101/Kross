@@ -208,6 +208,7 @@ Most detailed documentation is currently in Chinese. English documentation contr
 - [Command reference](docs/command-reference.md)
 - [Extending Kross](docs/extensions.md)
 - [Security model](docs/security.md)
+- [Supported environments and compatibility](docs/support.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Technical overview](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)
@@ -232,6 +233,7 @@ Most detailed documentation is currently in Chinese. English documentation contr
 npm run dev --workspace @kross/tui
 npm test -- --run
 npm run typecheck
+npm run version:check
 npm run docs:check
 npm run build
 npm run package:check

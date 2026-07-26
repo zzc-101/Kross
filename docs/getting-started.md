@@ -27,6 +27,17 @@ npm install
 
 Kross 当前从源码运行，尚未发布稳定的全局 CLI 包。仓库已经提供 `@zzc-101/kross` 的构建与安装冒烟测试；首个 npm 版本发布后可以全局安装并直接运行 `kross`。
 
+发布后安装、升级和卸载命令如下：
+
+```bash
+npm install --global @zzc-101/kross
+npm update --global @zzc-101/kross
+npm uninstall --global @zzc-101/kross
+```
+
+升级和卸载不会自动删除 `~/.kross` 中的模型配置、会话与本地状态。确定不再需要
+这些数据时再手动清理；删除前建议先备份配置。
+
 ## 3. 配置模型
 
 ### 从已有工具导入
@@ -148,3 +159,18 @@ npm run dev --workspace @kross/tui
 - `/resume` 打开最近会话选择器。
 
 下一步可阅读 [命令手册](command-reference.md) 和 [安全模型](security.md)。
+
+## Cloud Agent 的停止与清理
+
+从仓库启动的 Cloud Agent 可以停止并保留数据：
+
+```bash
+./scripts/start-cloud.sh --stop
+```
+
+动态 Worker 容器会移除，但每个工作区命名卷和 Gateway 的
+`kross-server-data` 卷仍会保留。永久删除某个工作区时，应先在 Web 中选择
+“删除工作区并删除数据卷”，这样 Gateway 注册表和 Docker 资源会一起清理。
+`docker compose down -v` 只删除 Compose 声明的服务端数据卷，不会代替逐个删除
+动态工作区卷；不要把它当作完整卸载命令。更多细节见
+[Cloud Agent 部署与运维](cloud-agent-deployment.md#生命周期与恢复)。

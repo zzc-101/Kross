@@ -214,6 +214,7 @@ Git Push/PR、资源限额和空闲回收。Web
 - [命令手册](docs/command-reference.md)
 - [扩展 Kross](docs/extensions.md)
 - [安全模型](docs/security.md)
+- [支持范围与兼容策略](docs/support.md)
 - [故障排查](docs/troubleshooting.md)
 - [技术概览](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)
@@ -238,6 +239,7 @@ Git Push/PR、资源限额和空闲回收。Web
 npm run dev --workspace @kross/tui
 npm test -- --run
 npm run typecheck
+npm run version:check
 npm run docs:check
 npm run build
 npm run package:check
