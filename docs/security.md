@@ -96,7 +96,7 @@ ProcessStart 的 trace 使用受限 command-shape preview，ProcessWrite 只记�
 
 - 没有 OS 级 Bash/进程沙箱。
 - 没有容器级网络或文件系统隔离。
-- MCP 没有运行时热重载或交互式 OAuth 客户端。
+- MCP 没有交互式 OAuth 客户端。
 - Project Instructions 当前只扫描 root 顶层。
 - 权限 classifier 是启发式规则，不是安全证明。
 - API key 存储尚未接入系统钥匙串。

@@ -71,6 +71,61 @@ describe('ToolGateway', () => {
     );
   });
 
+  it('atomically replaces a category without disturbing captured calls', async () => {
+    const gateway = new ToolGateway();
+    let releaseOld!: () => void;
+    const oldGate = new Promise<void>((resolve) => {
+      releaseOld = resolve;
+    });
+    gateway.register({
+      name: 'remote__read',
+      description: 'old',
+      risk: 'read',
+      category: 'mcp:remote',
+      inputSchema: z.object({}),
+      execute: async () => {
+        await oldGate;
+        return { content: 'old result' };
+      }
+    });
+    gateway.register({
+      name: 'fs.read',
+      description: 'builtin',
+      risk: 'read',
+      category: 'filesystem',
+      inputSchema: z.object({}),
+      execute: async () => ({ content: 'builtin' })
+    });
+
+    const inFlight = gateway.call({
+      runId: 'old-run',
+      name: 'remote__read',
+      input: {}
+    });
+    await Promise.resolve();
+    gateway.replaceCategory('mcp:', [
+      {
+        name: 'remote__read',
+        description: 'new',
+        risk: 'read',
+        category: 'mcp:remote',
+        inputSchema: z.object({}),
+        execute: async () => ({ content: 'new result' })
+      }
+    ]);
+
+    releaseOld();
+    await expect(inFlight).resolves.toMatchObject({ content: 'old result' });
+    await expect(
+      gateway.call({
+        runId: 'new-run',
+        name: 'remote__read',
+        input: {}
+      })
+    ).resolves.toMatchObject({ content: 'new result' });
+    expect(gateway.listTools().map((tool) => tool.name)).toContain('fs.read');
+  });
+
   it('validates input, executes tools, and records trace events', async () => {
     const traceStore = new InMemoryTraceStore();
     const gateway = new ToolGateway({ traceStore });

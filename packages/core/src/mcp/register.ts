@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-import type {
-  ToolDefinition,
+import {
   ToolGateway,
-  ToolHandlerResult
+  type ToolDefinition,
+  type ToolHandlerResult
 } from '../tools/toolGateway';
 import { loadMcpServersConfig, type LoadMcpConfigOptions } from './config';
 import {
@@ -30,6 +30,8 @@ const mcpInputSchema = z.record(z.string(), z.unknown());
 export interface McpManager {
   /** Connect results for UI/debug. */
   snapshot(): McpManagerSnapshot;
+  /** Available on the host-level stable manager; raw managers may omit it. */
+  reload?(): Promise<McpManagerSnapshot>;
   listResources(signal?: AbortSignal): Promise<McpCatalogResource[]>;
   readResource(
     serverId: string,
@@ -77,6 +79,22 @@ export async function connectAndRegisterMcpTools(
   const results: McpConnectResult[] = [];
   const registeredToolNames: string[] = [];
   const warn = options.onWarning ?? (() => undefined);
+  const operations = createOperationDrain(async () => {
+    for (const unsubscribe of unsubscribeDiagnostics.splice(0)) {
+      unsubscribe();
+    }
+    await Promise.all(
+      clients.map(async (client) => {
+        try {
+          await client.close();
+        } catch {
+          // best-effort
+        }
+      })
+    );
+    clients.length = 0;
+    clientsByServer.clear();
+  });
 
   for (const [serverId, config] of Object.entries(servers)) {
     if (config.disabled) {
@@ -120,6 +138,7 @@ export async function connectAndRegisterMcpTools(
           serverId,
           tool,
           client,
+          runOperation: operations.run,
           serverRisk:
             config.risk ??
             (config.transport === 'streamable-http' ? 'network' : undefined)
@@ -168,12 +187,14 @@ export async function connectAndRegisterMcpTools(
       registeredToolNames: [...registeredToolNames]
     }),
     listResources: (signal) =>
-      listCatalogItems(
-        clientsByServer,
-        'resources',
-        signal
+      operations.run(() =>
+        listCatalogItems(
+          clientsByServer,
+          'resources',
+          signal
+        )
       ),
-    readResource: async (serverId, uri, signal) => {
+    readResource: (serverId, uri, signal) => operations.run(async () => {
       const client = requireMcpClient(clientsByServer, serverId);
       const resource = (await client.listResources({ signal })).find(
         (item) => item.uri === uri
@@ -188,14 +209,16 @@ export async function connectAndRegisterMcpTools(
         'resource'
       );
       return { serverId, resource, result };
-    },
+    }),
     listPrompts: (signal) =>
-      listCatalogItems(
-        clientsByServer,
-        'prompts',
-        signal
+      operations.run(() =>
+        listCatalogItems(
+          clientsByServer,
+          'prompts',
+          signal
+        )
       ),
-    getPrompt: async (serverId, name, args = {}, signal) => {
+    getPrompt: (serverId, name, args = {}, signal) => operations.run(async () => {
       const client = requireMcpClient(clientsByServer, serverId);
       const prompt = (await client.listPrompts({ signal })).find(
         (item) => item.name === name
@@ -210,22 +233,104 @@ export async function connectAndRegisterMcpTools(
         'prompt'
       );
       return { serverId, prompt, result };
-    },
-    close: async () => {
-      for (const unsubscribe of unsubscribeDiagnostics.splice(0)) {
-        unsubscribe();
+    }),
+    close: operations.close
+  };
+}
+
+/**
+ * Stable host-level manager. Reload prepares a complete generation first,
+ * atomically swaps its tools, then drains old connections without cancelling
+ * operations that already started.
+ */
+export async function connectReloadableMcpManager(
+  gateway: ToolGateway,
+  options: ConnectMcpOptions = {}
+): Promise<McpManager> {
+  const prepare = async (): Promise<{
+    manager: McpManager;
+    definitions: ToolDefinition[];
+  }> => {
+    const stagingGateway = new ToolGateway();
+    const manager = await connectAndRegisterMcpTools(stagingGateway, options);
+    return {
+      manager,
+      definitions: stagingGateway.definitionsByCategory('mcp:')
+    };
+  };
+
+  let current = await prepare();
+  try {
+    gateway.replaceCategory('mcp:', current.definitions);
+  } catch (error) {
+    await current.manager.close();
+    throw error;
+  }
+
+  let closed = false;
+  let reloadPromise: Promise<McpManagerSnapshot> | undefined;
+  let closePromise: Promise<void> | undefined;
+  const retired: Promise<void>[] = [];
+
+  const reload = (): Promise<McpManagerSnapshot> => {
+    if (closed) return Promise.reject(new Error('MCP manager is closed'));
+    reloadPromise ??= (async () => {
+      const next = await prepare();
+      const failures = next.manager
+        .snapshot()
+        .results.filter((result) => result.error && result.error !== 'disabled');
+      if (failures.length > 0) {
+        await next.manager.close();
+        throw new Error(
+          `MCP reload rejected: ${failures
+            .map((result) => `${result.serverId}: ${result.error}`)
+            .join('; ')}`
+        );
       }
-      await Promise.all(
-        clients.map(async (client) => {
+      if (closed) {
+        await next.manager.close();
+        throw new Error('MCP manager is closed');
+      }
+      try {
+        gateway.replaceCategory('mcp:', next.definitions);
+      } catch (error) {
+        await next.manager.close();
+        throw error;
+      }
+      const previous = current;
+      current = next;
+      retired.push(previous.manager.close());
+      return current.manager.snapshot();
+    })().finally(() => {
+      reloadPromise = undefined;
+    });
+    return reloadPromise;
+  };
+
+  return {
+    snapshot: () => current.manager.snapshot(),
+    reload,
+    listResources: (signal) => current.manager.listResources(signal),
+    readResource: (serverId, uri, signal) =>
+      current.manager.readResource(serverId, uri, signal),
+    listPrompts: (signal) => current.manager.listPrompts(signal),
+    getPrompt: (serverId, name, args, signal) =>
+      current.manager.getPrompt(serverId, name, args, signal),
+    close: () => {
+      closePromise ??= (async () => {
+        closed = true;
+        if (reloadPromise) {
           try {
-            await client.close();
+            await reloadPromise;
           } catch {
-            // best-effort
+            // reload failure is already reported to its caller
           }
-        })
-      );
-      clients.length = 0;
-      clientsByServer.clear();
+        }
+        gateway.replaceCategory('mcp:', []);
+        await current.manager.close();
+        await Promise.all(retired);
+      })();
+      return closePromise;
     }
   };
 }
@@ -319,6 +424,7 @@ export function createMcpToolDefinition(input: {
   serverId: string;
   tool: McpToolInfo;
   client: McpToolClient;
+  runOperation?: <T>(operation: () => Promise<T>) => Promise<T>;
   serverRisk?: import('../tools/toolGateway').ToolRisk;
 }): ToolDefinition<Record<string, unknown>> {
   const toolName = buildMcpToolName(input.serverId, input.tool.name);
@@ -351,11 +457,53 @@ export function createMcpToolDefinition(input: {
       if (signal.aborted) {
         throw new Error('MCP tool call aborted');
       }
-      const result = await input.client.callTool(input.tool.name, args ?? {}, {
-        signal,
-        timeoutMs: 120_000
-      });
+      const call = () =>
+        input.client.callTool(input.tool.name, args ?? {}, {
+          signal,
+          timeoutMs: 120_000
+        });
+      const result = input.runOperation
+        ? await input.runOperation(call)
+        : await call();
       return formatMcpToolResult(result);
+    }
+  };
+}
+
+function createOperationDrain(closeResources: () => Promise<void>): {
+  run: <T>(operation: () => Promise<T>) => Promise<T>;
+  close: () => Promise<void>;
+} {
+  let active = 0;
+  let closing = false;
+  let closePromise: Promise<void> | undefined;
+  let resolveIdle: (() => void) | undefined;
+
+  const waitForIdle = (): Promise<void> =>
+    active === 0
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+          resolveIdle = resolve;
+        });
+
+  return {
+    run: async <T>(operation: () => Promise<T>): Promise<T> => {
+      if (closing) throw new Error('MCP manager is closing');
+      active += 1;
+      try {
+        return await operation();
+      } finally {
+        active -= 1;
+        if (active === 0) {
+          resolveIdle?.();
+          resolveIdle = undefined;
+        }
+      }
+    },
+    close: () => {
+      closing = true;
+      closePromise ??= waitForIdle().then(closeResources);
+      return closePromise;
     }
   };
 }

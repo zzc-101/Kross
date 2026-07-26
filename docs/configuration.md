@@ -139,7 +139,8 @@ stdio 或 Streamable HTTP MCP server 可放在 `~/.kross/mcp.json`，也可写�
 
 Resource 只把文本内容作为带来源标识的外部、不可信 Context Source 加入当前
 会话，默认响应上限为 128 KiB；Prompt 默认响应上限为 64 KiB，只展示预览，
-不会自动执行或覆盖系统指令。当前需要重启 Kross 才能重新加载 MCP 配置。
+不会自动执行或覆盖系统指令。修改配置后执行 `/mcp reload`：新一代连接和工具
+全部准备成功后才会原子切换；失败时保留当前配置，旧连接会等在途调用结束后关闭。
 
 ## 多仓项目模板
 

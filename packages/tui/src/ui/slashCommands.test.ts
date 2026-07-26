@@ -14,7 +14,7 @@ describe('slashCommands', () => {
     expect(formatSlashHelp()).toContain('/context');
     expect(formatSlashHelp()).toContain('/instructions');
     expect(formatSlashHelp()).toContain('/skills');
-    expect(formatSlashHelp()).toContain('/mcp [list|resource');
+    expect(formatSlashHelp()).toContain('/mcp [list|reload|resource');
     expect(formatSlashHelp()).toContain('/undo');
     expect(formatSlashHelp()).toContain('/compact');
     expect(formatSlashHelp()).toContain('/resume [sessionId]');

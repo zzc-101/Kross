@@ -11,7 +11,7 @@ import type { ProjectRegistry } from '../domain';
 import { createLlmClientFromEnv } from '../llm/createLlmClient';
 import type { LlmClient, LlmFetch } from '../llm/types';
 import {
-  connectAndRegisterMcpTools,
+  connectReloadableMcpManager,
   type McpManager
 } from '../mcp';
 import type { AgentRuntimeOptions } from '../runtime/agentRuntimeTypes';
@@ -283,7 +283,7 @@ export async function bootstrapRuntimeTooling(
     options,
     loadedRegistry?.registry
   );
-  const mcpManager = await connectAndRegisterMcpTools(created.toolGateway, {
+  const mcpManager = await connectReloadableMcpManager(created.toolGateway, {
     workspaceRoot: cwd,
     env,
     homeDir: options.homeDir,

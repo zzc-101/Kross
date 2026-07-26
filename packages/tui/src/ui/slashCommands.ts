@@ -100,7 +100,7 @@ export function listSlashCommands(): SlashCommand[] {
       name: '/mcp',
       description: t('slash.mcp.desc'),
       usage:
-        '/mcp [list|resource <server> <uri>|prompt <server> <name> [JSON]]',
+        '/mcp [list|reload|resource <server> <uri>|prompt <server> <name> [JSON]]',
       category: 'inspection'
     },
     {

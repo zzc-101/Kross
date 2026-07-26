@@ -74,7 +74,7 @@ export const WEB_SLASH_COMMANDS: WebSlashCommand[] = [
     id: 'mcp',
     name: '/mcp',
     usage:
-      '/mcp [list|resource <server> <uri>|prompt <server> <name> [JSON]]',
+      '/mcp [list|reload|resource <server> <uri>|prompt <server> <name> [JSON]]',
     acceptsArgument: true
   },
   {

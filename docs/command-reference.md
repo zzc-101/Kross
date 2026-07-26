@@ -48,6 +48,7 @@
 | `/instructions` | 刷新并显示 Project Instructions 来源与诊断 |
 | `/skills` | 刷新并显示 Skill metadata 与诊断 |
 | `/mcp` 或 `/mcp list` | 列出已连接服务公开的 Resources 与 Prompts |
+| `/mcp reload` | 原子重新加载 MCP 配置；失败时保留当前连接 |
 | `/mcp resource <serverId> <uri>` | 显式把文本 Resource 加入当前会话上下文 |
 | `/mcp prompt <serverId> <name> [JSON]` | 预览 Prompt，不自动执行 |
 | `/trace` | 列出最近运行 |

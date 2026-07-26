@@ -513,6 +513,18 @@ export class AgentRuntime extends EventEmitter {
     signal?: AbortSignal
   ): Promise<string> {
     const [action = 'list', serverId, target, ...rest] = splitCommand(argument);
+    if (action === 'reload') {
+      const manager = this.options.mcpManager;
+      if (!manager?.reload) {
+        throw new Error('MCP runtime reload is not available in this host');
+      }
+      const snapshot = await manager.reload();
+      return [
+        '### MCP 配置已重新加载',
+        `- servers: ${snapshot.results.length}`,
+        `- tools: ${snapshot.registeredToolNames.length}`
+      ].join('\n');
+    }
     if (action === 'list') {
       const catalog = await this.inspectMcpCatalog(signal);
       return [
@@ -566,7 +578,7 @@ export class AgentRuntime extends EventEmitter {
       ].join('\n');
     }
     throw new Error(
-      '用法：/mcp [list|resource <serverId> <uri>|prompt <serverId> <name> [JSON args]]'
+      '用法：/mcp [list|reload|resource <serverId> <uri>|prompt <serverId> <name> [JSON args]]'
     );
   }
 

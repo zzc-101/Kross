@@ -43,5 +43,7 @@
 - MCP Resources 与 Prompts：按 capability 建立目录，Resource 仅在显式选择后
   作为带来源的不可信文本 Context Source 注入，Prompt 仅预览；TUI 与 Cloud
   共享 `/mcp` 命令，并限制远端响应大小。
+- MCP `/mcp reload` 原子热重载：先准备完整的新连接与工具 generation，失败时
+  保留旧配置，成功后让旧连接等待在途调用排空再关闭。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

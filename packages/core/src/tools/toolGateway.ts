@@ -178,6 +178,46 @@ export class ToolGateway {
     this.tools.set(definition.name, definition as ToolDefinition);
   }
 
+  /**
+   * Atomically replace one category namespace after validating collisions.
+   * Existing calls keep their captured definition; future calls see the new set.
+   */
+  replaceCategory(
+    categoryPrefix: string,
+    definitions: ToolDefinition[]
+  ): void {
+    const incomingNames = new Set<string>();
+    for (const definition of definitions) {
+      if (incomingNames.has(definition.name)) {
+        throw new Error(`Duplicate replacement tool: ${definition.name}`);
+      }
+      incomingNames.add(definition.name);
+      const existing = this.tools.get(definition.name);
+      if (
+        existing &&
+        !existing.category?.startsWith(categoryPrefix)
+      ) {
+        throw new Error(`Tool already registered: ${definition.name}`);
+      }
+    }
+
+    for (const [name, definition] of this.tools) {
+      if (definition.category?.startsWith(categoryPrefix)) {
+        this.tools.delete(name);
+      }
+    }
+    for (const definition of definitions) {
+      this.tools.set(definition.name, definition);
+    }
+  }
+
+  /** Internal composition hook used to move prepared tool definitions atomically. */
+  definitionsByCategory(categoryPrefix: string): ToolDefinition[] {
+    return [...this.tools.values()].filter((definition) =>
+      definition.category?.startsWith(categoryPrefix)
+    );
+  }
+
   listTools(context: ToolListContext = {}): ToolMetadata[] {
     return [...this.tools.values()]
       .filter((tool) => tool.enabled?.(context) ?? true)

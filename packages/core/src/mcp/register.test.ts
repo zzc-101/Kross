@@ -3,11 +3,16 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ToolGateway } from '../tools/toolGateway';
 import type { McpToolClient } from './mcpClient';
-import { connectAndRegisterMcpTools, formatMcpToolResult } from './register';
+import type { McpServerConfig } from './types';
+import {
+  connectAndRegisterMcpTools,
+  connectReloadableMcpManager,
+  formatMcpToolResult
+} from './register';
 
 const fixtureServer = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -223,6 +228,113 @@ describe('connectAndRegisterMcpTools', () => {
         await manager.close();
       }
     } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('atomically reloads tools and drains the previous active generation', async () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-reload-'));
+    const kross = join(homeDir, '.kross');
+    const configPath = join(kross, 'mcp.json');
+    mkdirSync(kross, { recursive: true });
+    const writeGeneration = (command: string) =>
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            remote: { command, risk: 'read' }
+          }
+        })
+      );
+    writeGeneration('old');
+
+    let releaseOld!: () => void;
+    const oldGate = new Promise<void>((resolve) => {
+      releaseOld = resolve;
+    });
+    let markOldStarted!: () => void;
+    const oldStarted = new Promise<void>((resolve) => {
+      markOldStarted = resolve;
+    });
+    const closes = new Map<string, ReturnType<typeof vi.fn>>();
+    const createClient = (
+      _serverId: string,
+      config: McpServerConfig
+    ): McpToolClient => {
+      const generation =
+        config.transport === 'stdio' ? config.command : 'unexpected';
+      const close = vi.fn(async () => undefined);
+      closes.set(generation, close);
+      return {
+        connect: async () => {
+          if (generation === 'broken') throw new Error('broken generation');
+        },
+        getCapabilities: () => ({ tools: {} }),
+        listTools: async () => [
+          {
+            name: 'echo',
+            inputSchema: { type: 'object' }
+          }
+        ],
+        callTool: async () => {
+          if (generation === 'old') {
+            markOldStarted();
+            await oldGate;
+          }
+          return {
+            content: [{ type: 'text', text: `${generation} result` }]
+          };
+        },
+        listResources: async () => [],
+        readResource: async () => ({}),
+        listPrompts: async () => [],
+        getPrompt: async () => ({}),
+        close,
+        onDiagnostic: () => () => undefined
+      };
+    };
+
+    const gateway = new ToolGateway();
+    const manager = await connectReloadableMcpManager(gateway, {
+      homeDir,
+      createClient
+    });
+    try {
+      const oldCall = gateway.call({
+        runId: 'reload-old',
+        name: 'remote__echo',
+        input: {}
+      });
+      await oldStarted;
+
+      writeGeneration('new');
+      await manager.reload?.();
+      expect(closes.get('old')).not.toHaveBeenCalled();
+      await expect(
+        gateway.call({
+          runId: 'reload-new',
+          name: 'remote__echo',
+          input: {}
+        })
+      ).resolves.toMatchObject({ content: 'new result' });
+
+      writeGeneration('broken');
+      await expect(manager.reload?.()).rejects.toThrow('reload rejected');
+      await expect(
+        gateway.call({
+          runId: 'reload-preserved',
+          name: 'remote__echo',
+          input: {}
+        })
+      ).resolves.toMatchObject({ content: 'new result' });
+
+      releaseOld();
+      await expect(oldCall).resolves.toMatchObject({ content: 'old result' });
+      await vi.waitFor(() => {
+        expect(closes.get('old')).toHaveBeenCalledOnce();
+      });
+    } finally {
+      await manager.close();
       rmSync(homeDir, { recursive: true, force: true });
     }
   });

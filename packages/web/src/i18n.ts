@@ -137,7 +137,7 @@ const resources = {
         contextReport: '### 上下文容量\n\n当前估算：{{used}} / {{max}} tokens（模型最近一次输入占用 {{percent}}%）\n\n自动压缩阈值：{{threshold}} tokens。可以使用 `/compact [说明]` 手动压缩历史上下文。',
         contextUnavailable: '当前会话尚未提供上下文容量信息。',
         statusReport: '### 会话状态\n\n- 模式：{{mode}}\n- 模型：{{model}}\n- 思考深度：{{thinking}}\n- 工具权限：{{permission}}\n- Todo：{{todos}}\n- 运行状态：{{running}}',
-        helpText: '### 可用命令\n\n- `/new` 新建会话\n- `/mode auto|plan|conductor` 切换 Agent 模式\n- `/model [modelId]` 切换模型\n- `/think off|minimal|low|medium|high|xhigh` 调整思考深度\n- `/perm default|classifier|auto` 配置工具权限\n- `/status` 查看会话状态\n- `/context` 查看上下文容量\n- `/compact [说明]` 手动压缩上下文\n- `/instructions` 查看项目指令\n- `/skills` 查看可用 Skills\n- `/mcp [list|resource ...|prompt ...]` 查看或显式使用 MCP 内容\n- `/processes` 查看后台进程\n- `/undo [runId|transactionId]` 撤销文件变更\n- `/diff` 查看工作区变更\n- `/trace` 查看运行轨迹'
+        helpText: '### 可用命令\n\n- `/new` 新建会话\n- `/mode auto|plan|conductor` 切换 Agent 模式\n- `/model [modelId]` 切换模型\n- `/think off|minimal|low|medium|high|xhigh` 调整思考深度\n- `/perm default|classifier|auto` 配置工具权限\n- `/status` 查看会话状态\n- `/context` 查看上下文容量\n- `/compact [说明]` 手动压缩上下文\n- `/instructions` 查看项目指令\n- `/skills` 查看可用 Skills\n- `/mcp [list|reload|resource ...|prompt ...]` 管理或显式使用 MCP 内容\n- `/processes` 查看后台进程\n- `/undo [runId|transactionId]` 撤销文件变更\n- `/diff` 查看工作区变更\n- `/trace` 查看运行轨迹'
       },
       status: {
         awaiting: '等待中',
@@ -446,7 +446,7 @@ const resources = {
         contextReport: '### Context capacity\n\nEstimated: {{used}} / {{max}} tokens (the latest model input used {{percent}}%)\n\nAutomatic compaction threshold: {{threshold}} tokens. Use `/compact [instructions]` to compact history manually.',
         contextUnavailable: 'Context capacity is not available for this session yet.',
         statusReport: '### Session status\n\n- Mode: {{mode}}\n- Model: {{model}}\n- Thinking: {{thinking}}\n- Tool permissions: {{permission}}\n- Todos: {{todos}}\n- Runtime: {{running}}',
-        helpText: '### Available commands\n\n- `/new` create a session\n- `/mode auto|plan|conductor` switch Agent mode\n- `/model [modelId]` switch model\n- `/think off|minimal|low|medium|high|xhigh` adjust thinking effort\n- `/perm default|classifier|auto` configure tool permissions\n- `/status` inspect session status\n- `/context` inspect context capacity\n- `/compact [instructions]` compact context manually\n- `/instructions` inspect project instructions\n- `/skills` inspect available skills\n- `/mcp [list|resource ...|prompt ...]` inspect or explicitly use MCP content\n- `/processes` inspect background processes\n- `/undo [runId|transactionId]` undo file mutations\n- `/diff` inspect workspace changes\n- `/trace` inspect run trace'
+        helpText: '### Available commands\n\n- `/new` create a session\n- `/mode auto|plan|conductor` switch Agent mode\n- `/model [modelId]` switch model\n- `/think off|minimal|low|medium|high|xhigh` adjust thinking effort\n- `/perm default|classifier|auto` configure tool permissions\n- `/status` inspect session status\n- `/context` inspect context capacity\n- `/compact [instructions]` compact context manually\n- `/instructions` inspect project instructions\n- `/skills` inspect available skills\n- `/mcp [list|reload|resource ...|prompt ...]` manage or explicitly use MCP content\n- `/processes` inspect background processes\n- `/undo [runId|transactionId]` undo file mutations\n- `/diff` inspect workspace changes\n- `/trace` inspect run trace'
       },
       status: {
         awaiting: 'Waiting',

@@ -122,7 +122,9 @@ MCP 协议客户端通过 Transport 契约使用 JSON-RPC；Transport 负责连�
 prompts 调用。stdio
 和 Streamable HTTP 共用这一生命周期；HTTP 额外维护 session、JSON/SSE 响应、
 cursor 恢复和协议版本 header。所有 MCP 工具仍经过同一 Gateway 权限边界。
-Resources 只有在用户执行 `/mcp resource` 后才作为带 server/URI 来源的外部
+`/mcp reload` 会先在隔离 Gateway 中准备新连接和工具，全部成功后原子切换；
+旧连接在已有调用排空后关闭，刷新失败则保留当前 generation。Resources 只有在
+用户执行 `/mcp resource` 后才作为带 server/URI 来源的外部
 Context Source 加入当前会话；Prompts 仅通过 `/mcp prompt` 预览，不会静默改变
 系统行为。
 
@@ -193,7 +195,7 @@ Nginx 容器提供，Gateway 不包含前端产物，因此前后端可以分别
 ## 当前限制
 
 - 本地 `Bash` 与后台进程没有 OS 级沙箱。
-- MCP 尚不支持运行时热重载和交互式 OAuth。
+- MCP 尚不支持交互式 OAuth。
 - 没有跨会话语义记忆。
 - Project Instructions 只加载 workspace root 顶层。
 - `packages/core` 与 `packages/protocol` 尚未作为稳定 SDK 单独发布。

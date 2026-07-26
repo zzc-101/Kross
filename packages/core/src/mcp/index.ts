@@ -62,6 +62,7 @@ export {
 } from './risk';
 export {
   connectAndRegisterMcpTools,
+  connectReloadableMcpManager,
   createMcpToolDefinition,
   formatMcpToolResult,
   startMcpRegistration,
