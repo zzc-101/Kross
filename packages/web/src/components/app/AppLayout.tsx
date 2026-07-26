@@ -722,7 +722,10 @@ function ChatPanel(props: {
                             setModelPanelOpen(false);
                           }}
                         >
-                          {(['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const).map((effort) => (
+                          {(snapshot.capabilities?.thinking === false
+                            ? (['off'] as const)
+                            : (['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const)
+                          ).map((effort) => (
                             <DropdownMenuRadioItem key={effort} value={effort}>
                               {thinkingEffortLabel(effort, t)}
                             </DropdownMenuRadioItem>

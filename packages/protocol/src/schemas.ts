@@ -13,6 +13,16 @@ export const thinkingEffortSchema = z.enum([
   'high',
   'xhigh'
 ]);
+
+export const llmCapabilitiesSchema = z.object({
+  version: z.literal(1),
+  source: z.enum(['model-catalog', 'adapter-default']),
+  toolCalling: z.boolean(),
+  thinking: z.boolean(),
+  structuredOutput: z.boolean(),
+  promptCaching: z.boolean(),
+  multimodalRead: z.boolean()
+});
 export const permissionModeSchema = z.enum(['default', 'classifier', 'auto']);
 export const traceEventSchema = z.object({
   id: identifierSchema,
@@ -202,6 +212,7 @@ export const sessionSnapshotSchema = z.object({
   mode: agentModeSchema,
   model: z.string().optional(),
   thinkingEffort: thinkingEffortSchema.optional(),
+  capabilities: llmCapabilitiesSchema.optional(),
   permissionMode: permissionModeSchema.default('default')
 });
 

@@ -105,7 +105,10 @@ export async function runCompleteToolLoop(
     throwIfAborted(params.signal);
     const response = await params.llmClient.complete({
       messages: prepared.messages,
-      tools: toLlmTools(params.tools),
+      tools:
+        params.llmClient.capabilities?.toolCalling === false
+          ? undefined
+          : toLlmTools(params.tools),
       temperature,
       signal: params.signal,
       metadata: {

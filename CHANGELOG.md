@@ -54,5 +54,8 @@
 - Cloud 控制面迁移 F2b：停止 Gateway 后可独立 dry-run/apply
   `kross-server-data`，对旧工作区、Provider 和 Push 数据执行备份、原子升级与
   失败回滚，不跨入 Worker 工作区卷。
+- Provider Capability v1：由 Provider Adapter/模型目录声明工具调用、思考、
+  structured output、prompt caching 和多模态读取能力；Runtime 与 Cloud 只消费
+  声明，不再需要新增模型名称判断。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

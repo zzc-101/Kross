@@ -740,6 +740,47 @@
                     "xhigh"
                   ]
                 },
+                "capabilities": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "const": 1
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "model-catalog",
+                        "adapter-default"
+                      ]
+                    },
+                    "toolCalling": {
+                      "type": "boolean"
+                    },
+                    "thinking": {
+                      "type": "boolean"
+                    },
+                    "structuredOutput": {
+                      "type": "boolean"
+                    },
+                    "promptCaching": {
+                      "type": "boolean"
+                    },
+                    "multimodalRead": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "source",
+                    "toolCalling",
+                    "thinking",
+                    "structuredOutput",
+                    "promptCaching",
+                    "multimodalRead"
+                  ],
+                  "additionalProperties": false
+                },
                 "permissionMode": {
                   "type": "string",
                   "enum": [

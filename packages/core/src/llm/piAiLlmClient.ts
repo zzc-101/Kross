@@ -38,6 +38,10 @@ import type {
   LlmUsage
 } from './types';
 import { LlmProviderError } from './types';
+import {
+  capabilitiesForPiModel,
+  type LlmCapabilities
+} from './providerCapabilities';
 
 /** 流式两次 chunk 之间最长空闲；超时当作取消，避免半开连接死等 + UI 空转 */
 const STREAM_IDLE_MS = 180_000;
@@ -84,6 +88,15 @@ export class PiAiLlmClient implements LlmClient {
 
   get contextWindow(): number {
     return this.piModel.contextWindow;
+  }
+
+  get capabilities(): LlmCapabilities {
+    return capabilitiesForPiModel(
+      this.piModel,
+      this.models.getModel(this.provider, this.piModel.id)
+        ? 'model-catalog'
+        : 'adapter-default'
+    );
   }
 
   get lastUsage(): LlmUsage | undefined {

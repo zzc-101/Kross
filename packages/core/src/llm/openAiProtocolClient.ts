@@ -18,6 +18,10 @@ import type {
 } from './types';
 import type { LlmUsage } from './types';
 import { resolveModelContextWindow } from './modelContextWindows';
+import {
+  capabilitiesForNativeAdapter,
+  type LlmCapabilities
+} from './providerCapabilities';
 
 interface OpenAiChatResponse {
   model?: string;
@@ -104,6 +108,10 @@ export class OpenAiProtocolClient implements LlmClient {
       process.env,
       this.config.contextWindow
     );
+  }
+
+  get capabilities(): LlmCapabilities {
+    return capabilitiesForNativeAdapter(this.provider);
   }
 
   get lastUsage(): LlmUsage | undefined {

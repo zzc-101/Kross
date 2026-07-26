@@ -5,6 +5,7 @@ import {
   type LlmProvider
 } from './llmProviders';
 import type { ThinkingEffort } from './thinkingEffort';
+import type { LlmCapabilities } from './providerCapabilities';
 
 export { llmProviderSchema, type LlmProvider };
 export type { ThinkingEffort };
@@ -90,6 +91,8 @@ export type LlmStreamChunk =
 
 export interface LlmClient {
   readonly provider: LlmProvider;
+  /** End-to-end features declared by the active Provider Adapter/model. */
+  readonly capabilities?: LlmCapabilities;
   /** Repository-managed public model identity, when applicable. */
   readonly publicModelId?: string;
   /** 当前默认模型名，供 TUI 状态栏展示。 */

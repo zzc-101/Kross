@@ -5,6 +5,7 @@ import {
   type ThinkingEffort
 } from '../llm/thinkingEffort';
 import type { LlmClient } from '../llm/types';
+import type { LlmCapabilities } from '../llm/providerCapabilities';
 import type { AgentRuntimeOptions } from './agentRuntimeTypes';
 
 /** Owns the mutable model binding and user-facing model controls for a session. */
@@ -26,10 +27,17 @@ export class ModelSession {
     return this.options.llmClient?.thinkingEffort ?? DEFAULT_THINKING_EFFORT;
   }
 
+  getCapabilities(): LlmCapabilities | undefined {
+    return this.options.llmClient?.capabilities;
+  }
+
   setThinkingEffort(effort: ThinkingEffort): void {
     const client = this.options.llmClient;
     if (!client?.setThinkingEffort) {
       throw new Error('当前 LLM 客户端不支持切换思考强度');
+    }
+    if (effort !== 'off' && client.capabilities?.thinking === false) {
+      throw new Error('当前模型不支持思考强度');
     }
     client.setThinkingEffort(effort);
   }

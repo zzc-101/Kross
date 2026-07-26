@@ -20,6 +20,10 @@ import type {
   LlmUsage
 } from './types';
 import { resolveModelContextWindow } from './modelContextWindows';
+import {
+  capabilitiesForNativeAdapter,
+  type LlmCapabilities
+} from './providerCapabilities';
 
 interface AnthropicMessageResponse {
   model?: string;
@@ -105,6 +109,10 @@ export class AnthropicProtocolClient implements LlmClient {
       process.env,
       this.config.contextWindow
     );
+  }
+
+  get capabilities(): LlmCapabilities {
+    return capabilitiesForNativeAdapter(this.provider);
   }
 
   get lastUsage(): LlmUsage | undefined {

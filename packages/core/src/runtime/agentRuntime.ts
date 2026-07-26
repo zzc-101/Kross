@@ -22,6 +22,7 @@ import {
   formatContextUsage
 } from '../llm/modelContextWindows';
 import type { ThinkingEffort } from '../llm/thinkingEffort';
+import type { LlmCapabilities } from '../llm/providerCapabilities';
 import type { LlmClient, LlmToolCall } from '../llm/types';
 import { detectMode } from '../modes/modeDetector';
 import { resolveModeTurn } from '../modes/modePolicy';
@@ -299,6 +300,10 @@ export class AgentRuntime extends EventEmitter {
 
   getThinkingEffort(): ThinkingEffort {
     return this.modelSession.getThinkingEffort();
+  }
+
+  getLlmCapabilities(): LlmCapabilities | undefined {
+    return this.modelSession.getCapabilities();
   }
 
   setThinkingEffort(effort: ThinkingEffort): void {

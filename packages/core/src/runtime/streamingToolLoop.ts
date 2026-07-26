@@ -220,7 +220,10 @@ export async function* runStreamingToolLoop(
       for await (const chunk of deps.llmClient.stream({
         messages,
         signal: params.signal,
-        tools: deps.toLlmTools(params.tools),
+        tools:
+          deps.llmClient.capabilities?.toolCalling === false
+            ? undefined
+            : deps.toLlmTools(params.tools),
         temperature: 0.2,
         metadata: {
           purpose,

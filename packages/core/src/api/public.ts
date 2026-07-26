@@ -65,6 +65,13 @@ export {
 } from '../llm/types';
 
 export {
+  LLM_CAPABILITIES_VERSION,
+  capabilitiesForNativeAdapter,
+  capabilitiesForPiModel,
+  type LlmCapabilities
+} from '../llm/providerCapabilities';
+
+export {
   LLM_PROVIDERS,
   getLlmProviderDefinition,
   hasProviderCredentialsFromEnv,
