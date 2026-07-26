@@ -1,7 +1,8 @@
 # Kross 分批实施路线
 
-> 状态：实施基线草案
-> 日期：2026-07-26
+> 状态：执行中，暂时暂停
+> 日期：2026-07-27
+> 当前快照：[2026-07-27 实施进度](./implementation-progress-2026-07-27.md)
 > 上位路线：[Kross 后续路线图（融合稿）](./core-roadmap.md)
 > 原始输入：[Codex 草案](./core-roadmap-codex.md)
 
