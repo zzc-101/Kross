@@ -45,5 +45,7 @@
   共享 `/mcp` 命令，并限制远端响应大小。
 - MCP `/mcp reload` 原子热重载：先准备完整的新连接与工具 generation，失败时
   保留旧配置，成功后让旧连接等待在途调用排空再关闭。
+- Experimental Lifecycle Hooks：Host 可接收冻结、脱敏、版本化的运行与工具
+  生命周期通知；Hook 异常不影响 Agent，并受超时、pending 上限与事件限流保护。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

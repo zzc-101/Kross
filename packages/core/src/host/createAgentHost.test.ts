@@ -70,6 +70,48 @@ describe('createRuntimeOptionsFromEnv', () => {
     }
   });
 
+  it('dispatches redacted lifecycle hooks once at the shared host boundary', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-host-hooks-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-host-hooks-home-'));
+    const hook = vi.fn(async (_event: unknown) => undefined);
+    const host = await createAgentHost({
+      workspaceRoot: workspace,
+      env: {},
+      config: { homeDir },
+      experimentalLifecycleHooks: { hooks: [hook] }
+    });
+    try {
+      host.createRuntime();
+      host.createRuntime();
+      await host.tooling.traceStore.append({
+        id: 'hook-event',
+        runId: 'run-hook',
+        type: 'tool_call.started',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        payload: {
+          toolName: 'Read',
+          risk: 'read',
+          input: { token: 'must-not-leak' }
+        }
+      });
+      await host.close();
+
+      expect(hook).toHaveBeenCalledOnce();
+      expect(hook.mock.calls[0]?.[0]).toEqual({
+        version: 1,
+        type: 'tool.started',
+        runId: 'run-hook',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        tool: { name: 'Read', risk: 'read' }
+      });
+      expect(JSON.stringify(hook.mock.calls)).not.toContain('must-not-leak');
+    } finally {
+      await host.close();
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('wires trace store and optional OpenAI-compatible LLM client', () => {
     const options = createRuntimeOptionsFromEnv(
       '/tmp/local-agent',

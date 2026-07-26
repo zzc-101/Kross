@@ -34,6 +34,10 @@ import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { SkillRegistry } from '../skills/skillRegistry';
 import { MutationCoordinator } from '../mutations/mutationService';
 import { ProcessManager } from '../process/processManager';
+import {
+  ExperimentalLifecycleHooks,
+  type ExperimentalLifecycleHooksOptions
+} from '../hooks/lifecycleHooks';
 
 export interface CreateAgentHostConfigOptions {
   homeDir?: string;
@@ -63,6 +67,8 @@ export interface CreateAgentHostOptions {
   fetch?: LlmFetch;
   config?: CreateAgentHostConfigOptions;
   runtimeOptions?: Partial<AgentRuntimeOptions>;
+  /** Experimental, notification-only, redacted lifecycle extension. */
+  experimentalLifecycleHooks?: ExperimentalLifecycleHooksOptions;
 }
 
 export interface AgentHost {
@@ -90,9 +96,22 @@ export async function createAgentHost(
     env,
     config
   );
+  const lifecycleHooks = options.experimentalLifecycleHooks
+    ? new ExperimentalLifecycleHooks(options.experimentalLifecycleHooks)
+    : undefined;
+  const unsubscribeLifecycleHooks = lifecycleHooks
+    ? tooling.traceStore.subscribe((event) => lifecycleHooks.notify(event))
+    : undefined;
   let closePromise: Promise<void> | undefined;
   const close = (): Promise<void> => {
-    closePromise ??= tooling.close();
+    closePromise ??= (async () => {
+      try {
+        await tooling.close();
+      } finally {
+        unsubscribeLifecycleHooks?.();
+        await lifecycleHooks?.close();
+      }
+    })();
     return closePromise;
   };
   return {

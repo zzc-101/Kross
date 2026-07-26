@@ -52,6 +52,11 @@ Host 可以在同一组 Tooling 资源上创建替换用的 `AgentRuntime`，并
 使用一个 Host；Cloud Worker 为每个活跃会话创建独立 Host，保持会话之间的工具、
 trace 和运行状态隔离。
 
+`createAgentHost` 还提供 experimental lifecycle hooks。它们在共享
+`ObservableTraceStore` 边界接收冻结后的脱敏通知，因此同一 Host 重建 Runtime
+不会重复订阅，也能覆盖 Runtime 与 Tool Gateway 产生的生命周期事件。调度器采用
+异步通知、单 Hook 超时、pending 上限和事件速率限制，不参与 Agent 决策。
+
 `AgentRuntime` 是运行门面，负责 run、resume、approval 和 cancel 语义，具体职责
 分别下沉到会话服务、模型会话、模式流程、工具循环、Checkpoint 和完成门。三个
 宿主只组合和驱动 Runtime，不维护独立 Agent 实现。需要更底层组装时仍可使用

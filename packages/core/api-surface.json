@@ -138,6 +138,13 @@
   "experimental": [
     "ConfigImportController",
     "ConfigImportPrompt",
+    "ExperimentalLifecycleHook",
+    "ExperimentalLifecycleHookContext",
+    "ExperimentalLifecycleHookDiagnostic",
+    "ExperimentalLifecycleHookEvent",
+    "ExperimentalLifecycleHookEventType",
+    "ExperimentalLifecycleHooks",
+    "ExperimentalLifecycleHooksOptions",
     "ExternalAgentSource",
     "ImportedLlmConfig",
     "MessageKey",

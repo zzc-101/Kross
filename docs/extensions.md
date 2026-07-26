@@ -221,6 +221,41 @@ Host。
 如果需要长期维护大量自定义工具，优先实现 MCP server，减少与 Core 内部结构的
 耦合。
 
+## Experimental Lifecycle Hooks
+
+源码级 Host 可以订阅只读、脱敏的生命周期通知：
+
+```ts
+const host = await createAgentHost({
+  workspaceRoot: process.cwd(),
+  experimentalLifecycleHooks: {
+    timeoutMs: 1000,
+    maxPendingEvents: 16,
+    maxEventsPerSecond: 50,
+    hooks: [
+      async (event, { signal }) => {
+        signal.throwIfAborted();
+        console.log(event.type, event.runId, event.tool?.name);
+      }
+    ],
+    onDiagnostic(diagnostic) {
+      console.warn(diagnostic.code, diagnostic.eventType);
+    }
+  }
+});
+```
+
+第一版只暴露版本、事件类型、run id、时间、工具名称/风险和有限 outcome。工具
+输入、输出、content preview、summary 与任意 Trace payload 都不会交给 Hook；
+事件对象及嵌套工具信息被冻结。Hook 在主循环之外运行，抛错不会改变 Agent 结果，
+并受单 Hook 超时、并发等待上限和每秒事件上限保护。
+
+这是 experimental 源码扩展，不是安全隔离：Hook 与 Kross 运行在同一 Node.js
+进程，只有可信代码才能安装。超时会触发 `AbortSignal` 并让调度器停止等待，但
+无法强制终止忽略取消的 JavaScript。需要修改文件、执行命令、访问网络或改变
+Agent 行为时，应实现经过 schema、风险、审批和 Trace 的 Tool/Process，而不是
+在 Hook 中隐藏副作用。
+
 ## 自定义客户端与 Cloud Protocol
 
 Cloud 的线协议由 `packages/protocol` 中的 Zod schema 定义。客户端发送的每条

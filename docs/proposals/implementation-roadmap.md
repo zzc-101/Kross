@@ -551,8 +551,10 @@ feat(protocol): publish language-neutral wire schemas
 
 ### E4. 配置刷新与 Experimental Hooks
 
-> 进度：MCP `/mcp reload` 已完成，采用准备新 generation、原子切换工具、旧连接
-> 排空后关闭的策略；刷新失败保留当前 generation。Experimental Hooks 待下一批。
+> 已完成：MCP `/mcp reload` 采用准备新 generation、原子切换工具、旧连接排空
+> 后关闭的策略，刷新失败保留当前 generation。Experimental Hooks 只接收冻结、
+> 脱敏的版本化生命周期元数据，在主循环外执行，并具备超时、pending 上限、
+> 每秒限流和隔离诊断。
 
 - MCP 配置安全刷新，不中断正在执行的调用；
 - hooks 第一版只接收脱敏生命周期事件；

@@ -92,6 +92,15 @@ mutation blobs 位于 `~/.kross/mutations`，其中可能包含历史文件正�
 
 ProcessStart 的 trace 使用受限 command-shape preview，ProcessWrite 只记录字节数；但其他工具 trace 仍可能包含路径、代码片段或工具输出。Trace 不是公开日志。
 
+## Experimental Lifecycle Hooks
+
+- Hook 只接收从 Trace 派生的脱敏元数据，不包含工具输入、输出、预览或摘要。
+- Hook 代码与 Kross 运行在同一 Node.js 进程，拥有宿主进程权限；只能安装可信
+  代码，事件脱敏不能把恶意 Hook 变成沙箱。
+- 超时会取消 Hook 的 `AbortSignal` 并停止等待，但无法强制终止忽略取消的代码。
+- Hook 抛错、超时或被限流不会改变 Agent 结果。需要副作用的扩展必须走正常
+  Tool Gateway/Process 权限边界。
+
 ## 当前已知限制
 
 - 没有 OS 级 Bash/进程沙箱。

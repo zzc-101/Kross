@@ -68,3 +68,13 @@ export {
 export {
   type SkillsSnapshot
 } from '../skills/skillDiscovery';
+
+export {
+  ExperimentalLifecycleHooks,
+  type ExperimentalLifecycleHook,
+  type ExperimentalLifecycleHookContext,
+  type ExperimentalLifecycleHookDiagnostic,
+  type ExperimentalLifecycleHookEvent,
+  type ExperimentalLifecycleHookEventType,
+  type ExperimentalLifecycleHooksOptions
+} from '../hooks/lifecycleHooks';
