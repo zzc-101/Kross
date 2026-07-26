@@ -20,5 +20,7 @@
 - 安装产物的无模型 TUI 启动 smoke，以及 Web、Gateway、Worker 镜像运行时 smoke。
 - 不带发布权限的 Release Candidate Workflow：校验 tag/changelog，生成 npm
   tarball、校验和、构建元数据，并构建同版本与 commit 标签的三个 Cloud 镜像。
+- 独立的确定性 Harness Eval workspace：使用 Fixture LLM、隔离临时工作区、真实
+  Runtime/Trace、版本化 Case 与报告 schema，在普通 CI 中无网络运行。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

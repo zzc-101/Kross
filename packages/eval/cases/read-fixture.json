@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "read-fixture",
+  "description": "真实 Runtime 使用 Read 检查只读 fixture，并保持工作区不变",
+  "fixture": "fixtures/read-fixture",
+  "prompt": "Read input.txt with the available tool and report completion.",
+  "mode": "auto",
+  "allowedTools": ["Read"],
+  "limits": {
+    "maxIterations": 4,
+    "timeoutMs": 5000
+  },
+  "mustChange": [],
+  "mustNotChange": ["input.txt"],
+  "verification": [
+    {
+      "name": "fixture-content",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');if(fs.readFileSync('input.txt','utf8')!=='fixture-value\\n')process.exit(1)"
+      ],
+      "timeoutMs": 5000
+    }
+  ],
+  "assertions": {
+    "resultStatus": "completed",
+    "requiredToolCalls": ["Read"],
+    "forbiddenToolCalls": ["Write", "Bash"]
+  },
+  "tags": ["smoke", "fixture"],
+  "capabilities": ["filesystem-read"],
+  "fixtureResponses": [
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "id": "read-1",
+          "name": "Read",
+          "input": {
+            "path": "input.txt"
+          }
+        }
+      ],
+      "usage": {
+        "inputTokens": 4,
+        "outputTokens": 1
+      }
+    },
+    {
+      "text": "Fixture inspected.",
+      "usage": {
+        "inputTokens": 3,
+        "outputTokens": 2
+      }
+    }
+  ]
+}

@@ -22,6 +22,7 @@
 |---|---|
 | 理解包边界、Runtime、上下文与 Cloud 数据流 | [技术概览](technical-overview.md) |
 | 理解完成门、验证、恢复与工具调度 | [Agent Harness](harness.md) |
+| 运行或扩展确定性 Harness Eval | [确定性 Eval](evaluation.md) |
 | 添加 Skills、MCP、工具、模型或客户端 | [扩展 Kross](extensions.md) |
 | 检查 npm 包并准备版本发布 | [发布指南](releasing.md) |
 

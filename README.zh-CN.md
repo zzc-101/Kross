@@ -197,6 +197,7 @@ flowchart TB
 - `packages/server`：认证、HTTP/SSE 网关、工作区注册、Docker 编排与 Web Push。
 - `packages/worker`：运行在工作区容器内的 headless Agent 宿主，复用 `packages/core`。
 - `packages/web`：基于 React、Vite 和 Radix/shadcn 的响应式 Web/PWA 客户端，由独立 Nginx 容器托管并反代 Gateway API。
+- `packages/eval`：用于验证 Agent Harness 契约的确定性、无网络 Fixture LLM Runner。
 - `docs`：用户指南、技术概览、Harness 说明和发布文档。
 
 Cloud Agent 当前支持流式会话、工具与计划审批、断线回放、工作区隔离、会话与
@@ -219,6 +220,7 @@ Git Push/PR、资源限额和空闲回收。Web
 - [故障排查](docs/troubleshooting.md)
 - [技术概览](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)
+- [确定性 Harness Eval](docs/evaluation.md)
 - [Cloud Agent 部署与运维](docs/cloud-agent-deployment.md)
 - [发布指南](docs/releasing.md)
 - [参与贡献](CONTRIBUTING.md)
@@ -241,6 +243,7 @@ npm run dev --workspace @kross/tui
 npm test -- --run
 npm run typecheck
 npm run version:check
+npm run eval -- --fixture
 npm run docs:check
 npm run build
 npm run package:check

@@ -192,6 +192,7 @@ Kross is a TypeScript monorepo:
 - `packages/server`: authentication, HTTP/SSE Gateway, workspace registry, Docker orchestration, and Web Push.
 - `packages/worker`: headless Agent host running inside a workspace container and reusing `packages/core`.
 - `packages/web`: responsive React, Vite, and Radix/shadcn Web/PWA client, served by a dedicated Nginx container that proxies Gateway APIs.
+- `packages/eval`: deterministic, no-network Fixture LLM runner for Agent Harness contracts.
 - `docs`: user guides, technical architecture, Harness documentation, and release notes.
 
 The Cloud Agent supports streaming sessions, tool and plan approvals, reconnect replay, workspace isolation, session and tool history, Todo progress, subagent state, context usage and manual compaction, Diff/Trace, Web Push, Git Push/PR, resource limits, and idle reaping. The Web client exposes Core commands including `/status`, `/context`, `/compact`, `/instructions`, `/skills`, `/processes`, and `/undo`.
@@ -213,6 +214,7 @@ Most detailed documentation is currently in Chinese. English documentation contr
 - [Troubleshooting](docs/troubleshooting.md)
 - [Technical overview](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)
+- [Deterministic Harness Eval](docs/evaluation.md)
 - [Cloud deployment and operations](docs/cloud-agent-deployment.md)
 - [Release guide](docs/releasing.md)
 - [Contributing](CONTRIBUTING.md)
@@ -235,6 +237,7 @@ npm run dev --workspace @kross/tui
 npm test -- --run
 npm run typecheck
 npm run version:check
+npm run eval -- --fixture
 npm run docs:check
 npm run build
 npm run package:check

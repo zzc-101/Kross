@@ -38,6 +38,8 @@ jobs:
       - run: npm run version:check
       - run: npm run typecheck
       - run: npm test -- --run
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == '22.19.0'
+        run: npm run eval -- --fixture
       - run: npm run docs:check
       - run: npm run build:cli
       - run: npm run build:web

@@ -83,9 +83,16 @@ Session Work State 会持久化版本化 `runCheckpoint`，其中包含运行阶
 
 Trace、session checkpoint 和 mutation journal 都可能包含本地路径、源码片段或工具参数，分享前应检查敏感信息。
 
+## 确定性 Eval
+
+`packages/eval` 使用 Fixture LLM 和真实 `AgentRuntime` 在一次性工作区中验证
+Harness 契约。普通 CI 不读取模型凭证或访问模型服务，断言依据文件 hash、Trace、
+结构化结果和验证命令退出状态。运行方式、Case 与报告 schema 见
+[确定性 Eval](evaluation.md)。
+
 ## 当前边界
 
 - `Bash` 和后台进程没有 OS 级沙箱；审批与 workspace cwd 不能替代操作系统隔离。
-- 尚未建立真实模型驱动的临时仓库 Harness Eval 集；当前 CI 主要验证确定性机制。
+- 已建立确定性 Fixture Eval 基线，但尚未提供真实模型、方差与预算控制通道。
 - 跨会话语义记忆、MCP HTTP transport、resources 和 prompts 尚未实现。
 - 嵌套目录级 Project Instructions 尚未实现，目前按 workspace root 加载。
