@@ -2,6 +2,7 @@ import {
   type AgentResult,
   type CloudWorkspace,
   type EventEnvelope,
+  type ModelProfile,
   type SessionSnapshot,
   type WorkspaceProgress
 } from '@kross/protocol';
@@ -113,7 +114,7 @@ interface CloudState {
   activeSessionId?: string;
   pendingSessionCreateRequestId?: string;
   sessions: SessionSnapshot['summary'][];
-  models: Array<{ id: string; label: string; provider: string }>;
+  models: ModelProfile[];
   snapshot?: SessionSnapshot;
   messages: UiMessage[];
   traces: SessionSnapshot['traces'];
@@ -258,7 +259,12 @@ function reducer(state: CloudState, action: Action): CloudState {
         event.data,
         ...state.workspaces.filter((workspace) => workspace.id !== event.data.id)
       ];
-      return { ...state, workspaces, workspaceId: state.workspaceId ?? event.data.id };
+      return {
+        ...state,
+        workspaces,
+        workspaceId:
+          selectWorkspaceIdAfterUpdate(state.workspaceId, event.data)
+      };
     }
     case 'workspace.progress':
       return { ...state, workspaceProgress: event.data };
@@ -382,6 +388,13 @@ function reducer(state: CloudState, action: Action): CloudState {
     default:
       return state;
   }
+}
+
+export function selectWorkspaceIdAfterUpdate(
+  current: string | undefined,
+  workspace: CloudWorkspace
+): string | undefined {
+  return current ?? (workspace.status === 'creating' ? undefined : workspace.id);
 }
 
 function applyStream(

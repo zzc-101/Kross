@@ -84,6 +84,14 @@ export class GatewayService {
       status: 'passed' | 'warning' | 'failed';
       detail: string;
     }>;
+    workers: Array<{
+      workspaceId: string;
+      name: string;
+      status: CloudWorkspace['status'];
+      running: boolean;
+      containerName: string;
+      lastActiveAt?: string;
+    }>;
   }> {
     const provider =
       this.options.runtimeConfig?.publicProvider() ??
@@ -145,20 +153,38 @@ export class GatewayService {
           : '当前为 HTTP，仅建议在 localhost 使用'
       }
     ];
+    const workers = await Promise.all(
+      this.registry.list().map(async (workspace) => {
+        const record = this.registry.get(workspace.id)!;
+        const runtime = await this.orchestrator.inspect(record);
+        return {
+          workspaceId: workspace.id,
+          name: workspace.name,
+          status: workspace.status,
+          running: runtime.running,
+          containerName: record.containerName,
+          ...(workspace.lastActiveAt
+            ? { lastActiveAt: workspace.lastActiveAt }
+            : {})
+        };
+      })
+    );
     return {
       ready: docker.docker && docker.workerImage &&
         Boolean(provider.hasApiKey && provider.model),
       provider,
-      checks
+      checks,
+      workers
     };
   }
 
   async updateProvider(
     input: unknown,
-    restartWorkers: boolean
+    applyToWorkers: boolean
   ): Promise<{
     provider: PublicProviderConfig;
-    restarted: string[];
+    updated: string[];
+    failed: Array<{ workspaceId: string; message: string }>;
   }> {
     const store = this.options.runtimeConfig;
     if (!store) throw new Error('Gateway 未启用运行时配置存储');
@@ -166,24 +192,43 @@ export class GatewayService {
     this.orchestrator.configureWorkerEnvironment?.(
       store.workerEnvironment()
     );
-    const restarted: string[] = [];
-    if (restartWorkers) {
-      if (!this.orchestrator.recreate) {
-        throw new Error('当前调度器不支持重建 Worker');
-      }
+    const updated: string[] = [];
+    const failed: Array<{ workspaceId: string; message: string }> = [];
+    if (applyToWorkers) {
+      const runtimeProvider = store.runtimeProvider();
+      if (!runtimeProvider) throw new Error('Gateway 模型配置不完整');
       for (const workspace of this.registry.list()) {
-        const record = this.registry.get(workspace.id);
-        if (!record) continue;
-        this.clients.get(workspace.id)?.close();
-        this.clients.delete(workspace.id);
-        await this.orchestrator.recreate(
-          record,
-          workspace.status === 'ready'
-        );
-        restarted.push(workspace.id);
+        try {
+          if (workspace.status === 'stopped') {
+            const record = this.registry.get(workspace.id);
+            if (!record || !this.orchestrator.recreate) continue;
+            await this.orchestrator.recreate(record, false);
+            updated.push(workspace.id);
+            continue;
+          }
+          if (workspace.status !== 'ready') continue;
+          await this.requestWorker(
+            {
+              protocolVersion: PROTOCOL_VERSION,
+              requestId: randomUUID(),
+              type: 'models.gateway.configure',
+              workspaceId: workspace.id,
+              profile: runtimeProvider
+            },
+            (event) => event.event.type === 'request.accepted',
+            15_000,
+            true
+          );
+          updated.push(workspace.id);
+        } catch (error) {
+          failed.push({
+            workspaceId: workspace.id,
+            message: error instanceof Error ? error.message : String(error)
+          });
+        }
       }
     }
-    return { provider, restarted };
+    return { provider, updated, failed };
   }
 
   async listSessions(
@@ -305,6 +350,15 @@ export class GatewayService {
           requestId: command.requestId
         }));
         return;
+      case 'models.gateway.configure':
+      case 'models.workspace.clear':
+        respond(this.error(
+          command.workspaceId,
+          command.requestId,
+          'INTERNAL_COMMAND',
+          '该命令只能由 Gateway 内部调用'
+        ));
+        return;
       default:
         await this.forward(command.workspaceId, command, respond);
     }
@@ -389,7 +443,8 @@ export class GatewayService {
   private requestWorker(
     command: ClientCommand,
     matches: (event: EventEnvelope) => boolean,
-    timeoutMs = 15_000
+    timeoutMs = 15_000,
+    internal = false
   ): Promise<EventEnvelope> {
     return new Promise<EventEnvelope>((resolve, reject) => {
       const timer = setTimeout(
@@ -417,7 +472,10 @@ export class GatewayService {
         }
       };
       const unsubscribe = this.subscribe(settle);
-      void this.handle(command, settle).catch((error) => {
+      const task = internal && 'workspaceId' in command
+        ? this.forward(command.workspaceId, command, settle)
+        : this.handle(command, settle);
+      void task.catch((error) => {
         clearTimeout(timer);
         unsubscribe();
         reject(error);
@@ -524,6 +582,19 @@ export class GatewayService {
     if (!record) {
       sink(this.error(workspaceId, requestId, 'WORKSPACE_NOT_FOUND', '工作区不存在'));
       return;
+    }
+    if (this.clients.has(workspaceId)) {
+      await this.requestWorker(
+        {
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: randomUUID(),
+          type: 'models.workspace.clear',
+          workspaceId
+        },
+        (event) => event.event.type === 'request.accepted',
+        2_000,
+        true
+      ).catch(() => undefined);
     }
     this.clients.get(workspaceId)?.close();
     this.clients.delete(workspaceId);

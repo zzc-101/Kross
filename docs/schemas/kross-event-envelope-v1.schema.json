@@ -760,6 +760,10 @@
                     "model": {
                       "type": "string"
                     },
+                    "modelProfileId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
                     "thinkingEffort": {
                       "type": "string",
                       "enum": [
@@ -1132,6 +1136,24 @@
                       "provider": {
                         "type": "string",
                         "minLength": 1
+                      },
+                      "model": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "baseUrl": {
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": [
+                          "gateway",
+                          "workspace"
+                        ]
+                      },
+                      "hasApiKey": {
+                        "type": "boolean"
                       }
                     },
                     "required": [

@@ -21,6 +21,7 @@ import {
 
 const settingsSchema = z.object({
   model: z.string().min(1).optional(),
+  modelProfileId: z.string().min(1).optional(),
   thinkingEffort: thinkingEffortSchema.optional(),
   permissionMode: permissionModeSchema.optional()
 });

@@ -6,11 +6,14 @@ import { promisify } from 'node:util';
 import {
   AgentRuntime,
   createAgentHost,
+  createLlmClientForProvider,
+  getLlmProviderDefinition,
   HybridSessionStore,
   listProvidersFromEnv,
   type AgentHostTooling,
   type AgentRunStreamEvent,
   type AgentMode,
+  type LlmProvider,
   type StoredSessionMessage,
   type TraceEvent
 } from '@kross/core';
@@ -19,6 +22,7 @@ import {
   storedMessageSchema,
   type ClientCommand,
   type EventEnvelope,
+  type ModelProfile,
   type ServerEvent,
   type SessionSnapshot
 } from '@kross/protocol';
@@ -26,6 +30,10 @@ import {
 import { EventJournal } from './eventJournal';
 import { inspectGitDiff } from './gitInspection';
 import { SessionSettingsStore } from './sessionSettingsStore';
+import {
+  WorkspaceProviderStore,
+  type PrivateModelProfile
+} from './workspaceProviderStore';
 import {
   formatDiskBytes,
   measureWorkspaceDiskUsage
@@ -62,6 +70,7 @@ interface ActiveSession extends RuntimeHandle {
   unsubscribeWorkState: () => void;
   lastUsedAt: number;
   recentTraces: TraceEvent[];
+  modelProfileId?: string;
 }
 
 export type WorkerEventSink = (event: EventEnvelope) => void;
@@ -70,6 +79,8 @@ export class WorkerService {
   private readonly store: HybridSessionStore;
   private readonly journal: EventJournal;
   private readonly settings: SessionSettingsStore;
+  private readonly providers: WorkspaceProviderStore;
+  private readonly runtimeEnv: Record<string, string | undefined>;
   private readonly sessions = new Map<string, ActiveSession>();
   private readonly loadingSessions = new Map<string, Promise<ActiveSession>>();
   private readonly sinks = new Set<WorkerEventSink>();
@@ -83,6 +94,7 @@ export class WorkerService {
   private closePromise?: Promise<void>;
 
   constructor(private readonly options: WorkerServiceOptions) {
+    this.runtimeEnv = { ...(options.env ?? process.env) };
     this.now = options.now ?? (() => new Date());
     this.diskUsageBytes =
       options.diskUsageBytes ??
@@ -98,6 +110,9 @@ export class WorkerService {
     );
     this.settings = new SessionSettingsStore(
       join(options.krossHome, 'cloud-session-settings')
+    );
+    this.providers = new WorkspaceProviderStore(
+      join(options.krossHome, 'workspace-providers.json')
     );
     const diskCheckInterval = options.diskCheckIntervalMs ?? 60_000;
     this.diskCheckTimer = setInterval(() => {
@@ -254,28 +269,52 @@ export class WorkerService {
         );
         return;
       case 'models.list': {
-        const environment = this.options.env ?? process.env;
-        const configuredProviders = listProvidersFromEnv(environment).filter(
-          (provider) => provider.configured && provider.model
-        );
-        const configuredModels = [
-          ...new Map(
-            configuredProviders.map((provider) => [
-              provider.model!,
-              {
-                id: provider.model!,
-                label: provider.model!,
-                provider: provider.name
-              }
-            ])
-          ).values()
-        ];
+        this.emitModelProfiles(sink);
+        return;
+      }
+      case 'models.workspace.upsert': {
+        this.providers.upsert({
+          label: command.profile.label,
+          provider: command.profile.provider,
+          model: command.profile.model,
+          ...(command.profile.baseUrl
+            ? { baseUrl: command.profile.baseUrl }
+            : {}),
+          apiKey: command.profile.apiKey
+        });
+        this.emitModelProfiles(sink);
         this.emit(
           undefined,
-          {
-            type: 'models.list',
-            data: configuredModels
-          },
+          { type: 'request.accepted', requestId: command.requestId },
+          sink
+        );
+        return;
+      }
+      case 'models.workspace.delete': {
+        await this.deleteWorkspaceProfile(command.profileId);
+        this.emitModelProfiles(sink);
+        this.emit(
+          undefined,
+          { type: 'request.accepted', requestId: command.requestId },
+          sink
+        );
+        return;
+      }
+      case 'models.workspace.clear': {
+        this.providers.clear();
+        this.emit(
+          undefined,
+          { type: 'request.accepted', requestId: command.requestId },
+          sink
+        );
+        return;
+      }
+      case 'models.gateway.configure': {
+        await this.configureGatewayProfile(command.profile);
+        this.emitModelProfiles(sink);
+        this.emit(
+          undefined,
+          { type: 'request.accepted', requestId: command.requestId },
           sink
         );
         return;
@@ -546,6 +585,7 @@ export class WorkerService {
       this.emitError(sessionId, requestId, 'SESSION_BUSY', '会话正在运行', sink);
       return;
     }
+    this.ensureGatewayProfileCurrent(session);
     this.emit(sessionId, { type: 'request.accepted', requestId }, sink);
     if (!planApproved) {
       this.persistMessage(session, 'user', input);
@@ -699,6 +739,178 @@ export class WorkerService {
     this.emit(sessionId, { type: 'request.accepted', requestId }, sink);
   }
 
+  private emitModelProfiles(sink?: WorkerEventSink): void {
+    this.emit(
+      undefined,
+      {
+        type: 'models.list',
+        data: [
+          ...(this.gatewayProfile() ? [this.gatewayProfile()!] : []),
+          ...this.providers.list()
+        ]
+      },
+      sink
+    );
+  }
+
+  private gatewayProfile(): (
+    ModelProfile & {
+      provider: LlmProvider;
+      model: string;
+      scope: 'gateway';
+    }
+  ) | undefined {
+    const providers = listProvidersFromEnv(this.runtimeEnv);
+    const configured =
+      providers.find(
+        (candidate) =>
+          candidate.provider === this.runtimeEnv.AGENT_LLM_PROVIDER &&
+          candidate.configured &&
+          candidate.model
+      ) ??
+      providers.find((candidate) => candidate.configured && candidate.model);
+    if (!configured?.model) return undefined;
+    const definition = getLlmProviderDefinition(configured.provider);
+    const baseUrl = definition.baseUrlEnv
+      ? this.runtimeEnv[definition.baseUrlEnv]
+      : undefined;
+    return {
+      id: `gateway:${configured.provider}`,
+      label: configured.model,
+      provider: configured.provider,
+      model: configured.model,
+      ...(baseUrl ? { baseUrl } : {}),
+      scope: 'gateway',
+      hasApiKey: true
+    };
+  }
+
+  private createClientForProfile(profileId: string) {
+    const gateway = this.gatewayProfile();
+    if (gateway && profileId.startsWith('gateway:')) {
+      return createLlmClientForProvider(
+        gateway.provider,
+        gateway.model,
+        this.runtimeEnv
+      );
+    }
+    const profile = this.providers.get(profileId);
+    if (!profile) throw new Error(`模型配置不存在：${profileId}`);
+    return createLlmClientForProvider(
+      profile.provider,
+      profile.model,
+      environmentForProfile(this.runtimeEnv, profile)
+    );
+  }
+
+  private applyProfileToSession(
+    session: ActiveSession,
+    profileId: string
+  ): void {
+    const effort = session.runtime.getThinkingEffort();
+    session.runtime.setLlmClient(this.createClientForProfile(profileId));
+    session.modelProfileId = profileId;
+    try {
+      session.runtime.setThinkingEffort(effort);
+    } catch {
+      // New model may not support the previous reasoning effort.
+    }
+  }
+
+  private async deleteWorkspaceProfile(profileId: string): Promise<void> {
+    const busy = [...this.sessions.values()].some(
+      (session) =>
+        session.modelProfileId === profileId &&
+        Boolean(
+          session.abortController ||
+          session.runtime.getPendingToolApproval() ||
+          session.runtime.getPendingModeExecution()
+        )
+    );
+    if (busy) {
+      throw new Error('该模型仍被运行中或待审批的会话使用，请稍后再删除');
+    }
+    if (!this.providers.delete(profileId)) {
+      throw new Error(`工作区模型不存在：${profileId}`);
+    }
+    const fallback = this.gatewayProfile();
+    for (const session of this.sessions.values()) {
+      if (session.modelProfileId !== profileId) continue;
+      if (!fallback) {
+        session.runtime.setLlmClient(undefined);
+        session.modelProfileId = undefined;
+        continue;
+      }
+      this.applyProfileToSession(session, fallback.id);
+      this.settings.update(session.id, { modelProfileId: fallback.id });
+      this.emitSessionSnapshot(session);
+    }
+  }
+
+  private async configureGatewayProfile(profile: {
+    provider: LlmProvider;
+    model: string;
+    baseUrl?: string;
+    apiKey: string;
+  }): Promise<void> {
+    const definition = getLlmProviderDefinition(profile.provider);
+    this.runtimeEnv.AGENT_LLM_PROVIDER = profile.provider;
+    this.runtimeEnv.AGENT_LLM_MODEL = profile.model;
+    this.runtimeEnv[definition.apiKeyEnv[0]!] = profile.apiKey;
+    this.runtimeEnv[definition.modelEnv[0]!] = profile.model;
+    if (definition.baseUrlEnv) {
+      this.runtimeEnv[definition.baseUrlEnv] =
+        profile.baseUrl ?? definition.defaultBaseUrl;
+    }
+    const profileId = `gateway:${profile.provider}`;
+    for (const session of this.sessions.values()) {
+      if (
+        session.modelProfileId &&
+        session.modelProfileId.startsWith('workspace:')
+      ) {
+        continue;
+      }
+      if (
+        session.abortController ||
+        session.runtime.getPendingToolApproval() ||
+        session.runtime.getPendingModeExecution()
+      ) {
+        continue;
+      }
+      this.applyProfileToSession(session, profileId);
+      this.settings.update(session.id, { modelProfileId: profileId });
+      this.emitSessionSnapshot(session);
+    }
+  }
+
+  private emitSessionSnapshot(session: ActiveSession): void {
+    const stored = this.store.loadSession(
+      this.options.workspaceRoot,
+      session.id
+    );
+    if (!stored) return;
+    this.emit(session.id, {
+      type: 'session.snapshot',
+      data: this.snapshot(session, stored.summary, stored.messages)
+    });
+  }
+
+  private ensureGatewayProfileCurrent(session: ActiveSession): void {
+    if (session.modelProfileId?.startsWith('workspace:')) return;
+    const gateway = this.gatewayProfile();
+    if (!gateway) return;
+    const current = session.runtime.getLlmClient();
+    if (
+      session.modelProfileId === gateway.id &&
+      current?.provider === gateway.provider &&
+      current.model === gateway.model
+    ) {
+      return;
+    }
+    this.applyProfileToSession(session, gateway.id);
+    this.settings.update(session.id, { modelProfileId: gateway.id });
+  }
+
   private async updateSettings(
     command: Extract<ClientCommand, { type: 'session.settings' }>,
     sink?: WorkerEventSink
@@ -710,16 +922,29 @@ export class WorkerService {
     );
     if (!session) return;
     try {
-      if (command.model) session.runtime.setModel(command.model);
+      if (command.modelProfileId) {
+        this.applyProfileToSession(session, command.modelProfileId);
+      } else if (command.model) {
+        session.runtime.setModel(command.model);
+        session.modelProfileId = undefined;
+      }
       if (command.thinkingEffort) {
         session.runtime.setThinkingEffort(command.thinkingEffort);
       }
       if (command.permissionMode) {
         session.runtime.setPermissionMode(command.permissionMode);
       }
-      if (command.model || command.thinkingEffort || command.permissionMode) {
+      if (
+        command.model ||
+        command.modelProfileId ||
+        command.thinkingEffort ||
+        command.permissionMode
+      ) {
         this.settings.update(command.sessionId, {
           ...(command.model ? { model: command.model } : {}),
+          ...(command.modelProfileId
+            ? { modelProfileId: command.modelProfileId }
+            : {}),
           ...(command.thinkingEffort
             ? { thinkingEffort: command.thinkingEffort }
             : {}),
@@ -1231,7 +1456,18 @@ export class WorkerService {
     }
     if (stored?.workState) handle.runtime.restoreWorkState(stored.workState);
     const settings = this.settings.load(sessionId);
-    if (settings.model) {
+    let modelProfileId: string | undefined;
+    if (settings.modelProfileId) {
+      try {
+        const client = this.createClientForProfile(settings.modelProfileId);
+        handle.runtime.setLlmClient(client);
+        modelProfileId = settings.modelProfileId.startsWith('gateway:')
+          ? this.gatewayProfile()?.id
+          : settings.modelProfileId;
+      } catch {
+        // Removed profile: retain the current Gateway default.
+      }
+    } else if (settings.model) {
       try {
         handle.runtime.setModel(settings.model);
       } catch {
@@ -1260,6 +1496,7 @@ export class WorkerService {
       // 历史工具卡片已经保存在当前 session 的 StoredSessionMessage 中；
       // 此处只接收当前 runtime 后续产生的实时 trace，避免跨会话导入。
       recentTraces: [],
+      modelProfileId,
       unsubscribeTrace: () => undefined,
       unsubscribeWorkState: () => undefined
     };
@@ -1335,7 +1572,7 @@ export class WorkerService {
   private async createDefaultRuntime(): Promise<RuntimeHandle> {
     const host = await createAgentHost({
       workspaceRoot: this.options.workspaceRoot,
-      env: this.options.env ?? process.env,
+      env: this.runtimeEnv,
       config: {
         homeDir: this.options.krossHome,
         krossHome: this.options.krossHome
@@ -1366,6 +1603,7 @@ export class WorkerService {
       }),
       mode: session.runtime.getSessionMode(),
       model: session.runtime.getLlmClient()?.model,
+      modelProfileId: session.modelProfileId ?? this.gatewayProfile()?.id,
       thinkingEffort: session.runtime.getThinkingEffort(),
       capabilities: session.runtime.getLlmCapabilities(),
       lastCallMetrics: session.runtime.getLastLlmCallMetrics(),
@@ -1478,6 +1716,23 @@ function sanitizeStoredMessage(
   if (parsed.success) return parsed.data;
   const { tool: _tool, verification: _verification, ...legacy } = message;
   return storedMessageSchema.parse(legacy);
+}
+
+function environmentForProfile(
+  base: Record<string, string | undefined>,
+  profile: PrivateModelProfile
+): Record<string, string | undefined> {
+  const environment = { ...base };
+  const definition = getLlmProviderDefinition(profile.provider);
+  environment.AGENT_LLM_PROVIDER = profile.provider;
+  environment.AGENT_LLM_MODEL = profile.model;
+  environment[definition.apiKeyEnv[0]!] = profile.apiKey;
+  environment[definition.modelEnv[0]!] = profile.model;
+  if (definition.baseUrlEnv) {
+    environment[definition.baseUrlEnv] =
+      profile.baseUrl ?? definition.defaultBaseUrl;
+  }
+  return environment;
 }
 
 function restoredToolMessages(

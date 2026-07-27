@@ -517,8 +517,51 @@ describe('WorkerService integration', () => {
         ? modelEvent.event.data
         : []
     ).toEqual([
-      expect.objectContaining({ id: 'custom-model', provider: 'OpenAI' })
+      expect.objectContaining({
+        id: 'gateway:openai',
+        model: 'custom-model',
+        provider: 'openai',
+        scope: 'gateway'
+      })
     ]);
+
+    const privateEvents: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'private-model',
+      type: 'models.workspace.upsert',
+      workspaceId: 'w1',
+      profile: {
+        label: 'Workspace model',
+        provider: 'openai',
+        model: 'private-model',
+        baseUrl: 'https://example.com/v1',
+        apiKey: 'workspace-secret'
+      }
+    }, privateEvents);
+    const privateList = privateEvents.find(
+      (event) => event.event.type === 'models.list'
+    );
+    expect(
+      privateList?.event.type === 'models.list'
+        ? privateList.event.data
+        : []
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Workspace model',
+          model: 'private-model',
+          scope: 'workspace',
+          hasApiKey: true
+        })
+      ])
+    );
+    expect(JSON.stringify(privateList)).not.toContain('workspace-secret');
+    const privateProfile =
+      privateList?.event.type === 'models.list'
+        ? privateList.event.data.find((profile) => profile.scope === 'workspace')
+        : undefined;
+    if (!privateProfile) throw new Error('missing private profile');
 
     await send(service, {
       protocolVersion: PROTOCOL_VERSION,
@@ -534,6 +577,56 @@ describe('WorkerService integration', () => {
     if (snapshot?.event.type !== 'session.snapshot') {
       throw new Error('missing created session');
     }
+    const selectionEvents: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'select-private',
+      type: 'session.settings',
+      workspaceId: 'w1',
+      sessionId: snapshot.event.data.summary.id,
+      modelProfileId: privateProfile.id
+    }, selectionEvents);
+    expect(selectionEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            type: 'session.snapshot',
+            data: expect.objectContaining({
+              model: 'private-model',
+              modelProfileId: privateProfile.id
+            })
+          })
+        })
+      ])
+    );
+    const hotUpdateEvents: EventEnvelope[] = [];
+    await send(service, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'gateway-hot-update',
+      type: 'models.gateway.configure',
+      workspaceId: 'w1',
+      profile: {
+        provider: 'openai',
+        model: 'hot-model',
+        apiKey: 'hot-secret'
+      }
+    }, hotUpdateEvents);
+    expect(hotUpdateEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            type: 'models.list',
+            data: expect.arrayContaining([
+              expect.objectContaining({
+                id: 'gateway:openai',
+                model: 'hot-model'
+              })
+            ])
+          })
+        })
+      ])
+    );
+    expect(JSON.stringify(hotUpdateEvents)).not.toContain('hot-secret');
     await send(service, {
       protocolVersion: PROTOCOL_VERSION,
       requestId: 'delete',

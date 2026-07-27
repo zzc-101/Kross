@@ -63,5 +63,13 @@
 - TUI 与 Web 的 Provider 能力和最近调用概览：显示工具、思考、缓存、结构化输出、
   多模态能力以及 token、延迟、缓存、估算费用；Web Trace 结构化展示运行摘要、
   稳定错误类别并提供无副作用状态回放入口。
+- Gateway 轻量管理面板：显示全局模型配置来源和当前 Worker 状态，支持不中断容器
+  的模型 Client 热更新；Web 模型选择器区分 Gateway 与工作区私有模型，私有密钥
+  仅以 `0600` 保存于 Worker 卷。
+
+### Fixed
+
+- 新建工作区处于 `creating` 阶段时 Web 不再提前请求会话和模型，避免错误提示
+  “工作区不存在”，并在工作区进入 `ready` 后自动加载。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

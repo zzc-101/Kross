@@ -78,10 +78,21 @@ export function App({ endpoint, token, onLogout }: AppProps) {
   }, [client, connection]);
 
   useEffect(() => {
-    if (state.workspaceId && state.sessions.length === 0 && !state.snapshot) {
+    if (
+      state.workspaceId &&
+      selectedWorkspace?.status !== 'creating' &&
+      state.sessions.length === 0 &&
+      !state.snapshot
+    ) {
       cloud.selectWorkspace(state.workspaceId);
     }
-  }, [cloud.selectWorkspace, state.snapshot, state.sessions.length, state.workspaceId]);
+  }, [
+    cloud.selectWorkspace,
+    selectedWorkspace?.status,
+    state.snapshot,
+    state.sessions.length,
+    state.workspaceId
+  ]);
 
   useEffect(() => {
     if (connection !== 'online') return;
@@ -104,6 +115,7 @@ export function App({ endpoint, token, onLogout }: AppProps) {
   const sendSessionSettings = (settings: {
     mode?: 'auto' | 'plan' | 'conductor';
     model?: string;
+    modelProfileId?: string;
     thinkingEffort?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
     permissionMode?: 'default' | 'classifier' | 'auto';
   }) => {
@@ -152,7 +164,7 @@ export function App({ endpoint, token, onLogout }: AppProps) {
     } else if (command.id === 'model') {
       if (argument) {
         if (state.models.some((model) => model.id === argument)) {
-          sendSessionSettings({ model: argument });
+          sendSessionSettings({ modelProfileId: argument });
         } else {
           cloud.appendLocalMessage('system', t('commands.modelUnavailable', {
             model: argument
@@ -163,8 +175,10 @@ export function App({ endpoint, token, onLogout }: AppProps) {
       } else {
         setDialogAction({
           kind: 'model',
-          model: state.models.some((model) => model.id === state.snapshot?.model)
-            ? state.snapshot!.model!
+          model: state.models.some(
+            (model) => model.id === state.snapshot?.modelProfileId
+          )
+            ? state.snapshot!.modelProfileId!
             : state.models[0]!.id,
           options: state.models.map((model) => model.id)
         });
@@ -322,7 +336,7 @@ export function App({ endpoint, token, onLogout }: AppProps) {
         type: 'session.settings',
         workspaceId: state.workspaceId,
         sessionId: state.snapshot.summary.id,
-        model: action.model.trim()
+        modelProfileId: action.model.trim()
       });
     } else if (
       action.kind === 'git-push' &&
@@ -424,6 +438,24 @@ export function App({ endpoint, token, onLogout }: AppProps) {
           endpoint={endpoint}
           token={token}
           workspaceCount={state.workspaces.length}
+          workspaceId={state.workspaceId}
+          models={state.models}
+          onSaveWorkspaceProvider={(profile) => {
+            if (!state.workspaceId) return;
+            client.send({
+              type: 'models.workspace.upsert',
+              workspaceId: state.workspaceId,
+              profile
+            });
+          }}
+          onDeleteWorkspaceProvider={(profileId) => {
+            if (!state.workspaceId) return;
+            client.send({
+              type: 'models.workspace.delete',
+              workspaceId: state.workspaceId,
+              profileId
+            });
+          }}
           onClose={() => setShowSetup(false)}
           onStatus={setSetupStatus}
         />

@@ -15,6 +15,14 @@ export interface SetupStatus {
     status: 'passed' | 'warning' | 'failed';
     detail: string;
   }>;
+  workers: Array<{
+    workspaceId: string;
+    name: string;
+    status: 'creating' | 'ready' | 'stopped' | 'error';
+    running: boolean;
+    containerName: string;
+    lastActiveAt?: string;
+  }>;
 }
 
 export interface ProviderInput {
@@ -35,11 +43,15 @@ export async function saveProvider(
   endpoint: string,
   token: string,
   provider: ProviderInput,
-  restartWorkers: boolean
-): Promise<{ provider: ProviderConfig; restarted: string[] }> {
+  applyToWorkers: boolean
+): Promise<{
+  provider: ProviderConfig;
+  updated: string[];
+  failed: Array<{ workspaceId: string; message: string }>;
+}> {
   return request(endpoint, token, '/api/provider', {
     method: 'PUT',
-    body: JSON.stringify({ provider, restartWorkers })
+    body: JSON.stringify({ provider, applyToWorkers })
   });
 }
 

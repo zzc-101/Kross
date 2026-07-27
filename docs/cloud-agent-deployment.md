@@ -59,10 +59,16 @@ Web、Gateway 与 Worker 均使用多阶段镜像。Web 构建阶段生成 Vite 
 访问 `http://localhost:8787`，输入上述访问令牌。公网部署应在 Web/Nginx
 入口前终止 TLS，浏览器端使用 `https://`；Gateway 不应直接映射宿主机端口。
 
-首次登录后打开顶部“环境”面板。面板会检查 Docker、worker 镜像、模型
-Provider、GitHub、Web Push 与安全传输状态。Provider API Key 可以通过该面板
-写入 Gateway 数据卷中的私有配置文件，接口只返回是否已配置，不会回显密钥。
-勾选“重建现有 Worker”时会保留仓库和会话卷，但会中断正在运行的任务。
+首次登录后打开顶部“环境”面板。它同时是轻量 Gateway 管理面板，会检查 Docker、
+Worker 镜像、模型 Provider、GitHub、Web Push 与安全传输状态，并列出当前受管
+Worker 的容器和运行状态。全局 Provider API Key 可以写入 Gateway 数据卷中的
+私有配置文件，接口只返回来源和是否已配置，不会回显密钥。
+
+勾选“热更新现有 Worker”后，运行中的模型调用继续使用旧 Client，后续调用切换到
+新配置，不重建容器；stopped Worker 会在不启动的情况下重建容器配置。当前工作区
+还可以添加私有模型，这些凭据只写入该 Worker 卷内
+`/workspace/.kross/workspace-providers.json`，权限为 `0600`，Gateway 只瞬时
+转发命令且不会持久化。模型选择器会分组显示 Gateway 与当前工作区模型。
 
 生产构建会注册 Service Worker。支持的浏览器会显示“安装”入口；发现新版本时
 界面会提示用户更新并重新载入。网络中断期间，Web 客户端会保留最多 100 个
@@ -103,6 +109,10 @@ LLM Provider 的环境变量由网关创建 worker 时按部署配置注入。�
 网关只会把内置白名单中的 `AGENT_*`、`OPENAI_*`、`ANTHROPIC_*`、
 `OPENROUTER_*`、`DEEPSEEK_*` 和 `XAI_*` 配置传入 worker，不会透传整个网关环境。
 用于创建 GitHub PR 的 `GH_TOKEN` 也在白名单内。
+
+工作区私有 Provider 密钥不会写入 `kross-server-data`、会话 snapshot、Trace
+或浏览器存储；Worker 对 Web 只返回 `hasApiKey`。默认删除工作区时同时删除数据卷。
+如果显式保留卷用于人工恢复，必须把该卷继续按含密钥介质保护。
 
 HTTPS Git Token 与 SSH 私钥只写入对应工作区卷的 `.kross` 目录，并以 `0600`
 权限供后续 Push 使用。`gh pr create` 需要 HTTPS Token 或单独配置 `GH_TOKEN`；

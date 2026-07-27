@@ -56,6 +56,22 @@ export const llmCallMetricsSchema = z.object({
     ])
     .optional()
 });
+export const modelProviderSchema = z.enum([
+  'openai',
+  'anthropic',
+  'openrouter',
+  'deepseek',
+  'xai'
+]);
+export const modelProfileSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  provider: z.string().min(1),
+  model: z.string().min(1).optional(),
+  baseUrl: z.string().url().optional(),
+  scope: z.enum(['gateway', 'workspace']).optional(),
+  hasApiKey: z.boolean().optional()
+});
 export const permissionModeSchema = z.enum(['default', 'classifier', 'auto']);
 export const traceEventSchema = z.object({
   id: identifierSchema,
@@ -244,6 +260,7 @@ export const sessionSnapshotSchema = z.object({
   contextUsage: contextUsageSchema.optional(),
   mode: agentModeSchema,
   model: z.string().optional(),
+  modelProfileId: z.string().min(1).optional(),
   thinkingEffort: thinkingEffortSchema.optional(),
   capabilities: llmCapabilitiesSchema.optional(),
   lastCallMetrics: llmCallMetricsSchema.optional(),
@@ -325,6 +342,7 @@ export const clientCommandSchema = z.discriminatedUnion('type', [
     workspaceId: identifierSchema,
     sessionId: identifierSchema,
     model: z.string().min(1).optional(),
+    modelProfileId: z.string().min(1).optional(),
     thinkingEffort: thinkingEffortSchema.optional(),
     permissionMode: permissionModeSchema.optional(),
     mode: agentModeSchema.optional()
@@ -388,6 +406,41 @@ export const clientCommandSchema = z.discriminatedUnion('type', [
     ...commandBase,
     type: z.literal('models.list'),
     workspaceId: identifierSchema
+  }),
+  z.object({
+    ...commandBase,
+    type: z.literal('models.workspace.upsert'),
+    workspaceId: identifierSchema,
+    profile: z.object({
+      id: z.string().min(1).optional(),
+      label: z.string().trim().min(1).max(120),
+      provider: modelProviderSchema,
+      model: z.string().trim().min(1).max(200),
+      baseUrl: z.string().url().optional(),
+      apiKey: z.string().min(1)
+    })
+  }),
+  z.object({
+    ...commandBase,
+    type: z.literal('models.workspace.delete'),
+    workspaceId: identifierSchema,
+    profileId: z.string().min(1)
+  }),
+  z.object({
+    ...commandBase,
+    type: z.literal('models.workspace.clear'),
+    workspaceId: identifierSchema
+  }),
+  z.object({
+    ...commandBase,
+    type: z.literal('models.gateway.configure'),
+    workspaceId: identifierSchema,
+    profile: z.object({
+      provider: modelProviderSchema,
+      model: z.string().min(1),
+      baseUrl: z.string().url().optional(),
+      apiKey: z.string().min(1)
+    })
   }),
   z.object({
     ...commandBase,
@@ -468,13 +521,7 @@ export const serverEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('models.list'),
-    data: z.array(
-      z.object({
-        id: z.string().min(1),
-        label: z.string().min(1),
-        provider: z.string().min(1)
-      })
-    )
+    data: z.array(modelProfileSchema)
   }),
   z.object({
     type: z.literal('workspace.progress'),

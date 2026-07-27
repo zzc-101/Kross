@@ -439,6 +439,27 @@ summary:focus-visible {
 .setup-check strong, .setup-check small { display: block; }
 .setup-check small { margin-top: 3px; color: #7f8980; }
 .setup-check-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.worker-admin, .workspace-provider-admin {
+  display: grid; gap: 12px; margin: 0 0 22px; padding-bottom: 22px;
+  border-bottom: 1px solid #2c342d;
+}
+.worker-list, .workspace-provider-list { display: grid; gap: 7px; }
+.worker-row, .workspace-provider-list article {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid #303831; border-radius: 10px; background: #151916;
+}
+.worker-row > div, .workspace-provider-list article > div { min-width: 0; flex: 1; }
+.worker-row strong, .worker-row small,
+.workspace-provider-list strong, .workspace-provider-list small { display: block; }
+.worker-row small, .workspace-provider-list small {
+  overflow: hidden; margin-top: 2px; color: #7f8980; text-overflow: ellipsis; white-space: nowrap;
+}
+.worker-row svg { width: 15px; height: 15px; }
+.worker-online { color: #9cea9a; }
+.worker-offline { color: #747d76; }
+.workspace-provider-admin { margin-top: 24px; border-top: 1px solid #2c342d; padding-top: 22px; }
+.workspace-provider-list:empty { display: none; }
+.private-provider-form { padding: 14px; border: 1px solid #303831; border-radius: 10px; background: #121713; }
 .setup-field {
   display: grid; gap: 6px; margin: 13px 0; color: #aab3aa; font-size: 13px;
 }

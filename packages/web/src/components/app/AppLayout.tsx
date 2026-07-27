@@ -244,7 +244,7 @@ function AppHeader(props: {
                       kind: 'delete-workspace',
                       workspaceId: props.selectedWorkspace!.id,
                       name: props.selectedWorkspace!.name,
-                      removeVolume: false
+                      removeVolume: true
                     })
                   }
                 >
@@ -423,7 +423,7 @@ function ChatPanel(props: {
     (session) => session.id === props.state.activeSessionId
   )?.title;
   const configuredModel = props.state.models.find(
-    (model) => model.id === snapshot?.model
+    (model) => model.id === snapshot?.modelProfileId
   );
   const slashCommands = filterWebSlashCommands(props.input);
   const [selectedSlashCommand, setSelectedSlashCommand] = useState(0);
@@ -671,12 +671,12 @@ function ChatPanel(props: {
                         <DropdownMenuRadioGroup
                           className="composer-panel-options"
                           value={configuredModel?.id ?? ''}
-                          onValueChange={(model) => {
+                          onValueChange={(modelProfileId) => {
                             props.client.send({
                               type: 'session.settings',
                               workspaceId: props.state.workspaceId!,
                               sessionId: snapshot.summary.id,
-                              model
+                              modelProfileId
                             });
                             setModelPanelOpen(false);
                           }}
@@ -686,11 +686,24 @@ function ChatPanel(props: {
                               {t('session.noConfiguredModels')}
                             </DropdownMenuItem>
                           ) : (
-                            props.state.models.map((model) => (
-                              <DropdownMenuRadioItem key={model.id} value={model.id}>
-                                {model.label}
-                              </DropdownMenuRadioItem>
-                            ))
+                            (['gateway', 'workspace'] as const).flatMap((scope) => {
+                              const models = props.state.models.filter(
+                                (model) => model.scope === scope
+                              );
+                              if (models.length === 0) return [];
+                              return [
+                                <DropdownMenuLabel key={`${scope}-models`}>
+                                  {scope === 'gateway'
+                                    ? t('session.gatewayModels')
+                                    : t('session.workspaceModels')}
+                                </DropdownMenuLabel>,
+                                ...models.map((model) => (
+                                  <DropdownMenuRadioItem key={model.id} value={model.id}>
+                                    {model.label}
+                                  </DropdownMenuRadioItem>
+                                ))
+                              ];
+                            })
                           )}
                         </DropdownMenuRadioGroup>
                       )}

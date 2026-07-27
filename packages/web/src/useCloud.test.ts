@@ -4,6 +4,7 @@ import {
   hydrateSnapshotMessages,
   reconcileSnapshotMessages,
   replaceSessionSummary,
+  selectWorkspaceIdAfterUpdate,
   upsertLiveToolMessage
 } from './useCloud';
 
@@ -68,6 +69,27 @@ describe('hydrateSnapshotMessages', () => {
     expect(
       hydrateSnapshotMessages([{ id: 1, from: 'agent', text: '完成' }])
     ).toEqual([{ id: '1', from: 'agent', text: '完成' }]);
+  });
+});
+
+describe('workspace provisioning selection', () => {
+  const workspace = {
+    id: 'workspace-new',
+    name: 'New',
+    gitUrl: 'https://example.com/repo.git',
+    status: 'creating' as const,
+    createdAt: '2026-07-27T00:00:00.000Z',
+    updatedAt: '2026-07-27T00:00:00.000Z'
+  };
+
+  it('does not select a workspace until provisioning has completed', () => {
+    expect(selectWorkspaceIdAfterUpdate(undefined, workspace)).toBeUndefined();
+    expect(
+      selectWorkspaceIdAfterUpdate(undefined, {
+        ...workspace,
+        status: 'ready'
+      })
+    ).toBe('workspace-new');
   });
 });
 

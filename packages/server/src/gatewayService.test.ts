@@ -248,7 +248,7 @@ describe('GatewayService', () => {
     expect(orchestrator.recreated).toEqual([{ id: 'w1', start: false }]);
   });
 
-  it('applies saved provider configuration and optionally rebuilds workers', async () => {
+  it('applies saved provider configuration without rebuilding workers', async () => {
     const root = mkdtempSync(join(tmpdir(), 'kross-configure-'));
     const registry = new WorkspaceRegistry(join(root, 'workspaces.json'));
     const orchestrator = new FakeOrchestrator();
@@ -281,7 +281,7 @@ describe('GatewayService', () => {
       provider: 'openai',
       model: 'gpt-test',
       apiKey: 'provider-secret'
-    }, true);
+    }, false);
 
     expect(result.provider).toMatchObject({
       provider: 'openai',
@@ -292,7 +292,9 @@ describe('GatewayService', () => {
       OPENAI_API_KEY: 'provider-secret',
       AGENT_LLM_MODEL: 'gpt-test'
     });
-    expect(orchestrator.recreated).toEqual([{ id: 'w1', start: true }]);
+    expect(result.updated).toEqual([]);
+    expect(result.failed).toEqual([]);
+    expect(orchestrator.recreated).toEqual([]);
   });
 
   it('reaps workspaces after the configured idle threshold', async () => {

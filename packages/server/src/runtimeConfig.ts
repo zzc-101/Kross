@@ -43,6 +43,13 @@ export interface PublicProviderConfig {
   source: 'saved' | 'environment' | 'none';
 }
 
+export interface RuntimeProviderConfig {
+  provider: ProviderId;
+  model: string;
+  baseUrl?: string;
+  apiKey: string;
+}
+
 const PROVIDERS: Record<ProviderId, {
   apiKey: string;
   model: string;
@@ -133,6 +140,34 @@ export class RuntimeConfigStore {
       [names.apiKey]: this.saved.apiKey,
       [names.model]: this.saved.model,
       [names.baseUrl]: this.saved.baseUrl
+    };
+  }
+
+  runtimeProvider(): RuntimeProviderConfig | undefined {
+    if (this.saved) {
+      return {
+        provider: this.saved.provider,
+        model: this.saved.model,
+        ...(this.saved.baseUrl ? { baseUrl: this.saved.baseUrl } : {}),
+        apiKey: this.saved.apiKey
+      };
+    }
+    const current = this.publicProvider();
+    if (!current.provider || !current.model || !current.hasApiKey) {
+      return undefined;
+    }
+    const names = PROVIDERS[current.provider];
+    const apiKey =
+      this.environment[names.apiKey] ??
+      (current.provider === 'anthropic'
+        ? this.environment.ANTHROPIC_AUTH_TOKEN
+        : undefined);
+    if (!apiKey) return undefined;
+    return {
+      provider: current.provider,
+      model: current.model,
+      ...(current.baseUrl ? { baseUrl: current.baseUrl } : {}),
+      apiKey
     };
   }
 

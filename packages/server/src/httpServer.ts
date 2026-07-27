@@ -141,7 +141,7 @@ export class GatewayHttpServer {
               : {};
           return this.gateway.updateProvider(
             value.provider,
-            value.restartWorkers === true
+            value.applyToWorkers === true || value.restartWorkers === true
           );
         })
         .then((result) => {
