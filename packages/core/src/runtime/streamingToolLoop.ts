@@ -494,7 +494,8 @@ export async function* runStreamingToolLoop(
     );
     await deps.record(params.runId, failureEventType, {
       message,
-      ...classification
+      ...classification,
+      metrics: deps.llmClient.lastCallMetrics
     });
     const failed = await params.handlers.onFailure(message, classification);
     yield { type: 'result', result: failed };

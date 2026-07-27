@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Box } from 'ink';
 
 import {
+  formatLlmCallMetricsCompact,
   nextPermissionMode,
   t,
   type AgentMode,
@@ -522,6 +523,9 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 用长度与 generation 触发重算
     [agentRuntime, mode, input, messages.length, runtimeGeneration, status, streamingMessageId]
   );
+  const llmMetricsLabel = formatLlmCallMetricsCompact(
+    agentRuntime.getLastLlmCallMetrics()
+  );
 
   // 动态计算 footer 高度，防止 header + viewport + footer > rows 导致溢出
   const footerHeight = useFooterHeight({
@@ -601,6 +605,7 @@ export function App({
       compact={isHome}
       contextUsageLabel={contextUsage.headerLabel}
       contextUsageRatio={contextUsage.headerRatio}
+      llmMetricsLabel={llmMetricsLabel}
     />
   );
 

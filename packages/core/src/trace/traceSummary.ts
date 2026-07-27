@@ -40,6 +40,22 @@ export interface RunTraceSummary {
   verificationStatus?: string;
   verificationCommandCount?: number;
   failureMessage?: string;
+  llmStats: RunLlmStats;
+}
+
+export interface RunLlmStats {
+  calls: number;
+  completed: number;
+  failed: number;
+  aborted: number;
+  rateLimited: number;
+  durationMs: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  estimatedCostUsd: number;
+  pricedCalls: number;
+  lastErrorCategory?: string;
 }
 
 export interface RunTraceDetail extends RunTraceSummary {
@@ -54,6 +70,19 @@ const EMPTY_TOOL_STATS: RunToolStats = {
   approvalRequired: 0,
   denied: 0,
   rejected: 0
+};
+const EMPTY_LLM_STATS: RunLlmStats = {
+  calls: 0,
+  completed: 0,
+  failed: 0,
+  aborted: 0,
+  rateLimited: 0,
+  durationMs: 0,
+  totalTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  estimatedCostUsd: 0,
+  pricedCalls: 0
 };
 
 /** 终态：后续 awaiting_approval 不得再覆盖。 */
@@ -72,6 +101,7 @@ export function summarizeTraceEvents(
   }
 
   const toolStats: RunToolStats = { ...EMPTY_TOOL_STATS };
+  const llmStats: RunLlmStats = { ...EMPTY_LLM_STATS };
   const toolNames = new Set<string>();
   const flags = new Set<string>();
   let status = 'running';
@@ -86,6 +116,7 @@ export function summarizeTraceEvents(
   let endedAt: string | undefined;
 
   for (const event of events) {
+    collectLlmMetrics(llmStats, event.payload.metrics);
     if (!startedAt || event.timestamp < startedAt) {
       startedAt = event.timestamp;
     }
@@ -269,7 +300,8 @@ export function summarizeTraceEvents(
     phase,
     verificationStatus,
     verificationCommandCount,
-    failureMessage
+    failureMessage,
+    llmStats
   };
 }
 
@@ -305,6 +337,15 @@ export function buildTraceDetail(
       highlights.push({
         type: event.type,
         detail: highlightDetail(event),
+        timestamp: event.timestamp
+      });
+    }
+    const metrics = asRecord(event.payload.metrics);
+    const errorCategory = asString(metrics?.errorCategory);
+    if (errorCategory) {
+      highlights.push({
+        type: 'llm.call.failed',
+        detail: `${errorCategory} · ${asNumber(metrics?.durationMs) ?? 0}ms`,
         timestamp: event.timestamp
       });
     }
@@ -379,6 +420,25 @@ export function formatTraceDetail(detail: RunTraceDetail): string {
           .map((item) => `- ${item.type}: ${item.detail}`)
           .join('\n')
       : '- (none)';
+  const llm = detail.llmStats;
+  const llmLine = [
+    `calls=${llm.calls}`,
+    `ok=${llm.completed}`,
+    `fail=${llm.failed}`,
+    `abort=${llm.aborted}`,
+    `rate-limit=${llm.rateLimited}`,
+    `tokens=${llm.totalTokens}`,
+    `cached=${llm.cacheReadTokens}`,
+    `duration=${llm.durationMs}ms`,
+    llm.pricedCalls > 0
+      ? `cost=$${formatCost(llm.estimatedCostUsd)}`
+      : 'cost=unknown',
+    llm.lastErrorCategory
+      ? `last-error=${llm.lastErrorCategory}`
+      : undefined
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(' · ');
 
   return [
     `Trace: ${detail.runId}`,
@@ -395,6 +455,7 @@ export function formatTraceDetail(detail: RunTraceDetail): string {
     detail.failureMessage
       ? `failure: ${previewText(detail.failureMessage, 160)}`
       : undefined,
+    `llm: ${llmLine}`,
     'tool calls:',
     toolLines,
     'highlights:',
@@ -402,6 +463,36 @@ export function formatTraceDetail(detail: RunTraceDetail): string {
   ]
     .filter((line): line is string => line !== undefined)
     .join('\n');
+}
+
+function collectLlmMetrics(stats: RunLlmStats, value: unknown): void {
+  const metrics = asRecord(value);
+  if (!metrics) return;
+  const status = asString(metrics.status);
+  if (!status) return;
+  stats.calls += 1;
+  if (status === 'completed') stats.completed += 1;
+  else if (status === 'aborted') stats.aborted += 1;
+  else stats.failed += 1;
+  stats.durationMs += asNumber(metrics.durationMs) ?? 0;
+  if (metrics.rateLimited === true) stats.rateLimited += 1;
+  const errorCategory = asString(metrics.errorCategory);
+  if (errorCategory) stats.lastErrorCategory = errorCategory;
+  const usage = asRecord(metrics.usage);
+  stats.totalTokens += asNumber(usage?.totalTokens) ?? 0;
+  stats.cacheReadTokens += asNumber(usage?.cacheReadTokens) ?? 0;
+  stats.cacheWriteTokens += asNumber(usage?.cacheWriteTokens) ?? 0;
+  const cost = asNumber(usage?.estimatedCostUsd);
+  if (cost !== undefined) {
+    stats.estimatedCostUsd += cost;
+    stats.pricedCalls += 1;
+  }
+}
+
+function formatCost(value: number): string {
+  if (value === 0) return '0';
+  if (value < 0.01) return value.toFixed(4);
+  return value.toFixed(2);
 }
 
 function addToolName(set: Set<string>, value: unknown): void {

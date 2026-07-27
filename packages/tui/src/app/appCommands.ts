@@ -1,5 +1,7 @@
 import {
   formatCompactCount,
+  formatLlmCallMetrics,
+  formatLlmCapabilities,
   formatUnavailableFreeModels,
   getLocale,
   getLlmProviderDefinition,
@@ -59,13 +61,19 @@ export function handleCommand(
   }
 
   if (value === '/status') {
+    const capabilities = runtime.getLlmCapabilities();
+    const lastCall = runtime.getLastLlmCallMetrics();
     append(
       'agent',
-      t('cmd.status', {
-        mode,
-        perm: runtime.getPermissionMode(),
-        model: runtime.getModelLabel()
-      })
+      [
+        t('cmd.status', {
+          mode,
+          perm: runtime.getPermissionMode(),
+          model: runtime.getModelLabel()
+        }),
+        formatLlmCapabilities(capabilities),
+        formatLlmCallMetrics(lastCall)
+      ].join('\n')
     );
     return true;
   }

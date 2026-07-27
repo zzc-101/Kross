@@ -2,6 +2,7 @@ import {
   createLlmClientForProvider,
   createLlmClientForPublicModel,
   formatCompactCount,
+  formatLlmCapabilities,
   formatModelEffortLabel,
   getLlmProviderDefinition,
   isUsableLlmConfig,
@@ -14,6 +15,7 @@ import {
   type AgentRuntime,
   type ImportedLlmConfig,
   type LlmClient,
+  type LlmCapabilities,
   type LlmProvider,
   type ThinkingEffort
 } from '@kross/core';
@@ -43,12 +45,16 @@ export interface ModelSettingsState {
   modelIndex: number;
   efforts: EffortOption[];
   models: ModelOption[];
+  capabilities?: LlmCapabilities;
+  capabilitiesLabel?: string;
 }
 
 export function buildEffortOptions(
-  current: ThinkingEffort
+  current: ThinkingEffort,
+  thinkingSupported = true
 ): { options: EffortOption[]; index: number } {
-  const options = THINKING_EFFORT_LEVELS.map((id) => ({
+  const levels = thinkingSupported ? THINKING_EFFORT_LEVELS : (['off'] as const);
+  const options = levels.map((id) => ({
     id,
     label: id
   }));
@@ -167,7 +173,11 @@ export function createModelSettingsState(
   env: Record<string, string | undefined> = process.env,
   saved?: ImportedLlmConfig
 ): ModelSettingsState {
-  const effort = buildEffortOptions(runtime.getThinkingEffort());
+  const capabilities = runtime.getLlmCapabilities();
+  const effort = buildEffortOptions(
+    runtime.getThinkingEffort(),
+    capabilities?.thinking !== false
+  );
   const models = buildModelOptions(
     runtime.getLlmClient(),
     env,
@@ -178,7 +188,9 @@ export function createModelSettingsState(
     effortIndex: effort.index,
     modelIndex: models.index,
     efforts: effort.options,
-    models: models.options
+    models: models.options,
+    capabilities,
+    capabilitiesLabel: formatLlmCapabilities(capabilities)
   };
 }
 

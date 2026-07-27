@@ -60,5 +60,8 @@
 - Provider 调用指标与 Eval 兼容矩阵：记录不含内容的 token、估算费用、延迟、
   限流和稳定错误类别；按实测 case 聚合 Provider/模型能力，不为缺失价格或未经
   测试的模型编造结论。
+- TUI 与 Web 的 Provider 能力和最近调用概览：显示工具、思考、缓存、结构化输出、
+  多模态能力以及 token、延迟、缓存、估算费用；Web Trace 结构化展示运行摘要、
+  稳定错误类别并提供无副作用状态回放入口。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

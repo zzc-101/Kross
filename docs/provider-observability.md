@@ -27,8 +27,16 @@ Kross 在 LLM Client 边界记录版本化的 `LlmCallMetrics`。指标只包含
 | `aborted` | 用户取消或信号中止 |
 | `unknown` | 无法安全归类的错误 |
 
-最近一次调用指标会附加到对应 LLM 完成 Trace 事件中，供诊断和报告使用。它是
-单次调用的短期观测，不是计费账本；Provider 账单仍是最终费用事实源。
+最近一次调用指标会附加到对应 LLM 完成 Trace 事件中，供诊断和报告使用。Runtime
+也提供同一份短期快照：TUI 在 Header 和 `/status` 展示紧凑摘要，Cloud Worker
+通过 Session Snapshot 传给 Web，Web 在对话区展示 token、耗时、缓存、估算费用
+或错误类别。它是单次调用的短期观测，不是计费账本；Provider 账单仍是最终费用
+事实源。
+
+`/trace <runId>` 会按一次运行聚合调用次数、状态、token、缓存、耗时和可用费用，
+并突出 rate-limit、network、timeout 等稳定错误类别。Web Trace 面板将概览字段
+和事件分区显示，并可触发 `/trace replay <runId>` 的纯状态回放；回放不会重新
+执行工具、Git 或其他外部副作用。
 
 ## 费用边界
 

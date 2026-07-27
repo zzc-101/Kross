@@ -80,6 +80,12 @@ export {
 } from '../llm/providerObservability';
 
 export {
+  formatLlmCallMetrics,
+  formatLlmCallMetricsCompact,
+  formatLlmCapabilities
+} from '../llm/providerPresentation';
+
+export {
   LLM_PROVIDERS,
   getLlmProviderDefinition,
   hasProviderCredentialsFromEnv,

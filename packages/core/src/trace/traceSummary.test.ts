@@ -109,6 +109,19 @@ describe('traceSummary', () => {
           denied: 0,
           rejected: 0
         },
+        llmStats: {
+          calls: 0,
+          completed: 0,
+          failed: 0,
+          aborted: 0,
+          rateLimited: 0,
+          durationMs: 0,
+          totalTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          estimatedCostUsd: 0,
+          pricedCalls: 0
+        },
         flags: []
       }
     ]);
@@ -181,6 +194,70 @@ describe('traceSummary', () => {
       ])
     );
     expect(formatTraceDetail(detail!)).toContain('stopped after recovery');
+  });
+
+  it('aggregates LLM usage, cost, latency and stable failure categories', () => {
+    const events = [
+      event('run-metrics', 'run.started', { input: 'inspect metrics' }, 't1'),
+      event(
+        'run-metrics',
+        'llm.planner.completed',
+        {
+          metrics: {
+            status: 'completed',
+            durationMs: 800,
+            rateLimited: false,
+            usage: {
+              totalTokens: 1200,
+              cacheReadTokens: 300,
+              estimatedCostUsd: 0.004
+            }
+          }
+        },
+        't2'
+      ),
+      event(
+        'run-metrics',
+        'llm.tool_followup.failed',
+        {
+          metrics: {
+            status: 'failed',
+            durationMs: 200,
+            rateLimited: true,
+            errorCategory: 'rate-limit'
+          }
+        },
+        't3'
+      )
+    ];
+
+    const detail = buildTraceDetail('run-metrics', events);
+    expect(detail?.llmStats).toEqual({
+      calls: 2,
+      completed: 1,
+      failed: 1,
+      aborted: 0,
+      rateLimited: 1,
+      durationMs: 1000,
+      totalTokens: 1200,
+      cacheReadTokens: 300,
+      cacheWriteTokens: 0,
+      estimatedCostUsd: 0.004,
+      pricedCalls: 1,
+      lastErrorCategory: 'rate-limit'
+    });
+    expect(detail?.highlights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'llm.call.failed',
+          detail: 'rate-limit · 200ms'
+        })
+      ])
+    );
+    expect(formatTraceDetail(detail!)).toContain(
+      'calls=2 · ok=1 · fail=1 · abort=0 · rate-limit=1'
+    );
+    expect(formatTraceDetail(detail!)).toContain('cost=$0.0040');
   });
 
   it('surfaces the structured verification status from run.completed', () => {

@@ -1,10 +1,15 @@
 import type { EventEnvelope } from '@kross/protocol';
 import type { TFunction } from 'i18next';
-import { Check, Clipboard, Copy, RotateCcw } from 'lucide-react';
+import { Check, Clipboard, Copy, Play, RotateCcw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { diffLineKind, traceRunIds } from './inspection';
+import {
+  diffLineKind,
+  parseTracePresentation,
+  traceLineKind,
+  traceRunIds
+} from './inspection';
 import { Button } from './components/ui/button';
 import {
   Dialog,
@@ -158,16 +163,29 @@ function TraceContent(props: {
   onBack: () => void;
 }) {
   const { t } = useTranslation();
-  const isDetail = props.content.startsWith('Trace:');
+  const presentation = useMemo(
+    () => parseTracePresentation(props.content),
+    [props.content]
+  );
+  const isFocused = presentation.kind !== 'list';
   return (
     <div className="inspection-content trace-content">
       <div className="trace-toolbar">
-        {isDetail && (
+        {isFocused && (
           <Button variant="outline" size="sm" onClick={props.onBack}>
             <RotateCcw /> {t('inspection.recentRuns')}
           </Button>
         )}
-        {!isDetail && props.runIds.map((runId) => (
+        {presentation.kind === 'detail' && presentation.runId && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => props.onSelect(`replay ${presentation.runId}`)}
+          >
+            <Play /> {t('inspection.replay')}
+          </Button>
+        )}
+        {!isFocused && props.runIds.map((runId) => (
           <Button
             variant="outline"
             size="sm"
@@ -179,7 +197,39 @@ function TraceContent(props: {
         ))}
       </div>
       <ScrollArea className="inspection-scroll">
-        <pre>{props.content}</pre>
+        <div className="trace-presentation">
+          {presentation.runId && (
+            <div className="trace-run-heading">
+              <span>{presentation.kind === 'replay' ? t('inspection.replay') : t('inspection.run')}</span>
+              <code>{presentation.runId}</code>
+            </div>
+          )}
+          {presentation.facts.length > 0 && (
+            <dl className="trace-facts">
+              {presentation.facts.map((fact) => (
+                <div key={`${fact.label}-${fact.value}`}>
+                  <dt>{fact.label}</dt>
+                  <dd>{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {presentation.sections.map((section, sectionIndex) => (
+            <section className="trace-section" key={`${section.title}-${sectionIndex}`}>
+              <h3>{section.title}</h3>
+              <div className="trace-lines">
+                {section.lines.map((line, index) => (
+                  <code
+                    className={`trace-line trace-line-${traceLineKind(line)}`}
+                    key={`${index}-${line}`}
+                  >
+                    {line || ' '}
+                  </code>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       </ScrollArea>
     </div>
   );

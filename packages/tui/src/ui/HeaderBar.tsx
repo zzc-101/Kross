@@ -30,6 +30,8 @@ export interface HeaderBarProps {
   contextUsageLabel?: string;
   /** 0–1，用于用量颜色 */
   contextUsageRatio?: number;
+  /** 最近一次模型调用的紧凑 token/延迟/费用摘要。 */
+  llmMetricsLabel?: string;
 }
 
 function StatusChip({
@@ -61,7 +63,8 @@ export function HeaderBar({
   runtimeError,
   compact = false,
   contextUsageLabel,
-  contextUsageRatio = 0
+  contextUsageRatio = 0,
+  llmMetricsLabel
 }: HeaderBarProps) {
   const { stdout } = useStdout();
   const columns = stdout?.columns;
@@ -86,6 +89,9 @@ export function HeaderBar({
         <Box flexShrink={0}>
           {contextUsageLabel ? (
             <Text color={usageColor}>{contextUsageLabel}</Text>
+          ) : null}
+          {llmMetricsLabel ? (
+            <StatusChip label={llmMetricsLabel} dim />
           ) : null}
           {/* Todo 芯片：有任务时可点展开（由 App 订阅点击区域） */}
           {showTodo ? (

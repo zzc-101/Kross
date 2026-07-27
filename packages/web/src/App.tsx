@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import type { SessionSnapshot } from '@kross/protocol';
 import { useTranslation } from 'react-i18next';
 
 import { InspectionPanel } from './InspectionPanel';
@@ -207,14 +208,19 @@ export function App({ endpoint, token, onLogout }: AppProps) {
         });
       }
     } else if (command.id === 'status') {
-      cloud.appendLocalMessage('agent', t('commands.statusReport', {
-        mode: state.snapshot?.mode ?? '-',
-        model: state.snapshot?.model ?? '-',
-        thinking: state.snapshot?.thinkingEffort ?? '-',
-        permission: state.snapshot?.permissionMode ?? '-',
-        todos: state.snapshot?.todos.length ?? 0,
-        running: state.running ? t('status.running') : t('execution.idle')
-      }));
+      const snapshot = state.snapshot;
+      cloud.appendLocalMessage('agent', [
+        t('commands.statusReport', {
+          mode: snapshot?.mode ?? '-',
+          model: snapshot?.model ?? '-',
+          thinking: snapshot?.thinkingEffort ?? '-',
+          permission: snapshot?.permissionMode ?? '-',
+          todos: snapshot?.todos.length ?? 0,
+          running: state.running ? t('status.running') : t('execution.idle')
+        }),
+        formatWebCapabilities(snapshot?.capabilities),
+        formatWebCallMetrics(snapshot?.lastCallMetrics)
+      ].join('\n\n'));
     } else if (
       command.id === 'instructions' ||
       command.id === 'skills' ||
@@ -452,6 +458,37 @@ export function App({ endpoint, token, onLogout }: AppProps) {
       )}
     </div>
   );
+}
+
+function formatWebCapabilities(
+  capabilities: SessionSnapshot['capabilities']
+): string {
+  if (!capabilities) return 'Capabilities: unknown';
+  return `Capabilities: tools=${flag(capabilities.toolCalling)} · thinking=${flag(capabilities.thinking)} · cache=${flag(capabilities.promptCaching)} · structured=${flag(capabilities.structuredOutput)} · vision=${flag(capabilities.multimodalRead)}`;
+}
+
+function formatWebCallMetrics(
+  metrics: SessionSnapshot['lastCallMetrics']
+): string {
+  if (!metrics) return 'Last call: none';
+  const usage = metrics.usage;
+  return [
+    'Last call:',
+    `${metrics.status}`,
+    `${metrics.durationMs}ms`,
+    usage?.totalTokens !== undefined ? `${usage.totalTokens} tokens` : undefined,
+    usage?.cacheReadTokens !== undefined
+      ? `${usage.cacheReadTokens} cached`
+      : undefined,
+    usage?.estimatedCostUsd !== undefined
+      ? `$${usage.estimatedCostUsd.toFixed(usage.estimatedCostUsd < 0.01 ? 4 : 2)}`
+      : 'cost unknown',
+    metrics.errorCategory
+  ].filter(Boolean).join(' · ');
+}
+
+function flag(value: boolean): string {
+  return value ? 'yes' : 'no';
 }
 
 function decodeVapidKey(value: string): ArrayBuffer {

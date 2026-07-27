@@ -1,4 +1,4 @@
-import type { CloudWorkspace } from '@kross/protocol';
+import type { CloudWorkspace, SessionSnapshot } from '@kross/protocol';
 import type { TFunction } from 'i18next';
 import {
   Activity,
@@ -471,6 +471,7 @@ function ChatPanel(props: {
             )}
             <div ref={props.bottomRef} />
           </div>
+          <CallMetricsStrip metrics={snapshot.lastCallMetrics} />
           {snapshot.pendingApproval && (
             <ApprovalCard
               key={approvalIdentity(snapshot.pendingApproval)}
@@ -732,6 +733,18 @@ function ChatPanel(props: {
                           ))}
                         </DropdownMenuRadioGroup>
                       )}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>{t('session.capabilities')}</DropdownMenuLabel>
+                      <div className="composer-capabilities">
+                        {capabilityItems(snapshot.capabilities, t).map((item) => (
+                          <span
+                            className={item.supported ? 'supported' : 'unsupported'}
+                            key={item.label}
+                          >
+                            {item.supported ? '✓' : '—'} {item.label}
+                          </span>
+                        ))}
+                      </div>
                       <DropdownMenuItem
                         className="composer-setting-row"
                         onSelect={(event) => {
@@ -872,6 +885,61 @@ function thinkingEffortLabel(
   t: TFunction
 ): string {
   return t(`session.thinkingEffortValues.${effort}`);
+}
+
+function CallMetricsStrip({
+  metrics
+}: {
+  metrics?: SessionSnapshot['lastCallMetrics'];
+}) {
+  const { t } = useTranslation();
+  if (!metrics) return null;
+  const usage = metrics.usage;
+  return (
+    <div className={`call-metrics ${metrics.status}`}>
+      <span>{t('session.lastCall')}</span>
+      {usage?.totalTokens !== undefined && (
+        <strong>{usage.totalTokens.toLocaleString()} {t('session.tokens')}</strong>
+      )}
+      <span>{formatDuration(metrics.durationMs)}</span>
+      {usage?.cacheReadTokens !== undefined && (
+        <span>{usage.cacheReadTokens.toLocaleString()} {t('session.cached')}</span>
+      )}
+      <span>
+        {usage?.estimatedCostUsd !== undefined
+          ? formatCost(usage.estimatedCostUsd)
+          : t('session.costUnknown')}
+      </span>
+      {metrics.errorCategory && (
+        <span className="call-error">{metrics.errorCategory}</span>
+      )}
+    </div>
+  );
+}
+
+function capabilityItems(
+  capabilities: SessionSnapshot['capabilities'],
+  t: TFunction
+): Array<{ label: string; supported: boolean }> {
+  return [
+    { label: t('session.capabilityTools'), supported: capabilities?.toolCalling ?? false },
+    { label: t('session.capabilityThinking'), supported: capabilities?.thinking ?? false },
+    { label: t('session.capabilityCache'), supported: capabilities?.promptCaching ?? false },
+    { label: t('session.capabilityStructured'), supported: capabilities?.structuredOutput ?? false },
+    { label: t('session.capabilityVision'), supported: capabilities?.multimodalRead ?? false }
+  ];
+}
+
+function formatDuration(durationMs: number): string {
+  return durationMs >= 1000
+    ? `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`
+    : `${durationMs}ms`;
+}
+
+function formatCost(cost: number): string {
+  if (cost === 0) return '$0';
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
 }
 
 function SessionDetails(props: {

@@ -25,7 +25,9 @@ Worker 和 Web 只读取统一声明，不通过模型名称字符串猜测功�
 
 - Runtime 在 `toolCalling: false` 时不会向模型发送工具定义。
 - 非 `off` 的思考强度在 `thinking: false` 时会被拒绝。
-- Cloud Session Snapshot 携带同一份 capability，Web 不展示不支持的思考档位。
+- TUI 的模型设置和 `/status` 会显示当前能力；不支持 thinking 时只保留 `off`。
+- Cloud Session Snapshot 携带同一份 capability；Web 模型菜单直接显示能力状态，
+  且不展示不支持的思考档位。
 - 切换 pi-ai 目录模型时 capability 随模型重新计算，不需要维护 Runtime 特判。
 - 新增 Provider 或协议能力时，应先在 Adapter 添加测试，再由上层消费；禁止在
   Runtime、TUI 或 Web 中增加模型名称正则表达式。

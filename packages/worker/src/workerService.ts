@@ -1368,6 +1368,7 @@ export class WorkerService {
       model: session.runtime.getLlmClient()?.model,
       thinkingEffort: session.runtime.getThinkingEffort(),
       capabilities: session.runtime.getLlmCapabilities(),
+      lastCallMetrics: session.runtime.getLastLlmCallMetrics(),
       permissionMode: session.runtime.getPermissionMode()
     };
   }

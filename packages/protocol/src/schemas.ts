@@ -23,6 +23,39 @@ export const llmCapabilitiesSchema = z.object({
   promptCaching: z.boolean(),
   multimodalRead: z.boolean()
 });
+
+export const llmUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  totalTokens: z.number().int().nonnegative().optional(),
+  cacheReadTokens: z.number().int().nonnegative().optional(),
+  cacheWriteTokens: z.number().int().nonnegative().optional(),
+  reasoningTokens: z.number().int().nonnegative().optional(),
+  estimatedCostUsd: z.number().nonnegative().optional()
+});
+
+export const llmCallMetricsSchema = z.object({
+  version: z.literal(1),
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  status: z.enum(['completed', 'failed', 'aborted']),
+  durationMs: z.number().int().nonnegative(),
+  rateLimited: z.boolean(),
+  usage: llmUsageSchema.optional(),
+  errorCategory: z
+    .enum([
+      'authentication',
+      'permission',
+      'rate-limit',
+      'invalid-request',
+      'server',
+      'network',
+      'timeout',
+      'aborted',
+      'unknown'
+    ])
+    .optional()
+});
 export const permissionModeSchema = z.enum(['default', 'classifier', 'auto']);
 export const traceEventSchema = z.object({
   id: identifierSchema,
@@ -213,6 +246,7 @@ export const sessionSnapshotSchema = z.object({
   model: z.string().optional(),
   thinkingEffort: thinkingEffortSchema.optional(),
   capabilities: llmCapabilitiesSchema.optional(),
+  lastCallMetrics: llmCallMetricsSchema.optional(),
   permissionMode: permissionModeSchema.default('default')
 });
 

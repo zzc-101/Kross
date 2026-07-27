@@ -781,6 +781,95 @@
                   ],
                   "additionalProperties": false
                 },
+                "lastCallMetrics": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "const": 1
+                    },
+                    "provider": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "model": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "completed",
+                        "failed",
+                        "aborted"
+                      ]
+                    },
+                    "durationMs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "rateLimited": {
+                      "type": "boolean"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "inputTokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "outputTokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "totalTokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "cacheReadTokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "cacheWriteTokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "reasoningTokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "estimatedCostUsd": {
+                          "type": "number",
+                          "minimum": 0
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "errorCategory": {
+                      "type": "string",
+                      "enum": [
+                        "authentication",
+                        "permission",
+                        "rate-limit",
+                        "invalid-request",
+                        "server",
+                        "network",
+                        "timeout",
+                        "aborted",
+                        "unknown"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "provider",
+                    "model",
+                    "status",
+                    "durationMs",
+                    "rateLimited"
+                  ],
+                  "additionalProperties": false
+                },
                 "permissionMode": {
                   "type": "string",
                   "enum": [

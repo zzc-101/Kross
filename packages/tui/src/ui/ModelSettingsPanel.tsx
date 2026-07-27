@@ -75,6 +75,12 @@ export function ModelSettingsPanel({
         </Row>
       ) : null}
 
+      {state.capabilitiesLabel ? (
+        <Row>
+          <Text dimColor>{state.capabilitiesLabel}</Text>
+        </Row>
+      ) : null}
+
       <Row>
         <Text dimColor>{symbols.boxHorizontal.repeat(Math.min(innerWidth, 40))}</Text>
       </Row>

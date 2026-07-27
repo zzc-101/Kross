@@ -11,7 +11,7 @@
 | `/model` | 打开模型与思考强度面板 |
 | `/model <modelId>` | 切换当前 Provider 的模型 |
 | `/mode auto|plan|conductor` | 切换工作模式 |
-| `/status` | 显示当前模式、权限和模型 |
+| `/status` | 显示当前模式、权限、模型能力和最近一次 LLM 调用指标 |
 | `/lang zh|en` | 切换并保存界面语言 |
 
 ## Workspace
@@ -52,7 +52,7 @@
 | `/mcp resource <serverId> <uri>` | 显式把文本 Resource 加入当前会话上下文 |
 | `/mcp prompt <serverId> <name> [JSON]` | 预览 Prompt，不自动执行 |
 | `/trace` | 列出最近运行 |
-| `/trace <runId>` | 显示指定运行的 trace 摘要 |
+| `/trace <runId>` | 显示指定运行的 trace 摘要，包括 LLM 调用、token、耗时、费用和稳定错误类别 |
 | `/trace replay <runId>` | 严格重放事件并显示派生状态，不执行历史副作用 |
 | `/diff [runId]` | 显示文件触达和 Git diff 摘要 |
 | `/expand` | 展开或折叠最近一条可折叠消息 |
