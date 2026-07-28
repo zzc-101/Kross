@@ -88,8 +88,9 @@ Headless 默认使用 `--permission default`，不会因为运行在 CI 中自�
 `sessionId` 在 TUI 中恢复并审阅。`plan` 和 `conductor` 模式同样会先持久化计划，
 然后以退出码 `4` 停在确认门。
 
-不要为了让 CI “跑过去”而默认添加 `--permission auto`。Agent 的 Bash 和后台
-进程不是本机 OS 级沙箱；仓库中的提示词、配置和 Skills 也应按不可信输入处理。
+不要为了让 CI “跑过去”而默认添加 `--permission auto`。本机运行时，Agent 的
+Bash 和后台进程使用当前用户权限；仓库中的提示词、配置和 Skills 也应按不可信
+输入处理。Cloud Headless 任务则使用对应 Worker 容器作为执行边界。
 
 ## 密钥与日志
 

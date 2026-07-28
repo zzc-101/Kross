@@ -133,8 +133,8 @@ cursor 恢复和协议版本 header。所有 MCP 工具仍经过同一 Gateway �
 Context Source 加入当前会话；Prompts 仅通过 `/mcp prompt` 预览，不会静默改变
 系统行为。
 
-`Bash` 和后台进程没有 OS 级沙箱。workspace cwd、权限审批和容器隔离的具体安全
-边界见[安全模型](security.md)。
+本地 TUI 的 `Bash` 和后台进程使用当前用户权限；Cloud 模式下则运行在独立
+Worker 容器内。具体安全边界见[安全模型](security.md)。
 
 ## Harness 与子代理
 
@@ -205,7 +205,7 @@ Nginx 容器提供，Gateway 不包含前端产物，因此前后端可以分别
 
 ## 当前限制
 
-- 本地 `Bash` 与后台进程没有 OS 级沙箱。
+- 本地 `Bash` 与后台进程使用当前用户权限，执行前依赖权限审批。
 - MCP 尚不支持交互式 OAuth。
 - 没有跨会话语义记忆。
 - Project Instructions 只加载 workspace root 顶层。

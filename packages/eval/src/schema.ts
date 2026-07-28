@@ -84,7 +84,12 @@ export const evalCaseSchema = z.object({
   }),
   tags: z.array(z.string()).default([]),
   capabilities: z.array(z.string()).default([]),
-  fixtureResponses: z.array(fixtureResponseSchema).min(1)
+  realProvider: z
+    .object({
+      enabled: z.boolean().default(false)
+    })
+    .default({ enabled: false }),
+  fixtureResponses: z.array(fixtureResponseSchema).min(1).optional()
 });
 
 const changedFileSchema = z.object({
@@ -104,6 +109,7 @@ const verificationResultSchema = z.object({
 export const evalReportSchema = z.object({
   schemaVersion: z.literal(1),
   caseId: z.string(),
+  attempt: z.number().int().positive().default(1),
   description: z.string(),
   deterministic: z.boolean(),
   workflow: z.enum(['run', 'checkpoint-resume', 'conductor']),
@@ -157,6 +163,7 @@ export const evalReportSchema = z.object({
   failureCategory: z
     .enum([
       'assertion',
+      'budget',
       'configuration',
       'runtime',
       'timeout',

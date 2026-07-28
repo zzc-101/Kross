@@ -60,6 +60,9 @@
 - Provider 调用指标与 Eval 兼容矩阵：记录不含内容的 token、估算费用、延迟、
   限流和稳定错误类别；按实测 case 聚合 Provider/模型能力，不为缺失价格或未经
   测试的模型编造结论。
+- 真实 Provider Harness Eval：显式选择 Case、Provider、模型、重复次数和总预算，
+  在一次性工作区运行真实 AgentRuntime；结果按文件、验证、Trace、token、费用和
+  延迟评分，并以受限 `Verify` 代替任意 Shell 执行。
 - TUI 与 Web 的 Provider 能力和最近调用概览：显示工具、思考、缓存、结构化输出、
   多模态能力以及 token、延迟、缓存、估算费用；Web Trace 结构化展示运行摘要、
   稳定错误类别并提供无副作用状态回放入口。

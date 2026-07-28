@@ -232,7 +232,7 @@ Git Push/PR、资源限额和空闲回收。Web
 - 默认只自动允许读操作；写入、执行和网络操作需要审批。
 - 文件工具使用真实路径校验，限制在已授权 workspace 内。
 - `/undo` 会验证当前文件 hash，检测到人工后续修改时拒绝覆盖。
-- `Bash` 和后台进程工具目前**不是 OS 级沙箱**。批准命令前仍应确认其影响范围。
+- 本地 TUI 的 `Bash` 和后台进程使用当前用户权限，批准命令前仍应确认其影响范围。
 - Cloud Worker 以 Docker 容器作为执行边界，并使用独立网络、能力丢弃、`no-new-privileges`、CPU、内存、PID 与磁盘软限额；容器仍可访问外网。
 - Cloud Gateway 默认挂载 Docker Socket，其权限等价于宿主机高权限控制面，不能直接暴露到公网。
 - Skills 中的脚本不会自动执行；执行仍需经过工具审批。
@@ -250,6 +250,15 @@ npm run docs:check
 npm run build
 npm run package:check
 ```
+
+真实模型 Harness Eval 必须显式指定单个 Case、Provider、模型和费用预算，例如：
+
+```bash
+npm run eval -- --provider openai --model gpt-5 \
+  --case read-fixture --runs 3 --budget 0.50 --matrix
+```
+
+Fixture/真实通道、预算语义和安全限制见[Harness Eval](docs/evaluation.md)。
 
 `npm run package:check` 会打包并在临时目录真实安装 CLI，验证 `kross --help`、
 `kross --version`、无模型 TUI 启动和 Headless 配置错误契约。
@@ -283,8 +292,8 @@ npm run dev --workspace @kross/worker
 根目录不再提供默认 `dev` 入口。开发服务器由对应 workspace 自己管理，避免根包
 隐式绑定到某一种产品形态。
 
-当前主要待补能力包括本地运行的 OS 级执行沙箱、MCP 交互式 OAuth、跨会话语义
-记忆、嵌套目录级 Project Instructions，以及 Cloud Agent
+当前主要待补能力包括 MCP 交互式 OAuth、跨会话语义记忆、嵌套目录级 Project
+Instructions，以及 Cloud Agent
 在真实 Docker、移动端和公网反向代理环境中的持续端到端验收。
 
 ## 反馈与贡献

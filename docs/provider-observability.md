@@ -51,8 +51,10 @@ token 必须以 usage 为准，未返回不等于零命中。
 
 ```bash
 npm run eval -- --fixture --matrix
+npm run eval -- --provider openai --model gpt-5 \
+  --case read-fixture --runs 3 --budget 0.50 --matrix
 ```
 
-该命令生成按 Provider/模型聚合的兼容矩阵。当前 Fixture 数据用于验证报告算法和
+这些命令生成按 Provider/模型聚合的兼容矩阵。Fixture 数据用于验证报告算法和
 Runtime 契约；真实模型结果必须显式运行真实 Provider Eval，并遵守预算和密钥
 决策门。不得仅凭模型厂商说明或单次手工对话发布兼容榜单。

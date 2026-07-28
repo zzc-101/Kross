@@ -30,6 +30,9 @@
   },
   "tags": ["smoke", "fixture"],
   "capabilities": ["filesystem-read"],
+  "realProvider": {
+    "enabled": true
+  },
   "fixtureResponses": [
     {
       "text": "",

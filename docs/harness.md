@@ -87,14 +87,16 @@ Trace、session checkpoint 和 mutation journal 都可能包含本地路径、�
 
 ## 确定性 Eval
 
-`packages/eval` 使用 Fixture LLM 和真实 `AgentRuntime` 在一次性工作区中验证
-Harness 契约。普通 CI 不读取模型凭证或访问模型服务，断言依据文件 hash、Trace、
-结构化结果和验证命令退出状态。运行方式、Case 与报告 schema 见
-[确定性 Eval](evaluation.md)。
+`packages/eval` 使用 Fixture LLM 或显式选择的真实 Provider，并通过真实
+`AgentRuntime` 在一次性工作区中验证 Harness 契约。普通 CI 只运行 Fixture，不
+读取模型凭证。断言依据文件 hash、Trace、结构化结果和验证命令退出状态。运行
+方式、Case 与报告 schema 见[Harness Eval](evaluation.md)。
 
 ## 当前边界
 
-- `Bash` 和后台进程没有 OS 级沙箱；审批与 workspace cwd 不能替代操作系统隔离。
-- 已建立确定性 Fixture Eval 基线，但尚未提供真实模型、方差与预算控制通道。
+- 本地 TUI 的 `Bash` 和后台进程使用当前用户权限；Cloud 模式下运行在独立
+  Worker 容器内。两种形态仍分别遵循工具审批策略。
+- 已提供确定性 Fixture 基线和带重复次数、总预算的真实 Provider 手动通道；统计
+  置信区间、`pass@k` 和并发调度尚未实现。
 - 跨会话语义记忆尚未实现；MCP 尚不支持交互式 OAuth。
 - 嵌套目录级 Project Instructions 尚未实现，目前按 workspace root 加载。

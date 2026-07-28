@@ -5,7 +5,7 @@
   "fixture": "fixtures/typescript-fix",
   "prompt": "Fix the TypeScript error in src/value.ts and run the configured typecheck.",
   "mode": "auto",
-  "allowedTools": ["Write", "Bash"],
+  "allowedTools": ["Read", "Glob", "Grep", "Edit", "Write", "Bash"],
   "limits": {
     "maxIterations": 6,
     "timeoutMs": 15000
@@ -41,6 +41,9 @@
   },
   "tags": ["completion", "typescript"],
   "capabilities": ["filesystem-write", "verification"],
+  "realProvider": {
+    "enabled": true
+  },
   "fixtureResponses": [
     {
       "text": "",

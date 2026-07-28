@@ -1,8 +1,14 @@
-# 确定性 Eval
+# Harness Eval
 
-Kross 使用独立的 `@kross/eval` workspace 验证 Agent Harness 的完成契约。当前
-Eval 只运行仓库内的 Fixture LLM，不读取模型凭证、不访问模型服务，也不会进入
-发布的 CLI 包。
+Kross 使用独立的 `@kross/eval` workspace 验证 Agent Harness 的完成契约。Eval
+包含两个通道：
+
+- Fixture 通道使用仓库内的脚本 LLM，确定性验证 Runtime、工具、Trace、恢复和
+  Verification 契约，不读取模型凭证；
+- Real Provider 通道显式调用真实模型，让模型自主读取、修改和验证一次性 Fixture
+  项目，用客观结果评估“模型 + Kross Harness”的组合表现。
+
+Eval workspace 不会进入发布的 CLI 包。
 
 ## 运行方式
 
@@ -32,8 +38,42 @@ npm run eval -- --fixture --matrix
 ```
 
 JSON 报告始终单独写到 `stdout`，便于 CI 或后续工具消费。只要有一个 Case
-未通过，命令就以非零状态退出。未显式提供 `--fixture` 时命令会拒绝运行，防止
-普通 CI 意外使用真实模型或产生费用。
+未通过，命令就以非零状态退出。命令必须选择 `--fixture`，或同时显式提供真实
+Provider、模型、单个 Case 和预算；否则拒绝运行，防止普通 CI 意外产生费用。
+
+## 真实 Provider Eval
+
+真实模式必须同时显式指定 Case、Provider、模型和总预算：
+
+```bash
+export OPENAI_API_KEY=sk-...
+npm run eval -- \
+  --provider openai \
+  --model gpt-5 \
+  --case read-fixture \
+  --runs 3 \
+  --budget 0.50 \
+  --matrix
+```
+
+支持 `openai`、`anthropic`、`openrouter`、`deepseek` 和 `xai`，凭证沿用对应的
+Provider 环境变量。`--runs` 默认为 `1`、最大为 `20`；每次运行使用全新的模型
+客户端和临时工作区。真实模式必须使用 `--case`，不会默认运行全部 Case。
+
+`--budget` 是本次命令的美元总预算。Runner 汇总 Provider 返回或模型目录估算的
+每次调用费用；达到预算后不再发起后续模型调用或重复运行。单次 Provider 请求仍
+可能略微越过剩余预算，因为费用只能在响应后确定。如果完成的调用缺少价格，
+`cost-budget` 断言失败，并停止后续重复运行，不会把未知费用当成零。
+
+为了避免真实模型在本机 Eval 中获得任意 shell 权限，真实模式不会向模型暴露
+`Bash`、Process 或 Task。Case 中的 `Bash` 会转换成 Eval 专用 `Verify`：
+
+- 只允许 Case `verification` 中列出的完整命令；
+- 直接执行文件，不经过 shell；
+- 验证子进程不会继承模型和 Git Provider 密钥。
+
+Runner 结束后还会独立执行同一组验证命令。当前真实通道只支持 `workflow.kind =
+"run"`；Checkpoint 和 Conductor 仍由 Fixture 通道保护。
 
 ## Case 契约
 
@@ -46,7 +86,8 @@ Case 定义：
 - 必须修改或不得修改的相对文件路径；
 - 不通过 shell 执行的验证命令、参数及预期退出码；
 - 预期结果状态、必需工具调用和禁止工具调用；
-- 标签、能力和按顺序返回的 Fixture LLM 响应。
+- 标签、能力、是否允许真实 Provider 运行，以及 Fixture 模式按顺序返回的脚本
+  LLM 响应。
 
 Runner 每次把初始 fixture 复制到新的系统临时目录，再创建独立的
 Mutation Coordinator、Workspace Roots、Tool Gateway、Trace Store 和真实
@@ -73,6 +114,10 @@ Fixture 模式使用固定时钟、固定 run id、脚本响应和零成本，`d
 `0`，因此 JSON 可以稳定比较。断言依赖结构化结果、文件 hash、Trace 与命令退出
 状态，不匹配模型自然语言的精确措辞。
 
+真实模式使用真实耗时、token 和费用。它保留结果状态、文件变化、禁止工具、
+独立验证和 Trace Replay 断言，但不要求模型采用 Fixture 脚本中的精确工具次数或
+Trace 路径。
+
 每个产生结果的 Fixture Case 还必须通过 `trace-replay` 断言：Runner 只选择最终
 结果对应的 run，严格验证事件 ID、run id、时间顺序、已知事件类型、起止边界与
 工具生命周期，再派生状态。回放是纯函数，不会再次执行 Fixture 工具；该断言曾
@@ -89,6 +134,8 @@ Fixture 模式使用固定时钟、固定 run id、脚本响应和零成本，`d
 | `checkpoint-resume` | 审批边界跨 Runtime 恢复且不重放已完成调用 |
 | `conductor-review` | Worker 变更必须经过最终 Git diff reviewer 验收 |
 
+当前允许真实 Provider 运行的 Case 是 `read-fixture` 和 `typescript-fix`。
+
 ## 添加 Case
 
 1. 在 `packages/eval/fixtures/<case-id>/` 创建最小输入项目。
@@ -100,10 +147,24 @@ Fixture 应尽量小、可跨平台且不包含依赖缓存。验证命令必须
 参数，不能依赖 shell 展开。普通 Fixture Case 不应读取网络、用户主目录、真实
 模型配置或仓库外部状态。
 
+允许真实模型运行的普通 `run` Case 需要显式加入：
+
+```json
+{
+  "realProvider": {
+    "enabled": true
+  }
+}
+```
+
+不要默认开放新 Case。先确认任务不依赖 Fixture 的精确脚本轨迹、验证命令可以由
+受限 `Verify` 执行，并且所有文件操作都位于一次性工作区。
+
 ## 当前边界
 
-- 当前只有确定性 Fixture 通道，还没有真实模型、方差和预算控制。
 - Fixture LLM 用于验证 Harness 合约，不代表任何模型的实际任务质量。
-- Fixture 矩阵只证明报告算法和 Runtime 契约；具体模型兼容结论必须来自相同 Case
-  的真实 Provider 数据。
-- Case 集保护关键完成与恢复契约，但不是通用编码能力 Benchmark。
+- 真实 Provider 结果属于特定 Kross、Prompt、Provider、模型和参数组合，不能脱离
+  这些版本信息解释为模型的绝对能力。
+- 当前重复运行是顺序执行，还没有并发、置信区间或 `pass@k`。
+- 真实模式暂不运行 Checkpoint 和 Conductor 工作流。
+- Case 集保护关键完成与恢复契约，但仍不是通用编码能力 Benchmark。

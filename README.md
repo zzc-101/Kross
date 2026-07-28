@@ -226,7 +226,7 @@ Most detailed documentation is currently in Chinese. English documentation contr
 - Read-only operations are allowed by default; writes, execution, and network operations require approval.
 - File tools resolve real paths and restrict access to authorized workspaces.
 - `/undo` verifies the current file hash and refuses to overwrite later manual changes.
-- `Bash` and managed background processes are **not OS-level sandboxes**. Review commands before approving them.
+- In the local TUI, `Bash` and managed background processes run with the current user's permissions. Review commands before approving them.
 - Cloud Workers use Docker containers as an execution boundary with isolated networks, dropped capabilities, `no-new-privileges`, CPU, memory, PID, and soft disk limits. Containers can still access external networks.
 - The Cloud Gateway mounts the Docker Socket by default. Its permissions are equivalent to a privileged host control plane and it must not be exposed directly to the public Internet.
 - Scripts referenced by Skills are not executed automatically and still require normal tool approval.
@@ -244,6 +244,17 @@ npm run docs:check
 npm run build
 npm run package:check
 ```
+
+Real-model Harness Eval requires an explicit Case, Provider, model, and cost
+budget:
+
+```bash
+npm run eval -- --provider openai --model gpt-5 \
+  --case read-fixture --runs 3 --budget 0.50 --matrix
+```
+
+See [Harness Eval](docs/evaluation.md) for Fixture/real modes, budget semantics,
+and execution restrictions.
 
 `npm run package:check` bundles the CLI, installs the tarball in a temporary directory, verifies `kross --help` and `kross --version`, starts the TUI without a model, and checks the Headless configuration-error contract.
 
@@ -278,7 +289,7 @@ npm run dev --workspace @kross/worker
 
 The repository root intentionally has no default `dev` script. Each runnable workspace owns its development server, while the root coordinates repository-wide builds, tests, packaging, and Cloud lifecycle commands.
 
-Current gaps include an OS-level sandbox for local execution, MCP interactive OAuth, cross-session semantic memory, nested directory-level Project Instructions, and continued end-to-end validation of Cloud Agent deployments on real Docker, mobile, and public reverse-proxy environments.
+Current gaps include MCP interactive OAuth, cross-session semantic memory, nested directory-level Project Instructions, and continued end-to-end validation of Cloud Agent deployments on real Docker, mobile, and public reverse-proxy environments.
 
 ## Feedback and Contributing
 

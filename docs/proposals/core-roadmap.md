@@ -16,7 +16,7 @@
 - 定位收敛为 Agent Runtime（引擎），TUI 与 Cloud 是参考宿主；
 - Core 公共 API 必须收敛后才能发布 SDK；
 - MCP 补全优于继续增加内置工具；
-- 需要 Eval 体系和可替换的 Sandbox 层；
+- 需要 Eval 体系和清晰、可审计的执行边界；
 - 不在本仓库做 SaaS，不为目录整齐拆包，不做无第二实现的提前抽象。
 
 主要分歧与裁决：
@@ -24,7 +24,7 @@
 | 分歧点 | 草案立场 | 评审立场 | 融合裁决 |
 |---|---|---|---|
 | Eval 优先级 | P0，先于扩展平台 | 第三优先 | v0.1 建立最小质量基线，v0.2 扩展骨架，v0.3 体系化跑分 |
-| Sandbox 优先级 | P2 | 第二梯队偏高 | 后置到 v0.4；在威胁模型和真实第二实现出现前不承诺公共接口或平台方案 |
+| Sandbox 优先级 | P2 | 第二梯队偏高 | 维护者后续决定不纳入产品计划：本地依赖审批，Cloud 使用 Worker 容器边界 |
 | headless / hooks | 未提及 | T1 | 纳入 v0.2。headless 是与竞品相比最明显的能力缺口，实现成本低（runStreaming 本就是纯事件流） |
 | 发布节奏 | v0.1 先行、不加功能 | 未考虑发布 | 采纳草案：v0.1 只做"可被陌生人稳定安装"，并补入 License 决策 |
 
@@ -100,11 +100,8 @@
 - 【补充】公开模型榜单："哪个模型在 Kross 上表现最好"，重点覆盖
   国产模型。既是回归基础设施，也是踩在双语定位上的社区磁铁。
 
-### v0.4 隔离与可移植（P2，后置）
+### v0.4 可移植与生态（P2）
 
-- 【共识】先完成威胁模型，并用至少一种真实隔离实现验证 Bash、Process 与
-  验证命令的共同边界；只有出现第二种实现后再决定是否公开
-  `ExecutionSandbox` 接口；
 - 【草案】远程执行接口、更完整的恢复与备份、为独立 SaaS 控制面
   提供稳定协议；
 - 【补充】Kross-as-MCP-server：把 Kross 暴露为 MCP server，让
@@ -138,7 +135,7 @@
   approve/abort/settings）、`ToolDefinition`、`LlmClient`、
   `RuntimeEvent`、`RuntimeResult`；
 - **Extension Contracts**：`SessionStore`、`TraceStore`、
-  `ApprovalPolicy`、`ContextSource`、`SandboxProvider`、`SubagentRunner`；
+  `ApprovalPolicy`、`ContextSource`、`SubagentRunner`；
 - **Internal**：mode flows、toolLoop 内部、checkpoint 实现、
   提示词目录结构、SessionServices。
 
@@ -169,24 +166,7 @@ MCP 与原生工具必须经过 Tool Gateway 的 schema、风险、审批、Trac
 
 普通第三方工具不再内置进 core，交给 MCP 生态【草案】。
 
-### 5. Sandbox 层【共识，后置】
-
-接口形态【草案】：
-
-```ts
-interface ExecutionSandbox {
-  run(command: CommandInput): Promise<CommandResult>;
-  startProcess(input: ProcessInput): Promise<ProcessHandle>;
-  dispose(): Promise<void>;
-}
-```
-
-本阶段只保留研究方向，不预先承诺 bubblewrap、Landlock、Seatbelt 或 Docker
-等具体方案。先定义需要限制的文件、网络、进程、系统调用和资源边界，再选择平台
-实现。当前 Cloud Worker 的容器是部署级隔离，不等同于已经实现
-`ExecutionSandbox` Adapter。
-
-### 6. Provider 能力与成本统一【草案】
+### 5. Provider 能力与成本统一【草案】
 
 工具调用能力检测、thinking 统一表示、prompt caching、structured
 output、多模态输入、Token 与费用统计、限流重试信息、上下文窗口可信
@@ -194,7 +174,7 @@ output、多模态输入、Token 与费用统计、限流重试信息、上下�
 不再累积模型专用分支——这是 core 最可能失控的腐蚀点，需要 review 纪律
 持续看守【融合，回应草案十问之二】。
 
-### 7. 持久化兼容与恢复诊断【草案】
+### 6. 持久化兼容与恢复诊断【草案】
 
 存储格式版本与迁移、checkpoint 完整性检查、会话导入导出、崩溃诊断
 报告、长任务阶段性保存、Trace replay 调试工具、备份恢复验证。
@@ -218,7 +198,7 @@ output、多模态输入、Token 与费用统计、限流重试信息、上下�
   内部状态、拆分真正减少依赖【草案】；
 - 抽象必须由真实的第二种实现推动，不为"以后可能需要"预制接口【草案】；
 - 长期候选 Adapter 包括 Session、Trace、Mutation、Checkpoint、Secrets、
-  Context Retrieval 与 Sandbox；进入公共 API 前必须有真实调用方或第二实现；
+  Context Retrieval；进入公共 API 前必须有真实调用方或第二实现；
 - "差异化逻辑下沉 core、宿主保持薄"作为 review 纪律明文化【补充】；
 - SaaS 边界：未来 SaaS 控制面只消费语言无关的 Protocol 契约；SaaS Worker
   继续消费 Core + Protocol。控制面不依赖 Agent Runtime【融合】。
@@ -245,7 +225,6 @@ output、多模态输入、Token 与费用统计、限流重试信息、上下�
 | P1 | Core API inventory、收敛与发包评估 | v0.2a–v0.2b | 共识 |
 | P1 | headless exec | v0.2a | 补充 |
 | P1 | MCP 补全 / experimental hooks | v0.2b | 共识 + 补充 |
-| P2 | Sandbox 威胁模型与实现验证 | v0.4 | 共识（后置） |
 | P1 | Provider 兼容性与成本统计 | v0.3 | 草案 |
 | P2 | 持久化迁移与 Trace replay | v0.3 | 草案 |
 | P2 | 可解释项目知识检索 | v0.3+ | 共识 |
@@ -274,7 +253,8 @@ output、多模态输入、Token 与费用统计、限流重试信息、上下�
 5. **稳定 API 与内部实现的划分**：见第四节第 2 条三层结构。
 6. **MCP / Skills / 原生 SDK 分工**：见第四节第 3 条，补充 hooks 为
    第四种配置层扩展。
-7. **Sandbox**：有长期价值但暂时后置；先做威胁模型，不承诺平台顺序。
+7. **Sandbox**：维护者已决定暂不规划；本地依赖审批，Cloud 使用每工作区
+   Worker 容器作为执行边界。
 8. **跨会话记忆**：值得做，但形态是可解释检索加显式备忘文件，
    不做自动向量记忆。
 9. **非目标**：采纳草案清单，另加"不做通用 workflow 引擎、

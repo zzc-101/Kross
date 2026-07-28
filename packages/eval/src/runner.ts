@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { z } from 'zod';
 
 import {
   AgentRuntime,
@@ -24,6 +25,16 @@ import {
   WorkspaceRoots,
   type AgentRuntimeOptions,
   type AgentResult,
+  type LlmCallMetrics,
+  type LlmCapabilities,
+  type LlmClient,
+  type LlmProvider,
+  type LlmRequest,
+  type LlmResponse,
+  type LlmStreamChunk,
+  type LlmUsage,
+  type ToolDefinition,
+  type ThinkingEffort,
   replayTraceEvents,
   type TraceEvent,
   type TraceStore
@@ -40,10 +51,22 @@ import {
 const EVAL_PROMPT_VERSION = 1;
 const FIXED_TIME = Date.parse('2026-01-01T00:00:00.000Z');
 
-interface RunEvalCaseOptions {
+export type EvalTarget =
+  | { kind: 'fixture' }
+  | {
+      kind: 'provider';
+      client: LlmClient;
+      provider: LlmProvider;
+      model: string;
+      maxCostUsd: number;
+    };
+
+export interface RunEvalCaseOptions {
   packageRoot: string;
   keepWorkspace?: boolean;
   applicationVersion?: string;
+  attempt?: number;
+  target?: EvalTarget;
 }
 
 export interface EvalRunOutcome {
@@ -62,9 +85,13 @@ export async function runEvalCase(
   const fixturePath = resolve(options.packageRoot, definition.fixture);
   const applicationVersion =
     options.applicationVersion ?? readApplicationVersion(options.packageRoot);
+  const target = options.target ?? { kind: 'fixture' as const };
+  const attempt = options.attempt ?? 1;
+  const startedAt = performance.now();
   let shouldKeep = options.keepWorkspace === true;
 
   try {
+    validateTarget(definition, target);
     if (!statSync(fixturePath).isDirectory()) {
       throw new Error(`Fixture is not a directory: ${fixturePath}`);
     }
@@ -76,8 +103,15 @@ export async function runEvalCase(
     }
     const before = snapshotWorkspace(workspace);
     const traceStore = new MemoryTraceStore();
-    const now = deterministicClock();
-    const allowedTools = new Set(definition.allowedTools);
+    const now =
+      target.kind === 'fixture'
+        ? deterministicClock()
+        : () => new Date();
+    const allowedTools = new Set(
+      target.kind === 'fixture'
+        ? definition.allowedTools
+        : realProviderTools(definition.allowedTools)
+    );
     const evalApprovalPolicy = ({ tool }: {
       tool: { name: string };
     }) =>
@@ -103,6 +137,12 @@ export async function runEvalCase(
         mutationService: mutations.forWorkspace(workspace)
       }).map((tool) => [tool.name, tool])
     );
+    if (target.kind === 'provider' && allowedTools.has('Verify')) {
+      availableTools.set(
+        'Verify',
+        createEvalVerifyTool(definition, workspace)
+      );
+    }
     for (const name of allowedTools) {
       const tool = availableTools.get(name);
       if (!tool) {
@@ -113,7 +153,15 @@ export async function runEvalCase(
       gateway.register(tool);
     }
 
-    const llm = new FixtureLlmClient(definition.fixtureResponses);
+    const fixtureLlm =
+      target.kind === 'fixture'
+        ? new FixtureLlmClient(definition.fixtureResponses!)
+        : undefined;
+    const providerMeter =
+      target.kind === 'provider'
+        ? new EvalLlmMeter(target.client, target.maxCostUsd)
+        : undefined;
+    const llm: LlmClient = fixtureLlm ?? providerMeter!;
     let runSequence = 0;
     const baseRuntimeOptions: AgentRuntimeOptions = {
       traceStore,
@@ -248,15 +296,23 @@ export async function runEvalCase(
     }
     const assertions = evaluateAssertions({
       definition,
+      targetKind: target.kind,
       result,
       changedFiles,
       verification,
       toolCalls,
       traceEvents,
-      traceReplayError
+      traceReplayError,
+      budget:
+        target.kind === 'provider'
+          ? providerMeter!.budgetAssessment()
+          : undefined
     });
     const passed = assertions.every((assertion) => assertion.passed);
     const timedOut = abort.signal.aborted;
+    const budgetFailed = assertions.some(
+      (assertion) => assertion.name === 'cost-budget' && !assertion.passed
+    );
     const status = timedOut
       ? 'timeout' as const
       : runtimeError
@@ -265,17 +321,28 @@ export async function runEvalCase(
           ? 'passed' as const
           : 'failed' as const;
     const failedVerification = verification.some((item) => !item.ok);
+    const usage =
+      target.kind === 'fixture'
+        ? {
+            ...fixtureLlm!.usage,
+            estimatedCostUsd: 0
+          }
+        : providerMeter!.reportUsage();
     const report = evalReportSchema.parse({
       schemaVersion: 1,
       caseId: definition.id,
+      attempt,
       description: definition.description,
-      deterministic: true,
+      deterministic: target.kind === 'fixture',
       workflow: definition.workflow.kind,
       runtime: {
         applicationVersion,
         promptVersion: EVAL_PROMPT_VERSION,
-        provider: 'fixture',
-        model: llm.model
+        provider: target.kind === 'fixture' ? 'fixture' : target.provider,
+        model:
+          target.kind === 'fixture'
+            ? fixtureLlm!.model
+            : target.model
       },
       status,
       score: {
@@ -287,11 +354,11 @@ export async function runEvalCase(
       toolCalls,
       traceEvents,
       toolIterations: maxToolIteration(traceStore.events),
-      durationMs: 0,
-      usage: {
-        ...llm.usage,
-        estimatedCostUsd: 0
-      },
+      durationMs:
+        target.kind === 'fixture'
+          ? 0
+          : Math.max(0, Math.round(performance.now() - startedAt)),
+      usage,
       result: result
         ? {
             status: result.status,
@@ -303,16 +370,22 @@ export async function runEvalCase(
         ? 'timeout'
         : runtimeError
           ? 'runtime'
-          : failedVerification
-            ? 'verification'
-            : passed
-              ? undefined
-              : 'assertion',
+          : budgetFailed
+            ? 'budget'
+            : failedVerification
+              ? 'verification'
+              : passed
+                ? undefined
+                : 'assertion',
       error: runtimeError
         ? runtimeError instanceof Error
           ? runtimeError.message
           : String(runtimeError)
         : undefined,
+      providerErrorCategory:
+        target.kind === 'provider'
+          ? providerErrorCategory(traceStore.events)
+          : undefined,
       tags: definition.tags,
       capabilities: definition.capabilities
     });
@@ -330,14 +403,16 @@ export async function runEvalCase(
     const report = evalReportSchema.parse({
       schemaVersion: 1,
       caseId: definition.id,
+      attempt,
       description: definition.description,
-      deterministic: true,
+      deterministic: target.kind === 'fixture',
       workflow: definition.workflow.kind,
       runtime: {
         applicationVersion,
         promptVersion: EVAL_PROMPT_VERSION,
-        provider: 'fixture',
-        model: 'fixture-script-v1'
+        provider: target.kind === 'fixture' ? 'fixture' : target.provider,
+        model:
+          target.kind === 'fixture' ? 'fixture-script-v1' : target.model
       },
       status: 'error',
       score: { earned: 0, possible: 0 },
@@ -346,12 +421,15 @@ export async function runEvalCase(
       toolCalls: [],
       traceEvents: [],
       toolIterations: 0,
-      durationMs: 0,
+      durationMs:
+        target.kind === 'fixture'
+          ? 0
+          : Math.max(0, Math.round(performance.now() - startedAt)),
       usage: {
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
-        estimatedCostUsd: 0
+        ...(target.kind === 'fixture' ? { estimatedCostUsd: 0 } : {})
       },
       assertions: [],
       failureCategory:
@@ -375,6 +453,216 @@ export async function runEvalCase(
 }
 
 class EvalConfigurationError extends Error {}
+
+class EvalCostBudgetError extends Error {
+  override readonly name = 'EvalCostBudgetError';
+}
+
+class EvalLlmMeter implements LlmClient {
+  private inputTokens = 0;
+  private outputTokens = 0;
+  private totalTokens = 0;
+  private completedCalls = 0;
+  private pricedCalls = 0;
+  private estimatedCostUsd = 0;
+
+  constructor(
+    private readonly inner: LlmClient,
+    private readonly maxCostUsd: number
+  ) {}
+
+  get provider(): LlmProvider {
+    return this.inner.provider;
+  }
+
+  get model(): string | undefined {
+    return this.inner.model;
+  }
+
+  get capabilities(): LlmCapabilities | undefined {
+    return this.inner.capabilities;
+  }
+
+  get thinkingEffort(): ThinkingEffort | undefined {
+    return this.inner.thinkingEffort;
+  }
+
+  get contextWindow(): number | undefined {
+    return this.inner.contextWindow;
+  }
+
+  get lastUsage(): LlmUsage | undefined {
+    return this.inner.lastUsage;
+  }
+
+  get lastCallMetrics(): LlmCallMetrics | undefined {
+    return this.inner.lastCallMetrics;
+  }
+
+  setModel(model: string): void {
+    if (!this.inner.setModel) {
+      throw new Error('当前 Eval Provider 不支持切换模型');
+    }
+    this.inner.setModel(model);
+  }
+
+  setThinkingEffort(effort: ThinkingEffort): void {
+    if (!this.inner.setThinkingEffort) {
+      throw new Error('当前 Eval Provider 不支持切换思考强度');
+    }
+    this.inner.setThinkingEffort(effort);
+  }
+
+  clearLastUsage(): void {
+    this.inner.clearLastUsage?.();
+  }
+
+  async complete(request: LlmRequest): Promise<LlmResponse> {
+    this.checkBudget();
+    const response = await this.inner.complete(request);
+    this.recordUsage(response.usage);
+    return response;
+  }
+
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
+    this.checkBudget();
+    for await (const chunk of this.inner.stream(request)) {
+      if (chunk.type === 'done') this.recordUsage(chunk.usage);
+      yield chunk;
+    }
+  }
+
+  reportUsage(): {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    estimatedCostUsd?: number;
+  } {
+    return {
+      inputTokens: this.inputTokens,
+      outputTokens: this.outputTokens,
+      totalTokens: this.totalTokens,
+      ...(this.completedCalls > 0 && this.pricedCalls === this.completedCalls
+        ? { estimatedCostUsd: this.estimatedCostUsd }
+        : {})
+    };
+  }
+
+  budgetAssessment(): { passed: boolean; details: string } {
+    if (this.completedCalls === 0) {
+      return { passed: true, details: 'no completed provider calls' };
+    }
+    if (this.pricedCalls !== this.completedCalls) {
+      return {
+        passed: false,
+        details:
+          `pricing unavailable for ${this.completedCalls - this.pricedCalls} ` +
+          `of ${this.completedCalls} completed calls`
+      };
+    }
+    return {
+      passed: this.estimatedCostUsd <= this.maxCostUsd,
+      details:
+        `limit=$${this.maxCostUsd.toFixed(6)} ` +
+        `actual=$${this.estimatedCostUsd.toFixed(6)}`
+    };
+  }
+
+  private checkBudget(): void {
+    if (
+      this.pricedCalls === this.completedCalls &&
+      this.completedCalls > 0 &&
+      this.estimatedCostUsd >= this.maxCostUsd
+    ) {
+      throw new EvalCostBudgetError(
+        `Eval cost budget reached: $${this.estimatedCostUsd.toFixed(6)} ` +
+        `>= $${this.maxCostUsd.toFixed(6)}`
+      );
+    }
+  }
+
+  private recordUsage(usage: LlmUsage | undefined): void {
+    this.completedCalls += 1;
+    this.inputTokens += usage?.inputTokens ?? 0;
+    this.outputTokens += usage?.outputTokens ?? 0;
+    this.totalTokens +=
+      usage?.totalTokens ??
+      (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
+    if (usage?.estimatedCostUsd !== undefined) {
+      this.pricedCalls += 1;
+      this.estimatedCostUsd += usage.estimatedCostUsd;
+    }
+  }
+}
+
+function validateTarget(definition: EvalCase, target: EvalTarget): void {
+  if (target.kind === 'fixture') {
+    if (!definition.fixtureResponses?.length) {
+      throw new EvalConfigurationError(
+        `Case ${definition.id} has no fixtureResponses`
+      );
+    }
+    return;
+  }
+  if (!definition.realProvider.enabled) {
+    throw new EvalConfigurationError(
+      `Case ${definition.id} is not enabled for real Provider evaluation`
+    );
+  }
+  if (definition.workflow.kind !== 'run') {
+    throw new EvalConfigurationError(
+      `Real Provider evaluation currently supports only run workflows`
+    );
+  }
+  if (!Number.isFinite(target.maxCostUsd) || target.maxCostUsd <= 0) {
+    throw new EvalConfigurationError('Real Provider Eval requires a positive budget');
+  }
+}
+
+function realProviderTools(configured: string[]): string[] {
+  const tools = new Set(configured);
+  if (tools.delete('Bash')) tools.add('Verify');
+  for (const name of [
+    'ProcessStart',
+    'ProcessWrite',
+    'ProcessPoll',
+    'ProcessKill',
+    'Task'
+  ]) {
+    tools.delete(name);
+  }
+  return [...tools];
+}
+
+function providerErrorCategory(
+  events: TraceEvent[]
+): EvalReport['providerErrorCategory'] {
+  const known = new Set([
+    'authentication',
+    'permission',
+    'rate-limit',
+    'invalid-request',
+    'server',
+    'network',
+    'timeout',
+    'aborted',
+    'unknown'
+  ]);
+  for (const event of [...events].reverse()) {
+    const metrics = asRecord(event.payload.metrics);
+    const category = metrics?.errorCategory;
+    if (typeof category === 'string' && known.has(category)) {
+      return category as EvalReport['providerErrorCategory'];
+    }
+  }
+  return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : undefined;
+}
 
 class MemoryTraceStore implements TraceStore {
   readonly events: TraceEvent[] = [];
@@ -461,7 +749,7 @@ function runVerification(
       encoding: 'utf8',
       timeout: verification.timeoutMs,
       env: {
-        ...process.env,
+        ...evalCommandEnvironment(),
         NO_COLOR: '1'
       }
     });
@@ -480,14 +768,115 @@ function runVerification(
   });
 }
 
+function createEvalVerifyTool(
+  definition: EvalCase,
+  workspace: string
+): ToolDefinition<{ command: string }> {
+  const commands = definition.verification.map((item) => ({
+    ...item,
+    display: [item.command, ...item.args].join(' ')
+  }));
+  if (commands.length === 0) {
+    throw new EvalConfigurationError(
+      `Case ${definition.id} enables Bash but declares no verification commands`
+    );
+  }
+  const allowed = new Map(commands.map((item) => [item.display, item]));
+  return {
+    name: 'Verify',
+    description:
+      '运行本 Eval Case 声明的验证命令。只接受工具参数中列出的完整命令，不启动 shell。',
+    risk: 'execute',
+    category: 'shell',
+    retry: false,
+    inputSchema: z.object({
+      command: z.string().refine((value) => allowed.has(value), {
+        message: 'command is not declared by this Eval Case'
+      })
+    }),
+    parameters: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          enum: commands.map((item) => item.display),
+          description: '必须原样选择一个已声明的验证命令'
+        }
+      },
+      required: ['command'],
+      additionalProperties: false
+    },
+    redactInputForTrace: (input) => {
+      const command = (input as { command: string }).command;
+      return {
+        verificationCommand: command,
+        verificationKinds: verificationKinds(command)
+      };
+    },
+    execute: async (context) => {
+      if (context.signal.aborted) {
+        throw context.signal.reason ?? new Error('Eval verification aborted');
+      }
+      const selected = allowed.get(context.input.command)!;
+      const result = spawnSync(selected.command, selected.args, {
+        cwd: workspace,
+        encoding: 'utf8',
+        timeout: selected.timeoutMs,
+        env: evalCommandEnvironment()
+      });
+      if (result.error && result.status === null) throw result.error;
+      const output = normalizeOutput(`${result.stdout ?? ''}${result.stderr ?? ''}`);
+      return {
+        content: output || '(无输出)',
+        summary: `exit=${result.status ?? 1}`,
+        data: {
+          exitCode: result.status ?? 1,
+          verificationKinds: verificationKinds(selected.display)
+        }
+      };
+    }
+  };
+}
+
+function verificationKinds(command: string): string[] {
+  const normalized = command.toLowerCase();
+  return [
+    normalized.includes('test') ? 'test' : undefined,
+    normalized.includes('typecheck') || normalized.includes('tsc')
+      ? 'typecheck'
+      : undefined,
+    normalized.includes('build') ? 'build' : undefined,
+    normalized.includes('lint') ? 'lint' : undefined
+  ].filter((kind): kind is string => kind !== undefined);
+}
+
+function evalCommandEnvironment(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const name of [
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'OPENROUTER_API_KEY',
+    'DEEPSEEK_API_KEY',
+    'XAI_API_KEY',
+    'GH_TOKEN',
+    'GITHUB_TOKEN'
+  ]) {
+    delete env[name];
+  }
+  return env;
+}
+
 function evaluateAssertions(input: {
   definition: EvalCase;
+  targetKind: EvalTarget['kind'];
   result?: AgentResult;
   changedFiles: Array<{ path: string; kind: string }>;
   verification: Array<{ name: string; ok: boolean }>;
   toolCalls: Array<{ name: string; status: string }>;
   traceEvents: string[];
   traceReplayError?: string;
+  budget?: { passed: boolean; details: string };
 }): Array<{ name: string; passed: boolean; details: string }> {
   const changed = new Set(input.changedFiles.map((file) => file.path));
   const called = new Set(input.toolCalls.map((call) => call.name));
@@ -531,38 +920,52 @@ function evaluateAssertions(input: {
       passed: !changed.has(path),
       details: changed.has(path) ? 'changed' : 'unchanged'
     })),
-    ...input.definition.assertions.requiredToolCalls.map((name) => ({
-      name: `required-tool:${name}`,
-      passed: called.has(name),
-      details: called.has(name) ? 'called' : 'not-called'
-    })),
+    ...(input.targetKind === 'fixture'
+      ? input.definition.assertions.requiredToolCalls.map((name) => ({
+          name: `required-tool:${name}`,
+          passed: called.has(name),
+          details: called.has(name) ? 'called' : 'not-called'
+        }))
+      : []),
     ...input.definition.assertions.forbiddenToolCalls.map((name) => ({
       name: `forbidden-tool:${name}`,
       passed: !called.has(name),
       details: called.has(name) ? 'called' : 'not-called'
     })),
-    ...Object.entries(input.definition.assertions.toolCallCounts).map(
-      ([name, expected]) => ({
-        name: `tool-count:${name}`,
-        passed: (toolCallCounts[name] ?? 0) === expected,
-        details: `expected=${expected} actual=${toolCallCounts[name] ?? 0}`
-      })
-    ),
-    ...input.definition.assertions.requiredTraceEvents.map((type) => ({
-      name: `required-trace:${type}`,
-      passed: traceEvents.has(type),
-      details: traceEvents.has(type) ? 'observed' : 'missing'
-    })),
-    ...input.definition.assertions.forbiddenTraceEvents.map((type) => ({
-      name: `forbidden-trace:${type}`,
-      passed: !traceEvents.has(type),
-      details: traceEvents.has(type) ? 'observed' : 'absent'
-    })),
+    ...(input.targetKind === 'fixture'
+      ? [
+          ...Object.entries(input.definition.assertions.toolCallCounts).map(
+            ([name, expected]) => ({
+              name: `tool-count:${name}`,
+              passed: (toolCallCounts[name] ?? 0) === expected,
+              details:
+                `expected=${expected} actual=${toolCallCounts[name] ?? 0}`
+            })
+          ),
+          ...input.definition.assertions.requiredTraceEvents.map((type) => ({
+            name: `required-trace:${type}`,
+            passed: traceEvents.has(type),
+            details: traceEvents.has(type) ? 'observed' : 'missing'
+          })),
+          ...input.definition.assertions.forbiddenTraceEvents.map((type) => ({
+            name: `forbidden-trace:${type}`,
+            passed: !traceEvents.has(type),
+            details: traceEvents.has(type) ? 'observed' : 'absent'
+          }))
+        ]
+      : []),
     ...input.verification.map((verification) => ({
       name: `verification:${verification.name}`,
       passed: verification.ok,
       details: verification.ok ? 'passed' : 'failed'
-    }))
+    })),
+    ...(input.budget
+      ? [{
+          name: 'cost-budget',
+          passed: input.budget.passed,
+          details: input.budget.details
+        }]
+      : [])
   ];
   return assertions;
 }
