@@ -38,6 +38,20 @@ describe('SubagentPanel layout', () => {
     expect(line).not.toContain('Read');
   });
 
+  it('shows the selected subagent model profile', () => {
+    const line = formatCollapsedLine(
+      {
+        ...sample,
+        title: 'Scan auth',
+        modelLabel: 'Economy/claude-fast'
+      },
+      1,
+      '⠋',
+      80
+    );
+    expect(line).toContain('Scan auth · Economy/claude-fast ·');
+  });
+
   it('formats cancelled state as interrupted', () => {
     const line = formatCollapsedLine(
       {

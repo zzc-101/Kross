@@ -37,14 +37,20 @@ class InMemoryTraceStore implements TraceStore {
 class ScriptedLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   readonly requests: LlmRequest[] = [];
+  readonly model: string;
 
-  constructor(private readonly text: string) {}
+  constructor(
+    private readonly text: string,
+    model = 'fake'
+  ) {
+    this.model = model;
+  }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     this.requests.push(request);
     return {
       provider: this.provider,
-      model: 'fake',
+      model: this.model,
       text: this.text,
       raw: {}
     };
@@ -58,6 +64,58 @@ class ScriptedLlmClient implements LlmClient {
 }
 
 describe('runSubagent', () => {
+  it('uses the explicitly selected model profile instead of the inherited client', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-model-'));
+    try {
+      const traceStore = new InMemoryTraceStore();
+      const inherited = new ScriptedLlmClient('inherited', 'main-model');
+      const economy = new ScriptedLlmClient('selected', 'economy-model');
+
+      const outcome = await runSubagent(
+        {
+          prompt: 'Use the economy profile',
+          parentRunId: 'parent-model',
+          modelProfileId: 'economy'
+        },
+        {
+          workspaceRoot: workspace,
+          traceStore,
+          llmClient: inherited,
+          resolveModelProfile: (profileId) => {
+            expect(profileId).toBe('economy');
+            return {
+              client: economy,
+              profile: {
+                id: 'economy',
+                name: 'Economy',
+                provider: 'openai',
+                model: 'economy-model'
+              }
+            };
+          }
+        }
+      );
+
+      expect(inherited.requests).toHaveLength(0);
+      expect(economy.requests.length).toBeGreaterThan(0);
+      expect(outcome).toMatchObject({
+        modelProfileId: 'economy',
+        modelProfileName: 'Economy',
+        model: 'economy-model'
+      });
+      expect(
+        traceStore.events.find((event) => event.type === 'subagent.started')
+          ?.payload
+      ).toMatchObject({
+        modelProfileId: 'economy',
+        modelProfileName: 'Economy',
+        model: 'economy-model'
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('injects instructions only from the selected child root and traces provenance', async () => {
     const parent = mkdtempSync(join(tmpdir(), 'kross-subagent-instructions-'));
     try {
@@ -945,6 +1003,59 @@ describe('Task tool', () => {
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
+  });
+
+  it('forwards modelProfileId to the subagent runner', async () => {
+    const gateway = new ToolGateway();
+    let selected: string | undefined;
+    gateway.register(
+      createTaskTool({
+        run: async (request) => {
+          selected = request.modelProfileId;
+          return {
+            subRunId: 'sub-model',
+            mode: request.mode ?? 'explore',
+            modeForcedToExplore: false,
+            modelProfileId: request.modelProfileId,
+            modelProfileName: 'Economy',
+            model: 'economy-model',
+            result: {
+              status: 'completed',
+              summary: 'done',
+              changedFiles: [],
+              diffSummary: [],
+              commandsRun: [],
+              toolsUsed: [],
+              verification: {
+                status: 'not-needed',
+                commands: [],
+                evidence: []
+              },
+              evidence: [],
+              risks: [],
+              needsReview: []
+            }
+          };
+        }
+      })
+    );
+
+    const result = await gateway.call({
+      runId: 'main-model',
+      name: 'Task',
+      input: {
+        description: '经济模型探索',
+        prompt: 'inspect',
+        modelProfileId: 'economy'
+      }
+    });
+
+    expect(selected).toBe('economy');
+    expect(result.data).toMatchObject({
+      modelProfileId: 'economy',
+      modelProfileName: 'Economy',
+      model: 'economy-model'
+    });
   });
 
   it('rethrows abort errors instead of wrapping them as Task failed content', async () => {

@@ -229,6 +229,7 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.refreshSkills();
     this.sessionServices.syncSessionModeSource();
     this.sessionServices.syncPermissionModeSource();
+    this.sessionServices.syncModelProfilesSource();
   }
 
   getSessionMode(): AgentMode {
@@ -999,6 +1000,7 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.syncProjectRegistrySource();
     this.sessionServices.refreshProjectInstructions();
     this.sessionServices.refreshSkills();
+    this.sessionServices.syncModelProfilesSource();
     this.sessionServices.syncSessionModeSource();
     this.sessionServices.syncPermissionModeSource();
     return {
@@ -1058,6 +1060,7 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.syncTodoContextSource();
     this.sessionServices.refreshProjectInstructions();
     this.sessionServices.refreshSkills();
+    this.sessionServices.syncModelProfilesSource();
     const tools = this.toolGateway?.listTools({ mode }) ?? [];
     return {
       mode,

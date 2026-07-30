@@ -15,6 +15,7 @@ describe('Conductor P1 execution', () => {
     let maxActive = 0;
     const finished = new Set<string>();
     const started: string[] = [];
+    const selectedModels = new Map<string, string | undefined>();
     const runtime = new AgentRuntime({
       traceStore,
       llmClient: new FakeLlmClient('not-json'),
@@ -29,6 +30,7 @@ describe('Conductor P1 execution', () => {
           expect(finished).toEqual(new Set(['parallel-a', 'parallel-b']));
         }
         started.push(id);
+        selectedModels.set(id, request.modelProfileId);
         active += 1;
         maxActive = Math.max(maxActive, active);
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -41,7 +43,12 @@ describe('Conductor P1 execution', () => {
       goal: 'parallel graph',
       tasks: [
         { id: 'a', title: 'parallel-a', prompt: 'a' },
-        { id: 'b', title: 'parallel-b', prompt: 'b' },
+        {
+          id: 'b',
+          title: 'parallel-b',
+          prompt: 'b',
+          modelProfileId: 'economy'
+        },
         {
           id: 'c',
           title: 'dependent',
@@ -61,6 +68,7 @@ describe('Conductor P1 execution', () => {
     expect(maxActive).toBe(2);
     expect(started.slice(0, 2).sort()).toEqual(['parallel-a', 'parallel-b']);
     expect(started.at(-1)).toBe('dependent');
+    expect(selectedModels.get('parallel-b')).toBe('economy');
   });
 
   it('blocks dependent tasks when a prerequisite does not complete', async () => {

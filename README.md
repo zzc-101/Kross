@@ -166,6 +166,8 @@ Work across multiple directories:
 
 Kross natively stores multiple named model profiles in `~/.kross/config.json`; `/import` and the model settings UI add or activate profiles instead of replacing a single global model. Environment variables take precedence over the active profile. Each provider also supports its corresponding `*_BASE_URL`.
 
+Task and Conductor subagents can select any saved profile by `modelProfileId`; when omitted, the subagent inherits the current model. Profile ids are shown in the model settings panel and injected into the Agent's runtime context, so requests such as “delegate exploration to the economy profile” can be translated into a constrained Task call.
+
 ## Architecture
 
 ```mermaid

@@ -109,9 +109,9 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "009484118b0117128fca9dfa066a191a38579a886b0d96ba655403529fc7015b",
     },
     "en:conductor.plan": {
-      "chars": 682,
+      "chars": 822,
       "lines": 5,
-      "sha256": "089ad243deab399fc9c92eb5371049bdfc7c5ab66823000fa574854bf073b18e",
+      "sha256": "6e5c4eeb939fd73b8939aab720a12530fdedccb950a04d3f6fe962d2600d785e",
     },
     "en:conductor.review": {
       "chars": 706,
@@ -244,9 +244,9 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "d9978893bc98cf750c8916c2772e701de5571cfdd09045224782d5a0de2a1025",
     },
     "zh:conductor.plan": {
-      "chars": 349,
+      "chars": 416,
       "lines": 5,
-      "sha256": "f968240f9331157ec99f7a73299b4124bf412dc4b408be70d6da42617c1f60ff",
+      "sha256": "b80e6827f4fcf2e5ee02336b719f5c1b66c93648e7a29ae70443b32d9046d81f",
     },
     "zh:conductor.review": {
       "chars": 278,
@@ -363,7 +363,7 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "53a054e2b4c9b1aef2160fcde1737c05acb07770d97504e7438bb3b6c6ddabcb",
     },
     {
-      "chars": 552,
+      "chars": 619,
       "components": [
         "zh:agent.execution.mode.conductor",
         "zh:agent.execution.mode.conductor.plan",
@@ -373,7 +373,7 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "id": "zh/conductor/plan",
       "lastLine": "不要写代码实现，不要调用工具。",
       "lines": 8,
-      "sha256": "645f7ab43afe6cba016933e7f2786f1504a9c429d8a812e4e2504c4c024310d0",
+      "sha256": "3951c9c99d68d3af577760e57272a13149957cc199089723ac59bfc5e84d854a",
     },
     {
       "chars": 475,
@@ -520,7 +520,7 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "7c54583b42e0fed431f2e4f9575b2b63f561adb4e030d866140df62162e098f5",
     },
     {
-      "chars": 1294,
+      "chars": 1434,
       "components": [
         "en:agent.execution.mode.conductor",
         "en:agent.execution.mode.conductor.plan",
@@ -530,7 +530,7 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "id": "en/conductor/plan",
       "lastLine": "Do not implement code or call tools.",
       "lines": 8,
-      "sha256": "f99039fbbc450120ba05b94ef39b5389e98877a782bf0cd450557c6b94219be5",
+      "sha256": "ba6fdbeb4b364b60eb70ea28c7cac113fce61b983aaf912d1a3fa04443663219",
     },
     {
       "chars": 1297,

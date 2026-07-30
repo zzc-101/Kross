@@ -13,6 +13,8 @@ export interface SubagentUiState {
   status: SubagentUiStatus;
   /** 单行展示用短标题（优先 Task description） */
   title?: string;
+  /** Selected profile name/id and concrete model for visibility. */
+  modelLabel?: string;
   promptPreview?: string;
   currentTool?: string;
   toolCount: number;
@@ -83,12 +85,24 @@ export function applySubagentTraceEvent(
         : promptPreview
           ? promptPreview.replace(/\s+/g, ' ').trim().slice(0, 36)
           : undefined;
+    const profileLabel =
+      typeof payload.modelProfileName === 'string'
+        ? payload.modelProfileName
+        : typeof payload.modelProfileId === 'string'
+          ? payload.modelProfileId
+          : undefined;
+    const concreteModel =
+      typeof payload.model === 'string' ? payload.model : undefined;
     const next: SubagentUiState = {
       subRunId,
       parentRunId,
       mode: typeof payload.mode === 'string' ? payload.mode : 'explore',
       status: 'running',
       title,
+      modelLabel:
+        profileLabel && concreteModel
+          ? `${profileLabel}/${concreteModel}`
+          : profileLabel ?? concreteModel,
       promptPreview,
       toolCount: 0,
       updatedAt: now

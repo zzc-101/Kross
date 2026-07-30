@@ -7,7 +7,7 @@ import { usePulse } from './usePulse';
 
 /**
  * 底部单行子代理条（位于 Composer 下方）。
- * 只显示：Subagent · {短标题} · 状态；不展开长描述。
+ * 只显示：Subagent · {短标题} · {模型} · 状态；不展开长描述。
  */
 export function SubagentPanel({
   subagents,
@@ -59,8 +59,11 @@ export function formatCollapsedLine(
           : `${symbols.toolFail} failed`;
   const multi = count > 1 ? ` +${count - 1}` : '';
   const title = resolveDisplayTitle(primary);
-  // 单行：Subagent · 短标题 · 状态（不再拼 prompt 全文）
-  return clip(`Subagent · ${title}${multi} · ${status}`, Math.max(24, width - 2));
+  const model = primary.modelLabel ? ` · ${primary.modelLabel}` : '';
+  return clip(
+    `Subagent · ${title}${multi}${model} · ${status}`,
+    Math.max(24, width - 2)
+  );
 }
 
 function resolveDisplayTitle(item: SubagentUiState): string {

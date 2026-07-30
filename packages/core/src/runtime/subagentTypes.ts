@@ -2,6 +2,14 @@ import type { SubagentResult } from '../domain';
 
 export type SubagentMode = 'explore' | 'general';
 
+export interface SubagentModelProfileSummary {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  contextWindow?: number;
+}
+
 export interface SubagentRunRequest {
   prompt: string;
   mode?: SubagentMode;
@@ -17,6 +25,8 @@ export interface SubagentRunRequest {
   workspaceRoot?: string;
   /** Optional label for trace / UI (e.g. /add-dir id). */
   repoId?: string;
+  /** Configured Kross model profile to use instead of the inherited model. */
+  modelProfileId?: string;
   /**
    * Prefer workerLlmClient (经济/快速模型) when available — used by conductor.
    */
@@ -34,6 +44,9 @@ export interface SubagentRunOutcome {
   subRunId: string;
   mode: SubagentMode;
   modeForcedToExplore: boolean;
+  modelProfileId?: string;
+  modelProfileName?: string;
+  model?: string;
 }
 
 export type SubagentRunner = (

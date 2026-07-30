@@ -38,7 +38,9 @@ const taskInputSchema = z.object({
    * Optional project-registry repo id. Subagent tools bind to that repo's path
    * (must be in the runtime allowlist). Prefer this over inventing absolute paths.
    */
-  repoId: z.string().min(1).optional()
+  repoId: z.string().min(1).optional(),
+  /** Optional configured Kross model profile id. */
+  modelProfileId: z.string().trim().min(1).optional()
 });
 
 type TaskInput = z.infer<typeof taskInputSchema>;
@@ -59,6 +61,7 @@ export function createTaskTool(
       '派生子代理在独立上下文中完成聚焦任务并返回摘要。' +
       '调用时必须同时提供 description（极短标题，用于 UI 单行展示）与 prompt（完整任务说明）。' +
       '可选 repoId：在跨仓项目中指定 project registry 中的仓库 id，子代理将绑定该仓库路径。' +
+      '可选 modelProfileId：指定已配置的 Kross 模型档案；不填则继承当前模型。' +
       '子代理基础可用 Read/Glob/Grep/Rg/List/Stat/Git*；' +
       'mode=explore 时只读调查，mode=general 时额外允许 Edit/Write 完成任务范围内的修改；' +
       '不可用 Bash/Delete/Move/Task 等高危工具，子代理内无需用户审批。' +
@@ -94,6 +97,13 @@ export function createTaskTool(
           description:
             '可选。project registry 中的仓库 id；指定后子代理在该仓库根目录下读写，' +
             '用于多目录/指挥家编排（/add-dir 的 id 或 registry repo id）。不填则使用主工作区。'
+        },
+        modelProfileId: {
+          type: 'string',
+          description:
+            '可选。已配置模型档案的 id，例如 economy、imported-codex；' +
+            '必须使用运行时模型档案列表中的 id。' +
+            '不填时继承当前模型。'
         }
       },
       required: ['description', 'prompt'],
@@ -143,7 +153,8 @@ export function createTaskTool(
           parentDepth,
           signal,
           repoId,
-          workspaceRoot
+          workspaceRoot,
+          modelProfileId: input.modelProfileId?.trim()
         });
 
         const content = formatOutcome(outcome);
@@ -160,6 +171,9 @@ export function createTaskTool(
             title,
             repoId,
             workspaceRoot,
+            modelProfileId: outcome.modelProfileId,
+            modelProfileName: outcome.modelProfileName,
+            model: outcome.model,
             status: outcome.result.status,
             evidence: outcome.result.evidence,
             risks: outcome.result.risks,

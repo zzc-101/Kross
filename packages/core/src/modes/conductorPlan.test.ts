@@ -13,6 +13,7 @@ describe('conductorTaskPlanSchema', () => {
             id: 'implement',
             title: 'implement',
             prompt: 'implement',
+            modelProfileId: 'economy',
             dependsOn: ['inspect']
           },
           {
@@ -22,8 +23,11 @@ describe('conductorTaskPlanSchema', () => {
             dependsOn: ['implement']
           }
         ]
-      }).tasks[1]?.dependsOn
-    ).toEqual(['inspect']);
+      }).tasks[1]
+    ).toMatchObject({
+      modelProfileId: 'economy',
+      dependsOn: ['inspect']
+    });
   });
 
   it.each([

@@ -11,7 +11,9 @@ export const conductorTaskSchema = z.object({
    * 可选：绑定会话 workspace root id（/add-dir 的 id）。
    * 不填则 worker 使用主工作区。
    */
-  repoId: z.string().min(1).optional()
+  repoId: z.string().min(1).optional(),
+  /** Optional configured model profile for this worker. */
+  modelProfileId: z.string().trim().min(1).optional()
 });
 export type ConductorTask = z.infer<typeof conductorTaskSchema>;
 

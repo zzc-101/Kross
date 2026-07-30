@@ -7,6 +7,7 @@ import {
   createLlmClientFromKrossConfig,
   createLlmClientFromKrossModelProfile,
   getActiveKrossModelProfile,
+  listKrossModelProfiles,
   loadKrossConfig
 } from '../config/configImport';
 import type { ProjectRegistry } from '../domain';
@@ -96,7 +97,8 @@ export async function createAgentHost(
   const tooling = await bootstrapRuntimeTooling(
     options.workspaceRoot,
     env,
-    config
+    config,
+    options.fetch
   );
   const lifecycleHooks = options.experimentalLifecycleHooks
     ? new ExperimentalLifecycleHooks(options.experimentalLifecycleHooks)
@@ -219,7 +221,13 @@ export function createRuntimeOptionsFromEnv(
     !skillRegistry ||
     !mutationCoordinator
   ) {
-    const created = createLocalTooling(cwd, llmClient, options, projectRegistry);
+    const created = createLocalTooling(
+      cwd,
+      llmClient,
+      options,
+      projectRegistry,
+      fetch
+    );
     toolGateway = toolGateway ?? created.toolGateway;
     traceStore = traceStore ?? created.traceStore;
     todoStore = todoStore ?? created.todoStore;
@@ -259,6 +267,14 @@ export function createRuntimeOptionsFromEnv(
     mcpManager: tooling?.mcpManager,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
+    getModelProfiles: () =>
+      listKrossModelProfiles(loadKrossConfig(options)).map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        provider: profile.provider,
+        model: profile.model,
+        contextWindow: profile.contextWindow
+      })),
     onLlmClientChanged: tooling?.setLlmClient,
     sessionContext,
     subagentDepth: 0,
@@ -289,7 +305,8 @@ function nonNegativeInteger(value: number | undefined): number | undefined {
 export async function bootstrapRuntimeTooling(
   cwd: string,
   env: Record<string, string | undefined> = process.env,
-  options: CreateAgentHostConfigOptions = {}
+  options: CreateAgentHostConfigOptions = {},
+  fetch?: LlmFetch
 ): Promise<AgentHostTooling> {
   const savedConfig = loadKrossConfig(options);
   const savedLlm = getActiveKrossModelProfile(savedConfig);
@@ -305,7 +322,8 @@ export async function bootstrapRuntimeTooling(
     cwd,
     llmClient,
     options,
-    loadedRegistry?.registry
+    loadedRegistry?.registry,
+    fetch
   );
   const mcpManager = await connectReloadableMcpManager(created.toolGateway, {
     workspaceRoot: cwd,
@@ -346,7 +364,8 @@ function createLocalTooling(
   cwd: string,
   initialLlmClient?: LlmClient,
   options: CreateAgentHostConfigOptions = {},
-  projectRegistry?: ProjectRegistry
+  projectRegistry?: ProjectRegistry,
+  fetch?: LlmFetch
 ): {
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
@@ -388,6 +407,21 @@ function createLocalTooling(
     llmClient: initialLlmClient,
     // worker 默认与主模型相同；后续可从 config 注入更便宜的 workerLlmClient
     workerLlmClient: initialLlmClient,
+    resolveModelProfile: (profileId) => {
+      const profiles = listKrossModelProfiles(loadKrossConfig(options));
+      const profile = profiles.find((item) => item.id === profileId);
+      if (!profile) {
+        const available = profiles.map((item) => item.id).join(', ') || '（无）';
+        throw new Error(
+          `未知模型档案 "${profileId}"；可用档案：${available}`
+        );
+      }
+      const client = createLlmClientFromKrossModelProfile(profile, fetch);
+      if (!client) {
+        throw new Error(`模型档案 "${profileId}" 无法创建 LLM client`);
+      }
+      return { client, profile };
+    },
     maxDepth: 1,
     maxToolIterations: 40,
     personalSkillsDir: resolvePersonalSkillsDir(options),

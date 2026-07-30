@@ -367,7 +367,7 @@ export function buildModelOptions(
       provider: currentProvider,
       model: currentModel,
       label: activeProfile
-        ? `${activeProfile.name} · ${currentModel} · ${currentProvider}`
+        ? `${activeProfile.name} · ${currentModel} · ${currentProvider} · id=${activeProfile.id}`
         : currentPublic
           ? `${currentPublic.name} · ${t('settings.public')}`
           : `${currentModel}`,
@@ -400,7 +400,7 @@ export function buildModelOptions(
       id: key,
       provider: profile.provider,
       model: profile.model,
-      label: `${profile.name} · ${profile.model} · ${profile.provider}`,
+      label: `${profile.name} · ${profile.model} · ${profile.provider} · id=${profile.id}`,
       configured: true,
       current: profile.id === activeProfile?.id,
       profileId: profile.id

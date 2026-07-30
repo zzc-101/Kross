@@ -80,6 +80,7 @@ export class SessionServices {
       permissionModeAccessScope(this.permissionMode)
     );
     this.syncPermissionModeSource();
+    this.syncModelProfilesSource();
   }
 
   getSessionMode(): AgentMode {
@@ -198,6 +199,33 @@ export class SessionServices {
 
   getWorkspaceRoots(): WorkspaceRoots | undefined {
     return this.deps.options.workspaceRoots;
+  }
+
+  syncModelProfilesSource(): void {
+    const profiles = this.deps.options.getModelProfiles?.() ?? [];
+    if (profiles.length === 0) {
+      this.deps.sessionContext.removeSource('model-profiles');
+      return;
+    }
+    this.deps.sessionContext.addSource({
+      id: 'model-profiles',
+      kind: 'workspace',
+      title: 'Configured model profiles',
+      content: [
+        '可用于 Task/Conductor 子代理的模型档案：',
+        ...profiles.map(
+          (profile) =>
+            `- id=${profile.id}; name=${profile.name}; provider=${profile.provider}; model=${profile.model}` +
+            (profile.contextWindow
+              ? `; contextWindow=${profile.contextWindow}`
+              : '')
+        ),
+        '- 派生子代理时，可在 Task 的 modelProfileId 中填写上述 id；不填则继承当前模型。',
+        '- 只能选择此列表中存在的档案，不要猜测 id。'
+      ].join('\n'),
+      priority: 97,
+      pinned: true
+    });
   }
 
   getTodoStore(): TodoStore | undefined {

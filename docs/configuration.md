@@ -91,6 +91,14 @@ Anthropic 还支持 `ANTHROPIC_VERSION`。
 
 `models.profiles` 是模型配置的唯一事实源，`activeProfileId` 决定新会话使用的模型。`/import`、`/model`、模型设置面板和 `/lang` 会更新此文件。旧版顶层 `llm` 字段已被移除，检测到后 Kross 会要求重新运行模型配置向导。文件中可能包含明文 API key，请限制访问权限，不要提交到仓库或分享到问题报告中。
 
+快捷配置自动根据档案名称生成 `id`，例如 `Main Model` 生成 `main-model`，不会添加 Provider 前缀；无法转换为安全 ASCII 标识的名称使用 `profile-<hash>`。档案名称应保持唯一。
+
+## 子代理模型选择
+
+主 Agent 的 `Task` 工具和 Conductor 计划任务都支持可选的 `modelProfileId`。该值必须匹配 `models.profiles[].id`；指定后，子代理使用该档案独立创建 LLM client，并采用档案自己的 Provider、模型、凭证和上下文窗口。省略时继续继承当前模型。
+
+可用档案会动态注入主 Agent 上下文，模型设置面板也会显示 `id=...`。未知或已经删除的档案 id 会在派生前失败，并返回当前可用 id，不会静默回退到其他模型。
+
 ## 独立摘要模型
 
 上下文压缩默认复用主模型。需要独立模型时：

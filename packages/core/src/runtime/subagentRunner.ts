@@ -43,6 +43,7 @@ import type {
 
 export type {
   SubagentMode,
+  SubagentModelProfileSummary,
   SubagentRunOutcome,
   SubagentRunRequest,
   SubagentRunner
@@ -65,6 +66,16 @@ export interface SubagentRunDeps {
   llmClient?: LlmClient;
   /** Cheaper/faster worker model for conductor-spawned subagents */
   workerLlmClient?: LlmClient;
+  /** Resolve a configured model profile at spawn time. */
+  resolveModelProfile?: (profileId: string) => {
+    client: LlmClient;
+    profile: {
+      id: string;
+      name: string;
+      provider: string;
+      model: string;
+    };
+  };
   traceStore: TraceStore;
   maxDepth?: number;
   maxToolIterations?: number;
@@ -122,9 +133,25 @@ export async function runSubagent(
     personalSkillsDir: deps.personalSkillsDir
   });
   const skills = skillRegistry.refresh();
+  const requestedProfileId = request.modelProfileId?.trim();
+  if (requestedProfileId && !deps.resolveModelProfile) {
+    throw new Error('当前 Host 不支持按模型档案派生子代理');
+  }
+  const resolvedProfile = requestedProfileId
+    ? deps.resolveModelProfile?.(requestedProfileId)
+    : undefined;
   const useWorker =
-    request.preferWorkerModel === true && deps.workerLlmClient !== undefined;
-  const llmClient = useWorker ? deps.workerLlmClient : deps.llmClient;
+    !resolvedProfile &&
+    request.preferWorkerModel === true &&
+    deps.workerLlmClient !== undefined;
+  const llmClient =
+    resolvedProfile?.client ??
+    (useWorker ? deps.workerLlmClient : deps.llmClient);
+  const modelExtras = {
+    modelProfileId: resolvedProfile?.profile.id,
+    modelProfileName: resolvedProfile?.profile.name,
+    model: llmClient?.model
+  };
 
   await appendTrace(deps.traceStore, request.parentRunId, 'subagent.started', {
     ...lifecycleExtras,
@@ -135,7 +162,7 @@ export async function runSubagent(
     workspaceRoot,
     preferWorkerModel: request.preferWorkerModel === true,
     workerModel: useWorker,
-    model: llmClient?.model,
+    ...modelExtras,
     promptPreview: prompt.slice(0, 240),
     autoApprove: true,
     projectInstructions: projectInstructions.files.map((file) => ({
@@ -179,13 +206,16 @@ export async function runSubagent(
       mode,
       repoId: request.repoId,
       workspaceRoot,
+      ...modelExtras,
       error: failed.summary
     });
     return {
       result: failed,
       subRunId,
       mode,
-      modeForcedToExplore: false
+      modeForcedToExplore: false,
+      modelProfileId: resolvedProfile?.profile.id,
+      modelProfileName: resolvedProfile?.profile.name
     };
   }
 
@@ -418,6 +448,7 @@ export async function runSubagent(
 
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.completed', {
       ...lifecycleExtras,
+      ...modelExtras,
       mode,
       status: result.status,
       summaryPreview: result.summary.slice(0, 240),
@@ -431,7 +462,10 @@ export async function runSubagent(
       result,
       subRunId,
       mode,
-      modeForcedToExplore: false
+      modeForcedToExplore: false,
+      modelProfileId: resolvedProfile?.profile.id,
+      modelProfileName: resolvedProfile?.profile.name,
+      model: llmClient.model
     };
   } catch (error) {
     try {
@@ -448,6 +482,7 @@ export async function runSubagent(
     if (isOperationAborted(error, request.signal)) {
       await appendTrace(deps.traceStore, request.parentRunId, 'subagent.cancelled', {
         ...lifecycleExtras,
+        ...modelExtras,
         mode,
         reason:
           error instanceof Error ? error.message : String(error)
@@ -457,6 +492,7 @@ export async function runSubagent(
     const message = error instanceof Error ? error.message : String(error);
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.failed', {
       ...lifecycleExtras,
+      ...modelExtras,
       mode,
       error: message
     });

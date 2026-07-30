@@ -171,6 +171,8 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次启动会根据 `.en
 
 Kross 在 `~/.kross/config.json` 中原生保存多个具名模型档案；`/import` 和模型设置会新增或激活档案，不再覆盖一个全局单模型。环境变量优先于当前活动档案；各 Provider 也支持对应的 `*_BASE_URL`。
 
+Task 与 Conductor 子代理可通过 `modelProfileId` 选择任一已保存档案；省略时继承当前模型。模型设置面板会显示档案 id，运行时也会把可选档案注入 Agent 上下文，因此可以直接要求“使用 economy 档案派生探索子代理”。
+
 ## 核心设计
 
 ```mermaid

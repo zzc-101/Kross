@@ -53,12 +53,16 @@ describe('subagentUi', () => {
         subRunId: 'sub-parent-1-x',
         mode: 'explore',
         title: 'Scan auth',
+        modelProfileId: 'economy',
+        modelProfileName: 'Economy',
+        model: 'claude-fast',
         promptPreview: 'scan auth modules in detail please'
       })
     );
     expect(state).toHaveLength(1);
     expect(state[0]?.status).toBe('running');
     expect(state[0]?.title).toBe('Scan auth');
+    expect(state[0]?.modelLabel).toBe('Economy/claude-fast');
     expect(state[0]?.promptPreview).toBe('scan auth modules in detail please');
 
     state = applySubagentTraceEvent(

@@ -27,6 +27,99 @@ function createManagedHome(): string {
 }
 
 describe('createRuntimeOptionsFromEnv', () => {
+  it('exposes configured model profiles for Task and conductor planning', () => {
+    const homeDir = createManagedHome();
+    mkdirSync(join(homeDir, '.kross'), { recursive: true });
+    writeFileSync(
+      join(homeDir, '.kross/config.json'),
+      JSON.stringify({
+        version: 1,
+        models: {
+          activeProfileId: 'main',
+          profiles: [
+            {
+              id: 'main',
+              name: 'Main',
+              provider: 'openai',
+              apiKey: 'main-key',
+              model: 'gpt-main'
+            },
+            {
+              id: 'economy',
+              name: 'Economy',
+              provider: 'anthropic',
+              authToken: 'economy-token',
+              model: 'claude-economy',
+              contextWindow: 96_000
+            }
+          ]
+        }
+      })
+    );
+
+    const options = createRuntimeOptionsFromEnv(
+      '/tmp/local-agent',
+      {},
+      undefined,
+      { homeDir }
+    );
+
+    expect(options.getModelProfiles?.()).toEqual([
+      expect.objectContaining({
+        id: 'main',
+        name: 'Main',
+        model: 'gpt-main'
+      }),
+      expect.objectContaining({
+        id: 'economy',
+        name: 'Economy',
+        model: 'claude-economy',
+        contextWindow: 96_000
+      })
+    ]);
+  });
+
+  it('rejects an unknown subagent model profile with available ids', async () => {
+    const homeDir = createManagedHome();
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-host-model-profile-'));
+    mkdirSync(join(homeDir, '.kross'), { recursive: true });
+    writeFileSync(
+      join(homeDir, '.kross/config.json'),
+      JSON.stringify({
+        version: 1,
+        models: {
+          activeProfileId: 'main',
+          profiles: [
+            {
+              id: 'main',
+              name: 'Main',
+              provider: 'openai',
+              apiKey: 'main-key',
+              model: 'gpt-main'
+            }
+          ]
+        }
+      })
+    );
+    const tooling = await bootstrapRuntimeTooling(
+      workspace,
+      {},
+      { homeDir }
+    );
+    try {
+      await expect(
+        tooling.runSubagent({
+          prompt: 'inspect',
+          parentRunId: 'parent',
+          modelProfileId: 'missing'
+        })
+      ).rejects.toThrow('未知模型档案 "missing"；可用档案：main');
+    } finally {
+      await tooling.close();
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('creates replacement runtimes over shared tooling and closes once', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-agent-host-'));
     const homeDir = mkdtempSync(join(tmpdir(), 'kross-agent-host-home-'));

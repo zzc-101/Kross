@@ -4,6 +4,11 @@ export function formatSubagentToolContent(outcome: SubagentRunOutcome): string {
   const { result, subRunId, mode } = outcome;
   const lines = [
     `Subagent ${mode} (${subRunId}) → ${result.status}`,
+    outcome.modelProfileId
+      ? `Model profile: ${outcome.modelProfileName ?? outcome.modelProfileId} (${outcome.modelProfileId})${outcome.model ? ` · ${outcome.model}` : ''}`
+      : outcome.model
+        ? `Model: ${outcome.model}`
+        : undefined,
     '',
     result.summary,
     result.evidence.length > 0

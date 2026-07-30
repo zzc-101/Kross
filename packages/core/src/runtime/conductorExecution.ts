@@ -72,6 +72,7 @@ export async function executeConductorWorker(input: {
         signal: input.signal,
         repoId: task.repoId,
         workspaceRoot: input.workspaceRoot,
+        modelProfileId: task.modelProfileId,
         preferWorkerModel: true
       });
       const result = spawned.result;

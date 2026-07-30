@@ -318,7 +318,7 @@ export function upsertKrossModelProfile(
   const profiles = listKrossModelProfiles(existingFile);
   const requestedId =
     normalizeModelProfileId(input.profileId) ??
-    createModelProfileId(input.model.provider, input.name || input.model.model);
+    createModelProfileId(input.name || input.model.model);
   const existing = profiles.find((profile) => profile.id === requestedId);
   const merged = mergeLlmConfigPatch(existing, input.model);
   if (!isUsableLlmConfig(merged)) {
@@ -566,16 +566,16 @@ function normalizeModelProfileId(value: string | undefined): string | undefined 
   return normalized || undefined;
 }
 
-function createModelProfileId(provider: LlmProvider, value: string): string {
-  const normalized = normalizeModelProfileId(`${provider}-${value}`);
-  if (normalized && normalized !== provider) {
+function createModelProfileId(value: string): string {
+  const normalized = normalizeModelProfileId(value);
+  if (normalized) {
     return normalized.slice(0, 80);
   }
   const digest = createHash('sha256')
     .update(value.trim() || 'model')
     .digest('hex')
     .slice(0, 8);
-  return `${provider}-${digest}`;
+  return `profile-${digest}`;
 }
 
 export function resolveKrossConfigPath(

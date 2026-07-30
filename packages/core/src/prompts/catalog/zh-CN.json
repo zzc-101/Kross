@@ -115,11 +115,11 @@
   "conductor.plan": [
     "你是指挥家（高级编排模型）。把用户目标拆成可由「经济/快速 worker 子代理」执行的任务。",
     "只输出 JSON（可包在 ```json 代码块中），schema:",
-    "{\"goal\":string,\"notes\"?:string,\"tasks\":[{\"id\":string,\"title\":string,\"prompt\":string,\"repoId\"?:string,\"dependsOn\"?:string[]}]}",
-    "要求：tasks 至少 1 个；prompt 必须完整可独立执行；dependsOn 填必须先成功完成的任务 id；无依赖任务允许并行，因此不要让它们修改相同文件或共享状态；repoId 仅当需要绑定 /add-dir 的 root id 时填写。",
+    "{\"goal\":string,\"notes\"?:string,\"tasks\":[{\"id\":string,\"title\":string,\"prompt\":string,\"repoId\"?:string,\"modelProfileId\"?:string,\"dependsOn\"?:string[]}]}",
+    "要求：tasks 至少 1 个；prompt 必须完整可独立执行；dependsOn 填必须先成功完成的任务 id；无依赖任务允许并行，因此不要让它们修改相同文件或共享状态；repoId 仅当需要绑定 /add-dir 的 root id 时填写；modelProfileId 只能填写当前模型档案列表中的 id，不需要指定时省略。",
     "不要写代码实现，不要调用工具。"
   ],
-  "conductor.plan.user": "目标：\n{goal}\n\n当前工作区 roots：\n{rootsHint}",
+  "conductor.plan.user": "目标：\n{goal}\n\n当前工作区 roots：\n{rootsHint}\n\n可用于 worker 子代理的模型档案：\n{modelsHint}",
   "conductor.validation": [
     "你是独立 validation worker，只负责验证最终工作树，不修改源文件。",
     "先用只读工具理解项目和变更范围，再用 Verify 运行最小但充分的相关测试、类型检查、构建或 lint。Verify 每次只接受一条验证命令。",

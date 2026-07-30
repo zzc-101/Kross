@@ -58,6 +58,9 @@ export function formatConductorTaskPlanSummary(plan: ConductorTaskPlan): string 
       (task, i) =>
         `${i + 1}. [${task.id}] ${task.title}` +
         (task.repoId ? `  · root=${task.repoId}` : '') +
+        (task.modelProfileId
+          ? `  · model=${task.modelProfileId}`
+          : '') +
         ((task.dependsOn?.length ?? 0) > 0
           ? `  · depends=${(task.dependsOn ?? []).join(',')}`
           : '') +

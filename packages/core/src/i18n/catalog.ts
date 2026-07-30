@@ -182,7 +182,7 @@ export const zhCatalog = {
   'settings.quick.title': '快捷配置模型',
   'settings.quick.profileName': '配置名称',
   'settings.quick.defaultProfileName': '新模型',
-  'settings.quick.profileNameHint': '用于模型列表和后续子代理选择，例如 main、economy',
+  'settings.quick.profileNameHint': '用于模型列表显示；系统会生成供子代理选择的档案 id',
   'settings.quick.protocol': '协议类型',
   'settings.quick.modelId': '模型 ID',
   'settings.quick.contextWindow': '上下文大小',
@@ -492,7 +492,7 @@ export const enCatalog: Record<MessageKey, string> = {
   'settings.quick.profileName': 'Profile name',
   'settings.quick.defaultProfileName': 'New model',
   'settings.quick.profileNameHint':
-    'Used in the model list and future subagent selection, for example main or economy',
+    'Shown in the model list; Kross generates a profile id for subagent selection',
   'settings.quick.protocol': 'Protocol',
   'settings.quick.modelId': 'Model ID',
   'settings.quick.contextWindow': 'Context size',

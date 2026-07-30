@@ -73,7 +73,12 @@ export function formatToolInputPreview(
           ? record.title.trim()
           : '';
     if (title) {
-      return truncate(title, maxChars);
+      const profile =
+        typeof record.modelProfileId === 'string' &&
+        record.modelProfileId.trim()
+          ? ` · model=${record.modelProfileId.trim()}`
+          : '';
+      return truncate(`${title}${profile}`, maxChars);
     }
   }
 

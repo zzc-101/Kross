@@ -291,6 +291,16 @@ export class ModeFlows {
     const rootsHint = this.deps.options.workspaceRoots
       ? this.deps.options.workspaceRoots.formatForPrompt()
       : '（仅主工作区；可用 /add-dir 增加目录，并在任务里填 repoId）';
+    const modelProfiles = this.deps.options.getModelProfiles?.() ?? [];
+    const modelsHint =
+      modelProfiles.length > 0
+        ? modelProfiles
+            .map(
+              (profile) =>
+                `${profile.id}: ${profile.name} · ${profile.model} · ${profile.provider}`
+            )
+            .join('\n')
+        : '（没有已配置的模型档案；不要填写 modelProfileId）';
     try {
       const response = await client.complete({
         messages: [
@@ -300,7 +310,11 @@ export class ModeFlows {
           },
           {
             role: 'user',
-            content: renderPrompt('conductor.plan.user', { goal, rootsHint })
+            content: renderPrompt('conductor.plan.user', {
+              goal,
+              rootsHint,
+              modelsHint
+            })
           }
         ],
         metadata: { purpose: 'conductor-plan', internal: true }

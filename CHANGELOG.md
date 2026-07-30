@@ -9,6 +9,8 @@
 - TUI 原生多模型档案：`models.profiles` 是唯一模型配置源，快捷向导可持续新增
   OpenAI/Anthropic 兼容模型，导入与公益模型也保存为档案，设置面板可在档案间
   即时切换；开发期旧顶层 `llm` 单模型结构已直接移除。
+- Task 与 Conductor worker 支持通过 `modelProfileId` 指定已配置模型档案；可选档案
+  动态注入 Agent 上下文，运行轨迹、工具结果和 TUI 子代理状态条显示实际模型。
 - 三档工具权限语义：工作区读取自动允许且其他操作人工审批、可信工作区自动审批
   与完全访问；权限模式进入 Session Work State，可审计恢复，完全访问支持任意
   系统路径并保留 mutation journal。

@@ -405,11 +405,11 @@ describe('modelSettings', () => {
         };
       };
       expect(persisted.models.activeProfileId).toBe(
-        'openai-custom-gateway'
+        'custom-gateway'
       );
       expect(persisted.models.profiles).toEqual([
         expect.objectContaining({
-          id: 'openai-custom-gateway',
+          id: 'custom-gateway',
           name: 'Custom gateway',
           model: 'custom-model'
         })

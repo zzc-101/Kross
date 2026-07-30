@@ -11,6 +11,7 @@ import type { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import type { GitRunner } from '../workspace/workspaceDiff';
 import type {
+  SubagentModelProfileSummary,
   SubagentRunOutcome,
   SubagentRunRequest
 } from './subagentRunner';
@@ -35,6 +36,8 @@ export interface AgentRuntimeOptions {
    * 未配置时子代理回退到 llmClient。
    */
   workerLlmClient?: LlmClient;
+  /** Live configured model profiles exposed to planning and Task selection. */
+  getModelProfiles?: () => SubagentModelProfileSummary[];
   /** Keep host-owned Task/subagent model bindings synchronized with UI switches. */
   onLlmClientChanged?: (client: LlmClient | undefined) => void;
   sessionContext?: SessionContext;

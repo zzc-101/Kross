@@ -20,6 +20,39 @@ import {
 } from './configImport';
 
 describe('config import', () => {
+  it('generates profile ids from names without provider prefixes', () => {
+    const homeDir = createTempHome();
+    try {
+      const named = upsertKrossModelProfile(
+        {
+          name: 'Main Model',
+          model: {
+            provider: 'anthropic',
+            authToken: 'anthropic-token',
+            model: 'GLM-5.2'
+          }
+        },
+        { homeDir }
+      );
+      const unicode = upsertKrossModelProfile(
+        {
+          name: '经济模型',
+          model: {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-economy'
+          }
+        },
+        { homeDir }
+      );
+
+      expect(named.profile.id).toBe('main-model');
+      expect(unicode.profile.id).toMatch(/^profile-[a-f0-9]{8}$/);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('stores multiple model profiles and switches the active model', () => {
     const homeDir = createTempHome();
     try {

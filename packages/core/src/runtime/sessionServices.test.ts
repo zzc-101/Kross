@@ -127,6 +127,38 @@ describe('project instructions in AgentRuntime', () => {
     expect(fullAccess.messages[0]?.content).toContain('文件访问范围：system');
     expect(fullAccess.messages[0]?.content).toContain('任意目录的绝对路径');
   });
+
+  it('injects live model profile ids for Task selection', () => {
+    const root = makeWorkspace();
+    let model = 'claude-fast';
+    const runtime = new AgentRuntime({
+      traceStore,
+      workspaceRoot: root,
+      getModelProfiles: () => [
+        {
+          id: 'economy',
+          name: 'Economy',
+          provider: 'anthropic',
+          model,
+          contextWindow: 96_000
+        }
+      ]
+    });
+
+    let context = runtime.inspectContext({ requestedMode: 'auto' });
+    expect(context.includedSources).toContain('model-profiles');
+    expect(context.messages[0]?.content).toContain(
+      'id=economy; name=Economy'
+    );
+    expect(context.messages[0]?.content).toContain(
+      'Task 的 modelProfileId'
+    );
+
+    model = 'claude-next';
+    context = runtime.inspectContext({ requestedMode: 'auto' });
+    expect(context.messages[0]?.content).toContain('model=claude-next');
+    expect(context.messages[0]?.content).not.toContain('model=claude-fast');
+  });
 });
 
 describe('skills in AgentRuntime', () => {
