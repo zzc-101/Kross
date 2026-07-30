@@ -34,7 +34,7 @@ describe('provider presentation', () => {
     };
     expect(formatLlmCallMetrics(metrics)).toContain('12,500 tokens');
     expect(formatLlmCallMetricsCompact(metrics)).toBe(
-      '13K tok · 1250ms · 2.0K cached · $0.0042'
+      '13K tok · 1250ms · 2K cached · $0.0042'
     );
   });
 });

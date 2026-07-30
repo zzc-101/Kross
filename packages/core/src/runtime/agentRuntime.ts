@@ -633,7 +633,6 @@ export class AgentRuntime extends EventEmitter {
     const usedTokens = snapshot.estimatedTokens;
     const maxTokens = snapshot.inputBudget;
     const compactThreshold = snapshot.compactThreshold;
-    const headerTokens = lastUsageTokens ?? 0;
     const contextWindow = this.sessionContext.getPolicy().contextWindow;
     return {
       usedChars: snapshot.estimatedChars,
@@ -643,8 +642,8 @@ export class AgentRuntime extends EventEmitter {
       lastUsageTokens,
       label: formatContextUsage(usedTokens, maxTokens),
       ratio: usedTokens / Math.max(1, compactThreshold),
-      headerLabel: formatContextUsage(headerTokens, contextWindow),
-      headerRatio: headerTokens / Math.max(1, contextWindow)
+      headerLabel: formatContextUsage(usedTokens, contextWindow),
+      headerRatio: usedTokens / Math.max(1, contextWindow)
     };
   }
 
