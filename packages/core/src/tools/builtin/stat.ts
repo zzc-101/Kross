@@ -14,7 +14,7 @@ export function createStatTool(workspaceRoot: string): ToolDefinition<StatInput>
   return {
     name: 'Stat',
     description:
-      '读取工作区内文件、目录或符号链接的类型、大小、权限和时间信息。',
+      '读取文件、目录或符号链接元数据。默认限当前工作区；完全访问模式支持任意绝对路径。',
     risk: 'read',
     category: 'filesystem',
     inputSchema: z.object({
@@ -28,10 +28,11 @@ export function createStatTool(workspaceRoot: string): ToolDefinition<StatInput>
       required: ['path'],
       additionalProperties: false
     },
-    execute: async ({ input }) => {
+    execute: async ({ input, accessScope }) => {
       const target = await resolveExistingPathWithinWorkspace(
         workspaceRoot,
-        input.path
+        input.path,
+        accessScope
       );
       const metadata = await lstat(target);
       const type = describeType(metadata);

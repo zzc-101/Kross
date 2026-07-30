@@ -336,7 +336,7 @@ export async function runSubagent(
               .filter((event) => event.type === 'tool_call.completed')
               .map((event) => event.payload.toolName)
               .filter((name): name is string => typeof name === 'string'),
-            ...extractCompletedGitDiffScopes(events)
+            ...extractCompletedGitEvidence(events)
           ]
         )
       ];
@@ -344,12 +344,15 @@ export async function runSubagent(
         .filter(
           (event) =>
             event.type === 'tool_call.completed' &&
-            event.payload.toolName === 'GitDiff'
+            event.payload.toolName === 'Git' &&
+            event.payload.data &&
+            typeof event.payload.data === 'object' &&
+            (event.payload.data as { action?: unknown }).action === 'diff'
         )
         .map((event) =>
           typeof event.payload.summary === 'string'
             ? event.payload.summary
-            : 'GitDiff completed'
+            : 'Git diff completed'
         );
       const verificationFiles =
         request.role === 'validator'
@@ -461,15 +464,18 @@ export async function runSubagent(
   }
 }
 
-function extractCompletedGitDiffScopes(
-  events: TraceEvent[]
-): string[] {
+function extractCompletedGitEvidence(events: TraceEvent[]): string[] {
   const completedCallIds = new Set(
     events
       .filter(
         (event) =>
           event.type === 'tool_call.completed' &&
-          event.payload.toolName === 'GitDiff' &&
+          event.payload.toolName === 'Git' &&
+          event.payload.data &&
+          typeof event.payload.data === 'object' &&
+          ['status', 'diff'].includes(
+            String((event.payload.data as { action?: unknown }).action)
+          ) &&
           typeof event.payload.callId === 'string'
       )
       .map((event) => event.payload.callId as string)
@@ -478,7 +484,7 @@ function extractCompletedGitDiffScopes(
     .filter(
       (event) =>
         event.type === 'tool_call.started' &&
-        event.payload.toolName === 'GitDiff' &&
+        event.payload.toolName === 'Git' &&
         typeof event.payload.callId === 'string' &&
         completedCallIds.has(event.payload.callId)
     )
@@ -486,16 +492,23 @@ function extractCompletedGitDiffScopes(
       const input = event.payload.input;
       const record =
         input && typeof input === 'object' && !Array.isArray(input)
-          ? (input as { staged?: unknown; path?: unknown; cwd?: unknown })
+          ? (input as {
+              action?: unknown;
+              staged?: unknown;
+              paths?: unknown;
+              cwd?: unknown;
+            })
           : undefined;
+      if (record?.action === 'status') return 'Git:status';
+      if (record?.action !== 'diff') return 'Git:unknown';
       if (
-        typeof record?.path === 'string' ||
+        (Array.isArray(record?.paths) && record.paths.length > 0) ||
         typeof record?.cwd === 'string'
       ) {
-        return 'GitDiff:scoped';
+        return 'Git:diff:scoped';
       }
       const staged = record?.staged === true;
-      return staged ? 'GitDiff:staged' : 'GitDiff:unstaged';
+      return staged ? 'Git:diff:staged' : 'Git:diff:unstaged';
     });
 }
 

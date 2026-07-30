@@ -3,6 +3,7 @@ import type {
   ToolApprovalPolicy,
   ToolApprovalPolicyContext
 } from './toolGateway';
+import type { ToolAccessScope } from './toolGateway';
 
 export const permissionModes = ['default', 'classifier', 'auto'] as const;
 export type PermissionMode = (typeof permissionModes)[number];
@@ -15,9 +16,9 @@ export const permissionModeLabels: Record<PermissionMode, string> = {
 
 /** 输入框页脚等 UI 用的简短标签。 */
 export const permissionModeFooterLabels: Record<PermissionMode, string> = {
-  default: 'default',
-  classifier: 'classifier',
-  auto: 'always-approve'
+  default: 'read-only',
+  classifier: 'trusted-workspace',
+  auto: 'full-access'
 };
 
 export function formatPermissionFooter(mode: PermissionMode): string {
@@ -33,11 +34,17 @@ export function nextPermissionMode(current: PermissionMode): PermissionMode {
   return permissionModes[(index + 1) % permissionModes.length] ?? 'default';
 }
 
+export function permissionModeAccessScope(
+  mode: PermissionMode
+): ToolAccessScope {
+  return mode === 'auto' ? 'system' : 'workspace';
+}
+
 /**
  * 按权限模式生成 ToolGateway 审批策略。
- * - default: read 放行，其余 ask
- * - classifier: 规则分类器自动 allow/ask/deny
- * - auto: 全部放行
+ * - default: workspace read 放行，其余 ask
+ * - classifier: workspace read/write 自动放行，执行/网络按规则 ask/deny
+ * - auto: 全部放行，并由 accessScope 解除 workspace 路径边界
  */
 export function createApprovalPolicy(mode: PermissionMode): ToolApprovalPolicy {
   switch (mode) {
@@ -53,8 +60,11 @@ export function createApprovalPolicy(mode: PermissionMode): ToolApprovalPolicy {
 
 function defaultManualPolicy(context: ToolApprovalPolicyContext): ToolApprovalDecision {
   return context.tool.risk === 'read'
-    ? { action: 'allow' }
-    : { action: 'ask', reason: `${context.tool.risk} tool requires approval` };
+    ? { action: 'allow', reason: 'default: workspace read-only' }
+    : {
+        action: 'ask',
+        reason: `default: ${context.tool.risk} tool requires approval`
+      };
 }
 
 const readLikeTools = new Set([
@@ -64,9 +74,6 @@ const readLikeTools = new Set([
   'Rg',
   'List',
   'Stat',
-  'GitStatus',
-  'GitDiff',
-  'GitLog',
   'Task',
   'TodoWrite',
   'TodoRead',
@@ -100,12 +107,8 @@ function classifyToolCall(context: ToolApprovalPolicyContext): ToolApprovalDecis
   const { tool, input } = context;
   const name = tool.name;
 
-  if (tool.risk === 'read' || readLikeTools.has(name)) {
+  if (tool.risk === 'read') {
     return { action: 'allow', reason: 'classifier: read-like tool' };
-  }
-
-  if (writeLikeTools.has(name) || tool.risk === 'write') {
-    return { action: 'allow', reason: 'classifier: workspace-scoped write' };
   }
 
   if (name === 'Bash' || tool.risk === 'execute') {
@@ -127,6 +130,14 @@ function classifyToolCall(context: ToolApprovalPolicyContext): ToolApprovalDecis
       action: 'ask',
       reason: 'classifier: network tool needs confirmation'
     };
+  }
+
+  if (tool.risk === 'write' || writeLikeTools.has(name)) {
+    return { action: 'allow', reason: 'classifier: workspace-scoped write' };
+  }
+
+  if (readLikeTools.has(name)) {
+    return { action: 'allow', reason: 'classifier: read-like tool' };
   }
 
   return {

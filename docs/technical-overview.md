@@ -112,8 +112,11 @@ Tool Gateway 是模型能力与真实副作用之间的边界。每个工具必�
 - `read`、`write`、`execute` 或 `network` 风险；
 - 执行、超时、取消、摘要和可选 trace 脱敏逻辑。
 
-默认权限策略自动允许只读工具，其他风险要求用户批准。调用前再次校验输入和动态
-风险，调用结果及审批状态写入 trace。
+`default` 自动允许当前 workspace 内的只读工具，其他风险请求人工审批；
+`classifier` 自动允许 workspace 内可信读写，Shell 与网络继续审批；`auto`
+是完全访问模式，解除内建文件、搜索、
+Git 与 Shell cwd 的 workspace 路径边界。权限模式随 Work State 持久化；调用前
+仍会校验动态风险，调用结果及审批状态写入 trace。
 
 连续、独立且无需审批的 read 调用最多 4 个并发，并按原始 tool-call 顺序回填；
 write、execute、network、Process、MCP 与动态风险调用保持串行屏障。

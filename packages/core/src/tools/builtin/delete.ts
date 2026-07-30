@@ -4,7 +4,11 @@ import { z } from 'zod';
 
 import type { ToolDefinition } from '../toolGateway';
 import { resolveExistingPathWithinWorkspace } from './paths';
-import type { MutationService } from '../../mutations/mutationService';
+import type {
+  MutationCoordinator,
+  MutationService
+} from '../../mutations/mutationService';
+import { recordToolMutation } from './mutationRecorder';
 
 interface DeleteInput {
   path: string;
@@ -21,12 +25,13 @@ export interface DeleteResultData {
 
 export function createDeleteTool(
   workspaceRoot: string,
-  mutations?: MutationService
+  mutations?: MutationService,
+  systemMutations?: MutationCoordinator
 ): ToolDefinition<DeleteInput> {
   return {
     name: 'Delete',
     description:
-      '删除工作区内的文件或目录。删除目录需显式 recursive: true；默认不跟随 symlink 删除目标外内容（仅移除链接本身）。',
+      '删除文件或目录。默认限当前工作区，完全访问模式支持任意绝对路径；删除目录需显式 recursive: true。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: z.object({
@@ -45,10 +50,11 @@ export function createDeleteTool(
       required: ['path'],
       additionalProperties: false
     },
-    execute: async ({ input, runId }) => {
+    execute: async ({ input, runId, accessScope }) => {
       const filePath = await resolveExistingPathWithinWorkspace(
         workspaceRoot,
-        input.path
+        input.path,
+        accessScope
       );
       const meta = await lstat(filePath);
       const recursive = input.recursive === true;
@@ -74,16 +80,15 @@ export function createDeleteTool(
           force: false
         });
       };
-      if (mutations) {
-        await mutations.record({
-          runId,
-          toolName: 'Delete',
-          paths: [input.path],
-          action: remove
-        });
-      } else {
-        await remove();
-      }
+      await recordToolMutation({
+        recorders: { workspace: mutations, system: systemMutations },
+        accessScope,
+        runId,
+        toolName: 'Delete',
+        displayPaths: [input.path],
+        absolutePaths: [filePath],
+        action: remove
+      });
 
       return {
         content: `已删除 ${kind}：${displayPath}`,

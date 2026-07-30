@@ -14,7 +14,11 @@ import {
   hunkLineStats
 } from './fileChangeStats';
 import { resolveExistingPathWithinWorkspace } from './paths';
-import type { MutationService } from '../../mutations/mutationService';
+import type {
+  MutationCoordinator,
+  MutationService
+} from '../../mutations/mutationService';
+import { recordToolMutation } from './mutationRecorder';
 
 const singleEditSchema = z.object({
   old_string: z.string().min(1),
@@ -67,12 +71,13 @@ export interface EditResultData {
 
 export function createEditTool(
   workspaceRoot: string,
-  mutations?: MutationService
+  mutations?: MutationService,
+  systemMutations?: MutationCoordinator
 ): ToolDefinition<EditInput> {
   return {
     name: 'Edit',
     description:
-      '在文件内做精确字符串替换。默认 old_string 须唯一；可 replace_all。支持 edits[] 一次改多处（按顺序应用）。失败时返回附近内容提示。',
+      '在文件内做精确字符串替换。默认限当前工作区，完全访问模式支持任意绝对路径；old_string 默认须唯一，可 replace_all。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: editInputSchema,
@@ -103,10 +108,11 @@ export function createEditTool(
       required: ['path'],
       additionalProperties: false
     },
-    execute: async ({ input, runId }) => {
+    execute: async ({ input, runId, accessScope }) => {
       const filePath = await resolveExistingPathWithinWorkspace(
         workspaceRoot,
-        input.path
+        input.path,
+        accessScope
       );
       const original = await readFile(filePath, 'utf8');
       const displayPath = input.path;
@@ -226,16 +232,15 @@ export function createEditTool(
         await mkdir(dirname(filePath), { recursive: true });
         await writeFile(filePath, content, 'utf8');
       };
-      if (mutations) {
-        await mutations.record({
-          runId,
-          toolName: 'Edit',
-          paths: [input.path],
-          action: write
-        });
-      } else {
-        await write();
-      }
+      await recordToolMutation({
+        recorders: { workspace: mutations, system: systemMutations },
+        accessScope,
+        runId,
+        toolName: 'Edit',
+        displayPaths: [input.path],
+        absolutePaths: [filePath],
+        action: write
+      });
 
       const delta = formatLineDelta({
         linesAdded: totalAdded,

@@ -1116,10 +1116,10 @@ function createConductorFixtureRunner(
     );
     const toolsUsed = workflow.reviewerInspectsDiff
       ? [
-          'GitStatus',
-          'GitDiff',
-          'GitDiff:unstaged',
-          'GitDiff:staged'
+          'Git',
+          'Git:status',
+          'Git:diff:unstaged',
+          'Git:diff:staged'
         ]
       : [];
     return {

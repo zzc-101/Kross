@@ -18,11 +18,12 @@ Kross 会把以下内容提供给模型，应该视为受信任的本地输入�
 
 | 模式 | 行为 | 建议 |
 |---|---|---|
-| `default` | read 自动允许；write、execute、network 请求确认 | 日常使用默认选择 |
-| `classifier` | workspace 写入自动允许；已知危险 shell 拒绝；其他执行和网络请求确认 | 熟悉项目后使用 |
-| `auto` | 所有工具调用自动允许 | 仅用于隔离环境或可丢弃 workspace |
+| `default` | 当前 workspace 内的 read 自动允许；write、execute、network 请求人工确认 | 谨慎操作或初次接触项目 |
+| `classifier` | workspace 内 read/write 自动允许；已知危险 shell 拒绝；其他执行和网络请求确认 | 可信项目的日常开发 |
+| `auto` | 所有工具自动允许；文件、搜索、Git 和 Shell cwd 可访问当前用户有权限访问的任意系统路径 | 等同“完全访问”，仅在明确可信的环境使用 |
 
-权限模式可通过 `/perm` 或 `Shift+Tab` 切换，但不会跨重启恢复。
+权限模式可通过 `/perm` 或 `Shift+Tab` 切换，并随 Session Work State 持久化。
+`events.jsonl` 的后续 `work-state.updated` 会包含 `permissionMode`。
 
 规则分类器只识别一组已知危险命令模式，不能替代人工判断。
 
@@ -63,7 +64,8 @@ mutation blobs 位于 `~/.kross/mutations`，其中可能包含历史文件正�
 ## Bash 与后台进程
 
 - 本地 TUI 中，`Bash` 和 `ProcessStart` 使用当前用户权限；cwd/workspace 只约束
-  默认工作目录，不限制已批准命令访问用户有权访问的其他系统资源。
+  默认工作目录，不限制获准命令访问用户有权访问的其他系统资源。`auto` 还会明确
+  解除内建文件、搜索和 Git 工具的 workspace 路径边界。
 - Cloud 模式中，命令运行在每工作区独立的 Docker Worker 内。Worker 使用非 root
   用户、独立 volume 和网络，并丢弃 Linux capabilities、启用
   `no-new-privileges` 及 CPU、内存和 PID 限制。
@@ -74,7 +76,7 @@ mutation blobs 位于 `~/.kross/mutations`，其中可能包含历史文件正�
 - Windows 使用 `taskkill /T /F` 尝试清理整个进程树。
 
 Kross 当前没有规划额外的命令级 Sandbox。日常安全边界是本地审批或 Cloud Worker
-容器；`auto` 只应用于可信仓库或可丢弃的工作区。
+容器；`auto` 是完全访问，只应用于可信环境或可丢弃的工作区。
 
 ## MCP
 

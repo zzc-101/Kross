@@ -6,6 +6,11 @@
 
 ### Added
 
+- 三档工具权限语义：工作区读取自动允许且其他操作人工审批、可信工作区自动审批
+  与完全访问；权限模式进入 Session Work State，可审计恢复，完全访问支持任意
+  系统路径并保留 mutation journal。
+- 统一结构化 `Git` 工具，覆盖 status、diff、log、show、branch、add、restore、
+  commit、checkout、stash、fetch、pull 与 push，并按操作动态标记风险。
 - 可发布的 `@zzc-101/kross` npm 包和 `kross` CLI。
 - CLI 的 `--help`、`--version` 参数与安装后冒烟测试。
 - Linux、macOS、Windows 和 Node.js 22/24 的持续集成验证。

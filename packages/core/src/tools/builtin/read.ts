@@ -18,7 +18,8 @@ interface ReadInput {
 export function createReadTool(workspaceRoot: string): ToolDefinition<ReadInput> {
   return {
     name: 'Read',
-    description: '读取工作区内文件内容，可按行偏移与行数截取。',
+    description:
+      '读取文件内容，可按行偏移与行数截取。默认限当前工作区；完全访问模式支持任意绝对路径。',
     risk: 'read',
     category: 'filesystem',
     inputSchema: z.object({
@@ -36,8 +37,12 @@ export function createReadTool(workspaceRoot: string): ToolDefinition<ReadInput>
       required: ['path'],
       additionalProperties: false
     },
-    execute: async ({ input }) => {
-      const filePath = await resolveExistingPathWithinWorkspace(workspaceRoot, input.path);
+    execute: async ({ input, accessScope }) => {
+      const filePath = await resolveExistingPathWithinWorkspace(
+        workspaceRoot,
+        input.path,
+        accessScope
+      );
       if (input.offset !== undefined || input.limit !== undefined) {
         const selected = await readLineRange(filePath, input.offset ?? 0, input.limit);
         return {

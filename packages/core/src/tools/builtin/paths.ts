@@ -1,5 +1,6 @@
 import { realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, normalize, resolve, sep } from 'node:path';
+import type { ToolAccessScope } from '../toolGateway';
 
 export class ToolBoundaryError extends Error {
   constructor(readonly attemptedPath: string) {
@@ -24,11 +25,29 @@ export function resolveWithinWorkspace(root: string, inputPath: string): string 
   return target;
 }
 
+export function resolveToolPath(
+  root: string,
+  inputPath: string,
+  accessScope: ToolAccessScope = 'workspace'
+): string {
+  if (accessScope === 'workspace') {
+    return resolveWithinWorkspace(root, inputPath);
+  }
+  return isAbsolute(inputPath)
+    ? normalize(inputPath)
+    : normalize(resolve(root, inputPath));
+}
+
 export async function resolveExistingPathWithinWorkspace(
   root: string,
-  inputPath: string
+  inputPath: string,
+  accessScope: ToolAccessScope = 'workspace'
 ): Promise<string> {
-  const target = resolveWithinWorkspace(root, inputPath);
+  const target = resolveToolPath(root, inputPath, accessScope);
+  if (accessScope === 'system') {
+    await realpath(target);
+    return target;
+  }
   const [realBase, realTarget] = await Promise.all([
     realpath(root),
     realpath(target)
@@ -39,9 +58,13 @@ export async function resolveExistingPathWithinWorkspace(
 
 export async function resolveWritablePathWithinWorkspace(
   root: string,
-  inputPath: string
+  inputPath: string,
+  accessScope: ToolAccessScope = 'workspace'
 ): Promise<string> {
-  const target = resolveWithinWorkspace(root, inputPath);
+  const target = resolveToolPath(root, inputPath, accessScope);
+  if (accessScope === 'system') {
+    return target;
+  }
   const realBase = await realpath(root);
 
   try {

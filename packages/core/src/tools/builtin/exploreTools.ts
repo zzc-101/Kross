@@ -1,10 +1,6 @@
 import type { ToolDefinition } from '../toolGateway';
 import { createEditTool } from './edit';
-import {
-  createGitDiffTool,
-  createGitLogTool,
-  createGitStatusTool
-} from './git';
+import { createGitTool } from './git';
 import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createListTool } from './list';
@@ -31,9 +27,7 @@ export function createSubagentTools(
     createRgTool(workspaceRoot),
     createListTool(workspaceRoot),
     createStatTool(workspaceRoot),
-    createGitStatusTool(workspaceRoot),
-    createGitDiffTool(workspaceRoot),
-    createGitLogTool(workspaceRoot),
+    createGitTool(workspaceRoot),
     // edit-related (no Delete/Move)
     createEditTool(workspaceRoot, mutations),
     createWriteTool(workspaceRoot, mutations)

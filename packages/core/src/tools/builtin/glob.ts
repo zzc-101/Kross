@@ -128,7 +128,7 @@ export function createGlobTool(workspaceRoot: string): ToolDefinition<GlobInput>
   return {
     name: 'Glob',
     description:
-      '按 glob 模式（支持 *、**、?、{a,b} 花括号）递归列出工作区内的文件路径，返回相对路径，每行一个。' +
+      '按 glob 模式递归列出文件路径；默认限当前工作区，完全访问模式支持任意绝对路径。' +
       '无斜杠的模式（如 *.ts、test.txt）会自动按 **/pattern 递归匹配；默认跳过 node_modules、.git 等目录。' +
       '优先使用 Rg（filesOnly=true + glob）以获得更快速度与 gitignore 支持；本工具为纯 JS 回退。',
     risk: 'read',
@@ -150,10 +150,18 @@ export function createGlobTool(workspaceRoot: string): ToolDefinition<GlobInput>
       required: ['pattern'],
       additionalProperties: false
     },
-    execute: async ({ input }) => {
+    execute: async ({ input, accessScope }) => {
       const base = input.path
-        ? await resolveExistingPathWithinWorkspace(workspaceRoot, input.path)
-        : await resolveExistingPathWithinWorkspace(workspaceRoot, '.');
+        ? await resolveExistingPathWithinWorkspace(
+            workspaceRoot,
+            input.path,
+            accessScope
+          )
+        : await resolveExistingPathWithinWorkspace(
+            workspaceRoot,
+            '.',
+            accessScope
+          );
       const pattern = input.pattern.trim();
       const matchesPath = compileGlobMatcher(pattern);
       const matches: string[] = [];

@@ -134,7 +134,7 @@
   "conductor.replan.user": "Overall goal:\n{goal}\n\nOriginal task:\n{task}\n\nRepeated failure evidence:\n{failure}\n\nProvide one recovery task.",
   "conductor.review": [
     "You are the senior conductor model responsible for reviewing worker-agent results.",
-    "You are in an isolated read-only context. First use GitStatus and inspect both unstaged and staged GitDiff; use Read, Rg, and other read-only tools as needed to verify key implementation details.",
+    "You are in an isolated read-only context. First use Git(action=status), then inspect both unstaged and staged changes with Git(action=diff); use Read, Rg, and other read-only tools as needed to verify key implementation details.",
     "Do not modify files or merely repeat worker summaries. In concise, structured English, state whether the goal was met, issues in the actual diff, omissions, risks, verification gaps, and recommended follow-up actions.",
     "The final line must be exactly VERDICT: PASS or VERDICT: NEEDS_WORK. Use NEEDS_WORK when there is a blocking issue, the goal is incomplete, or acceptance cannot be established."
   ],

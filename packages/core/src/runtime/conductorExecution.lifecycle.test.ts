@@ -348,10 +348,10 @@ function reviewerOutcome(): SubagentRunOutcome {
       diffSummary: [],
       commandsRun: [],
       toolsUsed: [
-        'GitStatus',
-        'GitDiff',
-        'GitDiff:unstaged',
-        'GitDiff:staged'
+        'Git',
+        'Git:status',
+        'Git:diff:unstaged',
+        'Git:diff:staged'
       ],
       verification: {
         status: 'not-needed',

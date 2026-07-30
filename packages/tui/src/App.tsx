@@ -272,6 +272,7 @@ export function App({
     setApprovalSelection,
     setPendingConductorPlan,
     setMode,
+    setPermissionMode,
     setAwaitingReply,
     setStreamingMessageId,
     setStatus,

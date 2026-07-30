@@ -99,7 +99,7 @@ function runtimeFactory(executions: string[]): () => Promise<RuntimeHandle> {
     gateway.register({
       name: 'DangerWrite',
       description: 'approval test',
-      risk: 'write',
+      risk: 'execute',
       inputSchema: z.object({ value: z.string() }),
       async execute({ input }) {
         executions.push(input.value);
@@ -112,6 +112,7 @@ function runtimeFactory(executions: string[]): () => Promise<RuntimeHandle> {
       llmClient: new ApprovalLlm(),
       workspaceRoot: process.cwd()
     });
+    runtime.setPermissionMode('classifier');
     const tooling = {
       traceStore,
       close: async () => undefined

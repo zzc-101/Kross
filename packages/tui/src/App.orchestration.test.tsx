@@ -106,7 +106,7 @@ describe('App orchestration and interruption', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         execute: async () => ({ content: 'written' })
       });
@@ -115,18 +115,19 @@ describe('App orchestration and interruption', () => {
         llmClient: new WriteToolCallingLlmClient(),
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
       const view = render(
         <App runtime={runtime} onReady={(next) => (api = next)} />
       );
 
       await waitUntil(() => api !== undefined);
       await api?.submit('write a file');
-      await waitUntil(() => view.lastFrame()?.includes('允许修改工作区') === true);
+      await waitUntil(() => view.lastFrame()?.includes('允许执行命令') === true);
 
       expect(api?.interruptCurrentRun()).toBe(true);
       await waitUntil(() => view.lastFrame()?.includes('已中断当前任务') === true);
 
-      expect(view.lastFrame()).not.toContain('允许修改工作区');
+      expect(view.lastFrame()).not.toContain('允许执行命令');
       expect(view.lastFrame()).not.toContain('已拒绝 fs.write');
     });
 

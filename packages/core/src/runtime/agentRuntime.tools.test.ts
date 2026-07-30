@@ -202,7 +202,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         parameters: {
           type: 'object',
           properties: {
@@ -223,6 +223,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager: new InMemoryContextManager(),
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '写 README',
@@ -234,7 +235,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         runId: pending.runId,
         toolCallId: 'write-1',
         toolName: 'fs.write',
-        risk: 'write'
+        risk: 'execute'
       });
       expect(llmClient.requests).toHaveLength(1);
 
@@ -268,7 +269,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         redactInputForTrace: (input) => {
           const value = input as { path: string; content: string };
@@ -282,6 +283,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager: new InMemoryContextManager(),
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '写 README',
@@ -369,7 +371,7 @@ describe('AgentRuntime tool loops and approvals', () => {
     toolGateway.register({
       name: 'Write',
       description: 'write file',
-      risk: 'write',
+      risk: 'execute',
       inputSchema: z.object({ path: z.string(), content: z.string() }),
       execute: async () => ({ content: 'written', summary: 'wrote 10 bytes' })
     });
@@ -384,6 +386,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       })
     });
     const runtime = new AgentRuntime({ traceStore, llmClient, toolGateway });
+    runtime.setPermissionMode('classifier');
 
     const writePending = await runtime.run({
       input: '修改代码',
@@ -432,7 +435,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         execute: async ({ input }) => ({ content: `wrote ${input.path}` })
       });
@@ -442,6 +445,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager: new InMemoryContextManager(),
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '读取后改写 README',
@@ -475,7 +479,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         execute: async ({ input }) => ({ content: `wrote ${input.path}` })
       });
@@ -485,6 +489,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager: new InMemoryContextManager(),
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '读并写 README',
@@ -535,7 +540,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         execute: async ({ input }) => ({ content: `wrote ${input.path}` })
       });
@@ -544,6 +549,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         llmClient,
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
 
       const first = await runtime.run({
         input: '写 README',
@@ -581,7 +587,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         execute: async ({ input }) => ({ content: `wrote ${input.path}` })
       });
@@ -591,6 +597,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager,
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '写 README',
@@ -626,7 +633,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         execute: async ({ input }) => ({ content: `wrote ${input.path}` })
       });
@@ -636,6 +643,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager,
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
 
       const firstPending = await runtime.run({
         input: '连续写两个文件',
@@ -670,7 +678,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         execute: async () => ({ content: 'should not run' })
       });
@@ -680,6 +688,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager,
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '写 README',

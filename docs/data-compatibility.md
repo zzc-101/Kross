@@ -23,6 +23,9 @@ Kross 把应用版本、线协议版本和持久化格式版本分开管理。�
 Kross 生成的运行状态。它们由各自 schema 校验，但当前不承诺独立的持久化迁移
 版本。
 
+Work State v1 的 `permissionMode` 为向后兼容的可选字段；旧会话缺失时按
+`default` 只读恢复，新写入事件会保存当前权限模式。
+
 ### Cloud Gateway 与 Worker
 
 | 数据 | 容器内位置 | 当前版本 | 兼容行为 |

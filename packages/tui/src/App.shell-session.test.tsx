@@ -52,7 +52,7 @@ describe('App shell and sessions', () => {
       expect(lastFrame()).toContain('❯');
       // 输入框右下角：模型 · 权限模式
       expect(lastFrame()).toContain('未配置模型');
-      expect(lastFrame()).toContain('权限：默认');
+      expect(lastFrame()).toContain('权限：只读');
       // 顶栏上下文占用 used/max
       expect(lastFrame()).toMatch(/\d+(\.\d+)?[KM]?\/\d+(\.\d+)?[KM]?/);
       expect(lastFrame()).not.toContain('Task Tree');
@@ -165,7 +165,7 @@ describe('App shell and sessions', () => {
       await waitUntil(() => lastFrame()?.includes('hello task') === true);
       expect(lastFrame()).toContain('>');
       expect(lastFrame()).toContain('Todo · —');
-      expect(lastFrame()).toContain('权限：默认');
+      expect(lastFrame()).toContain('权限：只读');
       // 进入对话后仍显示 branch/cwd，而不是 projectName=local
       expect(lastFrame()).toContain('main');
       expect(lastFrame()).toContain(cwdLabel);

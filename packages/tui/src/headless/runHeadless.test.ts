@@ -122,7 +122,9 @@ describe('headless runtime host', () => {
     const client = new ToolFixtureClient();
     let writes = 0;
 
-    const exitCode = await runHeadlessCommand(request('write a file'), {
+    const exitCode = await runHeadlessCommand(
+      { ...request('write a file'), permission: 'classifier' },
+      {
       ...fixture.dependencies,
       createHost: async ({ runId }) => {
         const traces = new MemoryTraceStore();
@@ -130,7 +132,7 @@ describe('headless runtime host', () => {
         gateway.register({
           name: 'fixture.write',
           description: 'write fixture data',
-          risk: 'write',
+          risk: 'execute',
           inputSchema: z.object({ content: z.string() }),
           execute: async () => {
             writes += 1;
@@ -147,7 +149,8 @@ describe('headless runtime host', () => {
           close: async () => undefined
         };
       }
-    });
+      }
+    );
 
     expect(exitCode).toBe(headlessExitCodes.approvalRequired);
     expect(writes).toBe(0);
@@ -156,7 +159,7 @@ describe('headless runtime host', () => {
       data: {
         toolCallId: 'write-1',
         toolName: 'fixture.write',
-        risk: 'write'
+        risk: 'execute'
       }
     });
   });

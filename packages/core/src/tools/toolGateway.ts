@@ -22,6 +22,7 @@ export type { ToolRetryPolicy } from './toolRetry';
 
 export type ToolRisk = 'read' | 'write' | 'execute' | 'network';
 export type ToolApprovalAction = 'allow' | 'ask' | 'deny';
+export type ToolAccessScope = 'workspace' | 'system';
 
 export interface ToolMetadata {
   name: string;
@@ -40,6 +41,8 @@ export interface ToolExecutionContext<TInput> {
   toolName: string;
   input: TInput;
   signal: AbortSignal;
+  /** Filesystem boundary selected by the current permission mode. */
+  accessScope?: ToolAccessScope;
 }
 
 export interface ToolResult {
@@ -141,6 +144,7 @@ export class ToolGateway {
   private readonly tools = new Map<string, ToolDefinition>();
   private readonly now: () => Date;
   private approvalPolicy: ToolApprovalPolicy;
+  private accessScope: ToolAccessScope = 'workspace';
   private readonly maxSummaryChars: number;
   private readonly maxContentPreviewChars: number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -159,6 +163,14 @@ export class ToolGateway {
 
   getApprovalPolicy(): ToolApprovalPolicy {
     return this.approvalPolicy;
+  }
+
+  setAccessScope(scope: ToolAccessScope): void {
+    this.accessScope = scope;
+  }
+
+  getAccessScope(): ToolAccessScope {
+    return this.accessScope;
   }
 
   /** Return the same validated, secret-safe input representation used by trace events. */
@@ -316,7 +328,8 @@ export class ToolGateway {
           {
             runId: input.runId,
             toolName: input.name,
-            input: parsedInput
+            input: parsedInput,
+            accessScope: this.accessScope
           },
           this.options.defaultTimeoutMs,
           input.signal

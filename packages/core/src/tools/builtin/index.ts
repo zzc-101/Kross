@@ -3,11 +3,7 @@ import { createBashTool } from './bash';
 import { createDeleteTool } from './delete';
 import { createEditTool } from './edit';
 import { createExploreTools } from './exploreTools';
-import {
-  createGitDiffTool,
-  createGitLogTool,
-  createGitStatusTool
-} from './git';
+import { createGitTool } from './git';
 import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createListTool } from './list';
@@ -23,7 +19,10 @@ import { createWriteTool } from './write';
 import { createApplyPatchTool } from './applyPatch';
 import type { TodoStore } from '../../todo/todoStore';
 import type { SkillRegistry } from '../../skills/skillRegistry';
-import type { MutationService } from '../../mutations/mutationService';
+import type {
+  MutationCoordinator,
+  MutationService
+} from '../../mutations/mutationService';
 import type { ProcessManager } from '../../process/processManager';
 import { createProcessTools } from './processTools';
 
@@ -51,9 +50,7 @@ export const builtinToolNames = [
   'Rg',
   'List',
   'Stat',
-  'GitStatus',
-  'GitDiff',
-  'GitLog',
+  'Git',
   'Task',
   'TodoWrite',
   'TodoRead',
@@ -78,6 +75,8 @@ export interface CreateBuiltinToolsOptions {
   skillRegistry?: SkillRegistry;
   /** Durable pre/post image journal for all file mutation tools. */
   mutationService?: MutationService;
+  /** Journals file mutations outside the primary workspace in full-access mode. */
+  mutationCoordinator?: MutationCoordinator;
   /** Main-session managed process lifecycle; intentionally omitted for subagents. */
   processManager?: ProcessManager;
   /** When set, registers SetMode for conversational mode switching. */
@@ -96,22 +95,42 @@ export function createBuiltinTools(
   const tools: ToolDefinition[] = [
     createBashTool(workspaceRoot),
     createReadTool(workspaceRoot),
-    createWriteTool(workspaceRoot, options.mutationService),
-    createEditTool(workspaceRoot, options.mutationService),
-    createDeleteTool(workspaceRoot, options.mutationService),
-    createMoveTool(workspaceRoot, options.mutationService),
+    createWriteTool(
+      workspaceRoot,
+      options.mutationService,
+      options.mutationCoordinator
+    ),
+    createEditTool(
+      workspaceRoot,
+      options.mutationService,
+      options.mutationCoordinator
+    ),
+    createDeleteTool(
+      workspaceRoot,
+      options.mutationService,
+      options.mutationCoordinator
+    ),
+    createMoveTool(
+      workspaceRoot,
+      options.mutationService,
+      options.mutationCoordinator
+    ),
     createGlobTool(workspaceRoot),
     createGrepTool(workspaceRoot),
     createRgTool(workspaceRoot),
     createListTool(workspaceRoot),
     createStatTool(workspaceRoot),
-    createGitStatusTool(workspaceRoot),
-    createGitDiffTool(workspaceRoot),
-    createGitLogTool(workspaceRoot)
+    createGitTool(workspaceRoot)
   ];
 
   if (options.mutationService) {
-    tools.push(createApplyPatchTool(workspaceRoot, options.mutationService));
+    tools.push(
+      createApplyPatchTool(
+        workspaceRoot,
+        options.mutationService,
+        options.mutationCoordinator
+      )
+    );
   }
 
   const includeTask =

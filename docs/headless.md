@@ -80,9 +80,10 @@ kross exec "检查项目" --json \
 
 Headless 默认使用 `--permission default`，不会因为运行在 CI 中自动提升权限：
 
-- `default`：只读调用自动执行，write / execute / network 在审批边界退出 `4`；
+- `default`：当前工作区读取自动执行，write / execute / network 在审批边界退出 `4`；
 - `classifier`：工作区内常见写操作可自动执行，Shell 和网络通常仍需审批；
-- `auto`：白名单内工具全部自动批准，只能在明确隔离、可信任务和可信仓库中使用。
+- `auto`：完全访问，所有工具自动允许且可访问任意系统路径，只能在明确隔离或
+  可信环境中使用。
 
 第一版 Headless 不提供交互式审批。出现 `approval.required` 后，可以用事件中的
 `sessionId` 在 TUI 中恢复并审阅。`plan` 和 `conductor` 模式同样会先持久化计划，

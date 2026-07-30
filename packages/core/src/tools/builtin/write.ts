@@ -15,7 +15,11 @@ import {
   lineDiffStats
 } from './fileChangeStats';
 import { resolveWritablePathWithinWorkspace } from './paths';
-import type { MutationService } from '../../mutations/mutationService';
+import type {
+  MutationCoordinator,
+  MutationService
+} from '../../mutations/mutationService';
+import { recordToolMutation } from './mutationRecorder';
 
 interface WriteInput {
   path: string;
@@ -35,11 +39,13 @@ export interface WriteResultData {
 
 export function createWriteTool(
   workspaceRoot: string,
-  mutations?: MutationService
+  mutations?: MutationService,
+  systemMutations?: MutationCoordinator
 ): ToolDefinition<WriteInput> {
   return {
     name: 'Write',
-    description: '写入或覆盖工作区内的文件，自动创建不存在的父目录。',
+    description:
+      '写入或覆盖文件，自动创建不存在的父目录。默认限当前工作区；完全访问模式支持任意绝对路径。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: z.object({
@@ -55,8 +61,12 @@ export function createWriteTool(
       required: ['path', 'content'],
       additionalProperties: false
     },
-    execute: async ({ input, runId }) => {
-      const filePath = await resolveWritablePathWithinWorkspace(workspaceRoot, input.path);
+    execute: async ({ input, runId, accessScope }) => {
+      const filePath = await resolveWritablePathWithinWorkspace(
+        workspaceRoot,
+        input.path,
+        accessScope
+      );
       const displayPath = input.path;
       const previous = await readExisting(filePath);
       const created = previous === null;
@@ -71,16 +81,15 @@ export function createWriteTool(
         await mkdir(dirname(filePath), { recursive: true });
         await writeFile(filePath, input.content, 'utf8');
       };
-      if (mutations) {
-        await mutations.record({
-          runId,
-          toolName: 'Write',
-          paths: [input.path],
-          action: write
-        });
-      } else {
-        await write();
-      }
+      await recordToolMutation({
+        recorders: { workspace: mutations, system: systemMutations },
+        accessScope,
+        runId,
+        toolName: 'Write',
+        displayPaths: [input.path],
+        absolutePaths: [filePath],
+        action: write
+      });
 
       const action = created ? 'created' : 'overwrote';
       const diffPreview: DiffPreview = created

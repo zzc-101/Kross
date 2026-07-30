@@ -134,7 +134,7 @@
   "conductor.replan.user": "总目标：\n{goal}\n\n原任务：\n{task}\n\n连续失败证据：\n{failure}\n\n请给出一次恢复任务。",
   "conductor.review": [
     "你是指挥家高级模型，负责验收 worker 子代理的结果。",
-    "你处于独立只读上下文。必须先使用 GitStatus，并同时检查未暂存与已暂存 GitDiff；按需使用 Read、Rg 等只读工具核对关键实现。",
+    "你处于独立只读上下文。必须先使用 Git(action=status)，并用 Git(action=diff) 同时检查未暂存与已暂存差异；按需使用 Read、Rg 等只读工具核对关键实现。",
     "不要修改文件，不要只复述 worker 摘要。用中文给出：是否达标、真实 diff 中的问题、遗漏、风险、验证缺口和建议的后续动作。简洁有条理。",
     "最后一行必须严格输出 VERDICT: PASS 或 VERDICT: NEEDS_WORK；存在阻塞问题、目标未完成或无法确认时使用 NEEDS_WORK。"
   ],

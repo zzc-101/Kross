@@ -8,7 +8,11 @@ import {
   resolveExistingPathWithinWorkspace,
   resolveWritablePathWithinWorkspace
 } from './paths';
-import type { MutationService } from '../../mutations/mutationService';
+import type {
+  MutationCoordinator,
+  MutationService
+} from '../../mutations/mutationService';
+import { recordToolMutation } from './mutationRecorder';
 
 interface MoveInput {
   from: string;
@@ -23,12 +27,13 @@ export interface MoveResultData {
 
 export function createMoveTool(
   workspaceRoot: string,
-  mutations?: MutationService
+  mutations?: MutationService,
+  systemMutations?: MutationCoordinator
 ): ToolDefinition<MoveInput> {
   return {
     name: 'Move',
     description:
-      '在工作区内移动或重命名文件/目录（from → to）。自动创建 to 的父目录；两端路径均须在 workspace 内。',
+      '移动或重命名文件/目录（from → to），自动创建目标父目录。默认限当前工作区；完全访问模式支持任意绝对路径。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: z.object({
@@ -44,14 +49,16 @@ export function createMoveTool(
       required: ['from', 'to'],
       additionalProperties: false
     },
-    execute: async ({ input, runId }) => {
+    execute: async ({ input, runId, accessScope }) => {
       const fromPath = await resolveExistingPathWithinWorkspace(
         workspaceRoot,
-        input.from
+        input.from,
+        accessScope
       );
       const toPath = await resolveWritablePathWithinWorkspace(
         workspaceRoot,
-        input.to
+        input.to,
+        accessScope
       );
 
       if (fromPath === toPath) {
@@ -70,16 +77,15 @@ export function createMoveTool(
         await mkdir(dirname(toPath), { recursive: true });
         await rename(fromPath, toPath);
       };
-      if (mutations) {
-        await mutations.record({
-          runId,
-          toolName: 'Move',
-          paths: [input.from, input.to],
-          action: move
-        });
-      } else {
-        await move();
-      }
+      await recordToolMutation({
+        recorders: { workspace: mutations, system: systemMutations },
+        accessScope,
+        runId,
+        toolName: 'Move',
+        displayPaths: [input.from, input.to],
+        absolutePaths: [fromPath, toPath],
+        action: move
+      });
 
       return {
         content: `已移动：${input.from} → ${input.to}`,

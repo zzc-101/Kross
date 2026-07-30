@@ -49,17 +49,19 @@ describe('App commands and model settings', () => {
 
       await waitUntil(() => submit !== undefined);
       expect(lastFrame()).toContain('fake-model');
-      expect(lastFrame()).toContain('权限：默认');
-      expect(lastFrame()).toContain('0/256K');
+      expect(lastFrame()).toContain('权限：只读');
+      expect(lastFrame()).toContain(
+        runtime.getContextUsage({ requestedMode: 'auto' }).headerLabel
+      );
 
       await submit?.('/perm auto');
-      await waitUntil(() => lastFrame()?.includes('权限：自动允许') === true);
+      await waitUntil(() => lastFrame()?.includes('权限：完全访问') === true);
       expect(lastFrame()).toContain(
-        'fake-model (medium) · 模式：自动 · 权限：自动允许'
+        'fake-model (medium) · 模式：自动 · 权限：完全访问'
       );
     });
 
-  it('updates context usage from the latest API inputTokens', async () => {
+  it('updates context usage from the accumulated conversation estimate', async () => {
       let submit: ((value: string) => Promise<void>) | undefined;
       const runtime = new AgentRuntime({
         traceStore: new InMemoryTraceStore(),
@@ -71,7 +73,12 @@ describe('App commands and model settings', () => {
 
       await waitUntil(() => submit !== undefined);
       await submit?.('统计真实 token');
-      await waitUntil(() => lastFrame()?.includes('37/256K') === true);
+      await waitUntil(
+        () =>
+          lastFrame()?.includes(
+            runtime.getContextUsage({ requestedMode: 'auto' }).headerLabel
+          ) === true
+      );
       expect(lastFrame()).toContain('usage ok');
     });
 
@@ -186,7 +193,7 @@ describe('App commands and model settings', () => {
 
       expect(lastFrame()).toContain('●');
       expect(lastFrame()).toContain('你好，我在。');
-      expect(lastFrame()).toContain('权限：默认');
+      expect(lastFrame()).toContain('权限：只读');
     });
 
   it('renders streaming deltas before the final response completes', async () => {

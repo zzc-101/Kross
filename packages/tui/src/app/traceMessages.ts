@@ -325,14 +325,23 @@ function buildCompletedDetail(
     };
   }
 
-  // Glob / Grep / List / Stat / Git*：极简 meta
+  if (
+    toolName === 'Git' &&
+    data &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    (data as { action?: unknown }).action === 'diff'
+  ) {
+    return buildPatchStyleDetail(contentPreview, summary, 40);
+  }
+
+  // Glob / Grep / List / Stat / Git：极简 meta
   if (
     toolName === 'Glob' ||
     toolName === 'Grep' ||
     toolName === 'List' ||
     toolName === 'Stat' ||
-    toolName === 'GitStatus' ||
-    toolName === 'GitLog'
+    toolName === 'Git'
   ) {
     const lines: ToolDetailLine[] = [];
     if (summary) {
@@ -355,11 +364,6 @@ function buildCompletedDetail(
       lines.push({ text: inputPreview, op: 'meta' });
     }
     return { lines: lines.length > 0 ? lines : [{ text: 'done', op: 'meta' }] };
-  }
-
-  // GitDiff：尽量保留补丁着色
-  if (toolName === 'GitDiff') {
-    return buildPatchStyleDetail(contentPreview, summary, 40);
   }
 
   // Bash：summary + 输出尾部（更贴近「最后 N 行」）
@@ -476,4 +480,3 @@ function extractDiffPreview(
     truncated: record.truncated === true
   };
 }
-

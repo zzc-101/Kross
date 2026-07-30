@@ -66,9 +66,9 @@ export const zhCatalog = {
   'mode.plan': '计划',
   'mode.conductor': '指挥家',
   'mode.footer': '模式：{label}',
-  'perm.default': '权限：默认',
-  'perm.classifier': '权限：智能判断',
-  'perm.auto': '权限：自动允许',
+  'perm.default': '权限：只读',
+  'perm.classifier': '权限：自动审批',
+  'perm.auto': '权限：完全访问',
   'perm.unknown': '权限：{mode}',
 
   // slash commands
@@ -358,9 +358,9 @@ export const enCatalog: Record<MessageKey, string> = {
   'mode.plan': 'Plan',
   'mode.conductor': 'Conductor',
   'mode.footer': 'Mode: {label}',
-  'perm.default': 'Perm: default',
-  'perm.classifier': 'Perm: classifier',
-  'perm.auto': 'Perm: auto-allow',
+  'perm.default': 'Perm: read-only',
+  'perm.classifier': 'Perm: trusted-workspace',
+  'perm.auto': 'Perm: full-access',
   'perm.unknown': 'Perm: {mode}',
 
   'slash.help.desc': 'Show all commands',

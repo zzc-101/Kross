@@ -133,7 +133,7 @@ describe('skills in AgentRuntime', () => {
 });
 
 describe('durable work state in AgentRuntime', () => {
-  it('exports and restores todos, mode and pending execution without permission state', () => {
+  it('exports and restores todos, mode, permission and pending execution', () => {
     const root = makeWorkspace();
     const first = new AgentRuntime({ traceStore, workspaceRoot: root });
     first.getTodoStore()?.write({
@@ -158,7 +158,7 @@ describe('durable work state in AgentRuntime', () => {
     });
     expect(second.restoreWorkState(state)).toBe(true);
     expect(second.getSessionMode()).toBe('plan');
-    expect(second.getPermissionMode()).toBe('default');
+    expect(second.getPermissionMode()).toBe('auto');
     expect(second.getTodoStore()?.list()).toEqual(state.todos);
     expect(second.getPendingModeExecution()).toEqual(state.pendingModeExecution);
   });

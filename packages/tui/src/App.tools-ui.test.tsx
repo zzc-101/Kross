@@ -87,7 +87,7 @@ describe('App tool and status UI', () => {
       toolGateway.register({
         name: 'fs.write',
         description: '写文件',
-        risk: 'write',
+        risk: 'execute',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         execute: async ({ input }) => ({ content: `wrote ${input.path}` })
       });
@@ -96,6 +96,7 @@ describe('App tool and status UI', () => {
         llmClient,
         toolGateway
       });
+      runtime.setPermissionMode('classifier');
       const { lastFrame } = render(
         <App
           runtime={runtime}
@@ -108,8 +109,8 @@ describe('App tool and status UI', () => {
 
       await waitUntil(() => submit !== undefined);
       await submit?.('写 README');
-      await waitUntil(() => lastFrame()?.includes('允许修改工作区？') === true);
-      expect(lastFrame()).toContain('允许修改工作区？');
+      await waitUntil(() => lastFrame()?.includes('允许执行命令？') === true);
+      expect(lastFrame()).toContain('允许执行命令？');
 
       await chooseToolApproval?.(true);
       await waitUntil(() => lastFrame()?.includes('写入完成') === true);
@@ -130,6 +131,7 @@ describe('App tool and status UI', () => {
         execute: async () => ({ content: 'executed' })
       });
       const runtime = new AgentRuntime({ traceStore, llmClient, toolGateway });
+      runtime.setPermissionMode('classifier');
       const { lastFrame } = render(
         <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
       );
@@ -236,7 +238,7 @@ describe('App tool and status UI', () => {
         toolGateway.register({
           name: 'fs.write',
           description: '写文件',
-          risk: 'write',
+          risk: 'execute',
           inputSchema: z.object({ path: z.string(), content: z.string() }),
           execute: async ({ input }) => ({ content: `wrote ${input.path}` })
         });
@@ -245,6 +247,7 @@ describe('App tool and status UI', () => {
           llmClient,
           toolGateway
         });
+        runtime.setPermissionMode('classifier');
         const { lastFrame } = render(
           <App
             runtime={runtime}
@@ -257,7 +260,7 @@ describe('App tool and status UI', () => {
 
         await waitUntil(() => submit !== undefined);
         await submit?.('写 README');
-        await waitUntil(() => lastFrame()?.includes('允许修改工作区？') === true);
+        await waitUntil(() => lastFrame()?.includes('允许执行命令？') === true);
 
         expect(lastFrame()).toContain('fs.write');
         expect(lastFrame()).toContain('允许一次');
@@ -300,18 +303,18 @@ describe('App tool and status UI', () => {
 
       await waitUntil(() => submit !== undefined);
       // 权限只在 Composer 页脚；顶栏改为 Todo 进度。
-      expect(lastFrame()).toContain('权限：默认');
+      expect(lastFrame()).toContain('权限：只读');
       expect(lastFrame()).toContain('Todo · —');
 
       await submit?.('/perm classifier');
-      await waitUntil(() => lastFrame()?.includes('权限：智能判断') === true);
+      await waitUntil(() => lastFrame()?.includes('权限：自动审批') === true);
       expect(runtime.getPermissionMode()).toBe('classifier');
-      expect(lastFrame()).toContain('权限：智能判断');
+      expect(lastFrame()).toContain('权限：自动审批');
 
       await submit?.('/perm auto');
-      await waitUntil(() => lastFrame()?.includes('权限：自动允许') === true);
+      await waitUntil(() => lastFrame()?.includes('权限：完全访问') === true);
       expect(runtime.getPermissionMode()).toBe('auto');
-      expect(lastFrame()).toContain('权限：自动允许');
+      expect(lastFrame()).toContain('权限：完全访问');
     });
 
   it('shows session todos in the header and expands the full list on toggle', async () => {

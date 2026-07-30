@@ -10,6 +10,7 @@ import type { LlmClient, LlmRequest, LlmResponse, LlmStreamChunk } from '../llm/
 import { renderPrompt } from '../prompts';
 import type { TraceStore } from '../trace/traceStore';
 import { ToolGateway, ToolPermissionError } from '../tools/toolGateway';
+import { createApprovalPolicy } from '../tools/permissionModes';
 import { createTaskTool } from '../tools/builtin/task';
 import {
   createExploreTools,
@@ -409,18 +410,22 @@ describe('runSubagent', () => {
           this.calls += 1;
           const tool =
             this.calls === 1
-              ? { id: 'status-1', name: 'GitStatus', input: {} }
+              ? {
+                  id: 'status-1',
+                  name: 'Git',
+                  input: { action: 'status' }
+                }
               : this.calls === 2
                 ? {
                     id: 'diff-1',
-                    name: 'GitDiff',
-                    input: { staged: false }
+                    name: 'Git',
+                    input: { action: 'diff', staged: false }
                   }
                 : this.calls === 3
                   ? {
                       id: 'diff-2',
-                      name: 'GitDiff',
-                      input: { staged: true }
+                      name: 'Git',
+                      input: { action: 'diff', staged: true }
                     }
                   : undefined;
           return {
@@ -464,9 +469,9 @@ describe('runSubagent', () => {
 
       expect(outcome.result.toolsUsed).toEqual(
         expect.arrayContaining([
-          'GitStatus',
-          'GitDiff:unstaged',
-          'GitDiff:staged'
+          'Git:status',
+          'Git:diff:unstaged',
+          'Git:diff:staged'
         ])
       );
       expect(outcome.result.diffSummary).toHaveLength(2);
@@ -774,9 +779,11 @@ describe('runSubagent abort', () => {
 });
 
 describe('Task tool', () => {
-  it('requires write approval for general mode while explore remains read-only', async () => {
+  it('auto-approves scoped general tasks while explore remains read-only', async () => {
     const requests: string[] = [];
-    const gateway = new ToolGateway();
+    const gateway = new ToolGateway({
+      approvalPolicy: createApprovalPolicy('classifier')
+    });
     gateway.register(
       createTaskTool({
         run: async (request) => {
@@ -823,23 +830,6 @@ describe('Task tool', () => {
           prompt: 'make a change',
           mode: 'general'
         }
-      })
-    ).rejects.toMatchObject({
-      name: 'ToolPermissionError',
-      risk: 'write'
-    } satisfies Partial<ToolPermissionError>);
-    expect(requests).toEqual(['explore']);
-
-    await expect(
-      gateway.call({
-        runId: 'general-approved',
-        name: 'Task',
-        input: {
-          description: 'edit',
-          prompt: 'make a change',
-          mode: 'general'
-        },
-        approved: true
       })
     ).resolves.toMatchObject({ status: 'completed' });
     expect(requests).toEqual(['explore', 'general']);

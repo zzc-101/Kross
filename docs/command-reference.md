@@ -64,14 +64,15 @@ MCP Resource 被标记为外部、不可信来源；Prompt 预览不会覆盖系
 
 | 命令 | 说明 |
 |---|---|
-| `/perm default` | 读操作自动允许，其他风险请求确认 |
-| `/perm classifier` | 工作区写入自动允许；危险 shell 拒绝，其他执行/网络请求确认 |
-| `/perm auto` | 所有工具调用自动允许 |
+| `/perm default` | 当前工作区读取自动允许；写入、执行和网络弹出审批面板 |
+| `/perm classifier` | 工作区读取和可信编辑自动允许；危险 shell 拒绝，其他执行/网络请求确认 |
+| `/perm auto` | 完全访问：所有工具自动允许，并可访问当前用户有权限访问的任意系统路径 |
 | `/import claude` | 导入检测到的 Claude Code 配置 |
 | `/import codex` | 导入检测到的 Codex 配置 |
 | `/import skip` | 关闭首次导入提示 |
 
-权限模式不会跨重启恢复，重新启动后回到 `default`。`auto` 不等同于沙箱，使用前应阅读 [安全模型](security.md)。
+权限模式随会话恢复，并记录在 Session Work State 中。`auto` 不等同于沙箱，
+而是显式解除内建工具的 workspace 路径边界，使用前应阅读[安全模型](security.md)。
 
 ## 快捷键
 

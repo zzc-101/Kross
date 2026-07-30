@@ -119,20 +119,22 @@ function createRuntime(
   gateway.register({
     name: 'fs.write',
     description: 'write',
-    risk: 'write',
+    risk: 'execute',
     inputSchema: z.object({ path: z.string(), content: z.string() }),
     execute: async () => {
       counters.write += 1;
       return { content: 'wrote README.md' };
     }
   });
-  return new AgentRuntime({
+  const runtime = new AgentRuntime({
     traceStore,
     llmClient,
     sessionContext: context,
     toolGateway: gateway,
     createRunId: () => 'run-checkpoint'
   });
+  runtime.setPermissionMode('classifier');
+  return runtime;
 }
 
 class ToolBatchClient implements LlmClient {

@@ -326,10 +326,10 @@ describe('AgentRuntime lifecycle and context', () => {
                 diffSummary: [],
                 commandsRun: [],
                 toolsUsed: [
-                  'GitStatus',
-                  'GitDiff',
-                  'GitDiff:unstaged',
-                  'GitDiff:staged',
+                  'Git',
+                  'Git:status',
+                  'Git:diff:unstaged',
+                  'Git:diff:staged',
                   'Read'
                 ],
                 verification: {
@@ -337,7 +337,7 @@ describe('AgentRuntime lifecycle and context', () => {
                   commands: [],
                   evidence: []
                 },
-                evidence: ['GitStatus and GitDiff inspected'],
+                evidence: ['Git status and diff inspected'],
                 risks: [],
                 needsReview: []
               }
@@ -403,7 +403,7 @@ describe('AgentRuntime lifecycle and context', () => {
       );
     });
 
-  it('fails conductor acceptance when reviewer skips GitStatus or GitDiff', async () => {
+  it('fails conductor acceptance when reviewer skips Git status or diff', async () => {
       const traceStore = new InMemoryTraceStore();
       const runtime = new AgentRuntime({
         traceStore,
@@ -459,7 +459,7 @@ describe('AgentRuntime lifecycle and context', () => {
       expect(result.report.risks).toEqual(
         expect.arrayContaining([
           expect.stringContaining(
-            '缺少工具证据：GitStatus, GitDiff(unstaged), GitDiff(staged)'
+            '缺少工具证据：Git(status), Git(diff unstaged), Git(diff staged)'
           )
         ])
       );
@@ -494,10 +494,10 @@ describe('AgentRuntime lifecycle and context', () => {
             toolsUsed:
               request.role === 'reviewer'
                 ? [
-                    'GitStatus',
-                    'GitDiff',
-                    'GitDiff:unstaged',
-                    'GitDiff:staged'
+                    'Git',
+                    'Git:status',
+                    'Git:diff:unstaged',
+                    'Git:diff:staged'
                   ]
                 : ['Write', 'Bash'],
             verification:

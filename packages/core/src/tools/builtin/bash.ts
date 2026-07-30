@@ -63,7 +63,7 @@ export function createBashTool(workspaceRoot: string): ToolDefinition<BashInput>
   return {
     name: 'Bash',
     description:
-      '以工作区内目录作为 cwd 启动 shell 命令，返回合并后的标准输出与标准错误。命令本身仍可能访问 cwd 外资源，需由审批策略约束。',
+      '启动 shell 命令并返回标准输出与错误。默认 cwd 限当前工作区；完全访问模式支持任意绝对 cwd。命令拥有当前进程的系统权限。',
     risk: 'execute',
     category: 'shell',
     timeoutMs: 120_000,
@@ -101,8 +101,16 @@ export function createBashTool(workspaceRoot: string): ToolDefinition<BashInput>
     ): Promise<ToolHandlerResult> => {
       const { command, cwd, timeoutMs } = context.input;
       const workdir = cwd
-        ? await resolveExistingPathWithinWorkspace(workspaceRoot, cwd)
-        : await resolveExistingPathWithinWorkspace(workspaceRoot, '.');
+        ? await resolveExistingPathWithinWorkspace(
+            workspaceRoot,
+            cwd,
+            context.accessScope
+          )
+        : await resolveExistingPathWithinWorkspace(
+            workspaceRoot,
+            '.',
+            context.accessScope
+          );
 
       const { stdout, stderr, code } = await runCommand(
         command,

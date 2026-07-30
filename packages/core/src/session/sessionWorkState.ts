@@ -5,6 +5,10 @@ import { conductorTaskPlanSchema } from '../modes/conductorPlan';
 import type { PendingModeExecution } from '../modes/pendingExecution';
 import { TODO_STATUSES, type TodoItem } from '../todo/todoStore';
 import {
+  permissionModes,
+  type PermissionMode
+} from '../tools/permissionModes';
+import {
   runCheckpointSchema,
   type RunCheckpointV1
 } from '../runtime/runCheckpoint';
@@ -35,6 +39,7 @@ export const sessionWorkStateSchema = z.object({
   todos: z.array(todoItemSchema).max(500),
   pendingModeExecution: pendingModeExecutionSchema.optional(),
   sessionMode: agentModeSchema,
+  permissionMode: z.enum(permissionModes).optional(),
   runCheckpoint: runCheckpointSchema.optional()
 });
 
@@ -43,6 +48,7 @@ export interface SessionWorkStateV1 {
   todos: TodoItem[];
   pendingModeExecution?: PendingModeExecution;
   sessionMode: AgentMode;
+  permissionMode?: PermissionMode;
   runCheckpoint?: RunCheckpointV1;
 }
 

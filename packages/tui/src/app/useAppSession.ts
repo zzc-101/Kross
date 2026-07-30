@@ -5,6 +5,7 @@ import {
   type AgentRuntime,
   type HybridSessionStore,
   type PendingToolApproval,
+  type PermissionMode,
   type SessionSummary,
   type VerificationReport
 } from '@kross/core';
@@ -50,6 +51,7 @@ export interface UseAppSessionOptions {
     React.SetStateAction<{ prompt: string; mode: import('@kross/core').AgentMode } | undefined>
   >;
   setMode: React.Dispatch<React.SetStateAction<import('@kross/core').AgentMode>>;
+  setPermissionMode: React.Dispatch<React.SetStateAction<PermissionMode>>;
   setAwaitingReply: React.Dispatch<React.SetStateAction<boolean>>;
   setStreamingMessageId: React.Dispatch<React.SetStateAction<number | undefined>>;
   setStatus: React.Dispatch<React.SetStateAction<string>>;
@@ -81,6 +83,7 @@ export function useAppSession({
   setApprovalSelection,
   setPendingConductorPlan,
   setMode,
+  setPermissionMode,
   setAwaitingReply,
   setStreamingMessageId,
   setStatus,
@@ -307,6 +310,7 @@ export function useAppSession({
     agentRuntime.restoreConversation([]);
     agentRuntime.restoreWorkState({ version: 1, todos: [], sessionMode: 'auto' });
     setMode('auto');
+    setPermissionMode('default');
 
     let sessions: SessionSummary[] = [];
     try {
@@ -447,6 +451,7 @@ export function useAppSession({
         restoredInterruptedTurn = restoredContext;
       }
       setMode(workState.sessionMode);
+      setPermissionMode(agentRuntime.getPermissionMode());
       const restoredToolApproval = agentRuntime.getPendingToolApproval();
       setPendingToolApproval(restoredToolApproval);
       if (restoredToolApproval) {

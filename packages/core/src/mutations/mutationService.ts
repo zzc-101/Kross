@@ -11,7 +11,7 @@ import {
   symlinkSync,
   writeFileSync
 } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, parse, relative, resolve, sep } from 'node:path';
 
 import { resolveWritablePathWithinWorkspace } from '../tools/builtin/paths';
 import {
@@ -218,6 +218,31 @@ export class MutationCoordinator {
     return service;
   }
 
+  /**
+   * Record mutations whose targets may live outside the primary workspace.
+   * The journal is rooted at the nearest common parent, so undo remains
+   * conflict-protected without widening a workspace-scoped MutationService.
+   */
+  recordAbsolute<T>(input: {
+    runId: string;
+    toolName: MutationToolName;
+    paths: string[];
+    action: () => Promise<T>;
+  }): Promise<T> {
+    const absolutePaths = [...new Set(input.paths.map((path) => resolve(path)))];
+    if (absolutePaths.length === 0) {
+      throw new Error('At least one mutation path is required');
+    }
+    const root = commonAncestor(absolutePaths.map((path) => dirname(path)));
+    const service = this.forWorkspace(root);
+    return service.record({
+      runId: input.runId,
+      toolName: input.toolName,
+      paths: absolutePaths.map((path) => relative(root, path) || '.'),
+      action: input.action
+    });
+  }
+
   undo(target?: string): UndoResult {
     const candidates = [...this.services.values()].flatMap((service) =>
       service.listActive().map((record) => ({ service, record }))
@@ -239,6 +264,25 @@ export class MutationCoordinator {
     }
     return matching[0]!.service.undo(matching[0]!.record.transactionId);
   }
+}
+
+function commonAncestor(paths: string[]): string {
+  let current = resolve(paths[0]!);
+  for (const candidate of paths.slice(1)) {
+    const target = resolve(candidate);
+    if (parse(current).root.toLowerCase() !== parse(target).root.toLowerCase()) {
+      throw new Error('Cannot journal one mutation across filesystem roots');
+    }
+    while (
+      target !== current &&
+      !target.startsWith(current.endsWith(sep) ? current : `${current}${sep}`)
+    ) {
+      const parent = dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+  }
+  return current || parse(resolve(paths[0]!)).root;
 }
 
 function mergeUndoResults(results: UndoResult[]): UndoResult {

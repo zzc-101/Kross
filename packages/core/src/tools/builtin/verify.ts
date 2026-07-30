@@ -91,7 +91,8 @@ export function createVerifyTool(
       }
       const workdir = await resolveExistingPathWithinWorkspace(
         workspaceRoot,
-        context.input.cwd ?? '.'
+        context.input.cwd ?? '.',
+        context.accessScope
       );
       const { stdout, stderr, code } = await runCommand(
         executable,

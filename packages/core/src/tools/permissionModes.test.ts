@@ -4,8 +4,10 @@ import { z } from 'zod';
 import {
   createApprovalPolicy,
   nextPermissionMode,
+  permissionModeAccessScope,
   permissionModes
 } from './permissionModes';
+import { createGitTool } from './builtin/git';
 import { ToolGateway, ToolPermissionError } from './toolGateway';
 
 describe('permissionModes', () => {
@@ -14,6 +16,9 @@ describe('permissionModes', () => {
     expect(nextPermissionMode('classifier')).toBe('auto');
     expect(nextPermissionMode('auto')).toBe('default');
     expect(permissionModes).toEqual(['default', 'classifier', 'auto']);
+    expect(permissionModeAccessScope('default')).toBe('workspace');
+    expect(permissionModeAccessScope('classifier')).toBe('workspace');
+    expect(permissionModeAccessScope('auto')).toBe('system');
   });
 
   it('auto mode allows write tools without approval', async () => {
@@ -34,6 +39,30 @@ describe('permissionModes', () => {
       input: { path: 'a.txt', content: 'hi' }
     });
     expect(result.status).toBe('completed');
+  });
+
+  it('default mode opens an approval gate for writes', async () => {
+    const gateway = new ToolGateway({
+      approvalPolicy: createApprovalPolicy('default')
+    });
+    gateway.register({
+      name: 'Write',
+      description: '写文件',
+      risk: 'write',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      execute: async ({ input }) => ({ content: `wrote ${input.path}` })
+    });
+
+    await expect(
+      gateway.call({
+        runId: 'run-default',
+        name: 'Write',
+        input: { path: 'a.txt', content: 'hi' }
+      })
+    ).rejects.toMatchObject({
+      name: 'ToolPermissionError',
+      action: 'ask'
+    });
   });
 
   it('classifier allows read/write and asks for bash', async () => {
@@ -129,5 +158,35 @@ describe('permissionModes', () => {
         input: { path: 'a.ts', content: 'x' }
       })
     ).resolves.toMatchObject({ status: 'completed' });
+  });
+
+  it('applies dynamic Git risk per structured action', () => {
+    const gateway = new ToolGateway({
+      approvalPolicy: createApprovalPolicy('default')
+    });
+    gateway.register(createGitTool('/tmp'));
+
+    expect(gateway.inspectCall('Git', { action: 'status' })).toMatchObject({
+      tool: { risk: 'read' },
+      approval: { action: 'allow' }
+    });
+    expect(
+      gateway.inspectCall('Git', { action: 'commit', message: 'done' })
+    ).toMatchObject({
+      tool: { risk: 'write' },
+      approval: { action: 'ask' }
+    });
+
+    gateway.setApprovalPolicy(createApprovalPolicy('classifier'));
+    expect(
+      gateway.inspectCall('Git', { action: 'commit', message: 'done' })
+    ).toMatchObject({
+      tool: { risk: 'write' },
+      approval: { action: 'allow' }
+    });
+    expect(gateway.inspectCall('Git', { action: 'push' })).toMatchObject({
+      tool: { risk: 'network' },
+      approval: { action: 'ask' }
+    });
   });
 });

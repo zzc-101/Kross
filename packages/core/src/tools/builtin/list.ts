@@ -46,7 +46,7 @@ export function createListTool(workspaceRoot: string): ToolDefinition<ListInput>
   return {
     name: 'List',
     description:
-      '按层级列出工作区内目录内容，包含文件类型和大小；默认隐藏点文件、不跟随符号链接，' +
+      '按层级列出目录内容；默认限当前工作区，完全访问模式支持任意绝对路径。默认隐藏点文件、不跟随符号链接，' +
       '且默认跳过 node_modules/.git/dist 等噪音目录（避免 depth≥2 时只看见依赖树）。' +
       '需要时设 includeIgnored=true。',
     risk: 'read',
@@ -86,10 +86,11 @@ export function createListTool(workspaceRoot: string): ToolDefinition<ListInput>
       },
       additionalProperties: false
     },
-    execute: async ({ input }) => {
+    execute: async ({ input, accessScope }) => {
       const base = await resolveExistingPathWithinWorkspace(
         workspaceRoot,
-        input.path ?? '.'
+        input.path ?? '.',
+        accessScope
       );
       const baseStat = await stat(base);
       if (!baseStat.isDirectory()) {

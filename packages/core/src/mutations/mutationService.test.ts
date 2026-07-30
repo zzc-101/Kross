@@ -4,7 +4,11 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { MutationConflictError, MutationService } from './mutationService';
+import {
+  MutationConflictError,
+  MutationCoordinator,
+  MutationService
+} from './mutationService';
 
 let temp = '';
 afterEach(() => {
@@ -21,6 +25,27 @@ function setup() {
 }
 
 describe('MutationService', () => {
+  it('journals and undoes full-access mutations outside the primary workspace', async () => {
+    const { workspace, krossHome } = setup();
+    const outside = join(temp, 'outside');
+    mkdirSync(outside);
+    const target = join(outside, 'a.txt');
+    writeFileSync(target, 'before');
+    const coordinator = new MutationCoordinator(krossHome);
+    coordinator.forWorkspace(workspace);
+
+    await coordinator.recordAbsolute({
+      runId: 'run-system',
+      toolName: 'Edit',
+      paths: [target],
+      action: async () => writeFileSync(target, 'after')
+    });
+
+    expect(readFileSync(target, 'utf8')).toBe('after');
+    coordinator.undo('run-system');
+    expect(readFileSync(target, 'utf8')).toBe('before');
+  });
+
   it('records and undoes a file mutation', async () => {
     const { workspace, krossHome } = setup();
     writeFileSync(join(workspace, 'a.txt'), 'before');

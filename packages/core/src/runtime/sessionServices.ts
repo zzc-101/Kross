@@ -2,7 +2,11 @@ import { basename, resolve } from 'node:path';
 
 import type { SessionContext } from '../context/sessionContext';
 import type { AgentMode } from '../domain';
-import { createApprovalPolicy, type PermissionMode } from '../tools/permissionModes';
+import {
+  createApprovalPolicy,
+  permissionModeAccessScope,
+  type PermissionMode
+} from '../tools/permissionModes';
 import type { ToolGateway } from '../tools/toolGateway';
 import {
   formatRegistryForPrompt,
@@ -68,6 +72,9 @@ export class SessionServices {
     this.deps.toolGateway?.setApprovalPolicy(
       createApprovalPolicy(this.permissionMode)
     );
+    this.deps.toolGateway?.setAccessScope(
+      permissionModeAccessScope(this.permissionMode)
+    );
   }
 
   getSessionMode(): AgentMode {
@@ -128,8 +135,11 @@ export class SessionServices {
   }
 
   setPermissionMode(mode: PermissionMode): void {
+    if (this.permissionMode === mode) return;
     this.permissionMode = mode;
     this.deps.toolGateway?.setApprovalPolicy(createApprovalPolicy(mode));
+    this.deps.toolGateway?.setAccessScope(permissionModeAccessScope(mode));
+    this.deps.emitWorkStateChanged();
   }
 
   getWorkspaceRoots(): WorkspaceRoots | undefined {
@@ -278,7 +288,8 @@ export class SessionServices {
       pendingModeExecution: this.pendingModeExecution
         ? JSON.parse(JSON.stringify(this.pendingModeExecution))
         : undefined,
-      sessionMode: this.sessionMode
+      sessionMode: this.sessionMode,
+      permissionMode: this.permissionMode
     };
   }
 
@@ -290,6 +301,13 @@ export class SessionServices {
     try {
       this.pendingModeExecution = restored.pendingModeExecution;
       this.sessionMode = restored.sessionMode;
+      this.permissionMode = restored.permissionMode ?? 'default';
+      this.deps.toolGateway?.setApprovalPolicy(
+        createApprovalPolicy(this.permissionMode)
+      );
+      this.deps.toolGateway?.setAccessScope(
+        permissionModeAccessScope(this.permissionMode)
+      );
       this.deps.options.todoStore?.restore(restored.todos);
       this.syncSessionModeSource();
       this.syncTodoContextSource();

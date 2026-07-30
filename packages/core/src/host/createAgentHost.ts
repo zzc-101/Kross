@@ -416,6 +416,7 @@ function createLocalTooling(
     todoStore,
     skillRegistry,
     mutationService: mutationCoordinator.forWorkspace(cwd),
+    mutationCoordinator,
     processManager
   })) {
     toolGateway.register(tool);

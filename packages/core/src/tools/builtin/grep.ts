@@ -45,7 +45,7 @@ export function createGrepTool(workspaceRoot: string): ToolDefinition<GrepInput>
   return {
     name: 'Grep',
     description:
-      '在工作区内递归搜索文件内容（纯 JS）。返回 相对路径:行号:内容。' +
+      '递归搜索文件内容（纯 JS）；默认限当前工作区，完全访问模式支持任意绝对路径。返回 相对路径:行号:内容。' +
       '可用 include 按文件名 glob 过滤（支持 {ts,js} 花括号）。' +
       '默认跳过 node_modules/.git/dist 等目录。优先用 Rg。',
     risk: 'read',
@@ -72,10 +72,18 @@ export function createGrepTool(workspaceRoot: string): ToolDefinition<GrepInput>
       required: ['pattern'],
       additionalProperties: false
     },
-    execute: async ({ input }) => {
+    execute: async ({ input, accessScope }) => {
       const base = input.path
-        ? await resolveExistingPathWithinWorkspace(workspaceRoot, input.path)
-        : await resolveExistingPathWithinWorkspace(workspaceRoot, '.');
+        ? await resolveExistingPathWithinWorkspace(
+            workspaceRoot,
+            input.path,
+            accessScope
+          )
+        : await resolveExistingPathWithinWorkspace(
+            workspaceRoot,
+            '.',
+            accessScope
+          );
       const regex = new RegExp(input.pattern, input.ignoreCase ? 'i' : '');
       const includeMatch = input.include
         ? compileGlobMatcher(input.include)

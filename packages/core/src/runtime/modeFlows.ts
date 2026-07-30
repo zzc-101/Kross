@@ -641,12 +641,12 @@ export class ModeFlows {
             toolsUsed: reviewerResult.toolsUsed,
             verdict
           });
-          const inspectedStatus = reviewerResult.toolsUsed.includes('GitStatus');
+          const inspectedStatus = reviewerResult.toolsUsed.includes('Git:status');
           const inspectedUnstagedDiff = reviewerResult.toolsUsed.includes(
-            'GitDiff:unstaged'
+            'Git:diff:unstaged'
           );
           const inspectedStagedDiff = reviewerResult.toolsUsed.includes(
-            'GitDiff:staged'
+            'Git:diff:staged'
           );
           if (
             reviewerResult.status === 'completed' &&
@@ -666,9 +666,9 @@ export class ModeFlows {
           } else {
             reviewerIncomplete = true;
             const missingTools = [
-              inspectedStatus ? undefined : 'GitStatus',
-              inspectedUnstagedDiff ? undefined : 'GitDiff(unstaged)',
-              inspectedStagedDiff ? undefined : 'GitDiff(staged)',
+              inspectedStatus ? undefined : 'Git(status)',
+              inspectedUnstagedDiff ? undefined : 'Git(diff unstaged)',
+              inspectedStagedDiff ? undefined : 'Git(diff staged)',
               verdict !== undefined ? undefined : 'VERDICT'
             ].filter((tool): tool is string => tool !== undefined);
             allRisks.push(

@@ -3,12 +3,17 @@ import { dirname } from 'node:path';
 
 import { z } from 'zod';
 
-import type { MutationService } from '../../mutations/mutationService';
+import type {
+  MutationCoordinator,
+  MutationService
+} from '../../mutations/mutationService';
+import type { ToolAccessScope } from '../toolGateway';
 import type { ToolDefinition } from '../toolGateway';
 import {
   resolveExistingPathWithinWorkspace,
   resolveWritablePathWithinWorkspace
 } from './paths';
+import { recordToolMutation } from './mutationRecorder';
 
 interface ApplyPatchInput {
   patch: string;
@@ -31,12 +36,13 @@ const MAX_PATCH_BYTES = 512 * 1024;
 
 export function createApplyPatchTool(
   workspaceRoot: string,
-  mutations: MutationService
+  mutations: MutationService,
+  systemMutations?: MutationCoordinator
 ): ToolDefinition<ApplyPatchInput> {
   return {
     name: 'ApplyPatch',
     description:
-      '原子应用 *** Begin Patch 格式的多文件补丁，支持 Add/Update/Delete File。任一路径或 hunk 失败时不写入任何文件。',
+      '原子应用 *** Begin Patch 格式多文件补丁。默认限当前工作区，完全访问模式支持绝对路径；任一路径或 hunk 失败时不写入。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: z.object({
@@ -58,13 +64,20 @@ export function createApplyPatchTool(
       required: ['patch'],
       additionalProperties: false
     },
-    execute: async ({ input, runId }) => {
+    execute: async ({ input, runId, accessScope }) => {
       const operations = parsePatch(input.patch);
-      const planned = await planOperations(workspaceRoot, operations);
-      await mutations.record({
+      const planned = await planOperations(
+        workspaceRoot,
+        operations,
+        accessScope
+      );
+      await recordToolMutation({
+        recorders: { workspace: mutations, system: systemMutations },
+        accessScope,
         runId,
         toolName: 'ApplyPatch',
-        paths: planned.map((item) => item.path),
+        displayPaths: planned.map((item) => item.path),
+        absolutePaths: planned.map((item) => item.absolute),
         action: async () => {
           for (const item of planned) {
             if (item.kind === 'delete') {
@@ -139,12 +152,17 @@ export function parsePatch(patch: string): PatchOperation[] {
 
 async function planOperations(
   workspaceRoot: string,
-  operations: PatchOperation[]
+  operations: PatchOperation[],
+  accessScope?: ToolAccessScope
 ): Promise<PlannedFile[]> {
   const planned: PlannedFile[] = [];
   for (const operation of operations) {
     if (operation.kind === 'add') {
-      const absolute = await resolveWritablePathWithinWorkspace(workspaceRoot, operation.path);
+      const absolute = await resolveWritablePathWithinWorkspace(
+        workspaceRoot,
+        operation.path,
+        accessScope
+      );
       try {
         await lstat(absolute);
         throw new Error(`Cannot add existing file: ${operation.path}`);
@@ -164,7 +182,11 @@ async function planOperations(
       continue;
     }
 
-    const absolute = await resolveExistingPathWithinWorkspace(workspaceRoot, operation.path);
+    const absolute = await resolveExistingPathWithinWorkspace(
+      workspaceRoot,
+      operation.path,
+      accessScope
+    );
     const meta = await lstat(absolute);
     if (!meta.isFile()) throw new Error(`Patch target is not a regular file: ${operation.path}`);
     if (operation.kind === 'delete') {
