@@ -16,6 +16,11 @@ export function ModelSettingsPanel({
   const innerWidth = boxWidth - 4;
   const hRule = symbols.boxHorizontal.repeat(boxWidth - 2);
   const selectedModel = state.models[state.modelIndex];
+  const modelWindow = resolveModelWindow(
+    state.models.length,
+    state.modelIndex,
+    7
+  );
 
   const Row = ({ children }: { children: React.ReactNode }) => (
     <Box>
@@ -30,8 +35,15 @@ export function ModelSettingsPanel({
   if (state.quickSetup) {
     const setup = state.quickSetup;
     const stepIndex =
-      ['protocol', 'baseUrl', 'apiKey', 'model', 'contextWindow', 'review']
-        .indexOf(setup.step) + 1;
+      [
+        'profileName',
+        'protocol',
+        'baseUrl',
+        'apiKey',
+        'model',
+        'contextWindow',
+        'review'
+      ].indexOf(setup.step) + 1;
     return (
       <Box flexDirection="column" marginBottom={0} width={boxWidth} flexShrink={0}>
         <Text color={theme.brandSoft}>
@@ -45,7 +57,7 @@ export function ModelSettingsPanel({
           </Text>
           <Text dimColor>
             {' '}
-            · {stepIndex}/6
+            · {stepIndex}/7
           </Text>
         </Row>
         <Row>
@@ -91,17 +103,40 @@ export function ModelSettingsPanel({
         <SectionTab title={t('settings.model')} active={state.section === 'model'} />
       </Row>
 
-      {state.models.map((item, index) => (
-        <Row key={item.id}>
-          <OptionLine
-            selected={index === state.modelIndex && item.configured}
-            focused={state.section === 'model' && index === state.modelIndex}
-            label={item.label}
-            dimmed={!item.configured}
-            badge={item.current ? t('settings.current') : undefined}
-          />
+      {modelWindow.start > 0 ? (
+        <Row>
+          <Text dimColor>
+            {t('settings.moreAbove', { count: modelWindow.start })}
+          </Text>
         </Row>
-      ))}
+      ) : null}
+
+      {state.models
+        .slice(modelWindow.start, modelWindow.end)
+        .map((item, visibleIndex) => {
+          const index = modelWindow.start + visibleIndex;
+          return (
+            <Row key={item.id}>
+              <OptionLine
+                selected={index === state.modelIndex && item.configured}
+                focused={state.section === 'model' && index === state.modelIndex}
+                label={item.label}
+                dimmed={!item.configured}
+                badge={item.current ? t('settings.current') : undefined}
+              />
+            </Row>
+          );
+        })}
+
+      {modelWindow.end < state.models.length ? (
+        <Row>
+          <Text dimColor>
+            {t('settings.moreBelow', {
+              count: state.models.length - modelWindow.end
+            })}
+          </Text>
+        </Row>
+      ) : null}
 
       {state.models.length === 0 ? (
         <Row>
@@ -197,14 +232,27 @@ function QuickSetupBody({
     return (
       <>
         <WizardLabel innerWidth={innerWidth}>{t('settings.quick.review')}</WizardLabel>
-        <WizardValue innerWidth={innerWidth} label={t('settings.quick.protocol')} value={state.protocol} />
+        <WizardValue
+          innerWidth={innerWidth}
+          label={t('settings.quick.profileName')}
+          value={state.profileName}
+        />
+        <WizardValue
+          innerWidth={innerWidth}
+          label={t('settings.quick.protocol')}
+          value={state.protocol}
+        />
         <WizardValue innerWidth={innerWidth} label="Base URL" value={state.baseUrl} />
         <WizardValue
           innerWidth={innerWidth}
           label="API Key"
           value={state.apiKey ? maskSecret(state.apiKey) : t('settings.quick.reuseKey')}
         />
-        <WizardValue innerWidth={innerWidth} label={t('settings.quick.modelId')} value={state.model} />
+        <WizardValue
+          innerWidth={innerWidth}
+          label={t('settings.quick.modelId')}
+          value={state.model}
+        />
         <WizardValue
           innerWidth={innerWidth}
           label={t('settings.quick.contextWindow')}
@@ -225,7 +273,7 @@ function QuickSetupBody({
         </Text>
       </WizardRow>
       {field.hint ? (
-      <WizardRow innerWidth={innerWidth}>
+        <WizardRow innerWidth={innerWidth}>
           <Text dimColor>{field.hint}</Text>
         </WizardRow>
       ) : null}
@@ -237,6 +285,12 @@ function wizardField(
   state: NonNullable<ModelSettingsState['quickSetup']>
 ): { label: string; value: string; hint?: string } {
   switch (state.step) {
+    case 'profileName':
+      return {
+        label: t('settings.quick.profileName'),
+        value: state.profileName,
+        hint: t('settings.quick.profileNameHint')
+      };
     case 'baseUrl':
       return { label: 'Base URL', value: state.baseUrl };
     case 'apiKey':
@@ -325,6 +379,20 @@ function PanelRow({
       <Text color={theme.border}> {symbols.boxVertical}</Text>
     </Box>
   );
+}
+
+export function resolveModelWindow(
+  total: number,
+  selected: number,
+  limit: number
+): { start: number; end: number } {
+  const size = Math.max(1, Math.floor(limit));
+  if (total <= size) {
+    return { start: 0, end: total };
+  }
+  const half = Math.floor(size / 2);
+  const start = Math.max(0, Math.min(selected - half, total - size));
+  return { start, end: Math.min(total, start + size) };
 }
 
 function SectionTab({

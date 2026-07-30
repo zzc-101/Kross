@@ -166,10 +166,8 @@ describe('App commands and model settings', () => {
     await waitUntil(() => submit !== undefined);
     await submit?.('/model setup');
     await waitUntil(() => lastFrame()?.includes('快捷配置模型') === true);
-    expect(lastFrame()).toContain('协议类型');
-    expect(lastFrame()).toContain('OpenAI Compatible');
-    expect(lastFrame()).toContain('Anthropic Compatible');
-    expect(lastFrame()).toContain('1/6');
+    expect(lastFrame()).toContain('配置名称');
+    expect(lastFrame()).toContain('1/7');
   });
 
   it('does not route removed /model list through the settings panel', async () => {

@@ -191,6 +191,7 @@ export class AgentRuntime extends EventEmitter {
     this.modelSession = new ModelSession(this.options, (client) => {
       this.toolLoop.setLlmClient(client);
       this.sessionContext.setLlmClient(client);
+      this.options.onLlmClientChanged?.(client);
     });
     this.sessionServices = new SessionServices({
       options: this.options,

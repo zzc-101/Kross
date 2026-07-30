@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   accessSync,
   chmodSync,
@@ -36,12 +37,26 @@ export interface ImportedLlmConfig {
   publicModelId?: string;
 }
 
+export interface KrossModelProfile extends ImportedLlmConfig {
+  /** Stable, non-secret identifier used by UI and future subagent selection. */
+  id: string;
+  /** User-facing profile name. */
+  name: string;
+}
+
+export interface KrossModelProfilesConfig {
+  /** Profile used for new main-agent sessions. */
+  activeProfileId?: string;
+  profiles: KrossModelProfile[];
+}
+
 export interface KrossConfig {
-  /** Version 1 is omitted only by legacy files and added on the next write. */
+  /** Version 1 is added when an unversioned development config is next written. */
   version?: 1;
   /** UI language preference (`zh` | `en`). */
   locale?: AppLocale;
-  llm?: ImportedLlmConfig;
+  /** Native multi-model profiles. Credentials stay in the 0600 config file. */
+  models?: KrossModelProfilesConfig;
   context?: {
     /** 自动压缩后优先保留的最近原文 token。 */
     preserveRecentTokens?: number;
@@ -131,7 +146,7 @@ export function createConfigImportController(
     getPrompt() {
       const existing = loadKrossConfig(options);
       if (
-        isUsableImportedLlmConfig(existing?.llm) ||
+        getActiveKrossModelProfile(existing) ||
         existing?.setup?.importPromptDismissedAt
       ) {
         return undefined;
@@ -162,26 +177,26 @@ export function createConfigImportController(
 export function saveImportedAgentConfig(
   input: SaveImportedAgentConfigInput
 ): ConfigImportResult {
-  const configPath = resolveKrossConfigPath(input);
-  const existing = loadKrossConfig(input);
-  const config: KrossConfig = {
-    ...existing,
-    llm: {
-      ...input.candidate.config,
-      ...(existing?.llm?.contextWindow !== undefined
-        ? { contextWindow: existing.llm.contextWindow }
-        : {})
+  const saved = upsertKrossModelProfile(
+    {
+      profileId: `imported-${input.candidate.source}`,
+      name: input.candidate.displayName,
+      model: input.candidate.config
     },
+    input
+  );
+  const config: KrossConfig = {
+    ...saved.config,
     setup: {
-      ...existing?.setup,
+      ...saved.config.setup,
       importedFrom: input.candidate.source,
       importedAt: (input.now ?? (() => new Date()))().toISOString()
     }
   };
-  writeKrossConfig(configPath, config);
+  writeKrossConfig(saved.configPath, config);
 
   return {
-    configPath,
+    configPath: saved.configPath,
     config,
     candidate: input.candidate
   };
@@ -213,6 +228,7 @@ export function loadKrossConfig(
 
   const config = readJsonFile<unknown>(configPath);
   assertSupportedConfigVersion(config, configPath);
+  assertNativeMultiModelConfig(config, configPath);
   return config as KrossConfig | undefined;
 }
 
@@ -220,7 +236,16 @@ export function createLlmClientFromKrossConfig(
   config: KrossConfig | undefined,
   fetch?: LlmFetch
 ): LlmClient | undefined {
-  const llm = config?.llm;
+  return createLlmClientFromKrossModelProfile(
+    getActiveKrossModelProfile(config),
+    fetch
+  );
+}
+
+export function createLlmClientFromKrossModelProfile(
+  llm: ImportedLlmConfig | undefined,
+  fetch?: LlmFetch
+): LlmClient | undefined {
   if (llm?.publicModelId && getPublicModel(llm.publicModelId)) {
     return createLlmClientForPublicModel(llm.publicModelId, {
       thinkingEffort: llm.thinkingEffort
@@ -259,61 +284,149 @@ export function createLlmClientFromKrossConfig(
   });
 }
 
-export function updateKrossPublicModelConfig(
+export function getActiveKrossModelProfile(
+  config: KrossConfig | undefined
+): KrossModelProfile | undefined {
+  const activeId = config?.models?.activeProfileId;
+  const profiles = normalizeStoredProfiles(config?.models?.profiles);
+  return activeId
+    ? profiles.find((profile) => profile.id === activeId)
+    : undefined;
+}
+
+export function listKrossModelProfiles(
+  config: KrossConfig | undefined
+): KrossModelProfile[] {
+  return normalizeStoredProfiles(config?.models?.profiles);
+}
+
+export function upsertKrossModelProfile(
+  input: {
+    profileId?: string;
+    name: string;
+    model: Partial<ImportedLlmConfig> &
+      Pick<ImportedLlmConfig, 'provider' | 'model'>;
+  },
+  options: ConfigPersistenceOptions = {}
+): {
+  configPath: string;
+  config: KrossConfig;
+  profile: KrossModelProfile;
+} {
+  const configPath = resolveKrossConfigPath(options);
+  const existingFile = loadKrossConfig(options);
+  const profiles = listKrossModelProfiles(existingFile);
+  const requestedId =
+    normalizeModelProfileId(input.profileId) ??
+    createModelProfileId(input.model.provider, input.name || input.model.model);
+  const existing = profiles.find((profile) => profile.id === requestedId);
+  const merged = mergeLlmConfigPatch(existing, input.model);
+  if (!isUsableLlmConfig(merged)) {
+    throw new Error('模型档案缺少可用凭证，无法保存。');
+  }
+  const profile: KrossModelProfile = {
+    id: requestedId,
+    name: input.name.trim() || input.model.model.trim(),
+    ...merged
+  };
+  const nextProfiles = existing
+    ? profiles.map((item) => (item.id === requestedId ? profile : item))
+    : [...profiles, profile];
+  const config: KrossConfig = {
+    ...existingFile,
+    models: {
+      activeProfileId: profile.id,
+      profiles: nextProfiles
+    }
+  };
+  writeKrossConfig(configPath, config);
+  return { configPath, config, profile };
+}
+
+export function setActiveKrossModelProfile(
+  profileId: string,
+  thinkingEffort?: ThinkingEffort,
+  options: ConfigPersistenceOptions = {}
+): {
+  configPath: string;
+  config: KrossConfig;
+  profile: KrossModelProfile;
+} {
+  const configPath = resolveKrossConfigPath(options);
+  const existing = loadKrossConfig(options);
+  const profiles = listKrossModelProfiles(existing);
+  const profile = profiles.find((item) => item.id === profileId);
+  if (!profile) {
+    throw new Error(`未知模型档案：${profileId}`);
+  }
+  const active: KrossModelProfile = {
+    ...profile,
+    ...(thinkingEffort ? { thinkingEffort } : {})
+  };
+  const nextProfiles = profiles.map((item) =>
+    item.id === active.id ? active : item
+  );
+  const config: KrossConfig = {
+    ...existing,
+    models: {
+      activeProfileId: active.id,
+      profiles: nextProfiles
+    }
+  };
+  writeKrossConfig(configPath, config);
+  return { configPath, config, profile: active };
+}
+
+export function upsertKrossPublicModelProfile(
   publicModelId: string,
   thinkingEffort?: ThinkingEffort,
   options: ConfigPersistenceOptions = {}
-): { configPath: string; config: KrossConfig } {
+): {
+  configPath: string;
+  config: KrossConfig;
+  profile: KrossModelProfile;
+} {
   const definition = getPublicModel(publicModelId);
   if (!definition) {
     throw new Error(`unknown public model: ${publicModelId}`);
   }
-
-  const configPath = resolveKrossConfigPath(options);
-  const existing = loadKrossConfig(options);
-  const config: KrossConfig = {
-    ...existing,
-    llm: {
-      provider: definition.provider,
-      model: definition.model,
-      publicModelId: definition.id,
-      ...(thinkingEffort ? { thinkingEffort } : {})
-    }
-  };
-  writeKrossConfig(configPath, config);
-  return { configPath, config };
+  return upsertKrossModelProfile(
+    {
+      profileId: `public-${definition.id}`,
+      name: definition.name,
+      model: {
+        provider: definition.provider,
+        model: definition.model,
+        publicModelId: definition.id,
+        ...(thinkingEffort ? { thinkingEffort } : {})
+      }
+    },
+    options
+  );
 }
 
-/**
- * Persist active provider/model into ~/.kross/config.json.
- *
- * Credential fields only overwrite when the patch provides a non-empty value.
- * Same-provider updates keep existing secrets. Refuses to write a config that
- * would become unusable (no secrets), so import-saved keys cannot be wiped by
- * env-less /model or settings-panel applies.
- */
-export function updateKrossLlmConfig(
+export function updateActiveKrossModelProfile(
   patch: Partial<ImportedLlmConfig> &
     Pick<ImportedLlmConfig, 'provider' | 'model'>,
   options: ConfigPersistenceOptions = {}
-): { configPath: string; config: KrossConfig } {
-  const configPath = resolveKrossConfigPath(options);
+): {
+  configPath: string;
+  config: KrossConfig;
+  profile: KrossModelProfile;
+} {
   const existingFile = loadKrossConfig(options);
-  const existing = existingFile?.llm;
-  const merged = mergeLlmConfigPatch(existing, patch);
-
-  if (!isUsableLlmConfig(merged)) {
-    throw new Error(
-      '拒绝写入无密钥的模型配置（会覆盖已有凭证）。请保留 env 密钥或重新 /import。'
-    );
+  const active = getActiveKrossModelProfile(existingFile);
+  if (!active) {
+    throw new Error('当前没有活动模型档案，请先运行模型配置向导。');
   }
-
-  const config: KrossConfig = {
-    ...existingFile,
-    llm: merged
-  };
-  writeKrossConfig(configPath, config);
-  return { configPath, config };
+  return upsertKrossModelProfile(
+    {
+      profileId: active.id,
+      name: active.name,
+      model: patch
+    },
+    options
+  );
 }
 
 /** Persist UI locale into ~/.kross/config.json (best-effort preference). */
@@ -344,6 +457,9 @@ export function mergeLlmConfigPatch(
     provider: patch.provider,
     model: patch.model
   };
+  if (patch.publicModelId) {
+    llm.publicModelId = patch.publicModelId;
+  }
 
   // Prefer patch secrets; otherwise keep existing secrets when same provider.
   // When provider changes, only patch secrets apply (do not leak foreign keys).
@@ -412,6 +528,54 @@ function firstNonEmpty(
     }
   }
   return undefined;
+}
+
+function normalizeStoredProfiles(
+  profiles: KrossModelProfile[] | undefined
+): KrossModelProfile[] {
+  if (!Array.isArray(profiles)) {
+    return [];
+  }
+  return profiles
+    .filter(
+      (profile) =>
+        profile &&
+        typeof profile.id === 'string' &&
+        typeof profile.name === 'string' &&
+        isUsableImportedLlmConfig(profile)
+    )
+    .map((profile) => ({
+      ...cloneImportedLlmConfig(profile),
+      id: profile.id,
+      name: profile.name
+    }));
+}
+
+function cloneImportedLlmConfig(
+  llm: ImportedLlmConfig
+): ImportedLlmConfig {
+  return JSON.parse(JSON.stringify(llm)) as ImportedLlmConfig;
+}
+
+function normalizeModelProfileId(value: string | undefined): string | undefined {
+  const normalized = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || undefined;
+}
+
+function createModelProfileId(provider: LlmProvider, value: string): string {
+  const normalized = normalizeModelProfileId(`${provider}-${value}`);
+  if (normalized && normalized !== provider) {
+    return normalized.slice(0, 80);
+  }
+  const digest = createHash('sha256')
+    .update(value.trim() || 'model')
+    .digest('hex')
+    .slice(0, 8);
+  return `${provider}-${digest}`;
 }
 
 export function resolveKrossConfigPath(
@@ -585,6 +749,18 @@ function assertSupportedConfigVersion(
       `Kross 配置 ${configPath} 使用不受支持的数据版本 ${String(version)}；当前仅支持版本 1`
     );
   }
+}
+
+function assertNativeMultiModelConfig(
+  config: unknown,
+  configPath: string
+): void {
+  if (!isRecord(config) || !Object.prototype.hasOwnProperty.call(config, 'llm')) {
+    return;
+  }
+  throw new Error(
+    `Kross 配置 ${configPath} 仍使用已移除的单模型 llm 字段；请删除该字段并重新运行模型配置向导`
+  );
 }
 
 function parseFlatToml(content: string): Record<string, string> {

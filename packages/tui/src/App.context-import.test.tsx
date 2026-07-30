@@ -248,11 +248,18 @@ describe('App context and configuration import', () => {
         expect(
           JSON.parse(readFileSync(join(homeDir, '.kross/config.json'), 'utf8'))
         ).toMatchObject({
-          llm: {
-            provider: 'openai',
-            apiKey: 'codex-key',
-            model: 'gpt-5-codex',
-            baseUrl: 'https://codex.example/v1'
+          models: {
+            activeProfileId: 'imported-codex',
+            profiles: [
+              {
+                id: 'imported-codex',
+                name: 'Codex',
+                provider: 'openai',
+                apiKey: 'codex-key',
+                model: 'gpt-5-codex',
+                baseUrl: 'https://codex.example/v1'
+              }
+            ]
           },
           setup: {
             importedFrom: 'codex'
@@ -271,10 +278,17 @@ describe('App context and configuration import', () => {
         writeFileSync(
           join(homeDir, '.kross/config.json'),
           JSON.stringify({
-            llm: {
-              provider: 'openai',
-              apiKey: 'old-key',
-              model: 'old-model'
+            models: {
+              activeProfileId: 'existing',
+              profiles: [
+                {
+                  id: 'existing',
+                  name: 'Existing',
+                  provider: 'openai',
+                  apiKey: 'old-key',
+                  model: 'old-model'
+                }
+              ]
             }
           })
         );
@@ -311,11 +325,18 @@ describe('App context and configuration import', () => {
         expect(
           JSON.parse(readFileSync(join(homeDir, '.kross/config.json'), 'utf8'))
         ).toMatchObject({
-          llm: {
-            provider: 'anthropic',
-            authToken: 'claude-token',
-            model: 'GLM-4.5',
-            baseUrl: 'https://ark.example/api/coding'
+          models: {
+            activeProfileId: 'imported-claude',
+            profiles: expect.arrayContaining([
+              {
+                id: 'imported-claude',
+                name: 'Claude Code',
+                provider: 'anthropic',
+                authToken: 'claude-token',
+                model: 'GLM-4.5',
+                baseUrl: 'https://ark.example/api/coding'
+              }
+            ])
           },
           setup: {
             importedFrom: 'claude'

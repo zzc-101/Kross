@@ -2,20 +2,24 @@ import {
   createLlmClient,
   createLlmClientForProvider,
   createLlmClientForPublicModel,
+  createLlmClientFromKrossModelProfile,
   formatCompactCount,
   formatLlmCapabilities,
   formatModelEffortLabel,
   getLlmProviderDefinition,
+  getActiveKrossModelProfile,
   isUsableLlmConfig,
   getPublicModel,
+  listKrossModelProfiles,
   listProvidersFromEnv,
   listPublicModels,
-  loadKrossConfig,
-  updateKrossLlmConfig,
+  upsertKrossModelProfile,
   t,
   THINKING_EFFORT_LEVELS,
   type AgentRuntime,
   type ImportedLlmConfig,
+  type KrossConfig,
+  type KrossModelProfile,
   type LlmClient,
   type LlmCapabilities,
   type LlmProvider,
@@ -25,6 +29,7 @@ import {
 export type SettingsSection = 'effort' | 'model';
 export type QuickModelProtocol = 'openai' | 'anthropic';
 export type QuickModelSetupStep =
+  | 'profileName'
   | 'protocol'
   | 'baseUrl'
   | 'apiKey'
@@ -33,6 +38,7 @@ export type QuickModelSetupStep =
   | 'review';
 
 export const QUICK_MODEL_SETUP_STEPS: readonly QuickModelSetupStep[] = [
+  'profileName',
   'protocol',
   'baseUrl',
   'apiKey',
@@ -43,6 +49,7 @@ export const QUICK_MODEL_SETUP_STEPS: readonly QuickModelSetupStep[] = [
 
 export interface QuickModelSetupState {
   step: QuickModelSetupStep;
+  profileName: string;
   protocol: QuickModelProtocol;
   baseUrl: string;
   apiKey: string;
@@ -67,6 +74,7 @@ export interface ModelOption {
   configured: boolean;
   current: boolean;
   publicModelId?: string;
+  profileId?: string;
   notice?: string;
 }
 
@@ -86,14 +94,15 @@ export function createQuickModelSetupState(
   saved?: ImportedLlmConfig
 ): QuickModelSetupState {
   const current = runtime.getLlmClient();
-  const source = saved ?? loadKrossConfig()?.llm;
+  const source = saved;
   const protocol: QuickModelProtocol =
     (source?.provider ?? current?.provider) === 'anthropic'
       ? 'anthropic'
       : 'openai';
   const definition = getLlmProviderDefinition(protocol);
   return {
-    step: 'protocol',
+    step: 'profileName',
+    profileName: t('settings.quick.defaultProfileName'),
     protocol,
     baseUrl: source?.baseUrl?.trim() || definition.defaultBaseUrl,
     apiKey: '',
@@ -129,10 +138,7 @@ export function updateQuickModelField(
   state: QuickModelSetupState,
   operation: { append?: string; backspace?: boolean }
 ): QuickModelSetupState {
-  if (
-    state.step === 'protocol' ||
-    state.step === 'review'
-  ) {
+  if (state.step === 'protocol' || state.step === 'review') {
     return state;
   }
   const field = state.step;
@@ -188,6 +194,12 @@ export function validateQuickModelSetupStep(
   state: QuickModelSetupState,
   saved?: ImportedLlmConfig
 ): string | undefined {
+  if (
+    (state.step === 'profileName' || state.step === 'review') &&
+    !state.profileName.trim()
+  ) {
+    return t('settings.quick.profileNameRequired');
+  }
   if (state.step === 'baseUrl' || state.step === 'review') {
     const value = state.baseUrl.trim();
     try {
@@ -265,15 +277,18 @@ export function applyQuickModelSetup(
             contextWindow,
             thinkingEffort
           });
-    updateKrossLlmConfig(
+    const savedProfile = upsertKrossModelProfile(
       {
-        provider: state.protocol,
-        model,
-        baseUrl,
-        contextWindow,
-        thinkingEffort,
-        ...(apiKey ? { apiKey } : {}),
-        ...(authToken ? { authToken } : {})
+        name: state.profileName.trim(),
+        model: {
+          provider: state.protocol,
+          model,
+          baseUrl,
+          contextWindow,
+          thinkingEffort,
+          ...(apiKey ? { apiKey } : {}),
+          ...(authToken ? { authToken } : {})
+        }
       },
       persistence
     );
@@ -282,7 +297,8 @@ export function applyQuickModelSetup(
     return {
       ok: true,
       label,
-      summary: t('settings.quick.saved', { label })
+      summary: t('settings.quick.saved', { label }),
+      profileId: savedProfile.profile.id
     };
   } catch (cause) {
     return {
@@ -315,7 +331,9 @@ export function buildEffortOptions(
 export function buildModelOptions(
   client: LlmClient | undefined,
   env: Record<string, string | undefined> = process.env,
-  saved?: ImportedLlmConfig
+  saved?: ImportedLlmConfig,
+  profiles: KrossModelProfile[] = [],
+  activeProfileId?: string
 ): { options: ModelOption[]; index: number } {
   const currentProvider = client?.provider;
   const currentModel = client?.model?.trim() || '';
@@ -325,27 +343,67 @@ export function buildModelOptions(
   // the same provider/model pair. Only an explicit public model id identifies
   // the current client as repository-managed public access.
   const currentPublic = getPublicModel(client?.publicModelId);
+  const activeProfile = activeProfileId
+    ? profiles.find(
+        (profile) =>
+          profile.id === activeProfileId &&
+          profile.provider === currentProvider &&
+          profile.model === currentModel
+      )
+    : undefined;
 
   if (currentProvider && currentModel) {
-    const key = currentPublic
-      ? `public::${currentPublic.id}`
-      : `${currentProvider}::${currentModel}`;
+    const key = activeProfile
+      ? `profile::${activeProfile.id}`
+      : currentPublic
+        ? `public::${currentPublic.id}`
+        : `${currentProvider}::${currentModel}`;
     seen.add(key);
+    if (activeProfile?.publicModelId) {
+      seen.add(`public::${activeProfile.publicModelId}`);
+    }
     rows.push({
       id: key,
       provider: currentProvider,
       model: currentModel,
-      label: currentPublic
-        ? `${currentPublic.name} · ${t('settings.public')}`
-        : `${currentModel}`,
+      label: activeProfile
+        ? `${activeProfile.name} · ${currentModel} · ${currentProvider}`
+        : currentPublic
+          ? `${currentPublic.name} · ${t('settings.public')}`
+          : `${currentModel}`,
       configured: true,
       current: true,
-      ...(currentPublic
+      ...(activeProfile
         ? {
-            publicModelId: currentPublic.id,
-            notice: currentPublic.notice
+            profileId: activeProfile.id,
+            ...(currentPublic?.notice ? { notice: currentPublic.notice } : {})
           }
-        : {})
+        : currentPublic
+          ? {
+              publicModelId: currentPublic.id,
+              notice: currentPublic.notice
+            }
+          : {})
+    });
+  }
+
+  for (const profile of profiles) {
+    const key = `profile::${profile.id}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    if (profile.publicModelId) {
+      seen.add(`public::${profile.publicModelId}`);
+    }
+    rows.push({
+      id: key,
+      provider: profile.provider,
+      model: profile.model,
+      label: `${profile.name} · ${profile.model} · ${profile.provider}`,
+      configured: true,
+      current: profile.id === activeProfile?.id,
+      profileId: profile.id
     });
   }
 
@@ -388,7 +446,12 @@ export function buildModelOptions(
   }
 
   // kross-saved provider (import) when env lacks keys
-  if (saved && !saved.publicModelId && isUsableLlmConfig(saved)) {
+  if (
+    profiles.length === 0 &&
+    saved &&
+    !saved.publicModelId &&
+    isUsableLlmConfig(saved)
+  ) {
     const key = `${saved.provider}::${saved.model}`;
     if (!seen.has(key)) {
       seen.add(key);
@@ -414,17 +477,23 @@ export function buildModelOptions(
 export function createModelSettingsState(
   runtime: AgentRuntime,
   env: Record<string, string | undefined> = process.env,
-  saved?: ImportedLlmConfig
+  saved?: ImportedLlmConfig,
+  config?: KrossConfig
 ): ModelSettingsState {
+  const savedConfig = config;
   const capabilities = runtime.getLlmCapabilities();
   const effort = buildEffortOptions(
     runtime.getThinkingEffort(),
     capabilities?.thinking !== false
   );
+  const profiles = listKrossModelProfiles(savedConfig);
+  const activeProfileId = savedConfig?.models?.activeProfileId;
   const models = buildModelOptions(
     runtime.getLlmClient(),
     env,
-    saved ?? loadKrossConfig()?.llm
+    saved ?? getActiveKrossModelProfile(savedConfig),
+    profiles,
+    activeProfileId
   );
   return {
     section: 'model',
@@ -486,7 +555,13 @@ export function switchSettingsSection(
 }
 
 export type ApplySettingsResult =
-  | { ok: true; label: string; summary: string; publicModelId?: string }
+  | {
+      ok: true;
+      label: string;
+      summary: string;
+      publicModelId?: string;
+      profileId?: string;
+    }
   | { ok: false; message: string };
 
 /**
@@ -496,14 +571,15 @@ export function applyModelSettings(
   runtime: AgentRuntime,
   state: ModelSettingsState,
   env: Record<string, string | undefined> = process.env,
-  saved?: ImportedLlmConfig
+  saved?: ImportedLlmConfig,
+  profiles: KrossModelProfile[] = []
 ): ApplySettingsResult {
   const effort = state.efforts[state.effortIndex]?.id;
   if (!effort) {
     return { ok: false, message: t('settings.noEffort') };
   }
 
-  const savedLlm = saved ?? loadKrossConfig()?.llm;
+  const savedLlm = saved;
   const modelOpt = state.models[state.modelIndex];
   if (!modelOpt) {
     try {
@@ -534,7 +610,19 @@ export function applyModelSettings(
 
   try {
     const current = runtime.getLlmClient();
-    if (modelOpt.publicModelId) {
+    if (modelOpt.profileId) {
+      const profile = profiles.find((item) => item.id === modelOpt.profileId);
+      const client = createLlmClientFromKrossModelProfile(
+        profile ? { ...profile, thinkingEffort: effort } : undefined
+      );
+      if (!profile || !client) {
+        return {
+          ok: false,
+          message: `模型档案不可用：${modelOpt.profileId}`
+        };
+      }
+      runtime.setLlmClient(client);
+    } else if (modelOpt.publicModelId) {
       const client = createLlmClientForPublicModel(modelOpt.publicModelId, {
         thinkingEffort: effort
       });
@@ -575,7 +663,9 @@ export function applyModelSettings(
       summary: t('settings.applied', { label: applied }),
       ...(modelOpt.publicModelId
         ? { publicModelId: modelOpt.publicModelId }
-        : {})
+        : modelOpt.profileId
+          ? { profileId: modelOpt.profileId }
+          : {})
     };
   } catch (error) {
     return {

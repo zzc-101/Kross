@@ -35,6 +35,8 @@ export interface AgentRuntimeOptions {
    * 未配置时子代理回退到 llmClient。
    */
   workerLlmClient?: LlmClient;
+  /** Keep host-owned Task/subagent model bindings synchronized with UI switches. */
+  onLlmClientChanged?: (client: LlmClient | undefined) => void;
   sessionContext?: SessionContext;
   /** @deprecated 使用 sessionContext */
   contextManager?: SessionContext;

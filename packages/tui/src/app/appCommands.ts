@@ -3,6 +3,7 @@ import {
   formatLlmCallMetrics,
   formatLlmCapabilities,
   formatUnavailableFreeModels,
+  getActiveKrossModelProfile,
   getLocale,
   getLlmProviderDefinition,
   handleModelCommand,
@@ -11,7 +12,7 @@ import {
   setLocale,
   t,
   updateKrossLocale,
-  updateKrossLlmConfig,
+  upsertKrossModelProfile,
   normalizeAgentMode,
   type AgentMode,
   type AgentRuntime,
@@ -498,16 +499,17 @@ function handleImportCommand(input: {
     const result = input.configImportController.importSource(target);
     input.setImportPrompt(undefined);
     input.refreshRuntime();
+    const profile = getActiveKrossModelProfile(result.config);
     input.append(
       'agent',
       [
         t('cmd.import.done', { name: result.candidate.displayName }),
         t('cmd.import.configPath', { path: result.configPath }),
-        `provider: ${result.config.llm?.provider}`,
-        `model: ${result.config.llm?.model}`,
-        `baseUrl: ${result.config.llm?.baseUrl ?? t('cmd.import.defaultBase')}`,
+        `provider: ${profile?.provider}`,
+        `model: ${profile?.model}`,
+        `baseUrl: ${profile?.baseUrl ?? t('cmd.import.defaultBase')}`,
         `credential: ${
-          result.config.llm?.apiKey || result.config.llm?.authToken
+          profile?.apiKey || profile?.authToken
             ? t('cmd.import.credentialYes')
             : t('cmd.import.credentialNo')
         }`
@@ -545,25 +547,26 @@ function persistModelPreference(
   try {
     const def = getLlmProviderDefinition(provider);
     const env = process.env;
-    // Only pass secrets when present in env — never send undefined and rely
-    // on merge to keep import-saved keys (updateKrossLlmConfig also refuses
-    // to write unusable configs).
+    // Only pass secrets when present in env.
     const apiKey = def.apiKeyEnv.map((key) => env[key]?.trim()).find(Boolean);
     const authToken = def.authTokenEnv
       ?.map((key) => env[key]?.trim())
       .find(Boolean);
     const baseUrl = def.baseUrlEnv ? env[def.baseUrlEnv]?.trim() : undefined;
 
-    updateKrossLlmConfig({
-      provider,
-      model,
-      ...(apiKey ? { apiKey } : {}),
-      ...(provider === 'anthropic' && authToken ? { authToken } : {}),
-      ...(baseUrl ? { baseUrl } : {}),
-      ...(provider === 'anthropic' && env.ANTHROPIC_VERSION
-        ? { anthropicVersion: env.ANTHROPIC_VERSION }
-        : {}),
-      ...(thinkingEffort ? { thinkingEffort } : {})
+    upsertKrossModelProfile({
+      name: model,
+      model: {
+        provider,
+        model,
+        ...(apiKey ? { apiKey } : {}),
+        ...(provider === 'anthropic' && authToken ? { authToken } : {}),
+        ...(baseUrl ? { baseUrl } : {}),
+        ...(provider === 'anthropic' && env.ANTHROPIC_VERSION
+          ? { anthropicVersion: env.ANTHROPIC_VERSION }
+          : {}),
+        ...(thinkingEffort ? { thinkingEffort } : {})
+      }
     });
   } catch {
     // best-effort: refuse-to-wipe errors are swallowed so the session still works

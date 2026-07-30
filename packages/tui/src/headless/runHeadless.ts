@@ -7,6 +7,7 @@ import {
   createAgentHost,
   createLlmClientFromEnv,
   createLlmClientFromKrossConfig,
+  getActiveKrossModelProfile,
   loadKrossConfig,
   type AgentRunInput,
   type AgentRunStreamEvent,
@@ -344,7 +345,7 @@ async function createDefaultHeadlessHost(input: {
       createLlmClientFromEnv(
         input.env,
         undefined,
-        savedConfig?.llm?.contextWindow
+        getActiveKrossModelProfile(savedConfig)?.contextWindow
       ) ?? createLlmClientFromKrossConfig(savedConfig);
   } catch (error) {
     throw new HeadlessConfigurationError(

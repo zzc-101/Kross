@@ -2,9 +2,12 @@ import { useCallback, useState } from 'react';
 
 import {
   getLlmProviderDefinition,
+  getActiveKrossModelProfile,
+  listKrossModelProfiles,
   loadKrossConfig,
-  updateKrossLlmConfig,
-  updateKrossPublicModelConfig,
+  setActiveKrossModelProfile,
+  upsertKrossModelProfile,
+  upsertKrossPublicModelProfile,
   type AgentRuntime
 } from '@kross/core';
 
@@ -37,18 +40,23 @@ export function useModelSettingsPanel({
   const modelSettingsOpen = modelSettings !== undefined;
 
   const openModelSettings = useCallback(() => {
-    setModelSettings(
-      createModelSettingsState(agentRuntime, process.env, loadKrossConfig()?.llm)
-    );
-  }, [agentRuntime]);
+    const config = loadModelConfig(append);
+    setModelSettings(createModelSettingsState(
+      agentRuntime,
+      process.env,
+      getActiveKrossModelProfile(config),
+      config
+    ));
+  }, [agentRuntime, append]);
 
   const openQuickModelSetup = useCallback(() => {
-    const saved = loadKrossConfig()?.llm;
+    const config = loadModelConfig(append);
+    const saved = getActiveKrossModelProfile(config);
     setModelSettings({
-      ...createModelSettingsState(agentRuntime, process.env, saved),
+      ...createModelSettingsState(agentRuntime, process.env, saved, config),
       quickSetup: createQuickModelSetupState(agentRuntime, saved)
     });
-  }, [agentRuntime]);
+  }, [agentRuntime, append]);
 
   const closeModelSettings = useCallback(() => {
     setModelSettings(undefined);
@@ -58,11 +66,14 @@ export function useModelSettingsPanel({
     if (!modelSettings) {
       return;
     }
+    const config = loadModelConfig();
+    const previousClient = agentRuntime.getLlmClient();
     const result = applyModelSettings(
       agentRuntime,
       modelSettings,
       process.env,
-      loadKrossConfig()?.llm
+      getActiveKrossModelProfile(config),
+      listKrossModelProfiles(config)
     );
     if (!result.ok) {
       append('system', result.message);
@@ -73,8 +84,17 @@ export function useModelSettingsPanel({
     if (client?.model) {
       try {
         if (result.publicModelId) {
-          updateKrossPublicModelConfig(
+          upsertKrossPublicModelProfile(
             result.publicModelId,
+            agentRuntime.getThinkingEffort()
+          );
+          append('system', result.summary);
+          setModelSettings(undefined);
+          return;
+        }
+        if (result.profileId) {
+          setActiveKrossModelProfile(
+            result.profileId,
             agentRuntime.getThinkingEffort()
           );
           append('system', result.summary);
@@ -92,18 +112,29 @@ export function useModelSettingsPanel({
         const baseUrl = def.baseUrlEnv
           ? env[def.baseUrlEnv]?.trim()
           : undefined;
-        updateKrossLlmConfig({
-          provider: client.provider,
-          model: client.model,
-          ...(apiKey ? { apiKey } : {}),
-          ...(client.provider === 'anthropic' && authToken
-            ? { authToken }
-            : {}),
-          ...(baseUrl ? { baseUrl } : {}),
-          thinkingEffort: agentRuntime.getThinkingEffort()
+        upsertKrossModelProfile({
+          name: client.model,
+          model: {
+            provider: client.provider,
+            model: client.model,
+            ...(apiKey ? { apiKey } : {}),
+            ...(client.provider === 'anthropic' && authToken
+              ? { authToken }
+              : {}),
+            ...(baseUrl ? { baseUrl } : {}),
+            thinkingEffort: agentRuntime.getThinkingEffort()
+          }
         });
-      } catch {
-        // best-effort — refuse-to-wipe is intentional
+      } catch (error) {
+        if (result.profileId || result.publicModelId) {
+          agentRuntime.setLlmClient(previousClient);
+          append(
+            'system',
+            error instanceof Error ? error.message : String(error)
+          );
+          return;
+        }
+        // Env-backed ad-hoc model persistence remains best-effort.
       }
     }
 
@@ -119,7 +150,7 @@ export function useModelSettingsPanel({
     const result = applyQuickModelSetup(
       agentRuntime,
       quickSetup,
-      loadKrossConfig()?.llm
+      getActiveKrossModelProfile(loadModelConfig())
     );
     if (!result.ok) {
       setModelSettings((current) =>
@@ -199,7 +230,7 @@ export function useModelSettingsPanel({
                   ...current,
                   quickSetup: advanceQuickModelSetup(
                     current.quickSetup,
-                    loadKrossConfig()?.llm
+                    getActiveKrossModelProfile(loadModelConfig())
                   )
                 }
               : current
@@ -251,7 +282,7 @@ export function useModelSettingsPanel({
               ...current,
               quickSetup: createQuickModelSetupState(
                 agentRuntime,
-                loadKrossConfig()?.llm
+                getActiveKrossModelProfile(loadModelConfig())
               )
             }
           : current
@@ -323,4 +354,18 @@ export function useModelSettingsPanel({
     handleModelSettingsKey,
     toggleModelSettings
   };
+}
+
+function loadModelConfig(
+  report?: (from: 'system', text: string) => number
+) {
+  try {
+    return loadKrossConfig();
+  } catch (error) {
+    report?.(
+      'system',
+      error instanceof Error ? error.message : String(error)
+    );
+    return undefined;
+  }
 }

@@ -26,7 +26,10 @@ import {
   updateQuickModelField,
   validateQuickModelSetupStep
 } from './modelSettings';
-import { ModelSettingsPanel } from './ModelSettingsPanel';
+import {
+  ModelSettingsPanel,
+  resolveModelWindow
+} from './ModelSettingsPanel';
 
 describe('modelSettings', () => {
   it('builds effort options with current index', () => {
@@ -111,6 +114,94 @@ describe('modelSettings', () => {
     );
   });
 
+  it('lists every saved model profile and marks the active profile', () => {
+    const client = new StubClient('openai', 'gpt-main');
+    const profiles = [
+      {
+        id: 'main',
+        name: 'Main',
+        provider: 'openai' as const,
+        apiKey: 'main-key',
+        model: 'gpt-main'
+      },
+      {
+        id: 'economy',
+        name: 'Economy',
+        provider: 'anthropic' as const,
+        apiKey: 'economy-key',
+        model: 'claude-fast'
+      }
+    ];
+    const { options, index } = buildModelOptions(
+      client,
+      {},
+      profiles[0],
+      profiles,
+      'main'
+    );
+
+    expect(options.filter((item) => item.profileId)).toHaveLength(2);
+    expect(options[index]).toMatchObject({
+      profileId: 'main',
+      current: true
+    });
+    expect(options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          profileId: 'economy',
+          model: 'claude-fast'
+        })
+      ])
+    );
+  });
+
+  it('switches the runtime to a selected saved profile', () => {
+    const runtime = runtimeWith(new StubClient('openai', 'gpt-main'));
+    const profiles = [
+      {
+        id: 'main',
+        name: 'Main',
+        provider: 'openai' as const,
+        apiKey: 'main-key',
+        model: 'gpt-main'
+      },
+      {
+        id: 'economy',
+        name: 'Economy',
+        provider: 'anthropic' as const,
+        apiKey: 'economy-key',
+        model: 'claude-fast',
+        contextWindow: 96_000
+      }
+    ];
+    const state = createModelSettingsState(
+      runtime,
+      {},
+      profiles[0],
+      {
+        models: { activeProfileId: 'main', profiles }
+      }
+    );
+    const economyIndex = state.models.findIndex(
+      (item) => item.profileId === 'economy'
+    );
+
+    const result = applyModelSettings(
+      runtime,
+      { ...state, modelIndex: economyIndex },
+      {},
+      profiles[0],
+      profiles
+    );
+
+    expect(result).toMatchObject({ ok: true, profileId: 'economy' });
+    expect(runtime.getLlmClient()).toMatchObject({
+      provider: 'anthropic',
+      model: 'claude-fast',
+      contextWindow: 96_000
+    });
+  });
+
   it('opens with model selection focused first', () => {
     const state = createModelSettingsState(
       runtimeWith(new StubClient('openai', 'gpt-a')),
@@ -155,6 +246,41 @@ describe('modelSettings', () => {
       model: 'tencent/Hy3',
       publicModelId: 'public-hy3'
     });
+  });
+
+  it('shows a saved public model as one native profile row', () => {
+    const profile = {
+      id: 'public-public-hy3',
+      name: 'Hy3 Public',
+      provider: 'anthropic' as const,
+      model: 'tencent/Hy3',
+      publicModelId: 'public-hy3'
+    };
+    const runtime = runtimeWith(createLlmClientForPublicModel('public-hy3'));
+    const state = createModelSettingsState(
+      runtime,
+      {},
+      profile,
+      {
+        models: {
+          activeProfileId: profile.id,
+          profiles: [profile]
+        }
+      }
+    );
+
+    expect(
+      state.models.filter(
+        (item) =>
+          item.model === 'tencent/Hy3' ||
+          item.publicModelId === 'public-hy3'
+      )
+    ).toEqual([
+      expect.objectContaining({
+        current: true,
+        profileId: 'public-public-hy3'
+      })
+    ]);
   });
 
   it('can switch from a public model to a separate local model with the same id', () => {
@@ -206,6 +332,10 @@ describe('modelSettings', () => {
     const runtime = runtimeWith(new StubClient('openai', 'gpt-a'));
     let setup = createQuickModelSetupState(runtime);
 
+    setup = updateQuickModelField(setup, { append: 'Economy' });
+    expect(setup.profileName).toBe('Economy');
+    setup = advanceQuickModelSetup(setup);
+    expect(setup.step).toBe('protocol');
     setup = advanceQuickModelSetup(setup);
     expect(setup.step).toBe('baseUrl');
     setup = updateQuickModelField(setup, { append: 'https://gateway.test/v1' });
@@ -248,6 +378,7 @@ describe('modelSettings', () => {
       const setup = {
         ...createQuickModelSetupState(runtime),
         step: 'review' as const,
+        profileName: 'Custom gateway',
         protocol: 'openai' as const,
         baseUrl: 'https://gateway.test/v1',
         apiKey: 'test-secret',
@@ -267,14 +398,22 @@ describe('modelSettings', () => {
       });
       const persisted = JSON.parse(
         readFileSync(join(root, '.kross', 'config.json'), 'utf8')
-      ) as { llm: Record<string, unknown> };
-      expect(persisted.llm).toMatchObject({
-        provider: 'openai',
-        baseUrl: 'https://gateway.test/v1',
-        apiKey: 'test-secret',
-        model: 'custom-model',
-        contextWindow: 131072
-      });
+      ) as {
+        models: {
+          activeProfileId: string;
+          profiles: Array<Record<string, unknown>>;
+        };
+      };
+      expect(persisted.models.activeProfileId).toBe(
+        'openai-custom-gateway'
+      );
+      expect(persisted.models.profiles).toEqual([
+        expect.objectContaining({
+          id: 'openai-custom-gateway',
+          name: 'Custom gateway',
+          model: 'custom-model'
+        })
+      ]);
       expect(
         statSync(join(root, '.kross', 'config.json')).mode & 0o777
       ).toBe(0o600);
@@ -300,6 +439,12 @@ describe('modelSettings', () => {
 
     expect(lastFrame()).not.toContain('super-secret-key');
     expect(lastFrame()).toContain('••••');
+  });
+
+  it('keeps long model lists centered around the current selection', () => {
+    expect(resolveModelWindow(12, 0, 7)).toEqual({ start: 0, end: 7 });
+    expect(resolveModelWindow(12, 6, 7)).toEqual({ start: 3, end: 10 });
+    expect(resolveModelWindow(12, 11, 7)).toEqual({ start: 5, end: 12 });
   });
 });
 

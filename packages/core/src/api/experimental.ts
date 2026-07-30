@@ -1,14 +1,22 @@
 export {
   createConfigImportController,
   createLlmClientFromKrossConfig,
+  createLlmClientFromKrossModelProfile,
+  getActiveKrossModelProfile,
+  listKrossModelProfiles,
   loadKrossConfig,
-  updateKrossLlmConfig,
+  setActiveKrossModelProfile,
+  updateActiveKrossModelProfile,
+  upsertKrossModelProfile,
+  upsertKrossPublicModelProfile,
   updateKrossLocale,
-  updateKrossPublicModelConfig,
   type ConfigImportController,
   type ConfigImportPrompt,
   type ExternalAgentSource,
-  type ImportedLlmConfig
+  type ImportedLlmConfig,
+  type KrossConfig,
+  type KrossModelProfile,
+  type KrossModelProfilesConfig
 } from '../config/configImport';
 
 export {

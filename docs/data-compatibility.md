@@ -9,7 +9,7 @@ Kross 把应用版本、线协议版本和持久化格式版本分开管理。�
 
 | 数据 | 位置 | 当前版本 | 兼容行为 |
 |---|---|---:|---|
-| 用户配置 | `~/.kross/config.json` | 1 | 读取无版本旧文件；下次写入补版本 |
+| 用户配置 | `~/.kross/config.json` | 1 | 原生 `models.profiles`；拒绝已移除的顶层 `llm` 单模型结构和未来版本 |
 | 多仓项目模板 | `~/.kross/projects.json`、项目 `.kross/project.json` | 1 | 读取无版本旧文件；未来版本拒绝 |
 | 会话事实源 | `~/.kross/sessions/**/events.jsonl` | 1 | 每行 `schemaVersion`；未来版本拒绝 |
 | Context / Thread / Work State / Run Checkpoint | 嵌入会话事件 | 1 | 各自独立版本；未来版本拒绝 |

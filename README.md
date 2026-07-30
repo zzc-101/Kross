@@ -26,7 +26,7 @@ Kross is more than a chat interface that forwards prompts to a model. It provide
 - **Transparent inspection**: `/context`, `/trace`, and `/diff` expose context usage, execution traces, and code changes.
 - **Mobile and unreliable-network support**: the Cloud Agent receives events over SSE, submits commands over HTTP, queues offline commands, replays ordered events, sends Web Push approval notifications, and supports PWA installation.
 - **Cloud workspace management**: repository cloning, session recovery, real Git Diff, branch Push, Pull Requests, resource limits, and idle reaping.
-- **Multiple model providers**: OpenAI, Anthropic, OpenRouter, DeepSeek, and xAI.
+- **Native multi-model profiles**: save, name, and switch between multiple OpenAI, Anthropic, OpenRouter, DeepSeek, and xAI configurations without discarding previously configured models.
 
 ## Choose a Runtime
 
@@ -164,7 +164,7 @@ Work across multiple directories:
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` |
 | xAI | `xai` | `XAI_API_KEY` | `XAI_MODEL` |
 
-Configuration saved through `/import` or the model settings UI is stored in `~/.kross/config.json`. Environment variables take precedence over the config file. Each provider also supports its corresponding `*_BASE_URL`.
+Kross natively stores multiple named model profiles in `~/.kross/config.json`; `/import` and the model settings UI add or activate profiles instead of replacing a single global model. Environment variables take precedence over the active profile. Each provider also supports its corresponding `*_BASE_URL`.
 
 ## Architecture
 

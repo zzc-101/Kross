@@ -197,6 +197,8 @@ describe('createRuntimeOptionsFromEnv', () => {
     expect(second.todoStore).toBe(first.todoStore);
     expect(second.runSubagent).toBe(first.runSubagent);
     expect(setLlmClient).toHaveBeenCalled();
+    second.onLlmClientChanged?.(undefined);
+    expect(setLlmClient).toHaveBeenLastCalledWith(undefined);
   });
 
   it('registers TodoWrite and TodoRead on the gateway', () => {
@@ -220,10 +222,18 @@ describe('createRuntimeOptionsFromEnv', () => {
       writeFileSync(
         join(homeDir, '.kross/config.json'),
         JSON.stringify({
-          llm: {
-            provider: 'openai',
-            model: 'saved-model',
-            contextWindow: 384000
+          models: {
+            activeProfileId: 'saved',
+            profiles: [
+              {
+                id: 'saved',
+                name: 'Saved',
+                provider: 'openai',
+                apiKey: 'saved-key',
+                model: 'saved-model',
+                contextWindow: 384000
+              }
+            ]
           }
         })
       );
@@ -252,12 +262,19 @@ describe('createRuntimeOptionsFromEnv', () => {
       writeFileSync(
         join(homeDir, '.kross/config.json'),
         JSON.stringify({
-          llm: {
-            provider: 'openai',
-            apiKey: 'saved-key',
-            model: 'gpt-saved',
-            baseUrl: 'https://saved.example/v1',
-            contextWindow: 384000
+          models: {
+            activeProfileId: 'saved',
+            profiles: [
+              {
+                id: 'saved',
+                name: 'Saved',
+                provider: 'openai',
+                apiKey: 'saved-key',
+                model: 'gpt-saved',
+                baseUrl: 'https://saved.example/v1',
+                contextWindow: 384000
+              }
+            ]
           }
         })
       );

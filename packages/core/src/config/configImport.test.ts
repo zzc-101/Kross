@@ -8,15 +8,78 @@ import {
   createConfigImportController,
   createLlmClientFromKrossConfig,
   discoverExternalAgentConfigs,
+  getActiveKrossModelProfile,
+  listKrossModelProfiles,
   loadKrossConfig,
   mergeLlmConfigPatch,
   saveImportedAgentConfig,
-  updateKrossLlmConfig,
-  updateKrossPublicModelConfig
+  setActiveKrossModelProfile,
+  updateActiveKrossModelProfile,
+  upsertKrossPublicModelProfile,
+  upsertKrossModelProfile
 } from './configImport';
 
 describe('config import', () => {
-  it('adds a version on write and rejects future config versions', () => {
+  it('stores multiple model profiles and switches the active model', () => {
+    const homeDir = createTempHome();
+    try {
+      const first = upsertKrossModelProfile(
+        {
+          profileId: 'primary',
+          name: 'Primary',
+          model: {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            baseUrl: 'https://openai.example/v1',
+            model: 'gpt-primary',
+            contextWindow: 200_000
+          }
+        },
+        { homeDir }
+      );
+      upsertKrossModelProfile(
+        {
+          profileId: 'economy',
+          name: 'Economy',
+          model: {
+            provider: 'anthropic',
+            apiKey: 'anthropic-key',
+            baseUrl: 'https://anthropic.example',
+            model: 'claude-economy',
+            contextWindow: 100_000
+          }
+        },
+        { homeDir }
+      );
+
+      let config = loadKrossConfig({ homeDir });
+      expect(listKrossModelProfiles(config)).toHaveLength(2);
+      expect(config?.models?.activeProfileId).toBe('economy');
+      expect(createLlmClientFromKrossConfig(config)).toMatchObject({
+        provider: 'anthropic',
+        model: 'claude-economy',
+        contextWindow: 100_000
+      });
+
+      setActiveKrossModelProfile(first.profile.id, 'high', { homeDir });
+      config = loadKrossConfig({ homeDir });
+      expect(config?.models?.activeProfileId).toBe('primary');
+      expect(getActiveKrossModelProfile(config)).toMatchObject({
+        id: 'primary',
+        provider: 'openai',
+        model: 'gpt-primary',
+        thinkingEffort: 'high'
+      });
+      expect(createLlmClientFromKrossConfig(config)).toMatchObject({
+        provider: 'openai',
+        model: 'gpt-primary'
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('updates the active model profile without a compatibility mirror', () => {
     const homeDir = createTempHome();
     try {
       const configDir = join(homeDir, '.kross');
@@ -25,18 +88,53 @@ describe('config import', () => {
       writeFileSync(
         configPath,
         JSON.stringify({
-          llm: {
-            provider: 'openai',
-            apiKey: 'legacy-key',
-            model: 'legacy-model'
+          version: 1,
+          models: {
+            activeProfileId: 'primary',
+            profiles: [
+              {
+                id: 'primary',
+                name: 'Primary',
+                provider: 'openai',
+                apiKey: 'profile-key',
+                model: 'gpt-before'
+              }
+            ]
           }
         })
       );
 
-      const legacy = loadKrossConfig({ homeDir });
-      expect(legacy?.llm?.model).toBe('legacy-model');
-      updateKrossLlmConfig(
-        { provider: 'openai', model: 'next-model' },
+      updateActiveKrossModelProfile(
+        { provider: 'openai', model: 'gpt-after' },
+        { homeDir }
+      );
+
+      const config = loadKrossConfig({ homeDir });
+      expect(config?.models?.profiles[0]).toMatchObject({
+        id: 'primary',
+        apiKey: 'profile-key',
+        model: 'gpt-after'
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('adds a version on write and rejects future or legacy single-model configs', () => {
+    const homeDir = createTempHome();
+    try {
+      const configDir = join(homeDir, '.kross');
+      mkdirSync(configDir, { recursive: true });
+      const configPath = join(configDir, 'config.json');
+      upsertKrossModelProfile(
+        {
+          name: 'Primary',
+          model: {
+            provider: 'openai',
+            apiKey: 'profile-key',
+            model: 'gpt-primary'
+          }
+        },
         { homeDir }
       );
       expect(JSON.parse(readFileSync(configPath, 'utf8')).version).toBe(1);
@@ -44,6 +142,21 @@ describe('config import', () => {
       writeFileSync(configPath, JSON.stringify({ version: 2 }));
       expect(() => loadKrossConfig({ homeDir })).toThrow(
         '使用不受支持的数据版本 2'
+      );
+
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          version: 1,
+          llm: {
+            provider: 'openai',
+            apiKey: 'legacy-key',
+            model: 'legacy-model'
+          }
+        })
+      );
+      expect(() => loadKrossConfig({ homeDir })).toThrow(
+        '已移除的单模型 llm 字段'
       );
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
@@ -201,10 +314,17 @@ describe('config import', () => {
       writeFileSync(
         join(homeDir, '.kross/config.json'),
         JSON.stringify({
-          llm: {
-            provider: 'anthropic',
-            model: 'sonnet',
-            baseUrl: 'https://ark.example/api/coding'
+          models: {
+            activeProfileId: 'incomplete',
+            profiles: [
+              {
+                id: 'incomplete',
+                name: 'Incomplete',
+                provider: 'anthropic',
+                model: 'sonnet',
+                baseUrl: 'https://ark.example/api/coding'
+              }
+            ]
           }
         })
       );
@@ -237,10 +357,17 @@ describe('config import', () => {
       writeFileSync(
         join(homeDir, '.kross/config.json'),
         JSON.stringify({
-          llm: {
-            provider: 'openai',
-            apiKey: 'old-key',
-            model: 'old-model'
+          models: {
+            activeProfileId: 'existing',
+            profiles: [
+              {
+                id: 'existing',
+                name: 'Existing',
+                provider: 'openai',
+                apiKey: 'old-key',
+                model: 'old-model'
+              }
+            ]
           }
         })
       );
@@ -260,7 +387,9 @@ describe('config import', () => {
 
       const result = controller.importSource('claude');
 
-      expect(result.config.llm).toMatchObject({
+      expect(getActiveKrossModelProfile(result.config)).toMatchObject({
+        id: 'imported-claude',
+        name: 'Claude Code',
         provider: 'anthropic',
         authToken: 'claude-auth-token',
         model: 'GLM-4.5'
@@ -274,11 +403,18 @@ describe('config import', () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const client = createLlmClientFromKrossConfig(
       {
-        llm: {
-          provider: 'anthropic',
-          authToken: 'saved-token',
-          model: 'GLM-4.5',
-          baseUrl: 'https://ark.example/api/coding'
+        models: {
+          activeProfileId: 'saved',
+          profiles: [
+            {
+              id: 'saved',
+              name: 'Saved',
+              provider: 'anthropic',
+              authToken: 'saved-token',
+              model: 'GLM-4.5',
+              baseUrl: 'https://ark.example/api/coding'
+            }
+          ]
         }
       },
       async (url, init) => {
@@ -334,11 +470,18 @@ describe('config import', () => {
 
       expect(result.configPath).toBe(join(homeDir, '.kross/config.json'));
       expect(saved).toMatchObject({
-        llm: {
-          provider: 'openai',
-          apiKey: 'codex-key',
-          baseUrl: 'https://llm.example/v1',
-          model: 'gpt-5-codex'
+        models: {
+          activeProfileId: 'imported-codex',
+          profiles: [
+            {
+              id: 'imported-codex',
+              name: 'Codex',
+              provider: 'openai',
+              apiKey: 'codex-key',
+              baseUrl: 'https://llm.example/v1',
+              model: 'gpt-5-codex'
+            }
+          ]
         },
         setup: {
           importedFrom: 'codex',
@@ -398,63 +541,82 @@ describe('config import', () => {
     });
   });
 
-  it('updateKrossLlmConfig preserves apiKey when only model changes', () => {
+  it('updateActiveKrossModelProfile preserves apiKey when only model changes', () => {
     const homeDir = createTempHome();
     try {
       mkdirSync(join(homeDir, '.kross'), { recursive: true });
       writeFileSync(
         join(homeDir, '.kross/config.json'),
         JSON.stringify({
-          llm: {
-            provider: 'openai',
-            apiKey: 'keep-me',
-            model: 'gpt-a',
-            baseUrl: 'https://example/v1'
+          models: {
+            activeProfileId: 'primary',
+            profiles: [
+              {
+                id: 'primary',
+                name: 'Primary',
+                provider: 'openai',
+                apiKey: 'keep-me',
+                model: 'gpt-a',
+                baseUrl: 'https://example/v1'
+              }
+            ]
           }
         })
       );
 
-      const result = updateKrossLlmConfig(
+      const result = updateActiveKrossModelProfile(
         { provider: 'openai', model: 'gpt-b' },
         { homeDir }
       );
 
-      expect(result.config.llm).toEqual({
+      expect(result.profile).toEqual({
+        id: 'primary',
+        name: 'Primary',
         provider: 'openai',
         model: 'gpt-b',
         apiKey: 'keep-me',
         baseUrl: 'https://example/v1'
       });
-      expect(loadKrossConfig({ homeDir })?.llm?.apiKey).toBe('keep-me');
+      expect(getActiveKrossModelProfile(loadKrossConfig({ homeDir }))?.apiKey)
+        .toBe('keep-me');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
   });
 
-  it('updateKrossLlmConfig refuses to write unusable config without secrets', () => {
+  it('updateActiveKrossModelProfile refuses to replace a profile without secrets', () => {
     const homeDir = createTempHome();
     try {
       mkdirSync(join(homeDir, '.kross'), { recursive: true });
       writeFileSync(
         join(homeDir, '.kross/config.json'),
         JSON.stringify({
-          llm: {
-            provider: 'anthropic',
-            authToken: 'secret-token',
-            model: 'claude-a'
+          models: {
+            activeProfileId: 'primary',
+            profiles: [
+              {
+                id: 'primary',
+                name: 'Primary',
+                provider: 'anthropic',
+                authToken: 'secret-token',
+                model: 'claude-a'
+              }
+            ]
           }
         })
       );
 
       expect(() =>
-        updateKrossLlmConfig(
+        updateActiveKrossModelProfile(
           { provider: 'openai', model: 'gpt-b' },
           { homeDir }
         )
-      ).toThrow(/拒绝写入无密钥/);
+      ).toThrow(/缺少可用凭证/);
 
       // original credentials untouched
-      expect(loadKrossConfig({ homeDir })?.llm).toEqual({
+      expect(getActiveKrossModelProfile(loadKrossConfig({ homeDir }))).toEqual({
+        id: 'primary',
+        name: 'Primary',
         provider: 'anthropic',
         authToken: 'secret-token',
         model: 'claude-a'
@@ -467,18 +629,21 @@ describe('config import', () => {
   it('persists a public model reference without copying its shared token', () => {
     const homeDir = createTempHome();
     try {
-      const result = updateKrossPublicModelConfig('public-hy3', 'high', {
+      const result = upsertKrossPublicModelProfile('public-hy3', 'high', {
         homeDir
       });
       const serialized = readFileSync(result.configPath, 'utf8');
 
-      expect(result.config.llm).toEqual({
+      expect(result.profile).toEqual({
+        id: 'public-public-hy3',
+        name: 'Hy3 Public',
         provider: 'anthropic',
         model: 'tencent/Hy3',
         publicModelId: 'public-hy3',
         thinkingEffort: 'high'
       });
       expect(serialized).not.toContain('authToken');
+      expect(serialized).not.toContain('"llm"');
       expect(createLlmClientFromKrossConfig(result.config)).toMatchObject({
         provider: 'anthropic',
         model: 'tencent/Hy3',

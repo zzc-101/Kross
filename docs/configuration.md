@@ -58,13 +58,28 @@ Anthropic 还支持 `ANTHROPIC_VERSION`。
 {
   "version": 1,
   "locale": "zh",
-  "llm": {
-    "provider": "openai",
-    "apiKey": "sk-...",
-    "baseUrl": "https://api.openai.com/v1",
-    "model": "gpt-5",
-    "thinkingEffort": "medium",
-    "contextWindow": 256000
+  "models": {
+    "activeProfileId": "main",
+    "profiles": [
+      {
+        "id": "main",
+        "name": "主模型",
+        "provider": "openai",
+        "apiKey": "sk-...",
+        "baseUrl": "https://api.openai.com/v1",
+        "model": "gpt-5",
+        "thinkingEffort": "medium",
+        "contextWindow": 256000
+      },
+      {
+        "id": "economy",
+        "name": "经济模型",
+        "provider": "anthropic",
+        "authToken": "...",
+        "model": "claude-sonnet",
+        "contextWindow": 128000
+      }
+    ]
   },
   "context": {
     "preserveRecentTokens": 20000,
@@ -74,7 +89,7 @@ Anthropic 还支持 `ANTHROPIC_VERSION`。
 }
 ```
 
-`/import`、`/model`、模型设置面板和 `/lang` 会更新此文件。文件中可能包含明文 API key，请限制访问权限，不要提交到仓库或分享到问题报告中。
+`models.profiles` 是模型配置的唯一事实源，`activeProfileId` 决定新会话使用的模型。`/import`、`/model`、模型设置面板和 `/lang` 会更新此文件。旧版顶层 `llm` 字段已被移除，检测到后 Kross 会要求重新运行模型配置向导。文件中可能包含明文 API key，请限制访问权限，不要提交到仓库或分享到问题报告中。
 
 ## 独立摘要模型
 

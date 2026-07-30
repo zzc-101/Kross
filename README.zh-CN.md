@@ -26,7 +26,7 @@ Kross 不只是一个把提示词转发给模型的聊天界面。它围绕真�
 - **透明可调试**：通过 `/context`、`/trace` 和 `/diff` 查看上下文、执行轨迹与代码变更。
 - **弱网与移动端支持**：Cloud Agent 使用 SSE 接收事件、HTTP 提交命令，支持断线排队、按序回放、Web Push 审批通知和 PWA 安装。
 - **云端工作区管理**：支持仓库克隆、会话恢复、真实 Git Diff、分支 Push、Pull Request、资源限额与空闲回收。
-- **多模型支持**：兼容 OpenAI、Anthropic、OpenRouter、DeepSeek 和 xAI。
+- **原生多模型档案**：可同时保存、命名并切换多个 OpenAI、Anthropic、OpenRouter、DeepSeek 和 xAI 配置，新增模型不会覆盖并丢失已有配置。
 
 ## 选择运行方式
 
@@ -169,7 +169,7 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次启动会根据 `.en
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` |
 | xAI | `xai` | `XAI_API_KEY` | `XAI_MODEL` |
 
-通过 `/import` 或模型设置保存的配置位于 `~/.kross/config.json`。环境变量优先于配置文件；各 Provider 也支持对应的 `*_BASE_URL`。
+Kross 在 `~/.kross/config.json` 中原生保存多个具名模型档案；`/import` 和模型设置会新增或激活档案，不再覆盖一个全局单模型。环境变量优先于当前活动档案；各 Provider 也支持对应的 `*_BASE_URL`。
 
 ## 核心设计
 

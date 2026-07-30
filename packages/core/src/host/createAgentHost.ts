@@ -5,6 +5,8 @@ import { createSessionContext } from '../context/sessionContext';
 import { createContextPolicy } from '../context/contextPolicy';
 import {
   createLlmClientFromKrossConfig,
+  createLlmClientFromKrossModelProfile,
+  getActiveKrossModelProfile,
   loadKrossConfig
 } from '../config/configImport';
 import type { ProjectRegistry } from '../domain';
@@ -160,16 +162,17 @@ export function createRuntimeOptionsFromEnv(
   > & Partial<Pick<AgentHostTooling, 'processManager'>>
 ): AgentRuntimeOptions {
   const savedConfig = loadKrossConfig(options);
+  const savedLlm = getActiveKrossModelProfile(savedConfig);
   const envClient = createLlmClientFromEnv(
     env,
     fetch,
-    savedConfig?.llm?.contextWindow
+    savedLlm?.contextWindow
   );
   const llmClient =
     envClient ?? createLlmClientFromKrossConfig(savedConfig, fetch);
   const summarizerClient = savedConfig?.context?.summarizer
-    ? createLlmClientFromKrossConfig(
-        { llm: savedConfig.context.summarizer },
+    ? createLlmClientFromKrossModelProfile(
+        savedConfig.context.summarizer,
         fetch
       )
     : undefined;
@@ -256,6 +259,7 @@ export function createRuntimeOptionsFromEnv(
     mcpManager: tooling?.mcpManager,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
+    onLlmClientChanged: tooling?.setLlmClient,
     sessionContext,
     subagentDepth: 0,
     projectRegistry,
@@ -288,8 +292,9 @@ export async function bootstrapRuntimeTooling(
   options: CreateAgentHostConfigOptions = {}
 ): Promise<AgentHostTooling> {
   const savedConfig = loadKrossConfig(options);
+  const savedLlm = getActiveKrossModelProfile(savedConfig);
   const llmClient =
-    createLlmClientFromEnv(env, undefined, savedConfig?.llm?.contextWindow) ??
+    createLlmClientFromEnv(env, undefined, savedLlm?.contextWindow) ??
     createLlmClientFromKrossConfig(savedConfig);
   const loadedRegistry = loadProjectRegistry({
     homeDir: options.homeDir,
