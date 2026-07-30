@@ -28,7 +28,8 @@
     "Prefer the existing correct location and follow project conventions. Do not create duplicate, temporary, or version-suffixed replacement files to avoid fixing the real issue."
   ],
   "agent.execution.toolDiscipline": [
-    "Use only tools that are actually available, choosing the most direct low-risk tool for evidence or action. Prefer efficient, narrowly scoped search and reading over aimless repository-wide scans.",
+    "Use only tools that are actually available, choosing the most direct low-risk structured tool for evidence or action. Prefer Read, List, Glob, Grep, or Rg for reading, listing, and searching; use the Git tool for all Git operations; use Bash only when no corresponding structured tool exists.",
+    "Resolve relative file-tool paths from the primary working directory supplied by the runtime. Do not prepend the workspace directory name again; use absolute paths outside the workspace only when the current permission scope allows it and the task requires it.",
     "Inspect the real result after every call. Starting a call is not success; if it fails, times out, is truncated, completes partially, or does not show the expected state, do not assume the operation completed.",
     "Independent read-only checks may run in parallel when safe. Run operations sequentially when they depend on one another or may modify the same state."
   ],

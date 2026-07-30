@@ -40,6 +40,10 @@ export interface SessionServicesOptions {
     mode: AgentMode;
     previous: AgentMode;
   }) => void;
+  emitPermissionChanged: (event: {
+    mode: PermissionMode;
+    previous: PermissionMode;
+  }) => void;
   emitWorkStateChanged: () => void;
 }
 
@@ -75,6 +79,7 @@ export class SessionServices {
     this.deps.toolGateway?.setAccessScope(
       permissionModeAccessScope(this.permissionMode)
     );
+    this.syncPermissionModeSource();
   }
 
   getSessionMode(): AgentMode {
@@ -135,11 +140,60 @@ export class SessionServices {
   }
 
   setPermissionMode(mode: PermissionMode): void {
-    if (this.permissionMode === mode) return;
+    if (this.permissionMode === mode) {
+      this.syncPermissionModeSource();
+      return;
+    }
+    const previous = this.permissionMode;
     this.permissionMode = mode;
     this.deps.toolGateway?.setApprovalPolicy(createApprovalPolicy(mode));
     this.deps.toolGateway?.setAccessScope(permissionModeAccessScope(mode));
+    this.syncPermissionModeSource();
+    this.deps.emitPermissionChanged({ mode, previous });
     this.deps.emitWorkStateChanged();
+  }
+
+  /**
+   * 把当前权限边界作为受 runtime 管理的 pinned context 注入模型。
+   * 这只帮助模型选择正确工具；最终授权仍完全由 ToolGateway 强制执行。
+   */
+  syncPermissionModeSource(): void {
+    const workspace =
+      this.deps.options.workspaceRoots?.primary ??
+      (this.deps.options.workspaceRoot
+        ? resolve(this.deps.options.workspaceRoot)
+        : resolve(process.cwd()));
+    const accessScope = permissionModeAccessScope(this.permissionMode);
+    const modeRules: Record<PermissionMode, string[]> = {
+      default: [
+        '工作区内的读取工具自动允许。',
+        '编辑、执行、网络及其他非读取操作必须请求用户审批。'
+      ],
+      classifier: [
+        '工作区内的读取和编辑工具自动允许。',
+        'Shell 执行、网络及不熟悉的操作必须请求用户审批；已知危险命令会被阻止。'
+      ],
+      auto: [
+        '所有工具调用自动允许，文件访问范围扩展到整个系统。',
+        '可以使用任意目录的绝对路径，但仍须遵守用户授权与任务范围。'
+      ]
+    };
+    this.deps.sessionContext.addSource({
+      id: 'tool-permissions',
+      kind: 'workspace',
+      title: 'Runtime tool permissions',
+      content: [
+        `当前工具权限模式：${this.permissionMode}`,
+        `文件访问范围：${accessScope}`,
+        `主工作目录：${workspace}`,
+        ...modeRules[this.permissionMode].map((rule) => `- ${rule}`),
+        '- 相对路径始终以主工作目录为基准；不要重复拼接工作区目录名。',
+        '- 读取/搜索优先使用 Read、List、Glob、Grep 或 Rg；Git 操作优先使用 Git；仅在没有对应结构化工具时使用 Bash。',
+        '- 本上下文用于工具选择，不授予额外权限；ToolGateway 的实时判定是最终权限边界。'
+      ].join('\n'),
+      priority: 98,
+      pinned: true
+    });
   }
 
   getWorkspaceRoots(): WorkspaceRoots | undefined {
@@ -310,6 +364,7 @@ export class SessionServices {
       );
       this.deps.options.todoStore?.restore(restored.todos);
       this.syncSessionModeSource();
+      this.syncPermissionModeSource();
       this.syncTodoContextSource();
     } finally {
       this.restoringWorkState = false;

@@ -26,6 +26,10 @@ import {
   type SessionWorkStateV1
 } from './sessionWorkState';
 import { assertSupportedDataVersion } from '../persistence/version';
+import {
+  permissionModeAccessScope,
+  type PermissionMode
+} from '../tools/permissionModes';
 
 export type StoredSessionMessageFrom =
   | 'user'
@@ -82,7 +86,8 @@ interface SessionEvent {
     | 'session.renamed'
     | 'message.upserted'
     | 'context.updated'
-    | 'work-state.updated';
+    | 'work-state.updated'
+    | 'permission.changed';
   timestamp: string;
   payload: Record<string, unknown>;
 }
@@ -294,6 +299,23 @@ export class HybridSessionStore {
     this.appendEvent(state, 'work-state.updated', { workState: normalized });
     state.workState = normalized;
     state.workStateSignature = signature;
+    this.writeProjection(state);
+    return toSummary(state);
+  }
+
+  recordPermissionChange(
+    sessionId: string,
+    change: { previous: PermissionMode; mode: PermissionMode }
+  ): SessionSummary | null {
+    const state = this.getState(sessionId);
+    if (!state) {
+      return null;
+    }
+    this.appendEvent(state, 'permission.changed', {
+      previous: change.previous,
+      mode: change.mode,
+      accessScope: permissionModeAccessScope(change.mode)
+    });
     this.writeProjection(state);
     return toSummary(state);
   }
@@ -690,7 +712,8 @@ function parseEvent(line: string): SessionEvent | null {
         value.type !== 'session.renamed' &&
         value.type !== 'message.upserted' &&
         value.type !== 'context.updated' &&
-        value.type !== 'work-state.updated') ||
+        value.type !== 'work-state.updated' &&
+        value.type !== 'permission.changed') ||
       typeof value.timestamp !== 'string' ||
       !value.payload ||
       typeof value.payload !== 'object'

@@ -197,6 +197,8 @@ export class AgentRuntime extends EventEmitter {
       sessionContext: this.sessionContext,
       toolGateway: this.toolGateway,
       emitModeChanged: (event) => this.emit('mode.changed', event),
+      emitPermissionChanged: (event) =>
+        this.emit('permission.changed', event),
       emitWorkStateChanged: () => this.emit('work-state.changed')
     });
     this.modeFlows = new ModeFlows({
@@ -225,6 +227,7 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.refreshProjectInstructions();
     this.sessionServices.refreshSkills();
     this.sessionServices.syncSessionModeSource();
+    this.sessionServices.syncPermissionModeSource();
   }
 
   getSessionMode(): AgentMode {
@@ -293,6 +296,19 @@ export class AgentRuntime extends EventEmitter {
 
   setPermissionMode(mode: PermissionMode): void {
     this.sessionServices.setPermissionMode(mode);
+  }
+
+  /** 订阅用户主动切换权限模式，用于 UI 与持久化审计。 */
+  onPermissionModeChanged(
+    listener: (event: {
+      mode: PermissionMode;
+      previous: PermissionMode;
+    }) => void
+  ): () => void {
+    this.on('permission.changed', listener);
+    return () => {
+      this.off('permission.changed', listener);
+    };
   }
 
   getModelLabel(): string {
@@ -983,6 +999,7 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.refreshProjectInstructions();
     this.sessionServices.refreshSkills();
     this.sessionServices.syncSessionModeSource();
+    this.sessionServices.syncPermissionModeSource();
     return {
       buildContextInput: {
         systemPrompt: renderAgentExecutionPrompt({

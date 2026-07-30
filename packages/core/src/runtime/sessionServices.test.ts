@@ -103,8 +103,29 @@ describe('project instructions in AgentRuntime', () => {
 
     expect(runtime.getProjectInstructions().files).toEqual([]);
     expect(runtime.inspectContext({ requestedMode: 'auto' }).includedSources).toEqual([
+      'tool-permissions',
       'session-mode'
     ]);
+  });
+
+  it('injects the live permission mode, scope and workspace path', () => {
+    const root = makeWorkspace();
+    const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
+
+    runtime.setPermissionMode('classifier');
+    const trusted = runtime.inspectContext({ requestedMode: 'auto' });
+    expect(trusted.messages[0]?.content).toContain(
+      '当前工具权限模式：classifier'
+    );
+    expect(trusted.messages[0]?.content).toContain('文件访问范围：workspace');
+    expect(trusted.messages[0]?.content).toContain(`主工作目录：${root}`);
+    expect(trusted.messages[0]?.content).toContain('Git 操作优先使用 Git');
+
+    runtime.setPermissionMode('auto');
+    const fullAccess = runtime.inspectContext({ requestedMode: 'auto' });
+    expect(fullAccess.messages[0]?.content).toContain('当前工具权限模式：auto');
+    expect(fullAccess.messages[0]?.content).toContain('文件访问范围：system');
+    expect(fullAccess.messages[0]?.content).toContain('任意目录的绝对路径');
   });
 });
 
@@ -161,5 +182,8 @@ describe('durable work state in AgentRuntime', () => {
     expect(second.getPermissionMode()).toBe('auto');
     expect(second.getTodoStore()?.list()).toEqual(state.todos);
     expect(second.getPendingModeExecution()).toEqual(state.pendingModeExecution);
+    expect(
+      second.inspectContext({ requestedMode: 'auto' }).messages[0]?.content
+    ).toContain('当前工具权限模式：auto');
   });
 });

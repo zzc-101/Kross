@@ -505,6 +505,18 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       expect(resumed.status).toBe('completed');
+      expect(traceStore.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'tool_call.approved',
+            payload: expect.objectContaining({
+              toolName: 'fs.write',
+              toolCallId: 'write-1',
+              risk: 'execute'
+            })
+          })
+        ])
+      );
       const followupMessages = llmClient.requests[1]?.messages ?? [];
       expect(followupMessages).toEqual(
         expect.arrayContaining([

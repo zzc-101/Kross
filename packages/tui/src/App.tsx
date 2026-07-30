@@ -88,7 +88,8 @@ export interface AppProps {
     | 'syncMessages'
     | 'upsertContextState'
     | 'upsertWorkState'
-  >;
+  > &
+    Partial<Pick<HybridSessionStore, 'recordPermissionChange'>>;
 }
 
 export interface AppTestApi {
@@ -363,7 +364,8 @@ export function App({
     setPendingConductorPlan,
     pendingToolApproval,
     pendingConductorPlan,
-    processingRef
+    processingRef,
+    flushSession
   });
 
   const interruptForeground = useCallback(() => {

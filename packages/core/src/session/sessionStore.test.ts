@@ -22,6 +22,34 @@ afterEach(() => {
 });
 
 describe('HybridSessionStore', () => {
+  it('records permission-mode transitions as explicit audit events', () => {
+    const { root, workspace, store } = createStore();
+    const created = store.createSession(workspace);
+
+    store.recordPermissionChange(created.id, {
+      previous: 'default',
+      mode: 'auto'
+    });
+    store.close();
+
+    const [eventPath] = findEventFiles(join(root, '.kross', 'sessions'));
+    const events = readFileSync(eventPath!, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as {
+        type: string;
+        payload: Record<string, unknown>;
+      });
+    expect(events.at(-1)).toMatchObject({
+      type: 'permission.changed',
+      payload: {
+        previous: 'default',
+        mode: 'auto',
+        accessScope: 'system'
+      }
+    });
+  });
+
   it('permanently deletes a session source and projection', () => {
     const { root, workspace, store } = createStore();
     const created = store.createSession(workspace);

@@ -19,16 +19,19 @@ import {
 } from './sessionMessages';
 
 export interface UseAppSessionOptions {
-  sessionStore: Pick<
-    HybridSessionStore,
-    | 'createSession'
-    | 'listRecent'
-    | 'loadSession'
-    | 'upsertMessage'
-    | 'syncMessages'
-    | 'upsertContextState'
-    | 'upsertWorkState'
-  > | undefined;
+  sessionStore: (
+    Pick<
+      HybridSessionStore,
+      | 'createSession'
+      | 'listRecent'
+      | 'loadSession'
+      | 'upsertMessage'
+      | 'syncMessages'
+      | 'upsertContextState'
+      | 'upsertWorkState'
+    > &
+      Partial<Pick<HybridSessionStore, 'recordPermissionChange'>>
+  ) | undefined;
   sessionStoreError?: string;
   cwd: string;
   onExitRequest?: () => void;
@@ -203,6 +206,27 @@ export function useAppSession({
     }
   }, [agentRuntime, latestMessagesRef, sessionStore]);
 
+  const syncMessagesOnly = useCallback((
+    reportError = true,
+    options?: { sessionId?: string; messages?: ChatMessage[] }
+  ) => {
+    const sessionId = options?.sessionId ?? activeSessionIdRef.current;
+    if (!sessionStore || !sessionId) {
+      return;
+    }
+    const messagesToSync = options?.messages ?? latestMessagesRef.current;
+    try {
+      sessionStore.syncMessages(
+        sessionId,
+        messagesToSync.map(toStoredSessionMessage)
+      );
+    } catch (error) {
+      if (reportError) {
+        setSessionNotice(formatSessionError('session.syncFailed', error));
+      }
+    }
+  }, [latestMessagesRef, sessionStore]);
+
   const cancelSessionSyncTimer = useCallback(() => {
     if (sessionSyncTimerRef.current) {
       clearTimeout(sessionSyncTimerRef.current);
@@ -222,7 +246,8 @@ export function useAppSession({
     onExitRequest?.();
   }, [agentRuntime, flushSession, onExitRequest]);
 
-  // 流式文本只在安静窗口后写一次最终快照，避免逐 token 膨胀 JSONL。
+  // 流式文本只同步可见消息；context/work-state 在运行边界、状态变化、
+  // 切换会话与退出时另行保存，避免每张工具卡都复制完整大快照。
   useEffect(() => {
     if (!sessionStore || !activeSessionIdRef.current) {
       return;
@@ -232,7 +257,7 @@ export function useAppSession({
     }
     sessionSyncTimerRef.current = setTimeout(() => {
       sessionSyncTimerRef.current = undefined;
-      syncVisibleMessages();
+      syncMessagesOnly();
     }, 350);
     return () => {
       if (sessionSyncTimerRef.current) {
@@ -240,7 +265,7 @@ export function useAppSession({
         sessionSyncTimerRef.current = undefined;
       }
     };
-  }, [messages, sessionStore, syncVisibleMessages]);
+  }, [messages, sessionStore, syncMessagesOnly]);
 
   useEffect(() => {
     return agentRuntime.onWorkStateChanged(() => {
@@ -249,6 +274,20 @@ export function useAppSession({
       syncVisibleMessages();
     });
   }, [agentRuntime, syncVisibleMessages]);
+
+  useEffect(() => {
+    return agentRuntime.onPermissionModeChanged((change) => {
+      const sessionId = activeSessionIdRef.current;
+      if (!sessionStore?.recordPermissionChange || !sessionId) {
+        return;
+      }
+      try {
+        sessionStore.recordPermissionChange(sessionId, change);
+      } catch (error) {
+        setSessionNotice(formatSessionError('session.saveFailed', error));
+      }
+    });
+  }, [agentRuntime, sessionStore]);
 
   useEffect(() => {
     return () => {

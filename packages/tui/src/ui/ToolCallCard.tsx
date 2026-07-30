@@ -81,28 +81,36 @@ function ExpandedToolBody({
     return (
       <Box flexDirection="column">
         {items.map((item, index) => (
-          <Box key={item.callId ?? `${item.path ?? 'item'}-${index}`}>
-            <Text dimColor>
-              {'  '}
-              {symbols.systemPrefix}{' '}
-            </Text>
-            <Text dimColor>
-              {item.path ?? item.preview ?? item.summary ?? tool.name}
-            </Text>
-            {item.status === 'failed' ||
-            item.status === 'denied' ||
-            item.status === 'cancelled' ? (
-              <Text
-                color={
-                  item.status === 'cancelled'
-                    ? theme.statusWarn
-                    : theme.statusError
-                }
-              >
-                {'  '}{item.status}
+          <React.Fragment key={item.callId ?? `${item.path ?? 'item'}-${index}`}>
+            <Box>
+              <Text dimColor>
+                {'  '}
+                {symbols.systemPrefix}{' '}
+              </Text>
+              <Text dimColor>
+                {item.path ?? item.preview ?? item.summary ?? tool.name}
+              </Text>
+              {item.status === 'failed' ||
+              item.status === 'denied' ||
+              item.status === 'cancelled' ? (
+                <Text
+                  color={
+                    item.status === 'cancelled'
+                      ? theme.statusWarn
+                      : theme.statusError
+                  }
+                >
+                  {'  '}{item.status}
+                </Text>
+              ) : null}
+            </Box>
+            {item.summary ? (
+              <Text dimColor>
+                {'    '}
+                {item.summary}
               </Text>
             ) : null}
-          </Box>
+          </React.Fragment>
         ))}
       </Box>
     );

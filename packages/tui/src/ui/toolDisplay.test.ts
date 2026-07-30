@@ -96,4 +96,24 @@ describe('toolDisplay', () => {
     ]);
     expect(state.status).toBe('cancelled');
   });
+
+  it('keeps summaries attached to aggregate items instead of the group', () => {
+    const state = buildToolState(
+      'Read',
+      'read',
+      [
+        { path: 'a.ts', status: 'completed', summary: 'read a.ts' },
+        { path: 'b.ts', status: 'failed', summary: 'b.ts not found' }
+      ],
+      {
+        summary: 'b.ts not found',
+        detailLines: [{ text: 'last call details' }]
+      }
+    );
+
+    expect(state.summary).toBeUndefined();
+    expect(state.detailLines).toBeUndefined();
+    expect(state.items?.[0]?.summary).toBe('read a.ts');
+    expect(state.items?.[1]?.summary).toBe('b.ts not found');
+  });
 });

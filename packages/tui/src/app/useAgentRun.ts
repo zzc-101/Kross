@@ -46,6 +46,7 @@ export interface UseAgentRunOptions {
   pendingToolApproval: PendingToolApproval | undefined;
   pendingConductorPlan: { prompt: string; mode: AgentMode } | undefined;
   processingRef: React.MutableRefObject<boolean>;
+  flushSession: () => void;
 }
 
 interface ActiveOperation {
@@ -70,7 +71,8 @@ export function useAgentRun({
   setPendingConductorPlan,
   pendingToolApproval,
   pendingConductorPlan,
-  processingRef
+  processingRef,
+  flushSession
 }: UseAgentRunOptions) {
   const nextOperationIdRef = useRef(0);
   const activeOperationRef = useRef<ActiveOperation>();
@@ -170,6 +172,9 @@ export function useAgentRun({
       return 'failed';
     } finally {
       finishOperation(operation);
+      // 每轮运行边界保存一次模型上下文与 work-state；流式消息由独立
+      // debounce 落盘，避免把完整上下文随每次 UI 更新重复写入 JSONL。
+      flushSession();
     }
 
     if (!result) {
@@ -236,6 +241,7 @@ export function useAgentRun({
     enqueueMessageUpdate,
     finalizeThinkingDurations,
     flushMessageUpdates,
+    flushSession,
     mode,
     setApprovalSelection,
     setAwaitingReply,
@@ -310,6 +316,7 @@ export function useAgentRun({
     } finally {
       finishOperation(operation);
       processingRef.current = false;
+      flushSession();
     }
 
     if (!result) {
@@ -351,6 +358,7 @@ export function useAgentRun({
     enqueueMessageUpdate,
     finalizeThinkingDurations,
     flushMessageUpdates,
+    flushSession,
     pendingToolApproval,
     processingRef,
     setApprovalSelection,

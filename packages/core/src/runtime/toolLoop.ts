@@ -224,12 +224,16 @@ export class RuntimeToolLoop {
     if (!this.activeCheckpoint || (runId && this.activeCheckpoint.runId !== runId)) {
       return;
     }
+    const shouldNotify = this.activeCheckpoint.status === 'awaiting-approval';
     this.activeCheckpoint = undefined;
-    this.options.onCheckpointChanged?.();
+    if (shouldNotify) this.options.onCheckpointChanged?.();
   }
 
   notifyCheckpointSynchronized(runId: string): void {
-    if (this.activeCheckpoint?.runId === runId) {
+    if (
+      this.activeCheckpoint?.runId === runId &&
+      this.activeCheckpoint.status === 'awaiting-approval'
+    ) {
       this.options.onCheckpointChanged?.();
     }
   }
@@ -294,6 +298,7 @@ export class RuntimeToolLoop {
     if (!session) {
       throw new Error(`No pending tool approval for run: ${input.runId}`);
     }
+    const approvalAudit = this.activeCheckpoint?.pendingApproval;
     this.pendingToolSessions.delete(input.runId);
     this.updateCheckpoint({
       ...this.activeCheckpoint!,
@@ -308,22 +313,33 @@ export class RuntimeToolLoop {
 
     try {
       throwIfAborted(input.signal);
-    const toolMessage = input.approved
-      ? await this.executeApprovedToolCall(session, input.signal)
-      : await this.createRejectedToolMessage(session, input.reason);
-    throwIfAborted(input.signal);
+      if (input.approved) {
+        await this.options.record(session.runId, 'tool_call.approved', {
+          toolName: session.call.name,
+          toolCallId: session.call.id,
+          risk: approvalAudit?.risk,
+          reason: approvalAudit?.reason,
+          input: this.options.toolGateway!.formatInputForTrace(
+            session.call.name,
+            session.call.input
+          )
+        });
+      }
+      const toolMessage = input.approved
+        ? await this.executeApprovedToolCall(session, input.signal)
+        : await this.createRejectedToolMessage(session, input.reason);
+      throwIfAborted(input.signal);
 
-    if (toolMessage.role === 'tool') {
-      this.options.sessionContext.appendToolResult({
-        toolCallId: toolMessage.toolCallId,
-        name: toolMessage.name,
-        content: toolMessage.content,
-        iteration: session.iteration
-      });
-      this.recordCompletedCall(session, toolMessage.toolCallId);
-    }
-    this.notifyCheckpointSynchronized(session.runId);
-
+      if (toolMessage.role === 'tool') {
+        this.options.sessionContext.appendToolResult({
+          toolCallId: toolMessage.toolCallId,
+          name: toolMessage.name,
+          content: toolMessage.content,
+          iteration: session.iteration
+        });
+        this.recordCompletedCall(session, toolMessage.toolCallId);
+      }
+      this.notifyCheckpointSynchronized(session.runId);
     const batch = await this.executeToolBatch({
       runId: session.runId,
       mode: session.mode,
@@ -1062,11 +1078,18 @@ export class RuntimeToolLoop {
     checkpoint: RunCheckpointV1,
     notify = true
   ): void {
+    const wasAwaitingApproval =
+      this.activeCheckpoint?.status === 'awaiting-approval';
     this.activeCheckpoint = cloneRunCheckpoint({
       ...checkpoint,
       updatedAt: this.now().toISOString()
     });
-    if (notify) this.options.onCheckpointChanged?.();
+    if (
+      notify &&
+      (checkpoint.status === 'awaiting-approval' || wasAwaitingApproval)
+    ) {
+      this.options.onCheckpointChanged?.();
+    }
   }
 
   private recordCompletedCall(session: PendingToolSession, callId: string): void {

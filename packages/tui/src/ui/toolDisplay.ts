@@ -242,14 +242,14 @@ export function buildToolState(
     items,
     callId: single?.callId,
     inputPreview: single?.preview,
-    summary: extras?.summary ?? single?.summary,
+    summary: single ? extras?.summary ?? single.summary : undefined,
     durationMs:
       items.length === 1
         ? single?.durationMs
         : items.reduce((sum, item) => sum + (item.durationMs ?? 0), 0),
-    linesAdded: extras?.linesAdded ?? single?.linesAdded,
-    linesRemoved: extras?.linesRemoved ?? single?.linesRemoved,
-    detailLines: extras?.detailLines,
-    detailTruncated: extras?.detailTruncated
+    linesAdded: single ? extras?.linesAdded ?? single.linesAdded : undefined,
+    linesRemoved: single ? extras?.linesRemoved ?? single.linesRemoved : undefined,
+    detailLines: single ? extras?.detailLines : undefined,
+    detailTruncated: single ? extras?.detailTruncated : undefined
   };
 }
