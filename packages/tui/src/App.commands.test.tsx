@@ -153,6 +153,25 @@ describe('App commands and model settings', () => {
       await waitUntil(() => lastFrame()?.includes('模型与思考强度') === true);
     });
 
+  it('opens the guided model wizard via /model setup', async () => {
+    let submit: ((value: string) => Promise<void>) | undefined;
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      llmClient: new FakeLlmClient('ok')
+    });
+    const { lastFrame } = render(
+      <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+    );
+
+    await waitUntil(() => submit !== undefined);
+    await submit?.('/model setup');
+    await waitUntil(() => lastFrame()?.includes('快捷配置模型') === true);
+    expect(lastFrame()).toContain('协议类型');
+    expect(lastFrame()).toContain('OpenAI Compatible');
+    expect(lastFrame()).toContain('Anthropic Compatible');
+    expect(lastFrame()).toContain('1/6');
+  });
+
   it('does not route removed /model list through the settings panel', async () => {
       let submit: ((value: string) => Promise<void>) | undefined;
       const runtime = new AgentRuntime({

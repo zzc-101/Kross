@@ -9,10 +9,16 @@ import {
 } from '@kross/core';
 
 import {
+  advanceQuickModelSetup,
+  applyQuickModelSetup,
   applyModelSettings,
+  createQuickModelSetupState,
   createModelSettingsState,
   moveSettingsSelection,
+  moveQuickModelProtocol,
+  retreatQuickModelSetup,
   switchSettingsSection,
+  updateQuickModelField,
   type ModelSettingsState
 } from '../ui';
 
@@ -34,6 +40,14 @@ export function useModelSettingsPanel({
     setModelSettings(
       createModelSettingsState(agentRuntime, process.env, loadKrossConfig()?.llm)
     );
+  }, [agentRuntime]);
+
+  const openQuickModelSetup = useCallback(() => {
+    const saved = loadKrossConfig()?.llm;
+    setModelSettings({
+      ...createModelSettingsState(agentRuntime, process.env, saved),
+      quickSetup: createQuickModelSetupState(agentRuntime, saved)
+    });
   }, [agentRuntime]);
 
   const closeModelSettings = useCallback(() => {
@@ -97,7 +111,33 @@ export function useModelSettingsPanel({
     setModelSettings(undefined);
   }, [agentRuntime, append, modelSettings]);
 
+  const confirmQuickSetup = useCallback(() => {
+    const quickSetup = modelSettings?.quickSetup;
+    if (!quickSetup) {
+      return;
+    }
+    const result = applyQuickModelSetup(
+      agentRuntime,
+      quickSetup,
+      loadKrossConfig()?.llm
+    );
+    if (!result.ok) {
+      setModelSettings((current) =>
+        current?.quickSetup
+          ? {
+              ...current,
+              quickSetup: { ...current.quickSetup, error: result.message }
+            }
+          : current
+      );
+      return;
+    }
+    append('system', result.summary);
+    setModelSettings(undefined);
+  }, [agentRuntime, append, modelSettings]);
+
   const handleModelSettingsKey = useCallback((
+    input: string,
     key: {
       escape?: boolean;
       leftArrow?: boolean;
@@ -105,13 +145,117 @@ export function useModelSettingsPanel({
       upArrow?: boolean;
       downArrow?: boolean;
       return?: boolean;
+      backspace?: boolean;
+      delete?: boolean;
+      ctrl?: boolean;
+      meta?: boolean;
     }
   ): boolean => {
     if (!modelSettings) {
       return false;
     }
+    if (modelSettings.quickSetup) {
+      const setup = modelSettings.quickSetup;
+      if (key.escape) {
+        setModelSettings((current) => {
+          if (!current?.quickSetup) return current;
+          return {
+            ...current,
+            quickSetup: retreatQuickModelSetup(current.quickSetup)
+          };
+        });
+        return true;
+      }
+      if (
+        setup.step === 'protocol' &&
+        (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow)
+      ) {
+        setModelSettings((current) =>
+          current?.quickSetup
+            ? {
+                ...current,
+                quickSetup: moveQuickModelProtocol(
+                  current.quickSetup,
+                  key.leftArrow
+                    ? 'left'
+                    : key.rightArrow
+                      ? 'right'
+                      : key.upArrow
+                        ? 'up'
+                        : 'down'
+                )
+              }
+            : current
+        );
+        return true;
+      }
+      if (key.return) {
+        if (setup.step === 'review') {
+          confirmQuickSetup();
+        } else {
+          setModelSettings((current) =>
+            current?.quickSetup
+              ? {
+                  ...current,
+                  quickSetup: advanceQuickModelSetup(
+                    current.quickSetup,
+                    loadKrossConfig()?.llm
+                  )
+                }
+              : current
+          );
+        }
+        return true;
+      }
+      if (key.backspace || key.delete) {
+        setModelSettings((current) =>
+          current?.quickSetup
+            ? {
+                ...current,
+                quickSetup: updateQuickModelField(current.quickSetup, {
+                  backspace: true
+                })
+              }
+            : current
+        );
+        return true;
+      }
+      if (
+        setup.step !== 'protocol' &&
+        setup.step !== 'review' &&
+        input.length > 0 &&
+        !key.ctrl &&
+        !key.meta
+      ) {
+        setModelSettings((current) =>
+          current?.quickSetup
+            ? {
+                ...current,
+                quickSetup: updateQuickModelField(current.quickSetup, {
+                  append: input
+                })
+              }
+            : current
+        );
+      }
+      return true;
+    }
     if (key.escape) {
       closeModelSettings();
+      return true;
+    }
+    if (input.toLowerCase() === 'n') {
+      setModelSettings((current) =>
+        current
+          ? {
+              ...current,
+              quickSetup: createQuickModelSetupState(
+                agentRuntime,
+                loadKrossConfig()?.llm
+              )
+            }
+          : current
+      );
       return true;
     }
     if (key.leftArrow) {
@@ -150,7 +294,13 @@ export function useModelSettingsPanel({
     }
     // 面板打开时吞掉其它输入，避免落到 Composer
     return true;
-  }, [closeModelSettings, confirmModelSettings, modelSettings]);
+  }, [
+    agentRuntime,
+    closeModelSettings,
+    confirmModelSettings,
+    confirmQuickSetup,
+    modelSettings
+  ]);
 
   const toggleModelSettings = useCallback(() => {
     if (pendingToolApproval) {
@@ -167,6 +317,7 @@ export function useModelSettingsPanel({
     modelSettings,
     modelSettingsOpen,
     openModelSettings,
+    openQuickModelSetup,
     closeModelSettings,
     confirmModelSettings,
     handleModelSettingsKey,

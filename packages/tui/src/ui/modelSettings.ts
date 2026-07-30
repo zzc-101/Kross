@@ -1,4 +1,5 @@
 import {
+  createLlmClient,
   createLlmClientForProvider,
   createLlmClientForPublicModel,
   formatCompactCount,
@@ -10,6 +11,7 @@ import {
   listProvidersFromEnv,
   listPublicModels,
   loadKrossConfig,
+  updateKrossLlmConfig,
   t,
   THINKING_EFFORT_LEVELS,
   type AgentRuntime,
@@ -21,6 +23,35 @@ import {
 } from '@kross/core';
 
 export type SettingsSection = 'effort' | 'model';
+export type QuickModelProtocol = 'openai' | 'anthropic';
+export type QuickModelSetupStep =
+  | 'protocol'
+  | 'baseUrl'
+  | 'apiKey'
+  | 'model'
+  | 'contextWindow'
+  | 'review';
+
+export const QUICK_MODEL_SETUP_STEPS: readonly QuickModelSetupStep[] = [
+  'protocol',
+  'baseUrl',
+  'apiKey',
+  'model',
+  'contextWindow',
+  'review'
+];
+
+export interface QuickModelSetupState {
+  step: QuickModelSetupStep;
+  protocol: QuickModelProtocol;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  contextWindow: string;
+  /** First edit on a newly entered field replaces its suggested value. */
+  replaceOnInput: boolean;
+  error?: string;
+}
 
 export interface EffortOption {
   id: ThinkingEffort;
@@ -47,6 +78,218 @@ export interface ModelSettingsState {
   models: ModelOption[];
   capabilities?: LlmCapabilities;
   capabilitiesLabel?: string;
+  quickSetup?: QuickModelSetupState;
+}
+
+export function createQuickModelSetupState(
+  runtime: AgentRuntime,
+  saved?: ImportedLlmConfig
+): QuickModelSetupState {
+  const current = runtime.getLlmClient();
+  const source = saved ?? loadKrossConfig()?.llm;
+  const protocol: QuickModelProtocol =
+    (source?.provider ?? current?.provider) === 'anthropic'
+      ? 'anthropic'
+      : 'openai';
+  const definition = getLlmProviderDefinition(protocol);
+  return {
+    step: 'protocol',
+    protocol,
+    baseUrl: source?.baseUrl?.trim() || definition.defaultBaseUrl,
+    apiKey: '',
+    model: source?.model?.trim() || current?.model?.trim() || definition.exampleModel,
+    contextWindow: String(
+      source?.contextWindow ?? current?.contextWindow ?? 256_000
+    ),
+    replaceOnInput: true
+  };
+}
+
+export function moveQuickModelProtocol(
+  state: QuickModelSetupState,
+  _direction: 'left' | 'right' | 'up' | 'down'
+): QuickModelSetupState {
+  const protocol: QuickModelProtocol =
+    state.protocol === 'openai' ? 'anthropic' : 'openai';
+  const previousDefault = getLlmProviderDefinition(state.protocol).defaultBaseUrl;
+  const nextDefault = getLlmProviderDefinition(protocol).defaultBaseUrl;
+  return {
+    ...state,
+    protocol,
+    baseUrl:
+      !state.baseUrl.trim() || state.baseUrl === previousDefault
+        ? nextDefault
+        : state.baseUrl,
+    replaceOnInput: true,
+    error: undefined
+  };
+}
+
+export function updateQuickModelField(
+  state: QuickModelSetupState,
+  operation: { append?: string; backspace?: boolean }
+): QuickModelSetupState {
+  if (
+    state.step === 'protocol' ||
+    state.step === 'review'
+  ) {
+    return state;
+  }
+  const field = state.step;
+  const current = state[field];
+  const next = operation.backspace
+    ? state.replaceOnInput
+      ? ''
+      : current.slice(0, -1)
+    : state.replaceOnInput
+      ? operation.append ?? ''
+      : `${current}${operation.append ?? ''}`;
+  return {
+    ...state,
+    [field]: next,
+    replaceOnInput: false,
+    error: undefined
+  };
+}
+
+export function advanceQuickModelSetup(
+  state: QuickModelSetupState,
+  saved?: ImportedLlmConfig
+): QuickModelSetupState {
+  const error = validateQuickModelSetupStep(state, saved);
+  if (error) {
+    return { ...state, error };
+  }
+  const index = QUICK_MODEL_SETUP_STEPS.indexOf(state.step);
+  return {
+    ...state,
+    step: QUICK_MODEL_SETUP_STEPS[Math.min(index + 1, QUICK_MODEL_SETUP_STEPS.length - 1)]!,
+    replaceOnInput: true,
+    error: undefined
+  };
+}
+
+export function retreatQuickModelSetup(
+  state: QuickModelSetupState
+): QuickModelSetupState | undefined {
+  const index = QUICK_MODEL_SETUP_STEPS.indexOf(state.step);
+  if (index <= 0) {
+    return undefined;
+  }
+  return {
+    ...state,
+    step: QUICK_MODEL_SETUP_STEPS[index - 1]!,
+    replaceOnInput: true,
+    error: undefined
+  };
+}
+
+export function validateQuickModelSetupStep(
+  state: QuickModelSetupState,
+  saved?: ImportedLlmConfig
+): string | undefined {
+  if (state.step === 'baseUrl' || state.step === 'review') {
+    const value = state.baseUrl.trim();
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return t('settings.quick.invalidBaseUrl');
+      }
+    } catch {
+      return t('settings.quick.invalidBaseUrl');
+    }
+  }
+  if (state.step === 'apiKey' || state.step === 'review') {
+    const canReuse =
+      saved?.provider === state.protocol &&
+      Boolean(saved.apiKey?.trim() || saved.authToken?.trim());
+    if (!state.apiKey.trim() && !canReuse) {
+      return t('settings.quick.apiKeyRequired');
+    }
+  }
+  if (
+    (state.step === 'model' || state.step === 'review') &&
+    !state.model.trim()
+  ) {
+    return t('settings.quick.modelRequired');
+  }
+  if (state.step === 'contextWindow' || state.step === 'review') {
+    const value = Number(state.contextWindow.trim());
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      return t('settings.quick.invalidContext');
+    }
+  }
+  return undefined;
+}
+
+export function applyQuickModelSetup(
+  runtime: AgentRuntime,
+  state: QuickModelSetupState,
+  saved?: ImportedLlmConfig,
+  persistence: { homeDir?: string; krossHome?: string } = {}
+): ApplySettingsResult {
+  const error = validateQuickModelSetupStep(
+    { ...state, step: 'review' },
+    saved
+  );
+  if (error) {
+    return { ok: false, message: error };
+  }
+  const sameProtocol = saved?.provider === state.protocol;
+  const enteredKey = state.apiKey.trim();
+  const apiKey = enteredKey || (sameProtocol ? saved?.apiKey?.trim() : undefined);
+  const authToken =
+    !enteredKey && sameProtocol ? saved?.authToken?.trim() : undefined;
+  const model = state.model.trim();
+  const baseUrl = state.baseUrl.trim();
+  const contextWindow = Number(state.contextWindow.trim());
+  const thinkingEffort = runtime.getThinkingEffort();
+
+  try {
+    const client =
+      state.protocol === 'anthropic'
+        ? createLlmClient({
+            provider: 'anthropic',
+            model,
+            baseUrl,
+            contextWindow,
+            thinkingEffort,
+            ...(apiKey ? { apiKey } : {}),
+            ...(authToken ? { authToken } : {})
+          })
+        : createLlmClient({
+            provider: 'openai',
+            apiKey: apiKey!,
+            model,
+            baseUrl,
+            contextWindow,
+            thinkingEffort
+          });
+    updateKrossLlmConfig(
+      {
+        provider: state.protocol,
+        model,
+        baseUrl,
+        contextWindow,
+        thinkingEffort,
+        ...(apiKey ? { apiKey } : {}),
+        ...(authToken ? { authToken } : {})
+      },
+      persistence
+    );
+    runtime.setLlmClient(client);
+    const label = formatModelEffortLabel(model, thinkingEffort);
+    return {
+      ok: true,
+      label,
+      summary: t('settings.quick.saved', { label })
+    };
+  } catch (cause) {
+    return {
+      ok: false,
+      message: cause instanceof Error ? cause.message : String(cause)
+    };
+  }
 }
 
 export function buildEffortOptions(

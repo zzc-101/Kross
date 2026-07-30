@@ -1,5 +1,6 @@
 import {
   accessSync,
+  chmodSync,
   constants,
   existsSync,
   mkdirSync,
@@ -566,8 +567,9 @@ function writeKrossConfig(configPath: string, config: KrossConfig): void {
   writeFileSync(
     configPath,
     `${JSON.stringify({ ...config, version: 1 }, null, 2)}\n`,
-    'utf8'
+    { encoding: 'utf8', mode: 0o600 }
   );
+  chmodSync(configPath, 0o600);
 }
 
 function assertSupportedConfigVersion(

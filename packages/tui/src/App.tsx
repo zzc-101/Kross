@@ -388,6 +388,7 @@ export function App({
     modelSettings,
     modelSettingsOpen,
     openModelSettings,
+    openQuickModelSetup,
     handleModelSettingsKey,
     toggleModelSettings
   } = useModelSettingsPanel({
@@ -451,6 +452,7 @@ export function App({
     selectedRecentSession,
     resumeSession,
     openModelSettings,
+    openQuickModelSetup,
     slashSuggestions,
     slashSelectedIndex,
     openSessionPicker,

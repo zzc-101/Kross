@@ -18,6 +18,7 @@ export interface UseAppSubmitOptions {
   selectedRecentSession: number | undefined;
   resumeSession: (selector?: string) => Promise<boolean>;
   openModelSettings: () => void;
+  openQuickModelSetup: () => void;
   slashSuggestions: SlashCommand[];
   slashSelectedIndex: number;
   openSessionPicker: () => boolean;
@@ -50,6 +51,7 @@ export function useAppSubmit({
   selectedRecentSession,
   resumeSession,
   openModelSettings,
+  openQuickModelSetup,
   slashSuggestions,
   slashSelectedIndex,
   openSessionPicker,
@@ -119,6 +121,11 @@ export function useAppSubmit({
     if (trimmed === '/settings' || trimmed === '/model') {
       setInput('');
       openModelSettings();
+      return;
+    }
+    if (trimmed === '/model setup' || trimmed === '/settings setup') {
+      setInput('');
+      openQuickModelSetup();
       return;
     }
 
@@ -263,6 +270,7 @@ export function useAppSubmit({
     importPrompt,
     mode,
     openModelSettings,
+    openQuickModelSetup,
     runTurn,
     slashSelectedIndex,
     slashSuggestions,

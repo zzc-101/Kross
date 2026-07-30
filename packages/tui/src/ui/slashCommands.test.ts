@@ -20,7 +20,7 @@ describe('slashCommands', () => {
     expect(formatSlashHelp()).toContain('/trace [runId|replay <runId>]');
     expect(formatSlashHelp()).toContain('/resume [sessionId]');
     expect(formatSlashHelp()).toContain('/lang zh|en');
-    expect(formatSlashHelp()).toContain('/model [modelId]');
+    expect(formatSlashHelp()).toContain('/model [modelId|setup]');
     expect(formatSlashHelp()).not.toContain('/model [model|effort]');
     expect(formatSlashHelp()).toContain('/free');
   });

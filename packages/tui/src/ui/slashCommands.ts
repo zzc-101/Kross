@@ -32,7 +32,7 @@ export function listSlashCommands(): SlashCommand[] {
     {
       name: '/model',
       description: t('slash.model.desc'),
-      usage: '/model [modelId]',
+      usage: '/model [modelId|setup]',
       category: 'common'
     },
     {

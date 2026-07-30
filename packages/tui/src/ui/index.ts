@@ -106,13 +106,23 @@ export {
 } from './Composer';
 export { ModelSettingsPanel } from './ModelSettingsPanel';
 export {
+  advanceQuickModelSetup,
+  applyQuickModelSetup,
   applyModelSettings,
   buildEffortOptions,
   buildModelOptions,
+  createQuickModelSetupState,
   createModelSettingsState,
+  moveQuickModelProtocol,
   moveSettingsSelection,
+  retreatQuickModelSetup,
   switchSettingsSection,
+  updateQuickModelField,
+  validateQuickModelSetupStep,
   type ModelSettingsState,
+  type QuickModelProtocol,
+  type QuickModelSetupState,
+  type QuickModelSetupStep,
   type SettingsSection
 } from './modelSettings';
 export {

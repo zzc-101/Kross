@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import React from 'react';
+import { render } from 'ink-testing-library';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   AgentRuntime,
@@ -9,13 +14,19 @@ import {
 } from '@kross/core';
 
 import {
+  advanceQuickModelSetup,
+  applyQuickModelSetup,
   applyModelSettings,
   buildEffortOptions,
   buildModelOptions,
+  createQuickModelSetupState,
   createModelSettingsState,
   moveSettingsSelection,
-  switchSettingsSection
+  switchSettingsSection,
+  updateQuickModelField,
+  validateQuickModelSetupStep
 } from './modelSettings';
+import { ModelSettingsPanel } from './ModelSettingsPanel';
 
 describe('modelSettings', () => {
   it('builds effort options with current index', () => {
@@ -189,6 +200,106 @@ describe('modelSettings', () => {
     expect(result.ok).toBe(true);
     expect(client.thinkingEffort).toBe('high');
     expect(runtime.getModelLabel()).toBe('gpt-a (high)');
+  });
+
+  it('walks quick setup fields and replaces suggested values on first input', () => {
+    const runtime = runtimeWith(new StubClient('openai', 'gpt-a'));
+    let setup = createQuickModelSetupState(runtime);
+
+    setup = advanceQuickModelSetup(setup);
+    expect(setup.step).toBe('baseUrl');
+    setup = updateQuickModelField(setup, { append: 'https://gateway.test/v1' });
+    expect(setup.baseUrl).toBe('https://gateway.test/v1');
+
+    setup = advanceQuickModelSetup(setup);
+    expect(setup.step).toBe('apiKey');
+    setup = updateQuickModelField(setup, { append: 'secret-key' });
+    setup = advanceQuickModelSetup(setup);
+    expect(setup.step).toBe('model');
+  });
+
+  it('validates URL, credentials, model id and context size', () => {
+    const runtime = runtimeWith(new StubClient('openai', 'gpt-a'));
+    const base = createQuickModelSetupState(runtime);
+
+    expect(
+      validateQuickModelSetupStep({
+        ...base,
+        step: 'review',
+        baseUrl: 'not-a-url',
+        apiKey: 'key'
+      })
+    ).toContain('Base URL');
+    expect(
+      validateQuickModelSetupStep({
+        ...base,
+        step: 'review',
+        apiKey: '',
+        model: '',
+        contextWindow: '0'
+      })
+    ).toContain('API Key');
+  });
+
+  it('persists a quick setup and immediately switches the runtime client', () => {
+    const root = mkdtempSync(join(tmpdir(), 'kross-model-setup-'));
+    try {
+      const runtime = runtimeWith(new StubClient('openai', 'old-model'));
+      const setup = {
+        ...createQuickModelSetupState(runtime),
+        step: 'review' as const,
+        protocol: 'openai' as const,
+        baseUrl: 'https://gateway.test/v1',
+        apiKey: 'test-secret',
+        model: 'custom-model',
+        contextWindow: '131072'
+      };
+
+      const result = applyQuickModelSetup(runtime, setup, undefined, {
+        krossHome: join(root, '.kross')
+      });
+
+      expect(result.ok).toBe(true);
+      expect(runtime.getLlmClient()).toMatchObject({
+        provider: 'openai',
+        model: 'custom-model',
+        contextWindow: 131072
+      });
+      const persisted = JSON.parse(
+        readFileSync(join(root, '.kross', 'config.json'), 'utf8')
+      ) as { llm: Record<string, unknown> };
+      expect(persisted.llm).toMatchObject({
+        provider: 'openai',
+        baseUrl: 'https://gateway.test/v1',
+        apiKey: 'test-secret',
+        model: 'custom-model',
+        contextWindow: 131072
+      });
+      expect(
+        statSync(join(root, '.kross', 'config.json')).mode & 0o777
+      ).toBe(0o600);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('masks API keys in the quick setup panel', () => {
+    const runtime = runtimeWith(new StubClient('openai', 'gpt-a'));
+    const state = createModelSettingsState(runtime, {});
+    const quickSetup = {
+      ...createQuickModelSetupState(runtime),
+      step: 'apiKey' as const,
+      apiKey: 'super-secret-key'
+    };
+    const { lastFrame } = render(
+      React.createElement(ModelSettingsPanel, {
+        state: { ...state, quickSetup },
+        width: 70
+      })
+    );
+
+    expect(lastFrame()).not.toContain('super-secret-key');
+    expect(lastFrame()).toContain('••••');
   });
 });
 

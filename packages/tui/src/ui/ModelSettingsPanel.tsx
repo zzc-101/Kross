@@ -27,6 +27,48 @@ export function ModelSettingsPanel({
     </Box>
   );
 
+  if (state.quickSetup) {
+    const setup = state.quickSetup;
+    const stepIndex =
+      ['protocol', 'baseUrl', 'apiKey', 'model', 'contextWindow', 'review']
+        .indexOf(setup.step) + 1;
+    return (
+      <Box flexDirection="column" marginBottom={0} width={boxWidth} flexShrink={0}>
+        <Text color={theme.brandSoft}>
+          {symbols.boxTopLeft}
+          {hRule}
+          {symbols.boxTopRight}
+        </Text>
+        <Row>
+          <Text color={theme.brandSoft} bold>
+            {t('settings.quick.title')}
+          </Text>
+          <Text dimColor>
+            {' '}
+            · {stepIndex}/6
+          </Text>
+        </Row>
+        <Row>
+          <Text dimColor>
+            {symbols.boxHorizontal.repeat(Math.min(innerWidth, 40))}
+          </Text>
+        </Row>
+        <QuickSetupBody state={setup} innerWidth={innerWidth} />
+        {setup.error ? (
+          <Row>
+            <Text color={theme.statusError}>{setup.error}</Text>
+          </Row>
+        ) : null}
+        <Text color={theme.border}>
+          {symbols.boxBottomLeft}
+          {hRule}
+          {symbols.boxBottomRight}
+        </Text>
+        <Text dimColor>{t('settings.quick.hotkeys')}</Text>
+      </Box>
+    );
+  }
+
   return (
     <Box flexDirection="column" marginBottom={0} width={boxWidth} flexShrink={0}>
       <Text color={theme.brandSoft}>
@@ -75,6 +117,12 @@ export function ModelSettingsPanel({
         </Row>
       ) : null}
 
+      <Row>
+        <Text color={theme.selection} bold>
+          {t('settings.quick.entry')}
+        </Text>
+      </Row>
+
       {state.capabilitiesLabel ? (
         <Row>
           <Text dimColor>{state.capabilitiesLabel}</Text>
@@ -108,6 +156,173 @@ export function ModelSettingsPanel({
         {symbols.boxBottomRight}
       </Text>
       <Text dimColor>{t('settings.hotkeys')}</Text>
+    </Box>
+  );
+}
+
+function QuickSetupBody({
+  state,
+  innerWidth
+}: {
+  state: NonNullable<ModelSettingsState['quickSetup']>;
+  innerWidth: number;
+}) {
+  if (state.step === 'protocol') {
+    return (
+      <>
+        <WizardLabel innerWidth={innerWidth}>{t('settings.quick.protocol')}</WizardLabel>
+        <WizardRow innerWidth={innerWidth}>
+          <Text
+            color={state.protocol === 'openai' ? theme.selection : undefined}
+            bold={state.protocol === 'openai'}
+          >
+            {state.protocol === 'openai' ? `${symbols.approvePointer} ` : '  '}
+            OpenAI Compatible
+          </Text>
+        </WizardRow>
+        <WizardRow innerWidth={innerWidth}>
+          <Text
+            color={state.protocol === 'anthropic' ? theme.selection : undefined}
+            bold={state.protocol === 'anthropic'}
+          >
+            {state.protocol === 'anthropic' ? `${symbols.approvePointer} ` : '  '}
+            Anthropic Compatible
+          </Text>
+        </WizardRow>
+      </>
+    );
+  }
+
+  if (state.step === 'review') {
+    return (
+      <>
+        <WizardLabel innerWidth={innerWidth}>{t('settings.quick.review')}</WizardLabel>
+        <WizardValue innerWidth={innerWidth} label={t('settings.quick.protocol')} value={state.protocol} />
+        <WizardValue innerWidth={innerWidth} label="Base URL" value={state.baseUrl} />
+        <WizardValue
+          innerWidth={innerWidth}
+          label="API Key"
+          value={state.apiKey ? maskSecret(state.apiKey) : t('settings.quick.reuseKey')}
+        />
+        <WizardValue innerWidth={innerWidth} label={t('settings.quick.modelId')} value={state.model} />
+        <WizardValue
+          innerWidth={innerWidth}
+          label={t('settings.quick.contextWindow')}
+          value={state.contextWindow}
+        />
+      </>
+    );
+  }
+
+  const field = wizardField(state);
+  return (
+    <>
+      <WizardLabel innerWidth={innerWidth}>{field.label}</WizardLabel>
+      <WizardRow innerWidth={innerWidth}>
+        <Text color={theme.selection}>
+          {field.value || t('settings.quick.empty')}
+          <Text inverse> </Text>
+        </Text>
+      </WizardRow>
+      {field.hint ? (
+      <WizardRow innerWidth={innerWidth}>
+          <Text dimColor>{field.hint}</Text>
+        </WizardRow>
+      ) : null}
+    </>
+  );
+}
+
+function wizardField(
+  state: NonNullable<ModelSettingsState['quickSetup']>
+): { label: string; value: string; hint?: string } {
+  switch (state.step) {
+    case 'baseUrl':
+      return { label: 'Base URL', value: state.baseUrl };
+    case 'apiKey':
+      return {
+        label: 'API Key',
+        value: maskSecret(state.apiKey),
+        hint: t('settings.quick.apiKeyHint')
+      };
+    case 'model':
+      return { label: t('settings.quick.modelId'), value: state.model };
+    case 'contextWindow':
+      return {
+        label: t('settings.quick.contextWindow'),
+        value: state.contextWindow,
+        hint: t('settings.quick.contextHint')
+      };
+    default:
+      return { label: '', value: '' };
+  }
+}
+
+function maskSecret(value: string): string {
+  return value.length === 0 ? '' : '•'.repeat(Math.min(16, value.length));
+}
+
+function WizardRow({
+  children,
+  innerWidth
+}: {
+  children: React.ReactNode;
+  innerWidth: number;
+}) {
+  return (
+    <PanelRow innerWidth={innerWidth}>
+      <Box paddingLeft={2}>{children}</Box>
+    </PanelRow>
+  );
+}
+
+function WizardLabel({
+  children,
+  innerWidth
+}: {
+  children: React.ReactNode;
+  innerWidth: number;
+}) {
+  return (
+    <PanelRow innerWidth={innerWidth}>
+      <Box paddingLeft={2} marginBottom={1}>
+        <Text bold>{children}</Text>
+      </Box>
+    </PanelRow>
+  );
+}
+
+function WizardValue({
+  label,
+  value,
+  innerWidth
+}: {
+  label: string;
+  value: string;
+  innerWidth: number;
+}) {
+  return (
+    <WizardRow innerWidth={innerWidth}>
+      <Text dimColor>{label}: </Text>
+      <Text>{value}</Text>
+    </WizardRow>
+  );
+}
+
+function PanelRow({
+  children,
+  innerWidth
+}: {
+  children: React.ReactNode;
+  innerWidth: number;
+}) {
+  return (
+    <Box>
+      <Text color={theme.border}>{symbols.boxVertical} </Text>
+      <Box flexGrow={1} flexShrink={1} overflowX="hidden" width={innerWidth}>
+        {children}
+      </Box>
+      <Text color={theme.border}> {symbols.boxVertical}</Text>
     </Box>
   );
 }

@@ -10,13 +10,17 @@ export interface UseAppKeyboardOptions {
   toggleModelSettings: () => void;
   pendingToolApproval: PendingToolApproval | undefined;
   modelSettings: ModelSettingsState | undefined;
-  handleModelSettingsKey: (key: {
+  handleModelSettingsKey: (input: string, key: {
     escape?: boolean;
     leftArrow?: boolean;
     rightArrow?: boolean;
     upArrow?: boolean;
     downArrow?: boolean;
     return?: boolean;
+    backspace?: boolean;
+    delete?: boolean;
+    ctrl?: boolean;
+    meta?: boolean;
   }) => boolean;
   toggleLastCollapsible: () => void;
   toggleLastToolGroup: () => void;
@@ -79,7 +83,7 @@ export function useAppKeyboard({
 
     // 模型设置面板优先接管导航键
     if (modelSettings) {
-      if (handleModelSettingsKey(key)) {
+      if (handleModelSettingsKey(inputKey, key)) {
         return;
       }
     }
