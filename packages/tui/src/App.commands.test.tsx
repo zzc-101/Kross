@@ -8,6 +8,7 @@ import { App, type AppTestApi } from './App';
 import {
   AgentRuntime,
   createConfigImportController,
+  formatLlmCallMetricsCompact,
   HybridSessionStore,
   ObservableTraceStore,
   SessionContext,
@@ -50,7 +51,7 @@ describe('App commands and model settings', () => {
       await waitUntil(() => submit !== undefined);
       expect(lastFrame()).toContain('fake-model');
       expect(lastFrame()).toContain('权限：只读');
-      expect(lastFrame()).toContain(
+      expect(lastFrame()).not.toContain(
         runtime.getContextUsage({ requestedMode: 'auto' }).headerLabel
       );
 
@@ -62,17 +63,36 @@ describe('App commands and model settings', () => {
     });
 
   it('updates context usage from the accumulated conversation estimate', async () => {
-      let submit: ((value: string) => Promise<void>) | undefined;
+      let api: AppTestApi | undefined;
+      const llmClient = new FakeLlmClient('usage ok');
+      Object.defineProperty(llmClient, 'lastCallMetrics', {
+        configurable: true,
+        get: () => ({
+          version: 1 as const,
+          provider: 'openai' as const,
+          model: 'fake-model',
+          status: 'completed' as const,
+          durationMs: 1250,
+          rateLimited: false,
+          usage: {
+            inputTokens: 37,
+            outputTokens: 5,
+            totalTokens: 42,
+            cacheReadTokens: 20,
+            estimatedCostUsd: 0.0042
+          }
+        })
+      });
       const runtime = new AgentRuntime({
         traceStore: new InMemoryTraceStore(),
-        llmClient: new FakeLlmClient('usage ok')
+        llmClient
       });
       const { lastFrame } = render(
-        <App runtime={runtime} onReady={(api) => (submit = api.submit)} />
+        <App runtime={runtime} onReady={(next) => (api = next)} />
       );
 
-      await waitUntil(() => submit !== undefined);
-      await submit?.('统计真实 token');
+      await waitUntil(() => api !== undefined);
+      await api?.submit('统计真实 token');
       await waitUntil(
         () =>
           lastFrame()?.includes(
@@ -80,6 +100,15 @@ describe('App commands and model settings', () => {
           ) === true
       );
       expect(lastFrame()).toContain('usage ok');
+      const metricsLabel = formatLlmCallMetricsCompact(
+        runtime.getLastLlmCallMetrics()
+      );
+      expect(metricsLabel).toBeDefined();
+      expect(lastFrame()).not.toContain(metricsLabel);
+
+      api?.toggleContextMetrics();
+      await waitUntil(() => lastFrame()?.includes(metricsLabel ?? '') === true);
+      expect(lastFrame()).toContain(`LLM · ${metricsLabel}`);
     });
 
   it('refreshes composer model label after /model switch', async () => {

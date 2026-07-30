@@ -41,7 +41,7 @@ describe('App shell and sessions', () => {
       const { lastFrame } = render(<App />);
 
       expect(lastFrame()).toContain('__ __   ____');
-      // 新会话首页只保留三个主动作和一个上下文提示
+      // 新会话首页只保留主动作，不展示会话级 Todo / 上下文统计
       expect(lastFrame()).toContain('随时可以开始');
       expect(lastFrame()).toContain('输入内容开始新会话');
       expect(lastFrame()).toContain('查看命令');
@@ -53,8 +53,8 @@ describe('App shell and sessions', () => {
       // 输入框右下角：模型 · 权限模式
       expect(lastFrame()).toContain('未配置模型');
       expect(lastFrame()).toContain('权限：只读');
-      // 顶栏上下文占用 used/max
-      expect(lastFrame()).toMatch(/\d+(\.\d+)?[KM]?\/\d+(\.\d+)?[KM]?/);
+      expect(lastFrame()).not.toMatch(/\d+(\.\d+)?[KM]?\/\d+(\.\d+)?[KM]?/);
+      expect(lastFrame()).not.toContain('Todo');
       expect(lastFrame()).not.toContain('Task Tree');
       expect(lastFrame()).not.toContain('Conversation');
     });

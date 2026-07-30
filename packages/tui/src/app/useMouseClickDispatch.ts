@@ -5,6 +5,7 @@ import type { PendingToolApproval } from '@kross/core';
 import { subscribeClick } from '../terminal/mouseTracking';
 
 import {
+  hitTestContextUsage,
   hitTestSubagentPanel,
   hitTestTodoToggle,
   resolveSubagentPanelHeight,
@@ -29,6 +30,9 @@ export interface UseMouseClickDispatchOptions {
   todoCount: number;
   todoExpanded: boolean;
   setTodoExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  contextUsageLabel?: string;
+  contextMetricsExpanded: boolean;
+  setContextMetricsExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   subagents: SubagentUiState[];
   subagentExpanded: boolean;
   setSubagentExpanded: React.Dispatch<React.SetStateAction<boolean>>;
@@ -53,6 +57,9 @@ export function useMouseClickDispatch({
   todoCount,
   todoExpanded,
   setTodoExpanded,
+  contextUsageLabel,
+  contextMetricsExpanded,
+  setContextMetricsExpanded,
   subagents,
   subagentExpanded,
   setSubagentExpanded,
@@ -72,6 +79,20 @@ export function useMouseClickDispatch({
         return;
       }
       if (
+        !isHome &&
+        hitTestContextUsage({
+          clickRow: event.row,
+          clickCol: event.col,
+          columns,
+          contextUsageLabel,
+          contentTopRow: 1
+        })
+      ) {
+        setContextMetricsExpanded((current) => !current);
+        return;
+      }
+      if (
+        !isHome &&
         hitTestTodoToggle({
           clickRow: event.row,
           clickCol: event.col,
@@ -80,6 +101,7 @@ export function useMouseClickDispatch({
           hasError: Boolean(appError),
           todoCount,
           todoExpanded,
+          contextMetricsExpanded,
           contentTopRow: 1
         })
       ) {
@@ -145,6 +167,8 @@ export function useMouseClickDispatch({
     appError,
     todoCount,
     todoExpanded,
+    contextUsageLabel,
+    contextMetricsExpanded,
     subagents,
     subagentExpanded,
     messageViewportHeight,
@@ -154,6 +178,7 @@ export function useMouseClickDispatch({
     toggleThinkingById,
     toggleToolById,
     setTodoExpanded,
+    setContextMetricsExpanded,
     setSubagentExpanded,
     clickPaintCacheRef
   ]);

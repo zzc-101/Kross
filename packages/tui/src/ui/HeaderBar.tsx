@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text, useStdout } from 'ink';
 import { t, type TodoItem, type TodoStoreSnapshot } from '@kross/core';
 
+import { displayWidth } from './markdownParse';
 import { makeDivider, theme, type UiStatus } from './theme';
 
 export interface HeaderBarProps {
@@ -30,7 +31,9 @@ export interface HeaderBarProps {
   contextUsageLabel?: string;
   /** 0–1，用于用量颜色 */
   contextUsageRatio?: number;
-  /** 最近一次模型调用的紧凑 token/延迟/费用摘要。 */
+  /** 是否展开最近一次模型调用的详细统计。 */
+  contextMetricsExpanded?: boolean;
+  /** 最近一次模型调用的 token/延迟/cache/费用摘要，仅在展开时展示。 */
   llmMetricsLabel?: string;
 }
 
@@ -64,6 +67,7 @@ export function HeaderBar({
   compact = false,
   contextUsageLabel,
   contextUsageRatio = 0,
+  contextMetricsExpanded = false,
   llmMetricsLabel
 }: HeaderBarProps) {
   const { stdout } = useStdout();
@@ -71,14 +75,15 @@ export function HeaderBar({
   const locationLabel = formatLocationLabel({ branch, cwdLabel, projectName });
   const usageColor = contextUsageTone(contextUsageRatio);
   const todoLabel = formatTodoHeaderLabel(todoSnapshot, todoExpanded);
-  const todoLines = todoExpanded
+  const todoLines = todoExpanded && !compact
     ? formatTodoHeaderLines(todoSnapshot, resolveTodoListWidth(columns), {
         maxItems: Number.POSITIVE_INFINITY
       })
     : [];
   const todoTone = todoHeaderTone(todoSnapshot);
   const hasTodos = (todoSnapshot?.todos.length ?? 0) > 0;
-  const showTodo = hasTodos || columns === undefined || columns >= 60;
+  const showTodo =
+    !compact && (hasTodos || columns === undefined || columns >= 60);
 
   return (
     <Box flexDirection="column" width="100%" flexShrink={0}>
@@ -86,28 +91,29 @@ export function HeaderBar({
         <Box flexShrink={1} minWidth={1} overflowX="hidden">
           <Text dimColor wrap="truncate-end">{locationLabel}</Text>
         </Box>
-        <Box flexShrink={0}>
-          {contextUsageLabel ? (
-            <Text color={usageColor}>{contextUsageLabel}</Text>
-          ) : null}
-          {llmMetricsLabel ? (
-            <StatusChip label={llmMetricsLabel} dim />
-          ) : null}
-          {/* Todo 芯片：有任务时可点展开（由 App 订阅点击区域） */}
-          {showTodo ? (
-            <StatusChip
-              label={hasTodos ? todoLabel : t('header.todo.empty')}
-              color={todoTone}
-              dim={!todoTone}
-            />
-          ) : null}
-          {queueLength > 0 ? (
-            <StatusChip
-              label={t('header.queue', { count: queueLength })}
-              color={theme.statusBusy}
-            />
-          ) : null}
-        </Box>
+        {!compact ? (
+          <Box flexShrink={0}>
+            {/* Todo 芯片：有任务时可点展开（由 App 订阅点击区域） */}
+            {showTodo ? (
+              <StatusChip
+                label={hasTodos ? todoLabel : t('header.todo.empty')}
+                color={todoTone}
+                dim={!todoTone}
+              />
+            ) : null}
+            {queueLength > 0 ? (
+              <StatusChip
+                label={t('header.queue', { count: queueLength })}
+                color={theme.statusBusy}
+              />
+            ) : null}
+            {contextUsageLabel ? (
+              <Text color={usageColor} underline>
+                {contextUsageLabel}
+              </Text>
+            ) : null}
+          </Box>
+        ) : null}
       </Box>
       {todoLines.length > 0 ? (
         <Box flexDirection="column" width="100%">
@@ -116,6 +122,11 @@ export function HeaderBar({
               {line.text}
             </Text>
           ))}
+        </Box>
+      ) : null}
+      {!compact && contextMetricsExpanded && contextUsageLabel ? (
+        <Box width="100%" justifyContent="flex-end">
+          <Text dimColor>LLM · {llmMetricsLabel ?? '—'}</Text>
         </Box>
       ) : null}
       {!compact ? (
@@ -199,10 +210,14 @@ export function resolveHeaderHeight(input: {
   hasError: boolean;
   todoCount: number;
   todoExpanded: boolean;
+  contextMetricsExpanded?: boolean;
 }): number {
   let height = 1;
-  if (input.todoExpanded && input.todoCount > 0) {
+  if (!input.compact && input.todoExpanded && input.todoCount > 0) {
     height += input.todoCount;
+  }
+  if (!input.compact && input.contextMetricsExpanded) {
+    height += 1;
   }
   if (!input.compact) {
     height += 1; // divider
@@ -225,6 +240,7 @@ export function hitTestTodoToggle(input: {
   hasError: boolean;
   todoCount: number;
   todoExpanded: boolean;
+  contextMetricsExpanded?: boolean;
   /** Shell content starts at this 1-based row (default 1). */
   contentTopRow?: number;
 }): boolean {
@@ -236,7 +252,8 @@ export function hitTestTodoToggle(input: {
     compact: input.compact,
     hasError: input.hasError,
     todoCount: input.todoCount,
-    todoExpanded: input.todoExpanded
+    todoExpanded: input.todoExpanded,
+    contextMetricsExpanded: input.contextMetricsExpanded
   });
   const headerBottom = top + headerHeight - 1;
   if (input.clickRow < top || input.clickRow > headerBottom) {
@@ -257,6 +274,33 @@ export function hitTestTodoToggle(input: {
   }
 
   return false;
+}
+
+/**
+ * 顶栏上下文用量固定渲染在最右侧。AppShell 左右各留 1 列 padding，
+ * 因此默认可点击区域止于终端倒数第 2 列。
+ */
+export function hitTestContextUsage(input: {
+  clickRow: number;
+  clickCol: number;
+  columns: number;
+  contextUsageLabel?: string;
+  contentTopRow?: number;
+  contentRightPadding?: number;
+}): boolean {
+  if (
+    !input.contextUsageLabel ||
+    input.clickRow !== (input.contentTopRow ?? 1)
+  ) {
+    return false;
+  }
+  const width = displayWidth(input.contextUsageLabel);
+  const right = Math.max(
+    1,
+    input.columns - (input.contentRightPadding ?? 1)
+  );
+  const left = Math.max(1, right - width + 1);
+  return input.clickCol >= left && input.clickCol <= right;
 }
 
 function todoItemTone(

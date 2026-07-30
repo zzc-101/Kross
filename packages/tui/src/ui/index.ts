@@ -3,6 +3,7 @@ export {
   formatLocationLabel,
   formatTodoHeaderLabel,
   formatTodoHeaderLines,
+  hitTestContextUsage,
   hitTestTodoToggle,
   resolveHeaderHeight,
   TODO_STATUS_MARK

@@ -10,8 +10,8 @@ export const theme = {
   brandSoft: '#22d3ee',
   /** 欢迎页 headline 强调色（对齐 Grok Build 的金色提示） */
   accent: 'yellow',
-  /** 用户消息整行高亮。 */
-  user: 'cyan',
+  /** 用户消息专属高亮；与青色的工具调用和 Agent 标记明确区分。 */
+  user: '#c084fc',
   agent: 'cyan',
   system: 'gray',
   statusReady: 'green',

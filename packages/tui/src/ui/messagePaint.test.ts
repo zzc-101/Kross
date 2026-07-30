@@ -14,6 +14,7 @@ import {
   wrapPaintSegments
 } from './messagePaint';
 import { parseMarkdownStreaming, clearMarkdownParseCache } from './markdownParse';
+import { theme } from './theme';
 
 function msg(
   partial: Pick<ChatMessage, 'id' | 'from' | 'text'> & Partial<ChatMessage>
@@ -110,14 +111,19 @@ describe('windowPaintRows', () => {
 
     expect(segments).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ text: '> ', color: 'cyan', bold: true }),
+        expect.objectContaining({
+          text: '> ',
+          color: theme.user,
+          bold: true
+        }),
         expect.objectContaining({
           text: '这段用户输入需要醒目显示',
-          color: 'cyan',
+          color: theme.user,
           bold: true
         })
       ])
     );
+    expect(theme.user).not.toBe(theme.marker);
   });
 
   it('soft-wraps long agent lines so each paint row is height 1 with bullet', () => {

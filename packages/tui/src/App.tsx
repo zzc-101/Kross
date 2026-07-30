@@ -100,6 +100,8 @@ export interface AppTestApi {
   toggleToolGroup: () => void;
   /** Expand/collapse the header todo list (same as clicking Todo chip). */
   toggleTodoExpand: () => void;
+  /** Expand/collapse LLM metrics under the context usage label. */
+  toggleContextMetrics: () => void;
   /** Expand/collapse the subagent strip under the conversation. */
   toggleSubagentExpand: () => void;
   resumeSession: (selector?: string) => Promise<boolean>;
@@ -178,6 +180,7 @@ export function App({
     () => agentRuntime.getTodoStore()?.snapshot()
   );
   const [todoExpanded, setTodoExpanded] = useState(false);
+  const [contextMetricsExpanded, setContextMetricsExpanded] = useState(false);
   const [input, setInput] = useState('');
   const [status, setStatus] = useState('ready');
   const [queueLength, setQueueLength] = useState(0);
@@ -476,6 +479,9 @@ export function App({
   const toggleTodoExpand = useCallback(() => {
     setTodoExpanded((current) => !current);
   }, []);
+  const toggleContextMetrics = useCallback(() => {
+    setContextMetricsExpanded((current) => !current);
+  }, []);
 
   useEffect(() => {
     onReady?.({
@@ -486,6 +492,7 @@ export function App({
       toggleCollapse: toggleLastCollapsible,
       toggleToolGroup: toggleLastToolGroup,
       toggleTodoExpand,
+      toggleContextMetrics,
       toggleSubagentExpand,
       resumeSession,
       flushSession,
@@ -505,6 +512,7 @@ export function App({
     toggleLastCollapsible,
     toggleLastToolGroup,
     toggleTodoExpand,
+    toggleContextMetrics,
     toggleSubagentExpand
   ]);
 
@@ -546,7 +554,8 @@ export function App({
     compact: isHome,
     hasError: Boolean(appError),
     todoCount: todoSnapshot?.todos.length ?? 0,
-    todoExpanded
+    todoExpanded,
+    contextMetricsExpanded
   });
   // paddingX 1 on each side doesn't affect height
   const messageViewportHeight = resolveMessageViewportHeight({
@@ -579,6 +588,9 @@ export function App({
     todoCount: todoSnapshot?.todos.length ?? 0,
     todoExpanded,
     setTodoExpanded,
+    contextUsageLabel: contextUsage.headerLabel,
+    contextMetricsExpanded,
+    setContextMetricsExpanded,
     subagents,
     subagentExpanded,
     setSubagentExpanded,
@@ -606,6 +618,7 @@ export function App({
       compact={isHome}
       contextUsageLabel={contextUsage.headerLabel}
       contextUsageRatio={contextUsage.headerRatio}
+      contextMetricsExpanded={contextMetricsExpanded}
       llmMetricsLabel={llmMetricsLabel}
     />
   );

@@ -56,8 +56,10 @@ describe('formatLocationLabel', () => {
 });
 
 describe('soft terminal color roles', () => {
-  it('keeps brand selection distinct from warning and brightens muted brand', () => {
-    expect(theme.user).toBe(theme.brand);
+  it('keeps user input distinct from tools, brand, and warnings', () => {
+    expect(theme.user).toBe('#c084fc');
+    expect(theme.user).not.toBe(theme.brand);
+    expect(theme.user).not.toBe(theme.marker);
     expect(theme.user).not.toBe(theme.statusWarn);
     expect(theme.brandMuted).toBe('#0e7490');
   });

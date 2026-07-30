@@ -302,9 +302,9 @@ describe('App tool and status UI', () => {
       );
 
       await waitUntil(() => submit !== undefined);
-      // 权限只在 Composer 页脚；顶栏改为 Todo 进度。
+      // 欢迎页只显示 Composer 权限，不显示会话级 Todo。
       expect(lastFrame()).toContain('权限：只读');
-      expect(lastFrame()).toContain('Todo · —');
+      expect(lastFrame()).not.toContain('Todo');
 
       await submit?.('/perm classifier');
       await waitUntil(() => lastFrame()?.includes('权限：自动审批') === true);
@@ -331,6 +331,9 @@ describe('App tool and status UI', () => {
       );
 
       await waitUntil(() => api !== undefined);
+      expect(lastFrame()).not.toContain('Todo');
+      await api?.submit('开始会话');
+      await waitUntil(() => lastFrame()?.includes('ok') === true);
       expect(lastFrame()).toContain('Todo · —');
 
       todoStore.write({
