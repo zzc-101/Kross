@@ -9,6 +9,10 @@
 
 > Kross 正在积极开发中。本地 TUI 与自托管 Cloud Agent 的核心流程已经实现，当前适合试用、功能验证和参与开发；云端部署仍建议先在受控环境完成 Docker、移动端、断线恢复、Push 和 Git 流程验收，尚未发布稳定版本。
 
+<p align="center">
+  <img src="docs/images/kross-welcome.png" alt="Kross TUI 欢迎界面" width="100%">
+</p>
+
 ## 为什么是 Kross
 
 Kross 不只是一个把提示词转发给模型的聊天界面。它围绕真实开发任务提供完整运行闭环：
@@ -27,6 +31,10 @@ Kross 不只是一个把提示词转发给模型的聊天界面。它围绕真�
 - **弱网与移动端支持**：Cloud Agent 使用 SSE 接收事件、HTTP 提交命令，支持断线排队、按序回放、Web Push 审批通知和 PWA 安装。
 - **云端工作区管理**：支持仓库克隆、会话恢复、真实 Git Diff、分支 Push、Pull Request、资源限额与空闲回收。
 - **原生多模型档案**：可同时保存、命名并切换多个 OpenAI、Anthropic、OpenRouter、DeepSeek 和 xAI 配置，新增模型不会覆盖并丢失已有配置。
+
+<p align="center">
+  <img src="docs/images/kross-agent-workflow.png" alt="Kross Agent 工作流、工具调用、验证与子代理状态" width="100%">
+</p>
 
 ## 选择运行方式
 
@@ -172,6 +180,10 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次启动会根据 `.en
 Kross 在 `~/.kross/config.json` 中原生保存多个具名模型档案；`/import` 和模型设置会新增或激活档案，不再覆盖一个全局单模型。环境变量优先于当前活动档案；各 Provider 也支持对应的 `*_BASE_URL`。
 
 Task 与 Conductor 子代理可通过 `modelProfileId` 选择任一已保存档案；省略时继承当前模型。模型设置面板会显示档案 id，运行时也会把可选档案注入 Agent 上下文，因此可以直接要求“使用 economy 档案派生探索子代理”。
+
+<p align="center">
+  <img src="docs/images/kross-model-profiles.png" alt="Kross 原生多模型档案设置面板" width="100%">
+</p>
 
 ## 核心设计
 

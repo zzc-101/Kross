@@ -9,6 +9,10 @@ A local-first, self-hostable coding agent for terminal and Web/PWA workflows. Kr
 
 > Kross is under active development. The core local TUI and self-hosted Cloud Agent flows are implemented and ready for evaluation and contribution. Cloud deployments should still be validated in a controlled environment for Docker, mobile, reconnect, Push, and Git workflows before production use. No stable release has been published yet.
 
+<p align="center">
+  <img src="docs/images/kross-welcome.png" alt="Kross TUI welcome screen" width="100%">
+</p>
+
 ## Why Kross
 
 Kross is more than a chat interface that forwards prompts to a model. It provides a complete execution loop for real development work:
@@ -27,6 +31,10 @@ Kross is more than a chat interface that forwards prompts to a model. It provide
 - **Mobile and unreliable-network support**: the Cloud Agent receives events over SSE, submits commands over HTTP, queues offline commands, replays ordered events, sends Web Push approval notifications, and supports PWA installation.
 - **Cloud workspace management**: repository cloning, session recovery, real Git Diff, branch Push, Pull Requests, resource limits, and idle reaping.
 - **Native multi-model profiles**: save, name, and switch between multiple OpenAI, Anthropic, OpenRouter, DeepSeek, and xAI configurations without discarding previously configured models.
+
+<p align="center">
+  <img src="docs/images/kross-agent-workflow.png" alt="Kross Agent workflow with tool calls, verification, and subagent status" width="100%">
+</p>
 
 ## Choose a Runtime
 
@@ -167,6 +175,10 @@ Work across multiple directories:
 Kross natively stores multiple named model profiles in `~/.kross/config.json`; `/import` and the model settings UI add or activate profiles instead of replacing a single global model. Environment variables take precedence over the active profile. Each provider also supports its corresponding `*_BASE_URL`.
 
 Task and Conductor subagents can select any saved profile by `modelProfileId`; when omitted, the subagent inherits the current model. Profile ids are shown in the model settings panel and injected into the Agent's runtime context, so requests such as “delegate exploration to the economy profile” can be translated into a constrained Task call.
+
+<p align="center">
+  <img src="docs/images/kross-model-profiles.png" alt="Kross native multi-model profile settings" width="100%">
+</p>
 
 ## Architecture
 
