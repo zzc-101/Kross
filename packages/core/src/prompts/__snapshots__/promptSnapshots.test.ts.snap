@@ -104,9 +104,9 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "3961361c51736ea4ba97c90bff185e847547ea8f8dbcb13c84cb7a878440e6ae",
     },
     "en:agent.execution.workspaceSafety": {
-      "chars": 537,
-      "lines": 3,
-      "sha256": "009484118b0117128fca9dfa066a191a38579a886b0d96ba655403529fc7015b",
+      "chars": 817,
+      "lines": 4,
+      "sha256": "9ec7be67a95c408f6e9946682a6748ed24c647353858bc088aa78842925c4887",
     },
     "en:conductor.plan": {
       "chars": 822,
@@ -239,9 +239,9 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "cce293500832d012284e5b04a40f54ae0b1a9801027a95a45353f2b04a33d3e5",
     },
     "zh:agent.execution.workspaceSafety": {
-      "chars": 150,
-      "lines": 3,
-      "sha256": "d9978893bc98cf750c8916c2772e701de5571cfdd09045224782d5a0de2a1025",
+      "chars": 231,
+      "lines": 4,
+      "sha256": "a87c710bfabe5cb2927a4ef9b7662ea9dfba70729a7d77768814fa8d5009a448",
     },
     "zh:conductor.plan": {
       "chars": 416,
@@ -276,7 +276,7 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
   },
   "compositions": [
     {
-      "chars": 2429,
+      "chars": 2510,
       "components": [
         "zh:agent.execution.base",
         "zh:agent.execution.intent",
@@ -297,11 +297,11 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "你是 Kross，运行在用户本地工作区中的软件工程 Agent。你的目标是准确理解用户意图，并将任务推进到可验证、可交付的结果。",
       "id": "zh/main/auto",
       "lastLine": "会话 Mode：auto；本轮策略：auto。",
-      "lines": 40,
-      "sha256": "1981f29018620739e343b312f692882235ffa8e4c192314ab85c2556fab58728",
+      "lines": 41,
+      "sha256": "cd6360bc82e986b6c2f5ba238b41a099fa6b8dd1e32e5cb6eb584756c0698cc0",
     },
     {
-      "chars": 2439,
+      "chars": 2520,
       "components": [
         "zh:agent.execution.base",
         "zh:agent.execution.intent",
@@ -322,11 +322,11 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "你是 Kross，运行在用户本地工作区中的软件工程 Agent。你的目标是准确理解用户意图，并将任务推进到可验证、可交付的结果。",
       "id": "zh/main/plan",
       "lastLine": "会话 Mode：plan；本轮策略：plan。",
-      "lines": 40,
-      "sha256": "0eee8253b1e47261880d883c74a8ea3d485ee3f9f493084536263672b20ba6dd",
+      "lines": 41,
+      "sha256": "85d7931a091296c8486882bd54f9b7ceb68bbd071830e18146b8336c536e310b",
     },
     {
-      "chars": 2355,
+      "chars": 2436,
       "components": [
         "zh:agent.execution.base",
         "zh:agent.execution.intent",
@@ -347,8 +347,8 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "你是 Kross，运行在用户本地工作区中的软件工程 Agent。你的目标是准确理解用户意图，并将任务推进到可验证、可交付的结果。",
       "id": "zh/main/conductor",
       "lastLine": "会话 Mode：conductor；本轮策略：conductor。",
-      "lines": 39,
-      "sha256": "c038985d4b8d953754a45ee3b8ec092fab3706074948205b6583ed5ea7eda88c",
+      "lines": 40,
+      "sha256": "82269f108d6f7069e75932ffcd34a88844d515090ebd5adec6e3796bf3c13b00",
     },
     {
       "chars": 299,
@@ -389,7 +389,7 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "94af2db2f9463c54da91302af2e3b7534192dc99df9ba386675e5b59f4dc78b4",
     },
     {
-      "chars": 1933,
+      "chars": 2014,
       "components": [
         "zh:subagent.execution",
         "zh:agent.execution.instructions",
@@ -407,11 +407,11 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "你是 Kross 的专注子代理，在独立上下文中只完成父 Agent 分配的任务。不要扩大范围，也不要尝试派生更多子代理。",
       "id": "zh/subagent/explore",
       "lastLine": "聚焦回答分配的问题，给出可定位的文件、符号、行为或风险；区分已确认事实与推断，并为父 Agent 提供最小下一步。",
-      "lines": 32,
-      "sha256": "63c6ca486247209dd4a0a469fbd4a92c0bd63fd71a5e6ea143962539079eef9f",
+      "lines": 33,
+      "sha256": "3b5f10f9c9d7c1815ae7b535649ca852e2a2808587ecb7eb4a45e8d709dc7e12",
     },
     {
-      "chars": 1915,
+      "chars": 1996,
       "components": [
         "zh:subagent.execution",
         "zh:agent.execution.instructions",
@@ -429,11 +429,11 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "你是 Kross 的专注子代理，在独立上下文中只完成父 Agent 分配的任务。不要扩大范围，也不要尝试派生更多子代理。",
       "id": "zh/subagent/general",
       "lastLine": "由于没有 Bash 和高风险工具，只能执行当前工具集支持的验证；无法运行的测试或命令必须如实报告给父 Agent，不能假定通过。",
-      "lines": 32,
-      "sha256": "803b0bdbf0c7cc45684fb3a09b77d842e0e98cc6fb43237da3b2343953ac7b2b",
+      "lines": 33,
+      "sha256": "8fb861604537b72fb4c7eacb29304ba022e32c9e5f48ccfabda2c659ac9ff551",
     },
     {
-      "chars": 7882,
+      "chars": 8162,
       "components": [
         "en:agent.execution.base",
         "en:agent.execution.intent",
@@ -454,11 +454,11 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "You are Kross, a software-engineering agent running in the user's local workspace. Accurately understand the user's intent and carry the task through to a verifiable, deliverable result.",
       "id": "en/main/auto",
       "lastLine": "Session mode: auto; strategy for this turn: auto.",
-      "lines": 40,
-      "sha256": "af8481a9192e586884f165a6bbf3a26645277638e2fe88cc450dea4c8a997bf9",
+      "lines": 41,
+      "sha256": "b58089e2dfed7e3865111d90e7f1484b613e0a7c135071204377bbc2144050d5",
     },
     {
-      "chars": 7852,
+      "chars": 8132,
       "components": [
         "en:agent.execution.base",
         "en:agent.execution.intent",
@@ -479,11 +479,11 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "You are Kross, a software-engineering agent running in the user's local workspace. Accurately understand the user's intent and carry the task through to a verifiable, deliverable result.",
       "id": "en/main/plan",
       "lastLine": "Session mode: plan; strategy for this turn: plan.",
-      "lines": 40,
-      "sha256": "810d29c28d5d6bdef0cc255e192bef0d9eb8f74a4d221c52dafb27076541d784",
+      "lines": 41,
+      "sha256": "dfc4ee4860384c11411082b6889a70f99daf408471826db4563924699b297488",
     },
     {
-      "chars": 7563,
+      "chars": 7843,
       "components": [
         "en:agent.execution.base",
         "en:agent.execution.intent",
@@ -504,8 +504,8 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "You are Kross, a software-engineering agent running in the user's local workspace. Accurately understand the user's intent and carry the task through to a verifiable, deliverable result.",
       "id": "en/main/conductor",
       "lastLine": "Session mode: conductor; strategy for this turn: conductor.",
-      "lines": 39,
-      "sha256": "c2d2c855edc7e1a2cdbebbeb8d420da9372ae3c013a2cc0b3548e8bbb3ab735c",
+      "lines": 40,
+      "sha256": "c6627e607ea861ba3d9360e6c1d4da8711adb7a4b23bb0ffdee52096eca29474",
     },
     {
       "chars": 939,
@@ -546,7 +546,7 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "sha256": "d2abc3c8630298f88d544e89ca19b709074920361858d631aaf87bf51c6220b3",
     },
     {
-      "chars": 6232,
+      "chars": 6512,
       "components": [
         "en:subagent.execution",
         "en:agent.execution.instructions",
@@ -564,11 +564,11 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "You are a focused Kross subagent. In an isolated context, complete only the task delegated by the parent agent. Do not expand scope or attempt to spawn more subagents.",
       "id": "en/subagent/explore",
       "lastLine": "Focus on the delegated question and provide locatable files, symbols, behaviors, or risks. Distinguish confirmed facts from inference and give the parent agent the smallest useful next step.",
-      "lines": 32,
-      "sha256": "0a85c8e80bb72cf009d49ec80dea36bcaab48f9f17ebc7b7c02ca63a7ee1af03",
+      "lines": 33,
+      "sha256": "b7ca3df41a5604c5e9cc2769c9166762f7a4905519b050de2cfac0d3ccc51c90",
     },
     {
-      "chars": 6232,
+      "chars": 6512,
       "components": [
         "en:subagent.execution",
         "en:agent.execution.instructions",
@@ -586,8 +586,8 @@ exports[`prompt composition snapshots > tracks localized mode compositions and t
       "firstLine": "You are a focused Kross subagent. In an isolated context, complete only the task delegated by the parent agent. Do not expand scope or attempt to spawn more subagents.",
       "id": "en/subagent/general",
       "lastLine": "Because Bash and high-risk tools are unavailable, perform only verification supported by the current tool set. Report tests or commands you could not run to the parent agent instead of assuming they passed.",
-      "lines": 32,
-      "sha256": "b640601f8107d65ec2ec14dc15cc80870806f712f5146898cb7f5afc96c4c108",
+      "lines": 33,
+      "sha256": "fbac4ac3411248fefa99c06b57c0ff991684fbdbf698806c98429e7966bf3673",
     },
   ],
 }

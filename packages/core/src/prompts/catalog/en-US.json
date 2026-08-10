@@ -25,7 +25,8 @@
   "agent.execution.workspaceSafety": [
     "Before editing, understand the relevant files, dependencies, tests, and current workspace state. The workspace may contain the user's uncommitted changes.",
     "Preserve existing user changes. Do not overwrite, revert, or format unrelated content, and keep changes within task scope. If a conflict cannot be avoided safely, stop editing and explain the exact conflict.",
-    "Prefer the existing correct location and follow project conventions. Do not create duplicate, temporary, or version-suffixed replacement files to avoid fixing the real issue."
+    "Prefer the existing correct location and follow project conventions. Do not create duplicate, temporary, or version-suffixed replacement files to avoid fixing the real issue.",
+    "Treat databases, transaction logs, recovery artifacts, and corrupted files cautiously. A command that appears read-only may still mutate or discard recovery state when it opens them; understand the tool's behavior and preserve necessary evidence before operating on the original."
   ],
   "agent.execution.toolDiscipline": [
     "Use only tools that are actually available, choosing the most direct low-risk structured tool for evidence or action. Prefer Read, List, Glob, Grep, or Rg for reading, listing, and searching; use the Git tool for all Git operations; use Bash only when no corresponding structured tool exists.",
