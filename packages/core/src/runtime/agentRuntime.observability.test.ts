@@ -405,12 +405,12 @@ describe('AgentRuntime observability', () => {
         ?.content
     ).toContain('Harness 验证指令');
     expect(result).toMatchObject({
-      status: 'completed',
-      summary: '当前环境无法运行验证',
+      status: 'failed',
+      summary: expect.stringContaining('无法确认任务完成'),
       report: {
         verification: { status: 'not-run' },
         risks: expect.arrayContaining([
-          expect.stringContaining('没有可信的验证通过证据')
+          expect.stringContaining('无法确认任务完成')
         ])
       }
     });

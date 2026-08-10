@@ -44,9 +44,14 @@ export const TRACE_REPLAY_EVENT_TYPES = [
   'review.completed',
   'run.awaiting_approval',
   'run.completed',
+  'run.completion.recommended',
   'run.interrupted',
   'run.phase.changed',
+  'run.progress.assessed',
   'run.started',
+  'run.strategy.rejected',
+  'run.stagnation.terminated',
+  'run.stagnation.warning',
   'run.verification.completed',
   'run.verification.exhausted',
   'run.verification.followup',
@@ -56,6 +61,7 @@ export const TRACE_REPLAY_EVENT_TYPES = [
   'subagent.failed',
   'subagent.started',
   'tool_call.approval_required',
+  'tool_call.approved',
   'tool_call.cancelled',
   'tool_call.completed',
   'tool_call.denied',
@@ -326,6 +332,7 @@ export function replayTraceEvents(
         break;
       }
       case 'tool_call.approval_required':
+      case 'tool_call.approved':
       case 'tool_call.denied':
       case 'tool_call.rejected':
         requireStringPayload(event, 'toolName', index);

@@ -177,8 +177,8 @@ describe('AgentRuntime tool loops and approvals', () => {
         requestedMode: 'auto'
       });
 
-      // 触顶不再 failed，而是软着陆为 completed 总结
-      expect(result.status).toBe('completed');
+      // 触顶会软着陆输出总结，但任务本身不能被误报为完成。
+      expect(result.status).toBe('failed');
       expect(result.summary).toMatch(/收尾|上限|停止/);
       expect(traceStore.events.map((event) => event.type)).toEqual(
         expect.arrayContaining([
@@ -819,7 +819,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       expect(events.at(-1)).toEqual({
         type: 'result',
         result: expect.objectContaining({
-          status: 'completed',
+          status: 'failed',
           summary: expect.stringMatching(/收尾|上限|停止/)
         })
       });

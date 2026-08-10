@@ -49,6 +49,50 @@ describe('replayTraceEvents', () => {
     expect(formatted).not.toContain('must not be rendered');
   });
 
+  it('accepts an explicit approval audit event before the approved tool starts', () => {
+    const events = [
+      event(0, 'run.started', { input: 'update the repository' }),
+      event(1, 'tool_call.approval_required', {
+        toolName: 'Write',
+        toolCallId: 'call-1'
+      }),
+      event(2, 'tool_call.approved', {
+        toolName: 'Write',
+        toolCallId: 'call-1',
+        risk: 'write'
+      }),
+      event(3, 'tool_call.started', {
+        toolName: 'Write',
+        callId: 'call-1'
+      }),
+      event(4, 'tool_call.completed', {
+        toolName: 'Write',
+        callId: 'call-1'
+      }),
+      event(5, 'run.completed', { status: 'completed' })
+    ];
+
+    expect(replayTraceEvents('run-1', events)).toMatchObject({
+      status: 'completed',
+      eventCount: 6
+    });
+  });
+
+  it.each([
+    'run.progress.assessed',
+    'run.stagnation.warning',
+    'run.stagnation.terminated',
+    'run.completion.recommended',
+    'run.strategy.rejected'
+  ])('accepts convergence event %s', (type) => {
+    const events = [
+      event(0, 'run.started', { input: 'x' }),
+      event(1, type, { iteration: 1 }),
+      event(2, 'run.completed', { status: 'failed' })
+    ];
+    expect(replayTraceEvents('run-1', events).eventCount).toBe(3);
+  });
+
   it.each([
     {
       name: 'missing run start',

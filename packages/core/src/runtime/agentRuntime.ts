@@ -887,7 +887,7 @@ export class AgentRuntime extends EventEmitter {
             agentResultSchema.parse({
               runId,
               mode,
-              status: 'completed',
+              status: 'failed',
               summary,
               report: {
                 changedFiles: [],
@@ -914,9 +914,14 @@ export class AgentRuntime extends EventEmitter {
               report: {
                 changedFiles: [],
                 evidence: [
-                  '主 Agent 在 Harness 恢复提示后仍重复相同工具调用，且工具结果没有变化'
+                  summary.includes('连续多轮')
+                    ? '主 Agent 连续多轮只有检索或读取，没有产生可识别的执行进展'
+                    : '主 Agent 在 Harness 恢复提示后仍重复相同工具调用，且工具结果没有变化'
                 ],
-                risks: ['任务尚未完成，需要调整策略后继续']
+                risks: [
+                  '任务尚未完成，需要调整策略后继续',
+                  ...(summary.startsWith('无法确认任务完成：') ? [summary] : [])
+                ]
               }
             })
           );

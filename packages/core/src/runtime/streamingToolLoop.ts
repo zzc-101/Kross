@@ -11,8 +11,12 @@ import type { AgentRunStreamEvent } from './agentRuntimeTypes';
 import type { LlmToolDefinition } from '../llm/types';
 import { renderPrompt } from '../prompts';
 import { ToolLoopStallDetector } from './toolLoopStallDetector';
+import {
+  RunProgressMonitor,
+  VerificationFailureLedger
+} from './runProgressMonitor';
 import type { VerificationGateAssessment } from '../verification';
-import type { RunPhase } from './runPhase';
+import { classifyToolCallPhase, type RunPhase } from './runPhase';
 import {
   classifyRuntimeError,
   type RuntimeErrorClassification
@@ -169,7 +173,11 @@ export async function* runStreamingToolLoop(
   let verificationFollowup:
     | Pick<VerificationGateAssessment, 'report' | 'reason'>
     | undefined;
+  let verifiedCompletionPending = false;
+  let convergenceIntervention: string | undefined;
   const stallDetector = new ToolLoopStallDetector();
+  const progressMonitor = new RunProgressMonitor();
+  const verificationFailureLedger = new VerificationFailureLedger();
 
   try {
     while (true) {
@@ -188,6 +196,14 @@ export async function* runStreamingToolLoop(
           })
         );
       }
+      if (verifiedCompletionPending) {
+        overlays.push(
+          'The latest post-mutation verification passed. If the user request is satisfied, stop exploring and return the final answer now. Only call another tool when a concrete unmet requirement remains.'
+        );
+      }
+      if (convergenceIntervention) {
+        overlays.push(convergenceIntervention);
+      }
       const prepared = await sessionContext.prepareRequest(
         overlays.length > 0
           ? {
@@ -199,6 +215,8 @@ export async function* runStreamingToolLoop(
       );
       stallRecoveryPending = false;
       verificationFollowup = undefined;
+      verifiedCompletionPending = false;
+      convergenceIntervention = undefined;
       throwIfAborted(params.signal);
       const messages = prepared.messages;
       if (deps.onContextMaintained && prepared.maintenance.length > 0) {
@@ -355,6 +373,14 @@ export async function* runStreamingToolLoop(
               requiredKinds: assessment.requiredKinds,
               observedKinds: assessment.observedKinds
             });
+            const summary = `无法确认任务完成：${assessment.reason}`;
+            const landed = await params.handlers.onStalled({
+              summary,
+              fullText,
+              fullThinking
+            });
+            yield { type: 'result', result: landed };
+            return;
           }
         }
         break;
@@ -417,10 +443,96 @@ export async function* runStreamingToolLoop(
         iteration
       });
 
+      const postToolVerification = await deps.assessVerificationGate(
+        params.runId,
+        params.originalUserInput
+      );
+      if (
+        postToolVerification.satisfied &&
+        postToolVerification.report.status === 'passed'
+      ) {
+        verifiedCompletionPending = true;
+        await deps.record(params.runId, 'run.completion.recommended', {
+          iteration,
+          verificationStatus: postToolVerification.report.status,
+          reason: postToolVerification.reason
+        });
+        verificationFailureLedger.reset();
+      } else if (
+        postToolVerification.report.status === 'failed' &&
+        toolCalls.some((call) =>
+          classifyToolCallPhase(
+            call,
+            params.tools.find((tool) => tool.name === call.name)
+          ).phase === 'verify'
+        )
+      ) {
+        const failedStrategy = verificationFailureLedger.observe({
+          lastMutationIndex: postToolVerification.lastMutationIndex,
+          reason: postToolVerification.reason
+        });
+        if (failedStrategy.state === 'rejected') {
+          convergenceIntervention =
+            'The same verification failed twice without any workspace mutation. This strategy is rejected: do not rerun it unchanged. Modify the implementation or choose a materially different hypothesis before verifying again.';
+          await deps.record(params.runId, 'run.strategy.rejected', {
+            iteration,
+            attempts: failedStrategy.attempts,
+            lastMutationIndex: failedStrategy.lastMutationIndex,
+            reason: failedStrategy.reason
+          });
+        } else if (failedStrategy.state === 'stalled') {
+          const summary = '同一工作区状态下连续三次得到相同的验证失败，且没有实施修复，已停止原样重试。';
+          await deps.record(params.runId, 'run.stagnation.terminated', {
+            iteration,
+            reason: 'repeated-failed-verification-without-mutation',
+            attempts: failedStrategy.attempts,
+            lastMutationIndex: failedStrategy.lastMutationIndex
+          });
+          const landed = await params.handlers.onStalled({
+            summary,
+            fullText,
+            fullThinking
+          });
+          yield { type: 'result', result: landed };
+          return;
+        }
+      }
+
       const stall = stallDetector.observe({
         calls: toolCalls,
         results: completedTools
       });
+      const progress = progressMonitor.observe(toolCalls);
+      await deps.record(params.runId, 'run.progress.assessed', {
+        iteration,
+        state: progress.state,
+        consecutiveNoProgress: progress.consecutiveNoProgress,
+        reason: progress.reason,
+        toolNames: progress.toolNames
+      });
+      if (progress.state === 'warn') {
+        await deps.record(params.runId, 'run.stagnation.warning', {
+          iteration,
+          consecutiveNoProgress: progress.consecutiveNoProgress,
+          reason: progress.reason
+        });
+      } else if (progress.state === 'stalled') {
+        const summary = '连续多轮只有检索或读取，没有产生工作区修改、验证结果或新的执行进展，已停止本次运行。';
+        await deps.record(params.runId, 'run.stagnation.terminated', {
+          iteration,
+          consecutiveNoProgress: progress.consecutiveNoProgress,
+          reason: progress.reason
+        });
+        yield { type: 'turn-start', iteration: iteration + 1 };
+        yield { type: 'text-delta', text: summary };
+        const landed = await params.handlers.onStalled({
+          summary,
+          fullText: fullText.length > 0 ? `${fullText}\n\n${summary}` : summary,
+          fullThinking
+        });
+        yield { type: 'result', result: landed };
+        return;
+      }
       if (stall.state === 'recover') {
         const payload = {
           iteration,
