@@ -31,6 +31,7 @@
 | 查看 LLM token、费用、延迟和错误观测边界 | [Provider 调用观测](provider-observability.md) |
 | 检查 npm 包并准备版本发布 | [发布指南](releasing.md) |
 | 查看当前实施暂停点和恢复顺序 | [2026-07-27 实施进度快照](proposals/implementation-progress-2026-07-27.md) |
+| 审阅 SaaS Work Agent 的破坏性改造方案 | [SaaS Work Agent 完整实施方案](proposals/saas-work-agent-implementation.md) |
 
 ## 维护约定
 
