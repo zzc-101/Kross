@@ -3,6 +3,8 @@ runs/
 dist/
 coverage/
 .DS_Store
+__pycache__/
+*.py[cod]
 npm-debug.log*
 .env
 .superpowers/
@@ -12,3 +14,6 @@ packages/**/*.js
 !packages/web/public/sw.js
 vitest.config.js
 test.txt
+.benchmark-secrets/
+benchmarks/terminal_bench/results/*
+!benchmarks/terminal_bench/results/.gitkeep
