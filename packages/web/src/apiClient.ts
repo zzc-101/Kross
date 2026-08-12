@@ -1,5 +1,6 @@
 import {
   approvalPageSchema,
+  approvalSummarySchema,
   artifactPageSchema,
   runSummarySchema,
   sourcePageSchema,
@@ -16,12 +17,13 @@ import {
   type TaskSnapshot,
   type TaskSummary
 } from '@kross/protocol';
-import type { z } from 'zod';
+import { z } from 'zod';
 
 import {
   bootstrapSchema,
   projectListSchema,
   projectSchema,
+  serverApprovalRecordSchema,
   serverRunRecordSchema,
   serverTaskRecordSchema,
   type Bootstrap,
@@ -162,7 +164,23 @@ export class WorkApiClient {
 
   listApprovals(runId?: string): Promise<ApprovalSummary[]> {
     const query = runId ? `?run=${encodeURIComponent(runId)}` : '';
-    return this.optionalPage(`/api/v2/approvals${query}`, approvalPageSchema);
+    return this.raw(`/api/v2/approvals${query}`).then((raw) => decodeApprovalPage(raw, runId));
+  }
+
+  async decideApproval(
+    approvalId: string,
+    decision: 'approved' | 'rejected',
+    reason?: string
+  ): Promise<ApprovalSummary> {
+    const raw = await this.raw(
+      `/api/v2/approvals/${encodeURIComponent(approvalId)}/decision`,
+      {
+        method: 'POST',
+        body: { decision, ...(reason?.trim() ? { reason: reason.trim() } : {}) },
+        idempotencyKey: createIdempotencyKey()
+      }
+    );
+    return decodeApproval(raw);
   }
 
   private async optionalPage<T extends z.ZodTypeAny>(path: string, schema: T): Promise<Array<z.infer<T>['items'][number]>> {
@@ -236,5 +254,32 @@ function decodeRun(raw: unknown): RunSummary {
     ...(skeleton.status === 'failed'
       ? { failure: { code: 'RUN_FAILED', summary: '运行失败', retryable: false } }
       : {})
+  });
+}
+
+function decodeApprovalPage(raw: unknown, runId?: string): ApprovalSummary[] {
+  const official = approvalPageSchema.safeParse(raw);
+  const items = official.success
+    ? official.data.items
+    : z.object({ items: z.array(serverApprovalRecordSchema) }).parse(raw).items.map(toApprovalSummary);
+  return runId ? items.filter((approval) => approval.runId === runId) : items;
+}
+
+function decodeApproval(raw: unknown): ApprovalSummary {
+  const official = approvalSummarySchema.safeParse(raw);
+  return official.success ? official.data : toApprovalSummary(serverApprovalRecordSchema.parse(raw));
+}
+
+function toApprovalSummary(row: z.infer<typeof serverApprovalRecordSchema>): ApprovalSummary {
+  return approvalSummarySchema.parse({
+    id: row.id, organizationId: row.organization_id, projectId: row.project_id,
+    taskId: row.task_id, runId: row.run_id, kind: row.kind, scope: row.scope,
+    riskLevel: row.risk_level, actionPreview: row.action_preview, status: row.status,
+    requestedAt: row.requested_at,
+    ...(row.expires_at ? { expiresAt: row.expires_at } : {}),
+    ...(['approved', 'rejected'].includes(row.status) ? {
+      decidedAt: row.decided_at, decidedBy: row.decided_by,
+      decisionIdempotencyKey: row.decision_idempotency_key
+    } : {})
   });
 }

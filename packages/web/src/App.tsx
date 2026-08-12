@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Archive, Bot, Boxes, CircleAlert, FileText, FolderKanban, LoaderCircle, Play, Plus, Square, Wifi, WifiOff } from 'lucide-react';
+import type { ApprovalSummary } from '@kross/protocol';
 
 import { useWorkbench } from './useWorkbench';
 
@@ -57,7 +58,7 @@ export function App({ devUserId, onChangeIdentity }: { devUserId: string; onChan
         <aside className="inspector">
           <InspectorSection icon={<Boxes size={16} />} title="资料" empty="项目还没有可用资料">{workbench.sources.map((source) => <Resource key={source.id} name={source.displayName} meta={`${source.kind} · ${statusLabel(source.status)}`} />)}</InspectorSection>
           <InspectorSection icon={<Archive size={16} />} title="交付物" empty="运行完成后在这里查看交付物">{workbench.artifacts.map((artifact) => <Resource key={artifact.id} name={artifact.displayName} meta={`${artifact.kind} · ${statusLabel(artifact.status)}`} />)}</InspectorSection>
-          <InspectorSection icon={<CircleAlert size={16} />} title="审批" empty="当前没有待处理审批">{workbench.approvals.map((approval) => <div className="approval" key={approval.id}><span className={`risk ${approval.riskLevel}`}>{approval.riskLevel}</span><strong>{approval.actionPreview}</strong><p>{approval.status === 'pending' ? '审批动作将在服务端能力就绪后开放。' : statusLabel(approval.status)}</p></div>)}</InspectorSection>
+          <InspectorSection icon={<CircleAlert size={16} />} title="审批" empty="当前没有待处理审批">{workbench.approvals.map((approval) => <ApprovalCard key={approval.id} approval={approval} onDecide={workbench.decideApproval} />)}</InspectorSection>
           {workbench.runState.run && <InspectorSection icon={<Bot size={16} />} title="当前运行"><dl className="run-meta"><div><dt>状态</dt><dd>{statusLabel(workbench.runState.run.status)}</dd></div><div><dt>模式</dt><dd>{workbench.runState.run.mode === 'plan' ? '只做计划' : '自动执行'}</dd></div><div><dt>尝试</dt><dd>#{workbench.runState.run.attempt}</dd></div></dl></InspectorSection>}
         </aside>
       </main>
@@ -65,6 +66,58 @@ export function App({ devUserId, onChangeIdentity }: { devUserId: string; onChan
       {newTask && <CreateDialog title="创建任务" fields={[['title', '任务标题'], ['objective', '明确描述目标和期望交付']]} textarea="objective" onClose={() => setNewTask(false)} onSubmit={(data) => workbench.createTask(data.title ?? '', data.objective ?? '')} />}
     </div>
   );
+}
+
+export function ApprovalCard({ approval, onDecide }: {
+  approval: ApprovalSummary;
+  onDecide(
+    approvalId: string,
+    decision: 'approved' | 'rejected',
+    reason?: string
+  ): Promise<void>;
+}) {
+  const [choice, setChoice] = useState<'approved' | 'rejected'>();
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const pending = approval.status === 'pending';
+  const requiresReason = choice === 'rejected';
+
+  async function confirm(): Promise<void> {
+    if (!choice || (requiresReason && !reason.trim())) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await onDecide(approval.id, choice, reason);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '审批提交失败，请重试');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <article className={`approval risk-${approval.riskLevel}`}>
+    <div className="approval-heading">
+      <span className={`risk ${approval.riskLevel}`}>{riskLabel(approval.riskLevel)}风险</span>
+      <span className="approval-kind">{approvalKindLabel(approval.kind)}</span>
+    </div>
+    <strong>{approval.actionPreview}</strong>
+    {approval.expiresAt && <p>有效期至 {new Date(approval.expiresAt).toLocaleString('zh-CN')}</p>}
+    {!pending && <p className="decision-status">{statusLabel(approval.status)}</p>}
+    {pending && !choice && <div className="approval-actions">
+      <button className="approve" disabled={busy} onClick={() => setChoice('approved')}>批准</button>
+      <button className="reject" disabled={busy} onClick={() => setChoice('rejected')}>拒绝</button>
+    </div>}
+    {pending && choice && <div className="approval-confirm">
+      <p className="confirm-copy">确认{choice === 'approved' ? '批准这项动作' : '拒绝这项动作'}？服务端将记录本次决定。</p>
+      <label><span>{requiresReason ? '拒绝理由（必填）' : '备注（可选）'}</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={2_000} disabled={busy} /></label>
+      {error && <p className="approval-error" role="alert">{error}</p>}
+      <div className="approval-actions">
+        <button className="ghost" disabled={busy} onClick={() => { setChoice(undefined); setError(undefined); }}>返回</button>
+        <button className={choice === 'approved' ? 'approve' : 'reject'} disabled={busy || (requiresReason && !reason.trim())} onClick={() => void confirm()}>{busy ? '提交中…' : '确认提交'}</button>
+      </div>
+    </div>}
+  </article>;
 }
 
 function CreateDialog({ title, fields, textarea, onClose, onSubmit }: { title: string; fields: Array<[string, string]>; textarea?: string; onClose(): void; onSubmit(data: Record<string, string>): Promise<void> }) {
@@ -79,3 +132,5 @@ function StatePage({ icon, title, detail }: { icon: React.ReactNode; title: stri
 function statusLabel(value: string) { return ({ open: '进行中', completed: '已完成', cancelled: '已取消', archived: '已归档', queued: '排队中', provisioning: '准备中', running: '运行中', waiting_for_approval: '等待审批', cancelling: '取消中', failed: '失败', ready: '可用', pending: '处理中', processing: '处理中', uploading: '上传中', approved: '已批准', rejected: '已拒绝', expired: '已过期' } as Record<string, string>)[value] ?? value; }
 function phaseLabel(value: string) { return ({ planning: '制定计划', gathering_sources: '整理资料', executing: '执行任务', using_tool: '使用工具', waiting_for_approval: '等待审批', creating_artifact: '生成交付物', verifying: '验证结果', finalizing: '整理结果' } as Record<string, string>)[value] ?? value; }
 function connectionLabel(value: string) { return value === 'connected' ? '实时连接' : value === 'retrying' ? '正在重连' : '正在连接'; }
+function riskLabel(value: string) { return ({ low: '低', medium: '中', high: '高', critical: '严重' } as Record<string, string>)[value] ?? value; }
+function approvalKindLabel(value: string) { return ({ plan: '执行计划', tool: '工具调用', external_action: '外部动作', elevated_access: '提升权限' } as Record<string, string>)[value] ?? value; }

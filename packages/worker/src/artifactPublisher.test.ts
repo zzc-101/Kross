@@ -54,4 +54,7 @@ class ArtifactTransport implements WorkerControlTransport {
     kind: 'document', displayName: 'report.md', status: 'ready', mimeType: 'text/markdown', sizeBytes: 8,
     sha256: 'a'.repeat(64), sourceIds: [], previewAvailable: true, readyAt: '2026-08-12T00:00:00.000Z', createdAt: '2026-08-12T00:00:00.000Z'
   }));
+  getApprovalDecision = vi.fn(async () => undefined);
+  uploadCheckpoint = vi.fn(async () => ({ checkpointKey: 'checkpoint' }));
+  downloadCheckpoint = vi.fn(async () => undefined);
 }

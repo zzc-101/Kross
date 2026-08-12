@@ -1,4 +1,5 @@
 import {
+  approvalDecisionMessageSchema,
   artifactCommittedMessageSchema,
   artifactReservedMessageSchema,
   leaseRenewedMessageSchema,
@@ -9,6 +10,7 @@ import {
   type ArtifactCommitMessage,
   type ArtifactReserveMessage,
   type ArtifactSnapshot,
+  type ApprovalDecisionMessage,
   type RunSpec,
   type WorkerRunEventEnvelope
 } from '@kross/protocol';
@@ -62,6 +64,12 @@ export interface WorkerControlTransport {
     runToken: string;
     commit: Omit<ArtifactCommitMessage, 'protocolVersion' | 'messageId' | 'sentAt' | 'type' | 'runId' | 'generation'>;
   }): Promise<ArtifactSnapshot>;
+  getApprovalDecision(input: {
+    lease: WorkerLeaseIdentity;
+    runToken: string;
+  }): Promise<ApprovalDecisionMessage | undefined>;
+  uploadCheckpoint(input: { runToken: string; absolutePath: string; sha256: string; sizeBytes: number }): Promise<{ checkpointKey: string }>;
+  downloadCheckpoint(input: { runToken: string; checkpointKey: string; destination: string }): Promise<void>;
   subscribe?(listener: (command: WorkerControlCommand) => void): () => void;
 }
 
@@ -208,6 +216,56 @@ export class FetchWorkerControlTransport implements WorkerControlTransport {
     }));
     assertArtifactFence(response, input.lease);
     return { ...response.artifact, runId: response.runId };
+  }
+
+  async getApprovalDecision(input: { lease: WorkerLeaseIdentity; runToken: string }): Promise<ApprovalDecisionMessage | undefined> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error('Control plane request timed out')), this.timeoutMs);
+    try {
+      const url = new URL('/internal/v2/workers/approval-decision', this.options.controlPlaneUrl);
+      url.searchParams.set('runId', input.lease.runId);
+      url.searchParams.set('generation', String(input.lease.generation));
+      const response = await this.fetch(url, {
+        headers: { authorization: `Bearer ${input.runToken}` }, signal: controller.signal
+      });
+      if (response.status === 204) return undefined;
+      if (!response.ok) throw new Error(`Control plane approval decision failed (${response.status}): ${(await response.text()).slice(0, 500)}`);
+      const decision = approvalDecisionMessageSchema.parse(await response.json());
+      if (decision.runId !== input.lease.runId || decision.generation !== input.lease.generation) {
+        throw new Error('Approval decision does not match the active run generation');
+      }
+      return decision;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async uploadCheckpoint(input: { runToken: string; absolutePath: string; sha256: string; sizeBytes: number }): Promise<{ checkpointKey: string }> {
+    const { createReadStream } = await import('node:fs');
+    const url = new URL('/internal/v2/workers/checkpoints', this.options.controlPlaneUrl);
+    url.searchParams.set('sha256', input.sha256); url.searchParams.set('sizeBytes', String(input.sizeBytes));
+    const body = createReadStream(input.absolutePath);
+    try {
+      const response = await this.fetch(url, {
+        method: 'PUT', headers: { authorization: `Bearer ${input.runToken}`, 'content-type': 'application/json' },
+        body
+      } as unknown as RequestInit);
+      if (!response.ok) throw new Error(`Checkpoint upload failed (${response.status}): ${(await response.text()).slice(0, 500)}`);
+      const parsed = await response.json() as { checkpointKey?: unknown };
+      if (typeof parsed.checkpointKey !== 'string' || !parsed.checkpointKey) throw new Error('Checkpoint upload returned an invalid key');
+      return { checkpointKey: parsed.checkpointKey };
+    } finally { body.destroy(); }
+  }
+
+  async downloadCheckpoint(input: { runToken: string; checkpointKey: string; destination: string }): Promise<void> {
+    const { createWriteStream } = await import('node:fs');
+    const { Readable } = await import('node:stream');
+    const { pipeline } = await import('node:stream/promises');
+    const url = new URL('/internal/v2/workers/checkpoints', this.options.controlPlaneUrl);
+    url.searchParams.set('key', input.checkpointKey);
+    const response = await this.fetch(url, { headers: { authorization: `Bearer ${input.runToken}` } });
+    if (!response.ok || !response.body) throw new Error(`Checkpoint download failed (${response.status})`);
+    await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream), createWriteStream(input.destination, { mode: 0o600 }));
   }
 
   private async request(path: string, token: string, body: Record<string, unknown>, allowEmpty = false): Promise<unknown> {

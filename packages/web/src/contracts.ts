@@ -81,6 +81,25 @@ export const serverRunRecordSchema = z
     createdBy: resourceIdSchema
   })
   .strict();
+export const serverApprovalRecordSchema = z
+  .object({
+    id: resourceIdSchema,
+    organization_id: resourceIdSchema,
+    project_id: resourceIdSchema,
+    task_id: resourceIdSchema,
+    run_id: resourceIdSchema,
+    kind: z.enum(['plan', 'tool', 'external_action', 'elevated_access']),
+    scope: z.enum(['run', 'organization']),
+    risk_level: z.enum(['low', 'medium', 'high', 'critical']),
+    action_preview: z.string().min(1),
+    status: z.enum(['pending', 'approved', 'rejected', 'expired', 'cancelled']),
+    requested_at: isoDateTimeSchema,
+    expires_at: isoDateTimeSchema.nullish(),
+    decided_at: isoDateTimeSchema.nullish(),
+    decided_by: resourceIdSchema.nullish(),
+    decision_idempotency_key: z.string().min(1).nullish()
+  })
+  .passthrough();
 
 export const publicSchemas = {
   bootstrap: bootstrapSchema,

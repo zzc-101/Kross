@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
 import {
@@ -100,9 +101,9 @@ export class RunExecutor {
     }, registered.heartbeatIntervalMs);
 
     try {
-      await this.restoreCheckpoint(runSpec, checkpointStore, handle.runtime);
+      const checkpoint = await this.restoreCheckpoint(runSpec, checkpointStore, handle.runtime);
       await emitter.emit({ type: 'run.started', startedAt: this.now().toISOString() });
-      const outcome = await this.runAgent({ runSpec, runtime: handle.runtime, evidence, emitter, checkpointStore, outputDirectory: workspace.outputDirectory, signal: abortController.signal });
+      const outcome = await this.runAgent({ runSpec, runtime: handle.runtime, evidence, emitter, checkpointStore, checkpoint, outputDirectory: workspace.outputDirectory, signal: abortController.signal });
       await this.options.transport.release({
         workerSessionId: registered.workerSessionId,
         lease: this.options.lease,
@@ -145,13 +146,28 @@ export class RunExecutor {
     evidence: WorkRunEvidence;
     emitter: EventEmitter;
     checkpointStore: FileCheckpointStore;
+    checkpoint?: import('@kross/work-runtime').WorkRuntimeCheckpoint;
     outputDirectory: string;
     signal: AbortSignal;
   }): Promise<RunExecutionOutcome> {
     let fullText = '';
     let pendingDelta = '';
     let finalResult: Awaited<ReturnType<WorkAgentRuntime['resolveToolApproval']>> | undefined;
-    for await (const event of input.runtime.runStreaming({
+    if (input.checkpoint?.pendingApproval) {
+      const decision = await this.options.transport.getApprovalDecision({ lease: this.options.lease, runToken: this.options.runToken });
+      if (!decision) throw new Error('Resumed approval checkpoint has no decision');
+      if (decision.approvalId !== input.checkpoint.pendingApproval.approvalId || decision.requestHash !== input.checkpoint.pendingApproval.requestHash) {
+        throw new Error('Approval decision digest does not match the checkpoint');
+      }
+      finalResult = await input.runtime.resolveToolApproval({
+        runId: input.runSpec.runId,
+        approved: decision.decision === 'approved',
+        ...(decision.reason === undefined ? {} : { reason: decision.reason }),
+        signal: input.signal
+      });
+      input.evidence.resolveApproval(decision.approvalId);
+    }
+    for await (const event of finalResult ? emptyEvents() : input.runtime.runStreaming({
       input: buildRunPrompt(input.runSpec),
       requestedMode: input.runSpec.mode,
       signal: input.signal
@@ -176,17 +192,48 @@ export class RunExecutor {
     }
     if (!finalResult) throw new Error('Core runtime finished without a result');
     if (finalResult.status === 'approval-required') {
+      if (!finalResult.pendingApproval) throw new Error('Approval-required result omitted pending approval metadata');
+      const approvalId = approvalIdFor(finalResult.pendingApproval.toolCallId);
+      const requestHash = createHash('sha256').update(finalResult.pendingApproval.inputPreview).digest('hex');
+      input.evidence.addPendingApproval(approvalId);
+      await input.emitter.emit({
+        type: 'run.approval_requested',
+        approval: {
+          id: approvalId,
+          organizationId: input.runSpec.organizationId,
+          projectId: input.runSpec.projectId,
+          taskId: input.runSpec.taskId,
+          runId: input.runSpec.runId,
+          scope: 'run',
+          riskLevel: approvalRisk(finalResult.pendingApproval.risk),
+          actionPreview: finalResult.pendingApproval.inputPreview || finalResult.pendingApproval.toolName,
+          target: {
+            type: 'tool', toolCallId: finalResult.pendingApproval.toolCallId,
+            toolName: finalResult.pendingApproval.toolName, argumentsHash: requestHash
+          },
+          status: 'pending',
+          requestedAt: this.now().toISOString(),
+          expiresAt: new Date(this.now().getTime() + 86_400_000).toISOString()
+        }
+      });
       const saved = await input.checkpointStore.save({
         version: 1,
         runId: input.runSpec.runId,
         generation: input.runSpec.generation,
         contextState: input.runtime.exportContextState(),
         workState: input.runtime.exportWorkState(),
+        pendingApproval: { approvalId, requestHash },
         savedAt: this.now().toISOString()
+      });
+      const remote = await this.options.transport.uploadCheckpoint({
+        runToken: this.options.runToken,
+        absolutePath: join(input.checkpointStore.directoryPath, saved.key),
+        sha256: saved.sha256,
+        sizeBytes: saved.sizeBytes
       });
       await input.emitter.emit({
         type: 'run.checkpoint_updated',
-        checkpointKey: saved.key,
+        checkpointKey: remote.checkpointKey,
         sha256: saved.sha256,
         sizeBytes: saved.sizeBytes,
         completedThroughSeq: Math.max(1, input.emitter.lastSequence)
@@ -239,14 +286,20 @@ export class RunExecutor {
     return { status, summary, lastSequence: input.emitter.lastSequence };
   }
 
-  private async restoreCheckpoint(runSpec: RunSpec, store: FileCheckpointStore, runtime: WorkAgentRuntime): Promise<void> {
-    if (!runSpec.resumeCheckpointKey) return;
-    const checkpoint = await store.load(runSpec.resumeCheckpointKey);
+  private async restoreCheckpoint(runSpec: RunSpec, store: FileCheckpointStore, runtime: WorkAgentRuntime): Promise<import('@kross/work-runtime').WorkRuntimeCheckpoint | undefined> {
+    if (!runSpec.resumeCheckpointKey) return undefined;
+    const localKey = 'restored-checkpoint.json';
+    await this.options.transport.downloadCheckpoint({
+      runToken: this.options.runToken, checkpointKey: runSpec.resumeCheckpointKey,
+      destination: join(store.directoryPath, localKey)
+    });
+    const checkpoint = await store.load(localKey);
     if (!checkpoint) throw new Error('Resume checkpoint was not found');
     if (checkpoint.runId !== runSpec.runId || checkpoint.generation > runSpec.generation) throw new Error('Resume checkpoint does not belong to this run generation');
     if (!runtime.restoreContextState(checkpoint.contextState as never) || !runtime.restoreWorkState(checkpoint.workState as never)) {
       throw new Error('Core checkpoint restore failed closed');
     }
+    return checkpoint;
   }
 
   private assertLease(runSpec: RunSpec): void {
@@ -309,4 +362,14 @@ function splitText(value: string, maxChars: number): string[] {
     if (/\S/.test(part)) parts.push(part);
   }
   return parts;
+}
+async function* emptyEvents(): AsyncGenerator<never> {}
+function approvalIdFor(toolCallId: string): string {
+  return `approval_${createHash('sha256').update(toolCallId).digest('hex').slice(0, 32)}`;
+}
+function approvalRisk(risk: string): 'low' | 'medium' | 'high' | 'critical' {
+  if (risk === 'read') return 'low';
+  if (risk === 'write') return 'high';
+  if (risk === 'critical') return 'critical';
+  return 'medium';
 }

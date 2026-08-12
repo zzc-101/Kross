@@ -14,6 +14,8 @@ import type { SqlExecutor, TransactionRunner } from './database';
 import { conflict, notFound, ServerError } from './errors';
 import { PostgresLeaseQueue, type RunLease } from './leaseQueue';
 import type { SourceArtifactService } from './sourceArtifactService';
+import type { ApprovalService } from './approvalService';
+import type { BlobStore } from './blobStore';
 
 export type WorkerRegisterRequest = Extract<InternalWorkerMessage, { type: 'worker.register' }>;
 export type WorkerHeartbeatRequest = Extract<InternalWorkerMessage, { type: 'worker.heartbeat' }>;
@@ -62,6 +64,9 @@ export interface WorkerControlService {
   release(token: string, message: WorkerReleaseRequest): Promise<void>;
   reserveArtifact(token: string, message: ArtifactReserveMessage): Promise<Record<string, unknown>>;
   commitArtifact(token: string, message: ArtifactCommitMessage): Promise<Record<string, unknown>>;
+  nextApprovalDecision(token: string): Promise<Extract<InternalWorkerMessage, { type: 'approval.decision' }> | undefined>;
+  putCheckpoint(token: string, input: { sha256: string; sizeBytes: number }, content: AsyncIterable<Uint8Array>): Promise<{ checkpointKey: string }>;
+  getCheckpoint(token: string, checkpointKey: string): Promise<AsyncIterable<Uint8Array>>;
 }
 
 export interface IssuedRunToken {
@@ -87,6 +92,8 @@ export interface PostgresWorkerControlOptions {
   readonly leaseDurationMs?: number;
   readonly now?: () => Date;
   readonly sourceArtifacts?: SourceArtifactService;
+  readonly approvals?: ApprovalService;
+  readonly blobStore?: BlobStore;
 }
 
 /** PostgreSQL-backed implementation of the run-scoped Worker trust boundary. */
@@ -96,6 +103,8 @@ export class PostgresWorkerControlService implements WorkerControlService {
   private readonly now: () => Date;
   private readonly leases: PostgresLeaseQueue;
   private readonly sourceArtifacts?: SourceArtifactService;
+  private readonly approvals?: ApprovalService;
+  private readonly blobStore?: BlobStore;
 
   public constructor(
     private readonly sql: SqlExecutor,
@@ -106,6 +115,8 @@ export class PostgresWorkerControlService implements WorkerControlService {
     this.leaseDurationMs = options.leaseDurationMs ?? 30_000;
     this.now = options.now ?? (() => new Date());
     this.sourceArtifacts = options.sourceArtifacts;
+    this.approvals = options.approvals;
+    this.blobStore = options.blobStore;
     this.leases = new PostgresLeaseQueue(transactions);
   }
 
@@ -171,6 +182,20 @@ export class PostgresWorkerControlService implements WorkerControlService {
          SELECT $5, organization_id, project_id, task_id, id, $3, $6, $7, $8, $9 FROM target
          ON CONFLICT (run_id, generation, seq) DO NOTHING
          RETURNING seq
+       ), approval_inserted AS (
+         INSERT INTO approvals
+           (id, organization_id, project_id, task_id, run_id, kind, scope, status, risk_level,
+            action_preview, target, request_hash, requested_at, expires_at)
+         SELECT $9::jsonb->'approval'->>'id', organization_id, project_id, task_id, id,
+           $9::jsonb->'approval'->'target'->>'type', $9::jsonb->'approval'->>'scope', 'pending',
+           $9::jsonb->'approval'->>'riskLevel', $9::jsonb->'approval'->>'actionPreview',
+           $9::jsonb->'approval'->'target',
+           COALESCE($9::jsonb->'approval'->'target'->>'argumentsHash', $9::jsonb->'approval'->'target'->>'planDigest'),
+           ($9::jsonb->'approval'->>'requestedAt')::timestamptz,
+           NULLIF($9::jsonb->'approval'->>'expiresAt', '')::timestamptz
+         FROM target WHERE $7 = 'run.approval_requested' AND EXISTS (SELECT 1 FROM inserted)
+         ON CONFLICT (organization_id, id) DO NOTHING
+         RETURNING id
        ), projected AS (
          UPDATE runs r SET
            status = CASE
@@ -254,6 +279,45 @@ export class PostgresWorkerControlService implements WorkerControlService {
     assertBinding(binding, message.runId, message.generation);
     if (!this.sourceArtifacts) throw new ServerError('artifact_service_unavailable', 'Artifact service is unavailable', 503);
     return this.sourceArtifacts.commitArtifact(workerContext(binding), binding.generation, message);
+  }
+
+  public async nextApprovalDecision(token: string): Promise<Extract<InternalWorkerMessage, { type: 'approval.decision' }> | undefined> {
+    const binding = await this.authenticate(token, true);
+    if (!this.approvals) throw new ServerError('approval_service_unavailable', 'Approval service is unavailable', 503);
+    return this.approvals.nextWorkerDecision({
+      organizationId: binding.organizationId, runId: binding.runId, generation: binding.generation
+    });
+  }
+
+  public async putCheckpoint(token: string, input: { sha256: string; sizeBytes: number }, content: AsyncIterable<Uint8Array>): Promise<{ checkpointKey: string }> {
+    const binding = await this.authenticate(token, true);
+    if (!this.blobStore) throw new ServerError('checkpoint_store_unavailable', 'Checkpoint store is unavailable', 503);
+    const checkpointKey = `checkpoints/${binding.organizationId}/${binding.runId}/${input.sha256}.json`;
+    const existing = await this.blobStore.stat(checkpointKey);
+    if (!existing) await this.blobStore.put(checkpointKey, content, {
+      maxBytes: 16 * 1024 * 1024, expectedSizeBytes: input.sizeBytes, expectedSha256: input.sha256
+    });
+    else if (existing.sha256 !== input.sha256 || existing.sizeBytes !== input.sizeBytes) {
+      throw conflict('checkpoint_blob_conflict', 'Checkpoint blob metadata conflicts');
+    }
+    const updated = await this.sql.query(
+      `UPDATE runs SET checkpoint_key = $3, updated_at = now()
+       WHERE organization_id = $1 AND id = $2 AND status IN ('running','waiting_for_approval') RETURNING id`,
+      [binding.organizationId, binding.runId, checkpointKey]
+    );
+    if (!updated.rows[0]) throw conflict('checkpoint_run_state', 'Run cannot accept a checkpoint');
+    return { checkpointKey };
+  }
+
+  public async getCheckpoint(token: string, checkpointKey: string): Promise<AsyncIterable<Uint8Array>> {
+    const binding = await this.authenticate(token, true);
+    if (!this.blobStore) throw new ServerError('checkpoint_store_unavailable', 'Checkpoint store is unavailable', 503);
+    const result = await this.sql.query(
+      `SELECT checkpoint_key FROM runs WHERE organization_id = $1 AND id = $2 AND checkpoint_key = $3`,
+      [binding.organizationId, binding.runId, checkpointKey]
+    );
+    if (!result.rows[0]) throw notFound('Checkpoint');
+    return this.blobStore.read(checkpointKey);
   }
 
   private async authenticate(token: string, requireSession = false): Promise<TokenBinding> {

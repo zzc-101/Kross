@@ -24,6 +24,9 @@ export function useWorkbench(devUserId: string) {
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactSummary[]>([]);
   const [approvals, setApprovals] = useState<ApprovalSummary[]>([]);
+  const [resolvedApprovalIds, setResolvedApprovalIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [runState, dispatch] = useReducer(reducePublicEvent, initialRunViewState);
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'retrying'>('connecting');
   const [loading, setLoading] = useState(true);
@@ -68,7 +71,9 @@ export function useWorkbench(devUserId: string) {
   const selectTask = useCallback(async (taskId: string) => {
     const selected = await guarded(() => api.getTask(taskId));
     if (!selected) return;
+    dispatch({ kind: 'reset' });
     setTask(selected);
+    setResolvedApprovalIds(new Set());
     const [messageItems, artifactItems] = await Promise.all([
       guarded(() => api.listMessages(taskId)),
       guarded(() => api.listArtifacts(taskId))
@@ -120,12 +125,36 @@ export function useWorkbench(devUserId: string) {
     await selectTask(task.id);
   }, [api, guarded, selectTask, task]);
 
+  const refreshApprovals = useCallback(async () => {
+    if (!task?.latestRunId) { setApprovals([]); return; }
+    const items = await api.listApprovals(task.latestRunId);
+    setApprovals(items);
+  }, [api, task?.latestRunId]);
+
+  const decideApproval = useCallback(async (
+    approvalId: string,
+    decision: 'approved' | 'rejected',
+    reason?: string
+  ) => {
+    await api.decideApproval(approvalId, decision, reason);
+    // This is based on the authoritative successful response, not an optimistic update.
+    setResolvedApprovalIds((current) => new Set(current).add(approvalId));
+    await refreshApprovals();
+    if (task?.latestRunId) {
+      const run = await api.getRun(task.latestRunId);
+      dispatch({ kind: 'snapshot', run });
+    }
+  }, [api, refreshApprovals, task?.latestRunId]);
+
   return {
     organizationId, projects, projectId, setProjectId, tasks, task, selectTask,
     messages: [...messages, ...runState.messages], sources,
     artifacts: mergeById(artifacts, runState.artifacts),
-    approvals: mergeById(approvals, runState.approvals),
-    runState, connection, loading, error, createProject, createTask, startRun, cancelRun
+    approvals: mergeById(approvals, runState.approvals).filter(
+      (approval) => !resolvedApprovalIds.has(approval.id)
+    ),
+    runState, connection, loading, error, createProject, createTask, startRun,
+    cancelRun, decideApproval
   };
 }
 

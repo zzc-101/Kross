@@ -24,7 +24,8 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
 
-docker compose up -d --no-build web orchestrator
+docker compose config --quiet
+docker compose up -d --build web orchestrator
 
 attempt=0
 while [ "$attempt" -lt 90 ]; do
@@ -34,7 +35,7 @@ while [ "$attempt" -lt 90 ]; do
     | grep -q '"status":"ok"'
   then
     docker compose exec -T server node -e \
-      "fetch('http://127.0.0.1:8787/api/v2/me',{headers:{'x-kross-dev-user':'smoke-user'}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      "fetch('http://127.0.0.1:8787/api/v2/me',{headers:{'x-kross-user-id':'smoke-user'}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
     docker compose exec -T orchestrator node -e \
       "fetch('http://127.0.0.1:8790/healthz',{headers:{authorization:'Bearer $KROSS_ORCHESTRATOR_SERVICE_TOKEN'}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
     echo "SaaS container smoke 通过：PostgreSQL、Migration、Server、Orchestrator、Web 已就绪"

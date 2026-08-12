@@ -22,10 +22,17 @@ export const initialRunViewState: RunViewState = {
   messages: [], drafts: {}, tools: {}, approvals: [], artifacts: []
 };
 
-export type RunViewAction = PublicEventEnvelope | { kind: 'snapshot'; run: RunSummary };
+export type RunViewAction =
+  | PublicEventEnvelope
+  | { kind: 'snapshot'; run: RunSummary }
+  | { kind: 'reset' };
 
 export function reducePublicEvent(state: RunViewState, envelope: RunViewAction): RunViewState {
-  if ('kind' in envelope) return { ...state, run: envelope.run };
+  if ('kind' in envelope) {
+    return envelope.kind === 'reset'
+      ? initialRunViewState
+      : { ...state, run: envelope.run };
+  }
   if (state.lastEventId === envelope.eventId) return state;
   const { event } = envelope;
   const next = { ...state, lastEventId: envelope.eventId };

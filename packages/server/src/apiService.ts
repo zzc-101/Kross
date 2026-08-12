@@ -28,6 +28,8 @@ import type {
 } from './repositories';
 import type { SseService } from './sse';
 import type { SourceArtifactService } from './sourceArtifactService';
+import type { ApprovalService } from './approvalService';
+import type { ConnectorService, ScheduleService } from './connectorSchedule';
 
 const createProjectSchema = z.object({
   kind: z.enum(['general', 'repository']), name: z.string().trim().min(1).max(200),
@@ -67,6 +69,20 @@ const completeSourceSchema = z.object({
   sizeBytes: z.number().int().nonnegative().max(104_857_600),
   sha256: z.string().regex(/^[0-9a-f]{64}$/), mimeType: z.string().trim().min(3).max(255)
 }).strict();
+const installConnectorSchema = z.object({
+  connectorDefinitionId: resourceIdSchema, displayName: z.string().trim().min(1).max(200),
+  projectId: resourceIdSchema.optional(), credentialHandle: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{2,255}$/).optional(),
+  grantedScopes: z.array(z.string().trim().min(1).max(200)).max(100).default([])
+}).strict();
+const createScheduleSchema = z.object({
+  projectId: resourceIdSchema, taskId: resourceIdSchema, cronExpression: z.string().trim().min(1).max(200),
+  timezone: z.string().trim().min(1).max(200), selectedSourceIds: z.array(resourceIdSchema).max(100).default([]),
+  concurrencyPolicy: z.literal('skip').default('skip'), externalActionPolicy: z.literal('draft_only').default('draft_only')
+}).strict();
+const scheduleStatusSchema = z.object({ status: z.enum(['active', 'paused']) }).strict();
+const decideApprovalSchema = z.object({
+  decision: z.enum(['approved', 'rejected']), reason: z.string().max(10_000).optional()
+}).strict();
 
 export interface ApiDependencies {
   readonly identity: IdentityProvider;
@@ -82,6 +98,9 @@ export interface ApiDependencies {
   readonly sources: SourceRepository;
   readonly artifacts: ArtifactRepository;
   readonly sourceArtifacts: SourceArtifactService;
+  readonly connectors: ConnectorService;
+  readonly schedules: ScheduleService;
+  readonly approvalService: ApprovalService;
   readonly runCancellation?: { cancel(runId: string, organizationId: string): Promise<void> };
 }
 
@@ -184,6 +203,38 @@ export class ApiService {
     return this.dependencies.sourceArtifacts.createDownloadUrl(artifact.blob_key);
   }
 
+  public async listConnectors(identity: Identity, organizationId: string) {
+    const context = await this.context(identity, organizationId, 'connector.manage');
+    return this.dependencies.connectors.list(context);
+  }
+
+  public async installConnector(identity: Identity, organizationId: string, body: unknown) {
+    const context = await this.context(identity, organizationId, 'connector.manage');
+    const input = parse(installConnectorSchema, body);
+    return this.dependencies.connectors.install(context, { ...input, grantedScopes: input.grantedScopes ?? [] });
+  }
+
+  public async revokeConnector(identity: Identity, organizationId: string, installationId: string) {
+    const context = await this.context(identity, organizationId, 'connector.manage');
+    return this.dependencies.connectors.revoke(context, parse(resourceIdSchema, installationId));
+  }
+
+  public async listSchedules(identity: Identity, organizationId: string) {
+    const context = await this.context(identity, organizationId, 'schedule.read');
+    return this.dependencies.schedules.list(context);
+  }
+
+  public async createSchedule(identity: Identity, organizationId: string, body: unknown) {
+    const context = await this.context(identity, organizationId, 'schedule.manage');
+    const input = parse(createScheduleSchema, body);
+    return this.dependencies.schedules.create(context, { ...input, selectedSourceIds: input.selectedSourceIds ?? [] });
+  }
+
+  public async updateSchedule(identity: Identity, organizationId: string, scheduleId: string, body: unknown) {
+    const context = await this.context(identity, organizationId, 'schedule.manage');
+    return this.dependencies.schedules.setStatus(context, parse(resourceIdSchema, scheduleId), parse(scheduleStatusSchema, body).status);
+  }
+
   public async createRun(
     identity: Identity,
     organizationId: string,
@@ -215,6 +266,21 @@ export class ApiService {
       await this.dependencies.runCancellation?.cancel(parsedRunId, context.organizationId);
     }
     return run;
+  }
+
+  public async listPendingApprovals(identity: Identity, organizationId: string) {
+    const context = await this.context(identity, organizationId, 'approval.read');
+    return this.dependencies.approvalService.listPending(context);
+  }
+
+  public async decideApproval(identity: Identity, organizationId: string, approvalId: string, body: unknown, rawKey: string | undefined) {
+    const context = await this.context(identity, organizationId, 'approval.decide');
+    if (!rawKey) throw new ServerError('idempotency_key_required', 'Idempotency-Key is required', 400);
+    const parsed = parse(decideApprovalSchema, body);
+    return this.dependencies.approvalService.decide(context, {
+      approvalId: parse(resourceIdSchema, approvalId), decision: parsed.decision,
+      idempotencyKey: parse(idempotencyKeySchema, rawKey), ...(parsed.reason === undefined ? {} : { reason: parsed.reason })
+    });
   }
 
   public async replayEvents(

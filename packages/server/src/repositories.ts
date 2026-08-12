@@ -304,7 +304,10 @@ export class RunRepository {
            VALUES ($1,$2,$3,$4,$5,'queued',$6,'work',$7,$8,$9,$10,$11,now(),$12)
            RETURNING *`,
           [id, context.organizationId, task.project_id, command.taskId, Number(task.last_attempt) + 1,
-            command.mode, { requestedModelProfileId: command.requestedModelProfileId, provider: 'unassigned', model: 'unassigned' },
+            command.mode, {
+              requestedModelProfileId: command.requestedModelProfileId,
+              provider: 'environment', model: 'environment-default', credentialHandle: 'environment-default'
+            },
             defaultPermissionPolicy, defaultResourceLimits, command.selectedSourceIds ?? [], emptyUsage, context.userId]
         );
         await client.query(

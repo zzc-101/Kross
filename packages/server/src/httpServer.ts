@@ -130,9 +130,40 @@ async function handleRequest(
       response.writeHead(302, { location: await options.api.artifactContentUrl(identity, organizationId, artifactContentMatch[0]!), 'cache-control': 'private, no-store' });
       response.end(); return;
     }
+    if (url.pathname === '/api/v2/connectors') {
+      if (request.method === 'GET') {
+        sendJson(response, 200, { items: await options.api.listConnectors(identity, organizationId) }); return;
+      }
+      if (request.method === 'POST') {
+        sendJson(response, 201, await options.api.installConnector(identity, organizationId, await readJson(request))); return;
+      }
+    }
+    const connectorDeleteMatch = match(url.pathname, /^\/api\/v2\/connector-installations\/([^/]+)$/);
+    if (request.method === 'DELETE' && connectorDeleteMatch) {
+      sendJson(response, 200, await options.api.revokeConnector(identity, organizationId, connectorDeleteMatch[0]!)); return;
+    }
+    if (url.pathname === '/api/v2/schedules') {
+      if (request.method === 'GET') {
+        sendJson(response, 200, { items: await options.api.listSchedules(identity, organizationId) }); return;
+      }
+      if (request.method === 'POST') {
+        sendJson(response, 201, await options.api.createSchedule(identity, organizationId, await readJson(request))); return;
+      }
+    }
+    const scheduleMatch = match(url.pathname, /^\/api\/v2\/schedules\/([^/]+)$/);
+    if (request.method === 'PATCH' && scheduleMatch) {
+      sendJson(response, 200, await options.api.updateSchedule(identity, organizationId, scheduleMatch[0]!, await readJson(request))); return;
+    }
     const runMatch = match(url.pathname, /^\/api\/v2\/runs\/([^/]+)$/);
     if (request.method === 'GET' && runMatch) {
       sendJson(response, 200, await options.api.getRun(identity, organizationId, runMatch[0]!)); return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/v2/approvals') {
+      sendJson(response, 200, { items: await options.api.listPendingApprovals(identity, organizationId) }); return;
+    }
+    const approvalDecisionMatch = match(url.pathname, /^\/api\/v2\/approvals\/([^/]+)\/decision$/);
+    if (request.method === 'POST' && approvalDecisionMatch) {
+      sendJson(response, 200, await options.api.decideApproval(identity, organizationId, approvalDecisionMatch[0]!, await readJson(request), headers['idempotency-key'])); return;
     }
     const cancelMatch = match(url.pathname, /^\/api\/v2\/runs\/([^/]+)\/cancel$/);
     if (request.method === 'POST' && cancelMatch) {
@@ -172,7 +203,6 @@ async function handleWorkerRequest(
   response: ServerResponse,
   path: string
 ): Promise<void> {
-  if (request.method !== 'POST') throw new ServerError('not_found', 'Route not found', 404);
   const service = options.workerControl;
   if (!service) throw new ServerError('worker_control_unavailable', 'Worker control is unavailable', 503);
   const authorization = request.headers.authorization;
@@ -180,6 +210,30 @@ async function handleWorkerRequest(
     throw new ServerError('worker_unauthenticated', 'Run-scoped Bearer token is required', 401);
   }
   const token = authorization.slice(7);
+  if (path === '/internal/v2/workers/approval-decision' && request.method === 'GET') {
+    const decision = await service.nextApprovalDecision(token);
+    if (!decision) { response.writeHead(204); response.end(); return; }
+    sendJson(response, 200, decision); return;
+  }
+  if (path === '/internal/v2/workers/checkpoints' && request.method === 'PUT') {
+    const url = new URL(request.url ?? '/', 'http://server.local');
+    const sha256 = url.searchParams.get('sha256') ?? '';
+    const sizeBytes = Number(url.searchParams.get('sizeBytes'));
+    if (!/^[a-f0-9]{64}$/.test(sha256) || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+      throw new ServerError('invalid_checkpoint_metadata', 'Invalid checkpoint metadata', 400);
+    }
+    sendJson(response, 201, await service.putCheckpoint(token, { sha256, sizeBytes }, request)); return;
+  }
+  if (path === '/internal/v2/workers/checkpoints' && request.method === 'GET') {
+    const url = new URL(request.url ?? '/', 'http://server.local');
+    const key = url.searchParams.get('key');
+    if (!key) throw new ServerError('checkpoint_key_required', 'Checkpoint key is required', 400);
+    const content = await service.getCheckpoint(token, key);
+    response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    for await (const chunk of content) response.write(chunk);
+    response.end(); return;
+  }
+  if (request.method !== 'POST') throw new ServerError('not_found', 'Route not found', 404);
   const parsed = internalWorkerMessageSchema.safeParse(await readJson(request));
   if (!parsed.success) {
     throw new ServerError('invalid_worker_message', 'Invalid Protocol v2 Worker message', 400, {

@@ -8,6 +8,10 @@ export interface WorkRuntimeCheckpoint {
   generation: number;
   contextState: unknown;
   workState: unknown;
+  pendingApproval?: {
+    approvalId: string;
+    requestHash: string;
+  };
   savedAt: string;
 }
 
@@ -19,6 +23,7 @@ export interface SavedCheckpoint {
 
 export class FileCheckpointStore {
   constructor(private readonly directory: string) {}
+  public get directoryPath(): string { return this.directory; }
 
   async save(checkpoint: WorkRuntimeCheckpoint): Promise<SavedCheckpoint> {
     await mkdir(this.directory, { recursive: true });

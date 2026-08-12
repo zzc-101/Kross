@@ -16,6 +16,15 @@ const server = createApiHttpServer({
   api: application.api, workerControl: application.workerControl,
   blobStore: application.blobStore, signedBlobUrls: application.signedBlobUrls
 });
+let scheduleTickRunning = false;
+const scheduleTimer = setInterval(() => {
+  if (scheduleTickRunning) return;
+  scheduleTickRunning = true;
+  void application.schedules.tick()
+    .catch((error: unknown) => process.stderr.write(`Schedule tick error: ${error instanceof Error ? error.message : String(error)}\n`))
+    .finally(() => { scheduleTickRunning = false; });
+}, 30_000);
+scheduleTimer.unref();
 
 server.listen(config.port, () => {
   process.stdout.write(`Kross control plane listening on :${config.port}\n`);
@@ -23,6 +32,7 @@ server.listen(config.port, () => {
 });
 
 async function shutdown(): Promise<void> {
+  clearInterval(scheduleTimer);
   application.scheduler?.stop();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await application.database.close();

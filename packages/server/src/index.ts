@@ -1,5 +1,6 @@
 export * from './apiService';
 export * from './blobStore';
+export * from './connectorSchedule';
 export * from './app';
 export * from './database';
 export * from './errors';

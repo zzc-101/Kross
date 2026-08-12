@@ -196,6 +196,8 @@ CREATE TABLE approvals (
   decision_reason text,
   decided_at timestamptz,
   decision_idempotency_key text,
+  decision_delivered_generation integer CHECK (decision_delivered_generation > 0),
+  decision_delivered_at timestamptz,
   consumed_at timestamptz,
   consumption_idempotency_key text,
   UNIQUE (organization_id, id),
@@ -205,6 +207,7 @@ CREATE TABLE approvals (
   FOREIGN KEY (organization_id, task_id) REFERENCES tasks(organization_id, id) ON DELETE CASCADE,
   FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE,
   CHECK ((status IN ('approved','rejected')) = (decided_at IS NOT NULL)),
+  CHECK ((decision_delivered_at IS NULL) = (decision_delivered_generation IS NULL)),
   CHECK ((consumed_at IS NULL) = (consumption_idempotency_key IS NULL))
 );
 

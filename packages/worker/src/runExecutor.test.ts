@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AgentExecutionProfile, AgentResult, AgentRunStreamEvent } from '@kross/core';
@@ -110,6 +110,11 @@ class FakeTransport implements WorkerControlTransport {
   async reserveArtifact(): Promise<ArtifactReservation> { throw new Error('No artifacts expected'); }
   async uploadArtifact(): Promise<{ etag?: string }> { throw new Error('No artifacts expected'); }
   async commitArtifact(): Promise<ArtifactSnapshot> { throw new Error('No artifacts expected'); }
+  async getApprovalDecision() { return undefined; }
+  async uploadCheckpoint() { return { checkpointKey: 'checkpoints/org/run/hash.json' }; }
+  async downloadCheckpoint(input: { checkpointKey: string; destination: string }) {
+    await copyFile(join(dirname(input.destination), input.checkpointKey), input.destination);
+  }
   subscribe(listener: (command: WorkerControlCommand) => void) { this.listener = listener; return () => { this.listener = undefined; }; }
   issue(command: WorkerControlCommand) { this.listener?.(command); }
 }

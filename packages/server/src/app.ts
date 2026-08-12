@@ -21,6 +21,8 @@ import { HmacSignedBlobUrlProvider, LocalFileBlobStore } from './blobStore';
 import { SourceArtifactService } from './sourceArtifactService';
 import { HttpOrchestratorClient } from './orchestratorClient';
 import { RunScheduler } from './runScheduler';
+import { ConnectorService, ScheduleService } from './connectorSchedule';
+import { ApprovalService } from './approvalService';
 
 export function createServerApplication(pool: SqlPool, options: {
   devIdentityEnabled: boolean;
@@ -50,8 +52,11 @@ export function createServerApplication(pool: SqlPool, options: {
     options.publicBaseUrl ?? 'http://127.0.0.1:8787'
   );
   const sourceArtifacts = new SourceArtifactService(database, database, blobStore, signedBlobUrls);
+  const approvalService = new ApprovalService(database, database);
+  const connectors = new ConnectorService(database);
+  const schedules = new ScheduleService(database, database);
   const sse = new SseService(events);
-  const workerControl = new PostgresWorkerControlService(database, database, { sourceArtifacts });
+  const workerControl = new PostgresWorkerControlService(database, database, { sourceArtifacts, approvals: approvalService, blobStore });
   const orchestrator = options.orchestratorUrl && options.orchestratorServiceToken
     ? new HttpOrchestratorClient(options.orchestratorUrl, options.orchestratorServiceToken)
     : undefined;
@@ -66,7 +71,7 @@ export function createServerApplication(pool: SqlPool, options: {
     identity: new DevIdentityProvider(options.devIdentityEnabled),
     contexts: new OrganizationContextResolver(memberships),
     memberships, organizations, projects, tasks, runs, events, idempotency, sse,
-    sources, artifacts, sourceArtifacts,
+    sources, artifacts, sourceArtifacts, connectors, schedules, approvalService,
     ...(scheduler === undefined ? {} : { runCancellation: scheduler })
   });
   return {
@@ -76,6 +81,9 @@ export function createServerApplication(pool: SqlPool, options: {
     blobStore,
     signedBlobUrls,
     sourceArtifacts,
+    connectors,
+    schedules,
+    approvalService,
     scheduler,
     repositories: {
       memberships, organizations, projects, tasks, taskMessages, runs, events,

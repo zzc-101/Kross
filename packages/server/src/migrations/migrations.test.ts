@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { workAgentV2Migration } from './001_work_agent_v2';
 import { sourceArtifactBlobMigration } from './002_source_artifact_blob';
+import { connectorsSchedulesMigration } from './003_connectors_schedules';
 
 describe('Work Agent PostgreSQL migration', () => {
   it('creates every P1 tenant-owned resource and tenant-scoped foreign keys', () => {
@@ -37,5 +38,15 @@ describe('Source/Artifact Blob migration', () => {
     expect(sourceArtifactBlobMigration).toContain('artifacts_reserve_idempotency');
     expect(sourceArtifactBlobMigration).toContain('artifacts_pending_upload_metadata');
     expect(sourceArtifactBlobMigration).toContain('upload_blob_key IS NULL AND blob_key IS NOT NULL');
+  });
+});
+
+describe('Connector/Schedule migration', () => {
+  it('stores credential handles, fixed safe policies and idempotent occurrences', () => {
+    expect(connectorsSchedulesMigration).toContain('credential_handle text');
+    expect(connectorsSchedulesMigration).not.toMatch(/password|refresh_token|client_secret/i);
+    expect(connectorsSchedulesMigration).toContain("CHECK (concurrency_policy = 'skip')");
+    expect(connectorsSchedulesMigration).toContain("CHECK (external_action_policy = 'draft_only')");
+    expect(connectorsSchedulesMigration).toContain('UNIQUE (organization_id, schedule_id, scheduled_for)');
   });
 });
