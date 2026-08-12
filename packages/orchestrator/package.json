@@ -1,5 +1,5 @@
 {
-  "name": "@kross/server",
+  "name": "@kross/orchestrator",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,16 +8,15 @@
   },
   "scripts": {
     "dev": "tsx src/main.ts",
-    "migrate": "tsx src/migrate.ts",
-    "test": "vitest run --root ../.. packages/server/src"
+    "test": "vitest run --root ../.. packages/orchestrator/src",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@kross/protocol": "0.1.0",
-    "@kross/work-domain": "0.1.0",
-    "pg": "^8.16.3",
+    "dockerode": "^5.0.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/pg": "^8.15.5"
+    "@types/dockerode": "^4.0.1"
   }
 }

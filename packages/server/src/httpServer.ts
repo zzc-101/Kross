@@ -1,354 +1,220 @@
-import {
-  createServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse
-} from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import {
-  clientCommandSchema,
-  PROTOCOL_VERSION,
-  type ClientCommand,
-  type EventEnvelope
-} from '@kross/protocol/legacy';
+  internalWorkerMessageSchema,
+  leaseRenewedMessageSchema,
+  resourceIdSchema,
+  workerEventAckMessageSchema,
+  workerRegisteredMessageSchema
+} from '@kross/protocol';
 
-import { readBearerToken, tokenMatches } from './auth';
-import { GatewayService } from './gatewayService';
+import type { ApiService } from './apiService';
+import { ServerError } from './errors';
+import type { WorkerControlService } from './workerControl';
 
-export interface GatewayHttpServerOptions {
-  accessToken: string;
-  host?: string;
-  port?: number;
-  sseHeartbeatMs?: number;
-  /**
-   * 跨域来源白名单。缺省允许任意来源：接口全部由 Bearer Token 保护，
-   * 浏览器无法在跨站请求中自动附带该凭据，因此放开来源不引入 CSRF 面。
-   */
-  allowedOrigins?: string[];
+const MAX_BODY_BYTES = 1_048_576;
+
+export interface HttpServerOptions {
+  readonly api: ApiService;
+  readonly workerControl?: WorkerControlService;
+  readonly exposeErrorDetails?: boolean;
 }
 
-export class GatewayHttpServer {
-  private readonly http: Server;
-  private readonly eventStreams = new Set<ServerResponse>();
+export function createApiHttpServer(options: HttpServerOptions): Server {
+  return createServer((request, response) => {
+    void handleRequest(options, request, response);
+  });
+}
 
-  constructor(
-    private readonly gateway: GatewayService,
-    private readonly options: GatewayHttpServerOptions
-  ) {
-    this.http = createServer((request, response) => {
-      this.route(request, response);
-    });
-  }
+async function handleRequest(
+  options: HttpServerOptions,
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<void> {
+  try {
+    const url = new URL(request.url ?? '/', 'http://server.local');
+    if (request.method === 'GET' && url.pathname === '/health') {
+      sendJson(response, 200, { status: 'ok', service: 'kross-control-plane' });
+      return;
+    }
+    if (url.pathname.startsWith('/internal/v2/workers/')) {
+      await handleWorkerRequest(options, request, response, url.pathname);
+      return;
+    }
+    if (!url.pathname.startsWith('/api/v2/')) throw new ServerError('not_found', 'Route not found', 404);
+    const headers = normalizeHeaders(request);
+    const identity = await options.api.authenticate(headers);
+    const organizationId = headers['x-kross-organization-id'];
 
-  async listen(): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      this.http.once('error', reject);
-      this.http.listen(
-        this.options.port ?? 8787,
-        this.options.host ?? '0.0.0.0',
-        resolve
-      );
-    });
-  }
+    if (request.method === 'GET' && url.pathname === '/api/v2/me') {
+      sendJson(response, 200, await options.api.me(identity)); return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/v2/organizations') {
+      const me = await options.api.me(identity);
+      sendJson(response, 200, { items: me.memberships }); return;
+    }
+    if (!organizationId) throw new ServerError('organization_required', 'x-kross-organization-id is required', 400);
 
-  address(): AddressInfo | undefined {
-    const address = this.http.address();
-    return address && typeof address !== 'string' ? address : undefined;
-  }
-
-  async close(): Promise<void> {
-    for (const stream of this.eventStreams) stream.end();
-    this.eventStreams.clear();
-    await new Promise<void>((resolve, reject) =>
-      this.http.close((error) => (error ? reject(error) : resolve()))
-    );
-    await this.gateway.close();
-  }
-
-  private route(
-    request: IncomingMessage,
-    response: ServerResponse
-  ): void {
-    this.applyCorsHeaders(request, response);
-    if (request.method === 'OPTIONS') {
-      response.writeHead(204, {
-        'access-control-allow-methods': 'GET, POST, PUT, OPTIONS',
-        'access-control-allow-headers': 'authorization, content-type',
-        'access-control-max-age': '86400'
+    const organizationMatch = match(url.pathname, /^\/api\/v2\/organizations\/([^/]+)$/);
+    if (request.method === 'GET' && organizationMatch) {
+      sendJson(response, 200, await options.api.organization(identity, organizationMatch[0]!)); return;
+    }
+    if (url.pathname === '/api/v2/projects') {
+      if (request.method === 'GET') {
+        sendJson(response, 200, { items: await options.api.listProjects(identity, organizationId) }); return;
+      }
+      if (request.method === 'POST') {
+        sendJson(response, 201, await options.api.createProject(identity, organizationId, await readJson(request))); return;
+      }
+    }
+    const projectMatch = match(url.pathname, /^\/api\/v2\/projects\/([^/]+)$/);
+    if (request.method === 'GET' && projectMatch) {
+      sendJson(response, 200, await options.api.getProject(identity, organizationId, projectMatch[0]!)); return;
+    }
+    const projectTasksMatch = match(url.pathname, /^\/api\/v2\/projects\/([^/]+)\/tasks$/);
+    if (projectTasksMatch) {
+      if (request.method === 'GET') {
+        sendJson(response, 200, { items: await options.api.listTasks(identity, organizationId, projectTasksMatch[0]!) }); return;
+      }
+      if (request.method === 'POST') {
+        const body = { ...(await readJson(request)), projectId: projectTasksMatch[0] };
+        sendJson(response, 201, await options.api.createTask(identity, organizationId, body, headers['idempotency-key'])); return;
+      }
+    }
+    const taskMatch = match(url.pathname, /^\/api\/v2\/tasks\/([^/]+)$/);
+    if (request.method === 'GET' && taskMatch) {
+      sendJson(response, 200, await options.api.getTask(identity, organizationId, taskMatch[0]!)); return;
+    }
+    const taskRunsMatch = match(url.pathname, /^\/api\/v2\/tasks\/([^/]+)\/runs$/);
+    if (request.method === 'POST' && taskRunsMatch) {
+      sendJson(response, 201, await options.api.createRun(identity, organizationId, taskRunsMatch[0]!, await readJson(request), headers['idempotency-key'])); return;
+    }
+    const runMatch = match(url.pathname, /^\/api\/v2\/runs\/([^/]+)$/);
+    if (request.method === 'GET' && runMatch) {
+      sendJson(response, 200, await options.api.getRun(identity, organizationId, runMatch[0]!)); return;
+    }
+    const cancelMatch = match(url.pathname, /^\/api\/v2\/runs\/([^/]+)\/cancel$/);
+    if (request.method === 'POST' && cancelMatch) {
+      sendJson(response, 202, await options.api.cancelRun(identity, organizationId, cancelMatch[0]!)); return;
+    }
+    const runEventsMatch = match(url.pathname, /^\/api\/v2\/runs\/([^/]+)\/events$/);
+    if (request.method === 'GET' && (runEventsMatch || url.pathname === '/api/v2/events')) {
+      const filters = {
+        projectId: url.searchParams.get('project') ?? undefined,
+        taskId: url.searchParams.get('task') ?? undefined,
+        runId: runEventsMatch?.[0] ?? url.searchParams.get('run') ?? undefined
+      };
+      for (const id of Object.values(filters)) {
+        if (id !== undefined && !resourceIdSchema.safeParse(id).success) throw new ServerError('invalid_filter', 'Invalid event filter', 400);
+      }
+      const chunks = await options.api.replayEvents(identity, organizationId, headers['last-event-id'], filters);
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no'
       });
+      for (const chunk of chunks) response.write(chunk);
+      response.write(': replay-complete\n\n');
       response.end();
       return;
     }
-    if (request.url === '/healthz') {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ ok: true }));
-      return;
-    }
-    if (!this.authorized(request.headers.authorization)) {
-      response.writeHead(401, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ error: 'UNAUTHORIZED' }));
-      return;
-    }
-    if (request.method === 'GET' && request.url === '/api/events') {
-      this.connectEventStream(response);
-      return;
-    }
-    if (request.method === 'POST' && request.url === '/api/commands') {
-      void this.receiveCommand(request, response);
-      return;
-    }
-    if (request.method === 'GET' && request.url === '/api/workspaces') {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify(this.gateway.listWorkspaces()));
-      return;
-    }
-    if (request.method === 'GET' && request.url === '/api/config') {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(
-        JSON.stringify({ vapidPublicKey: this.gateway.getPushPublicKey() })
-      );
-      return;
-    }
-    if (request.method === 'GET' && request.url === '/api/setup') {
-      void this.gateway
-        .getSetupStatus(isSecureRequest(request))
-        .then((status) => {
-          response.writeHead(200, { 'content-type': 'application/json' });
-          response.end(JSON.stringify(status));
-        })
-        .catch((error) => {
-          response.writeHead(503, { 'content-type': 'application/json' });
-          response.end(JSON.stringify({
-            error: error instanceof Error ? error.message : String(error)
-          }));
-        });
-      return;
-    }
-    if (request.method === 'PUT' && request.url === '/api/provider') {
-      if (!isSecureRequest(request)) {
-        response.writeHead(426, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({
-          error: 'Provider 密钥只能通过 HTTPS 或 localhost 保存'
-        }));
-        return;
-      }
-      void readJsonBody(request)
-        .then((body) => {
-          const value =
-            body && typeof body === 'object'
-              ? body as Record<string, unknown>
-              : {};
-          return this.gateway.updateProvider(
-            value.provider,
-            value.applyToWorkers === true || value.restartWorkers === true
-          );
-        })
-        .then((result) => {
-          response.writeHead(200, { 'content-type': 'application/json' });
-          response.end(JSON.stringify(result));
-        })
-        .catch((error) => {
-          response.writeHead(400, { 'content-type': 'application/json' });
-          response.end(JSON.stringify({
-            error: error instanceof Error ? error.message : String(error)
-          }));
-        });
-      return;
-    }
-    const parsedUrl = new URL(request.url ?? '/', 'http://localhost');
-    const sessionsMatch = parsedUrl.pathname.match(
-      /^\/api\/workspaces\/([^/]+)\/sessions$/
-    );
-    if (request.method === 'GET' && sessionsMatch?.[1]) {
-      const limit = Number(parsedUrl.searchParams.get('limit') ?? 20);
-      void this.gateway
-        .listSessions(decodeURIComponent(sessionsMatch[1]), limit)
-        .then((sessions) => {
-          response.writeHead(200, { 'content-type': 'application/json' });
-          response.end(JSON.stringify(sessions));
-        })
-        .catch((error) => {
-          response.writeHead(502, { 'content-type': 'application/json' });
-          response.end(
-            JSON.stringify({
-              error: error instanceof Error ? error.message : String(error)
-            })
-          );
-        });
-      return;
-    }
-    const inspectionMatch = parsedUrl.pathname.match(
-      /^\/api\/workspaces\/([^/]+)\/sessions\/([^/]+)\/(trace|diff)$/
-    );
-    if (
-      request.method === 'GET' &&
-      inspectionMatch?.[1] &&
-      inspectionMatch[2] &&
-      (inspectionMatch[3] === 'trace' || inspectionMatch[3] === 'diff')
-    ) {
-      void this.gateway
-        .inspectSession(
-          decodeURIComponent(inspectionMatch[1]),
-          decodeURIComponent(inspectionMatch[2]),
-          inspectionMatch[3],
-          parsedUrl.searchParams.get('argument') ?? undefined
-        )
-        .then((content) => {
-          response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-          response.end(content);
-        })
-        .catch((error) => {
-          response.writeHead(502, { 'content-type': 'application/json' });
-          response.end(
-            JSON.stringify({
-              error: error instanceof Error ? error.message : String(error)
-            })
-          );
-        });
-      return;
-    }
-    response.writeHead(404, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ error: 'NOT_FOUND' }));
-  }
-
-  private connectEventStream(response: ServerResponse): void {
-    response.writeHead(200, {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-cache',
-      'x-accel-buffering': 'no',
-      connection: 'keep-alive'
-    });
-    response.write('retry: 3000\n\n');
-    this.eventStreams.add(response);
-    const send = (event: EventEnvelope) => {
-      if (!response.destroyed) {
-        response.write(`data: ${JSON.stringify(event)}\n\n`);
-      }
-    };
-    const unsubscribe = this.gateway.subscribe(send);
-    send(this.gateway.initialEvent());
-    const heartbeat = setInterval(() => {
-      if (!response.destroyed) response.write(': ping\n\n');
-    }, this.options.sseHeartbeatMs ?? 25_000);
-    heartbeat.unref();
-    response.once('close', () => {
-      clearInterval(heartbeat);
-      unsubscribe();
-      this.eventStreams.delete(response);
-    });
-  }
-
-  private async receiveCommand(
-    request: IncomingMessage,
-    response: ServerResponse
-  ): Promise<void> {
-    let body: unknown;
-    try {
-      body = await readJsonBody(request);
-    } catch (error) {
-      response.writeHead(400, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({
-        error: error instanceof Error ? error.message : String(error)
-      }));
-      return;
-    }
-    const parsed = clientCommandSchema.safeParse(body);
-    if (!parsed.success) {
-      response.writeHead(400, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({
-        error: 'INVALID_COMMAND',
-        details: parsed.error.issues
-      }));
-      return;
-    }
-    response.writeHead(202, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({
-      accepted: true,
-      requestId: parsed.data.requestId
-    }));
-    void this.gateway.handle(parsed.data).catch((error) => {
-      this.gateway.broadcast(commandFailureEvent(
-        parsed.data.requestId,
-        'COMMAND_FAILED',
-        error instanceof Error ? error.message : String(error)
-      ));
-    });
-  }
-
-  private applyCorsHeaders(
-    request: IncomingMessage,
-    response: ServerResponse
-  ): void {
-    const origin = request.headers.origin;
-    if (!origin) return;
-    const allowed = this.options.allowedOrigins;
-    if (allowed && allowed.length > 0) {
-      if (!allowed.includes(origin)) return;
-      response.setHeader('access-control-allow-origin', origin);
-      response.setHeader('vary', 'origin');
-      return;
-    }
-    response.setHeader('access-control-allow-origin', '*');
-  }
-
-  private authorized(authorization: string | undefined): boolean {
-    return tokenMatches(readBearerToken(authorization), this.options.accessToken);
+    throw new ServerError('not_found', 'Route not found', 404);
+  } catch (error) {
+    sendError(response, error, options.exposeErrorDetails ?? false);
   }
 }
 
-async function readJsonBody(
+async function handleWorkerRequest(
+  options: HttpServerOptions,
   request: IncomingMessage,
-  limitBytes = 64 * 1024
-): Promise<unknown> {
+  response: ServerResponse,
+  path: string
+): Promise<void> {
+  if (request.method !== 'POST') throw new ServerError('not_found', 'Route not found', 404);
+  const service = options.workerControl;
+  if (!service) throw new ServerError('worker_control_unavailable', 'Worker control is unavailable', 503);
+  const authorization = request.headers.authorization;
+  if (!authorization?.startsWith('Bearer ') || authorization.length <= 7) {
+    throw new ServerError('worker_unauthenticated', 'Run-scoped Bearer token is required', 401);
+  }
+  const token = authorization.slice(7);
+  const parsed = internalWorkerMessageSchema.safeParse(await readJson(request));
+  if (!parsed.success) {
+    throw new ServerError('invalid_worker_message', 'Invalid Protocol v2 Worker message', 400, {
+      issues: parsed.error.issues
+    });
+  }
+  const message = parsed.data;
+  if (path === '/internal/v2/workers/register' && message.type === 'worker.register') {
+    sendJson(response, 200, workerRegisteredMessageSchema.parse(await service.register(token, message)));
+    return;
+  }
+  if (path === '/internal/v2/workers/events' && message.type === 'worker.event') {
+    sendJson(response, 200, workerEventAckMessageSchema.parse(await service.appendEvent(token, message.envelope)));
+    return;
+  }
+  if (path === '/internal/v2/workers/heartbeat' && message.type === 'worker.heartbeat') {
+    sendJson(response, 200, leaseRenewedMessageSchema.parse(await service.heartbeat(token, message)));
+    return;
+  }
+  if (path === '/internal/v2/workers/release' && message.type === 'lease.release') {
+    await service.release(token, message);
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  throw new ServerError('worker_message_route_mismatch', 'Worker message type does not match route', 400);
+}
+
+function normalizeHeaders(request: IncomingMessage): Record<string, string | undefined> {
+  const normalized: Record<string, string | undefined> = {};
+  for (const [name, value] of Object.entries(request.headers)) {
+    normalized[name.toLowerCase()] = Array.isArray(value) ? value[0] : value;
+  }
+  return normalized;
+}
+
+async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > limitBytes) throw new Error('请求内容过大');
-    chunks.push(buffer);
+  for await (const rawChunk of request) {
+    const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+    size += chunk.byteLength;
+    if (size > MAX_BODY_BYTES) throw new ServerError('body_too_large', 'Request body exceeds 1 MiB', 413);
+    chunks.push(chunk);
   }
-  if (chunks.length === 0) return {};
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('not object');
+    return parsed as Record<string, unknown>;
   } catch {
-    throw new Error('请求内容不是合法 JSON');
+    throw new ServerError('invalid_json', 'Request body must be a JSON object', 400);
   }
 }
 
-function isSecureRequest(request: IncomingMessage): boolean {
-  const forwarded = request.headers['x-forwarded-proto'];
-  const protocol = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const hostname = request.headers.host?.split(':')[0]?.toLowerCase();
-  return (
-    protocol === 'https' ||
-    Boolean((request.socket as { encrypted?: boolean }).encrypted) ||
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname === '[::1]'
-  );
+function match(path: string, expression: RegExp): RegExpMatchArray | undefined {
+  const result = path.match(expression);
+  if (!result) return undefined;
+  try {
+    result[1] = decodeURIComponent(result[1]!);
+    return result.slice(1) as unknown as RegExpMatchArray;
+  } catch {
+    throw new ServerError('invalid_path', 'Invalid URL path encoding', 400);
+  }
 }
 
-
-function commandFailureEvent(
-  requestId: string,
-  code: string,
-  message: string
-): EventEnvelope {
-  return {
-    protocolVersion: PROTOCOL_VERSION,
-    source: 'gateway',
-    workspaceId: '$gateway',
-    correlationId: requestId,
-    seq: 0,
-    timestamp: new Date().toISOString(),
-    event: { type: 'request.error', requestId, code, message }
-  };
+function sendJson(response: ServerResponse, status: number, body: unknown): void {
+  response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  response.end(JSON.stringify(body));
 }
 
-export function commandWithVersion(
-  command: Omit<ClientCommand, 'protocolVersion'>
-): ClientCommand {
-  return { ...command, protocolVersion: PROTOCOL_VERSION } as ClientCommand;
+function sendError(response: ServerResponse, error: unknown, exposeDetails: boolean): void {
+  const known = error instanceof ServerError;
+  const status = known ? error.statusCode : 500;
+  const message = known ? error.message : 'Internal server error';
+  const body: Record<string, unknown> = { error: { code: known ? error.code : 'internal_error', message } };
+  if (exposeDetails && known && error.details) body.details = error.details;
+  if (!response.headersSent) sendJson(response, status, body);
+  else response.destroy();
 }

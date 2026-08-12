@@ -1,79 +1,74 @@
 services:
-  web:
-    build:
-      context: .
-      dockerfile: docker/web.Dockerfile
-    depends_on:
-      gateway:
-        condition: service_healthy
-    ports:
-      - "${KROSS_PORT:-8787}:8787"
-    networks:
-      - kross-cloud
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: kross
+      POSTGRES_USER: kross
+      POSTGRES_PASSWORD: ${KROSS_POSTGRES_PASSWORD:?请设置 KROSS_POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kross -d kross"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - kross-postgres-v2:/var/lib/postgresql/data
+    networks: [kross-control]
     restart: unless-stopped
 
-  gateway:
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    command: ["node", "dist/server-migrate.mjs"]
+    environment:
+      DATABASE_URL: postgres://kross:${KROSS_POSTGRES_PASSWORD}@postgres:5432/kross
+      KROSS_DEV_IDENTITY: ${KROSS_DEV_IDENTITY:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [kross-control]
+    restart: "no"
+
+  server:
+    container_name: kross-server
     build:
       context: .
       dockerfile: docker/server.Dockerfile
     environment:
-      KROSS_ACCESS_TOKEN: ${KROSS_ACCESS_TOKEN:?请设置 KROSS_ACCESS_TOKEN}
-      KROSS_SERVER_DATA: /var/lib/kross-server
-      KROSS_WORKER_IMAGE: kross-worker:local
-      KROSS_DOCKER_NETWORK: kross-cloud
-      KROSS_MANAGER_ID: ${KROSS_MANAGER_ID:-kross-cloud}
-      KROSS_IDLE_TIMEOUT_MS: ${KROSS_IDLE_TIMEOUT_MS:-1800000}
-      KROSS_WORKSPACE_MEMORY: ${KROSS_WORKSPACE_MEMORY:-2147483648}
-      KROSS_WORKSPACE_NANO_CPUS: ${KROSS_WORKSPACE_NANO_CPUS:-1000000000}
-      KROSS_WORKSPACE_PIDS: ${KROSS_WORKSPACE_PIDS:-256}
-      KROSS_WORKSPACE_DISK_BYTES: ${KROSS_WORKSPACE_DISK_BYTES:-10737418240}
-      KROSS_STOP_WORKERS_ON_SHUTDOWN: ${KROSS_STOP_WORKERS_ON_SHUTDOWN:-true}
-      KROSS_ALLOWED_ORIGINS: ${KROSS_ALLOWED_ORIGINS:-}
-      AGENT_LLM_PROVIDER: ${AGENT_LLM_PROVIDER:-}
-      AGENT_LLM_MODEL: ${AGENT_LLM_MODEL:-}
-      AGENT_LLM_BACKEND: ${AGENT_LLM_BACKEND:-}
-      AGENT_THINKING_EFFORT: ${AGENT_THINKING_EFFORT:-}
-      AGENT_CONTEXT_WINDOW: ${AGENT_CONTEXT_WINDOW:-}
-      KROSS_THINKING_EFFORT: ${KROSS_THINKING_EFFORT:-}
-      KROSS_CONTEXT_WINDOW: ${KROSS_CONTEXT_WINDOW:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
-      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
-      ANTHROPIC_VERSION: ${ANTHROPIC_VERSION:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
-      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-}
-      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-}
-      XAI_API_KEY: ${XAI_API_KEY:-}
-      XAI_MODEL: ${XAI_MODEL:-}
-      XAI_BASE_URL: ${XAI_BASE_URL:-}
-      GH_TOKEN: ${GH_TOKEN:-}
-      KROSS_VAPID_PUBLIC_KEY: ${KROSS_VAPID_PUBLIC_KEY:-}
-      KROSS_VAPID_PRIVATE_KEY: ${KROSS_VAPID_PRIVATE_KEY:-}
-      KROSS_VAPID_SUBJECT: ${KROSS_VAPID_SUBJECT:-}
-    expose:
-      - "8787"
+      DATABASE_URL: postgres://kross:${KROSS_POSTGRES_PASSWORD}@postgres:5432/kross
+      KROSS_DEV_IDENTITY: ${KROSS_DEV_IDENTITY:-1}
+      PORT: 8787
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose: ["8787"]
     healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:8787/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 12
-      start_period: 5s
+    networks: [kross-control]
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/orchestrator.Dockerfile
+    environment:
+      KROSS_ORCHESTRATOR_SERVICE_TOKEN: ${KROSS_ORCHESTRATOR_SERVICE_TOKEN:?请设置 KROSS_ORCHESTRATOR_SERVICE_TOKEN}
+      KROSS_WORKER_IMAGE: kross-worker:local
+      KROSS_ORCHESTRATOR_MANAGER_ID: ${KROSS_ORCHESTRATOR_MANAGER_ID:-kross-saas}
+      KROSS_CONTROL_PLANE_CONTAINER: kross-server
+      PORT: 8790
+    depends_on:
+      server:
+        condition: service_healthy
+      worker-image:
+        condition: service_completed_successfully
+    expose: ["8790"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - kross-server-data:/var/lib/kross-server
-    networks:
-      - kross-cloud
+    networks: [kross-control]
     restart: unless-stopped
 
   worker-image:
@@ -82,12 +77,25 @@ services:
       context: .
       dockerfile: docker/worker.Dockerfile
     command: ["true"]
-    profiles: ["build"]
+    networks: [kross-control]
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "${KROSS_PORT:-8787}:8787"
+    networks: [kross-control]
+    restart: unless-stopped
 
 volumes:
-  kross-server-data:
+  kross-postgres-v2:
 
 networks:
-  kross-cloud:
-    name: kross-cloud
+  kross-control:
+    name: kross-control-v2
     driver: bridge

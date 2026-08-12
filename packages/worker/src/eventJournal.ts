@@ -1,342 +1,73 @@
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs';
-import { dirname, join } from 'node:path';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
-import {
-  PROTOCOL_VERSION,
-  eventEnvelopeSchema,
-  type EventEnvelope,
-  type ServerEvent
-} from '@kross/protocol/legacy';
-import {
-  assertWorkerDataVersion,
-  isRecord
-} from './persistenceVersion';
+import { workerRunEventEnvelopeSchema, type WorkerRunEventEnvelope } from '@kross/protocol';
 
-interface CompletedRequest {
-  requestId: string;
-  completedAt: string;
-  events: EventEnvelope[];
+interface JournalState {
+  version: 1;
+  runId: string;
+  generation: number;
+  acceptedThroughSeq: number;
+  events: WorkerRunEventEnvelope[];
 }
 
-const REQUEST_INDEX_VERSION = 1;
-const SEQUENCE_RESERVATION_VERSION = 1;
+/** Durable, run-local outbox. Server remains the fact source. */
+export class RunEventJournal {
+  private constructor(private readonly path: string, private state: JournalState) {}
 
-export class EventJournal {
-  private readonly lastSequences = new Map<string, number>();
-  private readonly sequenceLimits = new Map<string, number>();
-  private readonly requestIndexes = new Map<string, CompletedRequest[]>();
-
-  constructor(
-    private readonly root: string,
-    private readonly now: () => Date = () => new Date()
-  ) {}
-
-  append(
-    workspaceId: string,
-    sessionId: string | undefined,
-    event: ServerEvent,
-    correlationId?: string
-  ): EventEnvelope {
-    const key = `${workspaceId}:${sessionId ?? '$workspace'}`;
-    const current = this.lastSeq(workspaceId, sessionId);
-    const limit = this.sequenceLimits.get(key) ?? current;
-    if (current + 1 > limit) {
-      this.reserveSequenceRange(workspaceId, sessionId, current);
+  static async open(input: { path: string; runId: string; generation: number }): Promise<RunEventJournal> {
+    let state: JournalState | undefined;
+    try {
+      state = JSON.parse(await readFile(input.path, 'utf8')) as JournalState;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
-    const seq = current + 1;
-    const envelope = eventEnvelopeSchema.parse({
-      protocolVersion: PROTOCOL_VERSION,
-      source: 'worker',
-      workspaceId,
-      sessionId,
-      correlationId,
-      seq,
-      timestamp: this.now().toISOString(),
-      event
-    });
-    this.lastSequences.set(key, seq);
-    if (!shouldPersist(event)) return envelope;
-
-    const path = this.pathFor(workspaceId, sessionId);
-    mkdirSync(dirname(path), { recursive: true });
-    if (event.type === 'session.snapshot') {
-      atomicWrite(path, `${JSON.stringify(envelope)}\n`);
-    } else {
-      appendFileSync(path, `${JSON.stringify(envelope)}\n`, {
-        encoding: 'utf8',
-        mode: 0o600
-      });
+    state ??= { version: 1, runId: input.runId, generation: input.generation, acceptedThroughSeq: 0, events: [] };
+    if (state.version !== 1 || state.runId !== input.runId || state.generation !== input.generation) {
+      throw new Error('Event journal does not belong to this run generation');
     }
-    return envelope;
+    state.events = state.events.map((event) => workerRunEventEnvelopeSchema.parse(event));
+    assertSequence(state);
+    return new RunEventJournal(input.path, state);
   }
 
-  replay(
-    workspaceId: string,
-    sessionId: string | undefined,
-    afterSeq = 0
-  ): EventEnvelope[] {
-    return this.read(workspaceId, sessionId)
-      .filter((event) => event.seq > afterSeq);
+  get lastSequence(): number {
+    return this.state.events.at(-1)?.seq ?? this.state.acceptedThroughSeq;
   }
 
-  findCompletedRequest(
-    workspaceId: string,
-    sessionId: string | undefined,
-    requestId: string
-  ): EventEnvelope[] | undefined {
-    return this.requests(workspaceId, sessionId)
-      .find((entry) => entry.requestId === requestId)
-      ?.events;
+  pending(): WorkerRunEventEnvelope[] {
+    return this.state.events.filter((event) => event.seq > this.state.acceptedThroughSeq);
   }
 
-  completeRequest(
-    workspaceId: string,
-    sessionId: string | undefined,
-    requestId: string,
-    events: EventEnvelope[]
-  ): void {
-    if (events.length === 0) return;
-    const path = this.requestPathFor(workspaceId, sessionId);
-    const entries = this.requests(workspaceId, sessionId)
-      .filter((entry) => entry.requestId !== requestId);
-    entries.push({
-      requestId,
-      completedAt: this.now().toISOString(),
-      events
-    });
-    const retained = entries.slice(-500);
-    this.requestIndexes.set(path, retained);
-    mkdirSync(dirname(path), { recursive: true });
-    atomicWrite(
-      path,
-      `${JSON.stringify({
-        version: REQUEST_INDEX_VERSION,
-        requests: retained
-      })}\n`
-    );
-  }
-
-  deleteSession(workspaceId: string, sessionId: string): void {
-    const eventPath = this.pathFor(workspaceId, sessionId);
-    const requestPath = this.requestPathFor(workspaceId, sessionId);
-    rmSync(eventPath, { force: true });
-    rmSync(requestPath, { force: true });
-    this.lastSequences.delete(`${workspaceId}:${sessionId}`);
-    this.sequenceLimits.delete(`${workspaceId}:${sessionId}`);
-    rmSync(this.sequencePathFor(workspaceId, sessionId), { force: true });
-    this.requestIndexes.delete(requestPath);
-  }
-
-  lastSeq(workspaceId: string, sessionId: string | undefined): number {
-    const key = `${workspaceId}:${sessionId ?? '$workspace'}`;
-    const cached = this.lastSequences.get(key);
-    if (cached !== undefined) return cached;
-    const persisted = this.read(workspaceId, sessionId).at(-1)?.seq ?? 0;
-    const sequencePath = this.sequencePathFor(workspaceId, sessionId);
-    let reserved = 0;
-    if (existsSync(sequencePath)) {
-      reserved = readSequenceReservation(
-        readFileSync(sequencePath, 'utf8')
-      );
+  async append(envelope: WorkerRunEventEnvelope): Promise<void> {
+    const parsed = workerRunEventEnvelopeSchema.parse(envelope);
+    if (parsed.runId !== this.state.runId || parsed.generation !== this.state.generation || parsed.seq !== this.lastSequence + 1) {
+      throw new Error('Worker events must be monotonic within a run generation');
     }
-    const baseline = Math.max(persisted, reserved);
-    this.lastSequences.set(key, baseline);
-    this.reserveSequenceRange(workspaceId, sessionId, baseline);
-    return baseline;
+    this.state.events.push(parsed);
+    await this.persist();
   }
 
-  private reserveSequenceRange(
-    workspaceId: string,
-    sessionId: string | undefined,
-    after: number
-  ): void {
-    const key = `${workspaceId}:${sessionId ?? '$workspace'}`;
-    const limit = after + 10_000;
-    const path = this.sequencePathFor(workspaceId, sessionId);
-    mkdirSync(dirname(path), { recursive: true });
-    atomicWrite(
-      path,
-      `${JSON.stringify({
-        version: SEQUENCE_RESERVATION_VERSION,
-        limit
-      })}\n`
-    );
-    this.sequenceLimits.set(key, limit);
+  async acknowledge(acceptedThroughSeq: number): Promise<void> {
+    if (acceptedThroughSeq < this.state.acceptedThroughSeq) return;
+    if (acceptedThroughSeq > this.lastSequence) throw new Error('Server acknowledged an event sequence that was never emitted');
+    this.state.acceptedThroughSeq = acceptedThroughSeq;
+    this.state.events = this.state.events.filter((event) => event.seq > acceptedThroughSeq);
+    await this.persist();
   }
 
-  private read(
-    workspaceId: string,
-    sessionId: string | undefined
-  ): EventEnvelope[] {
-    const path = this.pathFor(workspaceId, sessionId);
-    if (!existsSync(path)) return [];
-    const events: EventEnvelope[] = [];
-    for (const line of readFileSync(path, 'utf8').split('\n')) {
-      if (!line.trim()) continue;
-      let raw: unknown;
-      try {
-        raw = JSON.parse(line);
-      } catch {
-        // 崩溃可能留下半行；此前的完整事件仍可安全回放。
-        continue;
-      }
-      assertWorkerDataVersion(raw, {
-        format: 'Worker event journal',
-        field: 'protocolVersion',
-        supportedVersion: PROTOCOL_VERSION,
-        allowMissing: true
-      });
-      const parsed = eventEnvelopeSchema.safeParse(raw);
-      if (parsed.success) events.push(parsed.data);
-    }
-    return events;
-  }
-
-  private requests(
-    workspaceId: string,
-    sessionId: string | undefined
-  ): CompletedRequest[] {
-    const path = this.requestPathFor(workspaceId, sessionId);
-    const cached = this.requestIndexes.get(path);
-    if (cached) return cached;
-    let entries: CompletedRequest[] = [];
-    if (existsSync(path)) {
-      try {
-        const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-        const candidates = Array.isArray(raw)
-          ? raw
-          : readVersionedRequests(raw);
-        if (candidates) {
-          entries = candidates.flatMap((candidate) => {
-            if (
-              !candidate ||
-              typeof candidate !== 'object' ||
-              typeof (candidate as CompletedRequest).requestId !== 'string' ||
-              !Array.isArray((candidate as CompletedRequest).events)
-            ) {
-              return [];
-            }
-            const events = (candidate as CompletedRequest).events.flatMap(
-              (event) => {
-                assertWorkerDataVersion(event, {
-                  format: 'Worker request event',
-                  field: 'protocolVersion',
-                  supportedVersion: PROTOCOL_VERSION,
-                  allowMissing: true
-                });
-                const parsed = eventEnvelopeSchema.safeParse(event);
-                return parsed.success ? [parsed.data] : [];
-              }
-            );
-            return [{
-              requestId: (candidate as CompletedRequest).requestId,
-              completedAt:
-                typeof (candidate as CompletedRequest).completedAt === 'string'
-                  ? (candidate as CompletedRequest).completedAt
-                  : this.now().toISOString(),
-              events
-            }];
-          });
-        }
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          error.name === 'UnsupportedWorkerDataVersionError'
-        ) {
-          throw error;
-        }
-        // 索引损坏时允许命令重新执行，不能阻塞工作区恢复。
-      }
-    }
-    this.requestIndexes.set(path, entries);
-    return entries;
-  }
-
-  private pathFor(workspaceId: string, sessionId: string | undefined): string {
-    return join(
-      this.root,
-      encodeURIComponent(workspaceId),
-      `${encodeURIComponent(sessionId ?? '$workspace')}.jsonl`
-    );
-  }
-
-  private requestPathFor(
-    workspaceId: string,
-    sessionId: string | undefined
-  ): string {
-    return join(
-      this.root,
-      encodeURIComponent(workspaceId),
-      'requests',
-      `${encodeURIComponent(sessionId ?? '$workspace')}.json`
-    );
-  }
-
-  private sequencePathFor(
-    workspaceId: string,
-    sessionId: string | undefined
-  ): string {
-    return join(
-      this.root,
-      encodeURIComponent(workspaceId),
-      'sequences',
-      `${encodeURIComponent(sessionId ?? '$workspace')}.seq`
-    );
+  private async persist(): Promise<void> {
+    await mkdir(dirname(this.path), { recursive: true });
+    const temporary = `${this.path}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(this.state)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await rename(temporary, this.path);
   }
 }
 
-function shouldPersist(event: ServerEvent): boolean {
-  return (
-    event.type === 'approval.pending' ||
-    event.type === 'session.snapshot' ||
-    event.type === 'session.updated' ||
-    event.type === 'git.result'
-  );
-}
-
-function atomicWrite(path: string, content: string): void {
-  const temporary = `${path}.tmp-${process.pid}`;
-  writeFileSync(temporary, content, { encoding: 'utf8', mode: 0o600 });
-  renameSync(temporary, path);
-}
-
-function readVersionedRequests(value: unknown): unknown[] | undefined {
-  if (!isRecord(value)) return undefined;
-  assertWorkerDataVersion(value, {
-    format: 'Worker request index',
-    supportedVersion: REQUEST_INDEX_VERSION
-  });
-  return Array.isArray(value.requests) ? value.requests : undefined;
-}
-
-function readSequenceReservation(content: string): number {
-  const trimmed = content.trim();
-  if (!trimmed.startsWith('{')) {
-    const legacy = Number(trimmed);
-    return Number.isSafeInteger(legacy) && legacy > 0 ? legacy : 0;
+function assertSequence(state: JournalState): void {
+  let previous = state.acceptedThroughSeq;
+  for (const event of state.events) {
+    if (event.seq !== previous + 1) throw new Error('Corrupt event journal sequence');
+    previous = event.seq;
   }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(trimmed);
-  } catch {
-    return 0;
-  }
-  assertWorkerDataVersion(raw, {
-    format: 'Worker sequence reservation',
-    supportedVersion: SEQUENCE_RESERVATION_VERSION
-  });
-  if (!isRecord(raw)) return 0;
-  return typeof raw.limit === 'number' &&
-    Number.isSafeInteger(raw.limit) &&
-    raw.limit > 0
-    ? raw.limit
-    : 0;
 }
