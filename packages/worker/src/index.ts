@@ -6,3 +6,5 @@ export type { ModelEnvironmentResolver, WorkAgentRuntime, WorkRuntimeFactory, Wo
 export type { RegisteredRun, WorkerControlCommand, WorkerControlTransport, WorkerLeaseIdentity } from './transport';
 export { FetchWorkerControlTransport } from './transport';
 export type { FetchWorkerControlTransportOptions } from './transport';
+export { publishOutputArtifacts } from './artifactPublisher';
+export type { ArtifactReservation, ArtifactUploadInstruction } from './transport';

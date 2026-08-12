@@ -1,4 +1,5 @@
 export * from './apiService';
+export * from './blobStore';
 export * from './app';
 export * from './database';
 export * from './errors';
@@ -6,7 +7,10 @@ export * from './httpServer';
 export * from './identity';
 export * from './leaseQueue';
 export * from './migrations';
+export * from './orchestratorClient';
 export * from './repositories';
 export * from './runtimeConfig';
+export * from './runScheduler';
 export * from './sse';
+export * from './sourceArtifactService';
 export * from './workerControl';

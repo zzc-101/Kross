@@ -63,28 +63,35 @@ jobs:
           docker build --file docker/worker.Dockerfile \
             --tag "kross-worker:$VERSION" \
             --tag "kross-worker:$SHORT_SHA" \
-            --tag kross-worker:ci .
+            --tag kross-worker:local .
 
-      - name: Build versioned Gateway image
+      - name: Build versioned Server image
         run: |
           docker build --file docker/server.Dockerfile \
             --tag "kross-server:$VERSION" \
             --tag "kross-server:$SHORT_SHA" \
-            --tag kross-server:ci .
+            --tag kross-server:local .
+
+      - name: Build versioned Orchestrator image
+        run: |
+          docker build --file docker/orchestrator.Dockerfile \
+            --tag "kross-orchestrator:$VERSION" \
+            --tag "kross-orchestrator:$SHORT_SHA" \
+            --tag kross-orchestrator:local .
 
       - name: Build versioned Web image
         run: |
           docker build --file docker/web.Dockerfile \
             --tag "kross-web:$VERSION" \
             --tag "kross-web:$SHORT_SHA" \
-            --tag kross-web:ci .
+            --tag kross-web:local .
 
       - name: Smoke test release images
         run: npm run cloud:smoke
 
       - name: Record container image metadata
         run: |
-          for component in web server worker; do
+          for component in web server orchestrator worker; do
             printf '%s ' "$component" >> release/container-images.txt
             docker image inspect \
               "kross-$component:$VERSION" \

@@ -1,185 +1,105 @@
-# Kross Cloud Agent 部署与运维
+# SaaS Work Agent 部署与运维
+
+本文只描述 `codex/saas-work-agent` 分支的新架构。本地 TUI 仍按
+[Getting Started](getting-started.md) 独立运行，不依赖这里的服务。
 
 ## 组件边界
 
-- `packages/protocol`：只包含浏览器安全的 Zod 线协议，不依赖 `core`。
-- `packages/worker`：运行在工作区容器内，每个会话拥有独立 `AgentRuntime`。
-- `packages/server`：认证、工作区注册、Docker 编排、SSE/HTTP Gateway、Web Push。
-- `packages/web`：独立构建的响应式 PWA，由 Nginx 容器托管。
+- `web`：浏览器工作台和同源 Nginx 入口。
+- `server`：身份、RBAC、Project/Task/Run、事件、Source/Artifact 与 Worker 控制面。
+- `postgres`：控制面权威数据、幂等记录、租约和事件游标。
+- `orchestrator`：唯一能访问 Docker Socket 的内部服务，按 Run 创建短命 Worker。
+- `worker`：在隔离容器中执行一个 Run；完成后可销毁，不保存控制面权威状态。
 
-Nginx 是默认对浏览器开放的入口：`/` 提供前端静态文件，`/api/*` 与
-`/healthz` 反向代理到仅在 Compose 网络中暴露的 Gateway，前端与 Gateway
-保持同源。Gateway 自身也默认返回 CORS 头（含 OPTIONS 预检），因此前端
-静态站与 Gateway 部署在不同域名下同样可用；接口全部由 Bearer Token 保护，
-浏览器无法在跨站请求中自动附带凭据，放开来源不会引入 CSRF 面。需要收紧
-时用 `KROSS_ALLOWED_ORIGINS` 配置来源白名单。Gateway 镜像不包含前端产物，
-二者可以独立构建、发布和回滚。
-
-会话消息、上下文 checkpoint 与审批 checkpoint 存在工作区卷的
-`/workspace/.kross`。恢复以 session snapshot 为权威；Worker 只把审批、
-会话更新、Git 结果等低频领域事件写入分段 JSONL，并用独立的 recent-request
-索引保证命令幂等。每次 snapshot 成功持久化后会截断更早的日志段，高频
-token delta 不落盘。序号通过预留区间保持进程崩溃后的单调性。
+浏览器只访问 Web/Nginx。`/api/v2/*`、`/internal/v2/*` 和 `/health` 反向代理到
+Server；Server 和 Orchestrator 不映射宿主机端口。Server 容器不得挂载 Docker
+Socket。
 
 ## 本地启动
 
-需要 Node.js 22.19+、Docker Engine 和 Docker Compose。
-
-推荐直接使用一键脚本。首次运行会根据 `.env.example` 创建 `.env`、自动生成访问
-令牌、构建 Gateway 与 Worker 镜像并在后台启动：
+需要 Node.js 22.19+、Docker Engine 与 Docker Compose。
 
 ```bash
 ./scripts/start-cloud.sh
 ```
 
-后续可用 `./scripts/start-cloud.sh --no-build` 跳过镜像构建，
-`./scripts/start-cloud.sh --logs` 查看日志，使用
-`./scripts/start-cloud.sh --stop` 停止服务并保留数据卷。
-
-升级版本前如需迁移 Gateway 控制面数据，先停止服务并运行
-`./scripts/start-cloud.sh --migrate` 查看只读计划，确认后再运行
-`./scripts/start-cloud.sh --migrate-apply`。完整的备份、回滚和数据边界见
-[数据格式与备份](data-compatibility.md#cloud-控制面迁移命令)。
-
-也可以按以下步骤手动启动：
+脚本首次运行会从 `.env.example` 创建 `.env`，生成 PostgreSQL 密码和内部
+Orchestrator 服务令牌，构建镜像，执行 migration，并启动 Web、Server、
+Orchestrator 与 PostgreSQL。默认入口为 `http://localhost:8787`。
 
 ```bash
-npm ci
-npm run build
-cp .env.example .env
-export KROSS_ACCESS_TOKEN="$(openssl rand -base64 32)"
-docker compose --profile build build
-docker compose up web gateway
+./scripts/start-cloud.sh --no-build
+./scripts/start-cloud.sh --logs
+./scripts/start-cloud.sh --migrate
+./scripts/start-cloud.sh --stop
 ```
 
-Web、Gateway 与 Worker 均使用多阶段镜像。Web 构建阶段生成 Vite 静态资源，
-运行阶段只保留 Nginx 与 `dist`；Gateway 和 Worker 构建阶段生成单文件运行时，
-最终镜像只保留各自生产依赖与必要命令行工具，不包含 TypeScript 源码。
+当前默认 `KROSS_DEV_IDENTITY=1` 仅用于本机开发。任何共享或公网环境都必须关闭，
+并接入生产 OIDC/Session 身份实现。
 
-访问 `http://localhost:8787`，输入上述访问令牌。公网部署应在 Web/Nginx
-入口前终止 TLS，浏览器端使用 `https://`；Gateway 不应直接映射宿主机端口。
-
-首次登录后打开顶部“环境”面板。它同时是轻量 Gateway 管理面板，会检查 Docker、
-Worker 镜像、模型 Provider、GitHub、Web Push 与安全传输状态，并列出当前受管
-Worker 的容器和运行状态。全局 Provider API Key 可以写入 Gateway 数据卷中的
-私有配置文件，接口只返回来源和是否已配置，不会回显密钥。
-
-勾选“热更新现有 Worker”后，运行中的模型调用继续使用旧 Client，后续调用切换到
-新配置，不重建容器；stopped Worker 会在不启动的情况下重建容器配置。当前工作区
-还可以添加私有模型，这些凭据只写入该 Worker 卷内
-`/workspace/.kross/workspace-providers.json`，权限为 `0600`，Gateway 只瞬时
-转发命令且不会持久化。模型选择器会分组显示 Gateway 与当前工作区模型。
-
-生产构建会注册 Service Worker。支持的浏览器会显示“安装”入口；发现新版本时
-界面会提示用户更新并重新载入。网络中断期间，Web 客户端会保留最多 100 个
-带原始 `requestId` 的操作，重连并恢复活动会话后按顺序发送。超过上限会明确
-提示用户等待网络恢复，避免无限占用内存。当 Gateway 返回 401（令牌失效或
-已更换）时，客户端会停止自动重连与命令重试，并在界面顶部提示重新登录，
-排队中的操作不会被逐条丢弃。
-
-Web 客户端通过 `POST /api/commands` 上行命令，通过 `GET /api/events` 的
-SSE 流接收实时事件，全部使用标准 Bearer Token。仓库自带的 Nginx 配置已对
-`/api/events` 关闭响应缓冲与缓存，并把读取超时延长到一小时；Gateway 同时
-发送 `X-Accel-Buffering: no`。公网客户端路径不需要配置 WebSocket Upgrade；
-Gateway 与 Worker 的内部链路仍使用 WebSocket。
-
-## 必需与可选配置
+## 配置
 
 | 变量 | 用途 |
 |---|---|
-| `KROSS_ACCESS_TOKEN` | 网关访问令牌，生产环境必须固定配置 |
-| `KROSS_WORKER_IMAGE` | worker 镜像，默认 `kross-worker:local` |
-| `KROSS_IDLE_TIMEOUT_MS` | 工作区空闲回收时间，默认 30 分钟 |
-| `KROSS_WORKSPACE_MEMORY` | 每个容器的内存上限（字节），默认 2 GiB |
-| `KROSS_WORKSPACE_NANO_CPUS` | 每个容器的 CPU 上限，默认 `1000000000`（1 核） |
-| `KROSS_WORKSPACE_PIDS` | 每个容器的进程数上限，默认 256 |
-| `KROSS_WORKSPACE_DISK_BYTES` | 每个工作区的应用层磁盘软限额，默认 10 GiB |
-| `KROSS_STOP_WORKERS_ON_SHUTDOWN` | Gateway 退出时移除 worker 容器并保留工作区卷，默认 `true` |
-| `KROSS_ALLOWED_ORIGINS` | 跨域来源白名单，逗号分隔；留空默认允许任意来源 |
-| `KROSS_MANAGER_ID` | Docker 资源归属标识；同一 Engine 上多实例部署时必须唯一 |
-| `KROSS_VAPID_PUBLIC_KEY` / `KROSS_VAPID_PRIVATE_KEY` | 启用 Web Push |
-| `KROSS_VAPID_SUBJECT` | VAPID 联系主体，如 `mailto:admin@example.com` |
+| `KROSS_PORT` | Web 对宿主机暴露的端口，默认 `8787` |
+| `KROSS_POSTGRES_PASSWORD` | 本地 PostgreSQL 密码；脚本可自动生成 |
+| `KROSS_ORCHESTRATOR_SERVICE_TOKEN` | Server 与 Orchestrator 的内部服务令牌，至少 32 字节 |
+| `KROSS_BLOB_SIGNING_SECRET` | Source/Artifact 短期 URL 的 HMAC 密钥，至少 32 字节 |
+| `KROSS_BLOB_ROOT` | 本地 BlobStore 路径；生产应替换成对象存储 Adapter |
+| `KROSS_PUBLIC_BASE_URL` | Worker/浏览器可访问的签名 Blob URL 基地址 |
+| `KROSS_DEV_IDENTITY` | `1` 启用开发身份；生产必须为 `0` |
+| `KROSS_ORCHESTRATOR_MANAGER_ID` | Docker 资源归属标签，多实例必须唯一 |
+| `KROSS_WORKER_IMAGE` | Worker 镜像，Compose 默认 `kross-worker:local` |
+| `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | Worker 默认模型配置 |
 
-可用 `npx web-push generate-vapid-keys` 生成 VAPID 密钥。浏览器订阅按钮仅在网关
-配置密钥且页面处于 HTTPS（localhost 除外）时可用。支持通知操作按钮的系统可在
-锁屏通知上直接批准或拒绝；不支持操作按钮的系统会打开对应会话审批页。
+Provider 密钥不应进入 RunSpec、事件、审计、容器标签或 URL。生产实现应由短期
+credential broker 或 connector proxy 按 Run 授权。
 
-LLM Provider 的环境变量由网关创建 worker 时按部署配置注入。不要在反向代理、
-容器日志或监控标签中记录访问令牌、Git token、SSH 私钥和 Provider 密钥。
-网关只会把内置白名单中的 `AGENT_*`、`OPENAI_*`、`ANTHROPIC_*`、
-`OPENROUTER_*`、`DEEPSEEK_*` 和 `XAI_*` 配置传入 worker，不会透传整个网关环境。
-用于创建 GitHub PR 的 `GH_TOKEN` 也在白名单内。
+## Run 隔离与内部认证
 
-工作区私有 Provider 密钥不会写入 `kross-server-data`、会话 snapshot、Trace
-或浏览器存储；Worker 对 Web 只返回 `hasApiKey`。默认删除工作区时同时删除数据卷。
-如果显式保留卷用于人工恢复，必须把该卷继续按含密钥介质保护。
+Orchestrator 为每个 `runId + generation` 创建独立容器、内部网络和执行卷，并设置：
 
-HTTPS Git Token 与 SSH 私钥只写入对应工作区卷的 `.kross` 目录，并以 `0600`
-权限供后续 Push 使用。`gh pr create` 需要 HTTPS Token 或单独配置 `GH_TOKEN`；
-SSH 私钥本身只能完成 Git 认证，不能替代 GitHub API Token。
+- 只读根文件系统、非 root 用户、全部 capability drop、`no-new-privileges`；
+- CPU、内存、PID、磁盘和运行时间限制；
+- 短期 Run Token、leaseId 与 generation fencing；
+- `/work` 执行目录以及受限 `/tmp`、`/run` tmpfs。
 
-## Docker Socket 风险
+Run Token 在 Server 只保存 SHA-256 摘要，并绑定 organization、run、generation、
+lease、Worker session 与过期时间。Worker 的注册、事件、心跳、Artifact 提交和释放
+都必须重新验证该绑定。Server 通过数据库 CAS 续租或释放，旧 generation 不得继续
+写入。
 
-默认单机部署通过 `/var/run/docker.sock` 编排容器。Docker Socket 等价于宿主机
-root 权限，因此网关只能运行受信代码，必须限制管理端口访问，并建议使用独立
-主机。更高隔离要求下，应把 `ContainerOrchestrator` 替换成受限的远程调度服务，
-而不是把 Socket 暴露给公网入口进程。
+Docker Socket 等价于宿主机 root 权限。只有 Orchestrator 可挂载它，且 Orchestrator
+只暴露带 Bearer 服务认证的内部接口。公网入口、Web 与 Server 均不得接触 Socket。
+更高隔离级别应把 `ContainerBackend` 替换为 Kubernetes、Firecracker 或远程沙箱后端。
 
-worker 默认丢弃 Linux capabilities、启用 `no-new-privileges`，并设置内存、CPU、
-PID 限额。工作区容器仍允许访问外网，以便调用 LLM 和安装依赖；生产环境可按需
-增加出口域名策略。
+## 数据与恢复
 
-每个工作区使用独立的 `kross-workspace-net-*` bridge 网络。Gateway 会动态接入
-对应网络，Worker 之间不共享二层网络，无法直接访问其他工作区的 8788 端口。
-共享的 `kross-cloud` 网络只用于 Gateway 的 Compose 接入与一次性克隆 helper。
+PostgreSQL 保存组织、成员、Project、Task、Run、事件、Approval、Source/Artifact
+元数据、幂等键和租约。BlobStore 保存 Source 与 Artifact 的不可变内容。Checkpoint
+必须携带 execution profile；Work Profile 不接受 Coding Profile 或无 profile 的旧
+checkpoint。
 
-Docker Desktop 的命名卷没有可移植的逐卷硬配额，因此磁盘限制采用应用层软
-限额：仓库首次克隆完成后立即检查，超限则回滚工作区创建；Worker 在后台统计
-`/workspace` 与状态目录，新任务读取最近的缓存值，达到上限后拒绝并返回明确错误。
-会话恢复、审批处理和清理操作仍可执行，便于用户释放空间。该机制不能阻止单个
-已运行任务瞬间写满宿主机，生产部署仍应配置宿主机磁盘监控和告警。
+备份至少包括：
 
-Worker 每 60 秒在后台刷新磁盘用量，并在一次任务结束后主动刷新；新任务读取缓存，
-避免对大型 `node_modules` 每次执行全量 `du`。Gateway 与 Worker 的内部 WS 双向
-发送 ping/pong，断线后指数退避重连，并按已知会话序号补发 `session.resume`。
+1. PostgreSQL 数据库；
+2. 生产 BlobStore bucket 及其版本/保留策略；
+3. 部署配置与密钥管理系统中的引用，不包含明文密钥副本。
 
-## 生命周期与恢复
+本地 `docker compose down` 保留 `kross-postgres-v2`。`docker compose down -v` 会
+删除本地数据库卷，属于破坏性操作。
 
-Gateway 启动时会对账注册表与 Docker：
+## 发布门禁
 
-- 仍在运行的已登记 worker 会被接管。
-- 已停止但容器缺失的工作区会从原命名卷重建 stopped worker。
-- 未出现在注册表中的受管孤儿容器会被移除，工作区卷不会自动删除。
+```bash
+npm run check
+KROSS_POSTGRES_PASSWORD=test-password \
+KROSS_ORCHESTRATOR_SERVICE_TOKEN=0123456789abcdef0123456789abcdef \
+docker compose config --quiet
+```
 
-Worker 内部只常驻最近使用的 Runtime，默认最多 20 个，空闲 15 分钟且没有运行中
-任务、待审批或待确认计划的 Runtime 可以安全淘汰，后续从 checkpoint 恢复。
-空闲工作区回收前会查询 Worker 的活跃任务状态，无法确认或仍有运行时不会停止容器。
+上线前还必须完成：生产身份与 CSRF、对象存储、密钥 broker、限流/配额、审计导出、
+备份恢复演练，以及 Project → Task → Run → Approval → Artifact 的真实纵向 E2E。
 
-Gateway 正常退出时默认移除动态 worker 容器，使 Compose 网络能够完整清理，
-但保留工作区命名卷和服务端注册表。下次启动会自动重建 stopped worker，访问
-会话时再按需启动。只有显式执行“删除工作区并删除数据卷”才会永久删除仓库、
-会话和审批 checkpoint。
-
-升级、降级或迁移主机前，应同时备份 `kross-server-data` 和全部
-`kross-workspace-*` 卷。只备份 Gateway 卷无法恢复仓库、会话和 Worker
-checkpoint；具体版本清单与恢复原则见[数据格式与备份](data-compatibility.md)。
-
-## 部署验收清单
-
-1. 创建工作区，确认仓库只出现在对应命名卷中。
-2. 创建会话并发送会触发写工具的任务，确认审批前工具没有执行。
-3. 批准后确认流继续；断开网络，再连接并检查没有丢失或重复事件。
-4. 重启 worker，恢复等待审批的会话并完成审批。
-5. 在手机浏览器安装 PWA，验证响应式布局、Diff、Trace、Todo、子代理状态和
-   上下文容量；执行 `/context` 与无可压缩历史的 `/compact`，确认结果会回写
-   当前会话。
-   Diff 应包含真实 Git patch，Trace 最近运行项应可进入详情；切换离线后发送
-   操作，再恢复网络，确认操作只执行一次且界面没有重复事件。
-6. 配置 VAPID 后订阅通知，锁屏时触发审批并确认收到 Push。
-7. 验证分支 Push、PR 创建、空闲回收，以及默认 1 CPU、2 GiB 内存、256 PID
-   和 10 GiB 磁盘软限额。
-
-CI 的 `cloud-containers` 任务会解析 Compose 配置并分别构建 Web、Gateway、
-Worker 镜像，再启动临时容器验证 Worker、Gateway、Web 静态入口、鉴权 API 与
-Nginx 反向代理。失败时输出三个容器日志，资源由 smoke 脚本统一清理。本地已按
-CI 标签构建镜像时，也可以运行 `npm run cloud:smoke`。
+详细的产品、数据、协议和分阶段计划见
+[SaaS Work Agent 实现文档](proposals/saas-work-agent-implementation.md)。

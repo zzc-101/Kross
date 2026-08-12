@@ -72,17 +72,22 @@ jobs:
 
       - name: Validate Compose configuration
         env:
-          KROSS_ACCESS_TOKEN: ci-placeholder-token
+          KROSS_POSTGRES_PASSWORD: ci-placeholder-password
+          KROSS_ORCHESTRATOR_SERVICE_TOKEN: 0123456789abcdef0123456789abcdef
+          KROSS_BLOB_SIGNING_SECRET: abcdef0123456789abcdef0123456789
         run: docker compose config --quiet
 
       - name: Build worker image
-        run: docker build --file docker/worker.Dockerfile --tag kross-worker:ci .
+        run: docker build --file docker/worker.Dockerfile --tag kross-worker:local .
 
-      - name: Build gateway image
-        run: docker build --file docker/server.Dockerfile --tag kross-server:ci .
+      - name: Build server image
+        run: docker build --file docker/server.Dockerfile --tag kross-server:local .
+
+      - name: Build orchestrator image
+        run: docker build --file docker/orchestrator.Dockerfile --tag kross-orchestrator:local .
 
       - name: Build web image
-        run: docker build --file docker/web.Dockerfile --tag kross-web:ci .
+        run: docker build --file docker/web.Dockerfile --tag kross-web:local .
 
       - name: Smoke test Cloud containers
         run: ./scripts/cloud-container-smoke.sh

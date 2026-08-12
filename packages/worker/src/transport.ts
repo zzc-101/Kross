@@ -1,9 +1,14 @@
 import {
+  artifactCommittedMessageSchema,
+  artifactReservedMessageSchema,
   leaseRenewedMessageSchema,
   internalWorkerMessageSchema,
   PROTOCOL_VERSION,
   workerEventAckMessageSchema,
   workerRegisteredMessageSchema,
+  type ArtifactCommitMessage,
+  type ArtifactReserveMessage,
+  type ArtifactSnapshot,
   type RunSpec,
   type WorkerRunEventEnvelope
 } from '@kross/protocol';
@@ -46,8 +51,30 @@ export interface WorkerControlTransport {
     runToken: string;
     reason: 'terminal' | 'shutdown' | 'lost' | 'error';
   }): Promise<void>;
+  reserveArtifact(input: {
+    lease: WorkerLeaseIdentity;
+    runToken: string;
+    artifact: Omit<ArtifactReserveMessage, 'protocolVersion' | 'messageId' | 'sentAt' | 'type' | 'runId' | 'generation'>;
+  }): Promise<ArtifactReservation>;
+  uploadArtifact(input: { upload: ArtifactUploadInstruction; absolutePath: string; signal?: AbortSignal }): Promise<{ etag?: string }>;
+  commitArtifact(input: {
+    lease: WorkerLeaseIdentity;
+    runToken: string;
+    commit: Omit<ArtifactCommitMessage, 'protocolVersion' | 'messageId' | 'sentAt' | 'type' | 'runId' | 'generation'>;
+  }): Promise<ArtifactSnapshot>;
   subscribe?(listener: (command: WorkerControlCommand) => void): () => void;
 }
+
+export interface ArtifactUploadInstruction {
+  method: 'PUT' | 'POST';
+  url: string;
+  headers: Array<{ name: string; value: string }>;
+  expiresAt: string;
+}
+
+export type ArtifactReservation =
+  | { artifactId: string; alreadyCommitted: true }
+  | { artifactId: string; alreadyCommitted: false; upload: ArtifactUploadInstruction };
 
 export interface FetchWorkerControlTransportOptions {
   controlPlaneUrl: string;
@@ -76,7 +103,7 @@ export class FetchWorkerControlTransport implements WorkerControlTransport {
       generation: lease.generation,
       leaseId: lease.leaseId,
       workerVersion: '0.1.0',
-      capabilities: { checkpointResume: true, artifactUpload: false, connectorProxy: false }
+      capabilities: { checkpointResume: true, artifactUpload: true, connectorProxy: false }
     });
     const parsed = workerRegisteredMessageSchema.parse(body);
     return {
@@ -135,6 +162,54 @@ export class FetchWorkerControlTransport implements WorkerControlTransport {
     }, true);
   }
 
+  async reserveArtifact(input: {
+    lease: WorkerLeaseIdentity;
+    runToken: string;
+    artifact: Omit<ArtifactReserveMessage, 'protocolVersion' | 'messageId' | 'sentAt' | 'type' | 'runId' | 'generation'>;
+  }): Promise<ArtifactReservation> {
+    const response = artifactReservedMessageSchema.parse(await this.request('/internal/v2/workers/artifacts/reserve', input.runToken, {
+      type: 'artifact.reserve', runId: input.lease.runId, generation: input.lease.generation, ...input.artifact
+    }));
+    assertArtifactFence(response, input.lease);
+    return response.alreadyCommitted
+      ? { artifactId: response.artifactId, alreadyCommitted: true }
+      : { artifactId: response.artifactId, alreadyCommitted: false, upload: response.upload };
+  }
+
+  async uploadArtifact(input: { upload: ArtifactUploadInstruction; absolutePath: string; signal?: AbortSignal }): Promise<{ etag?: string }> {
+    if (Date.parse(input.upload.expiresAt) <= Date.now()) throw new Error('Artifact upload instruction has expired');
+    const { createReadStream } = await import('node:fs');
+    const body = createReadStream(input.absolutePath);
+    const abort = () => body.destroy(input.signal?.reason instanceof Error ? input.signal.reason : new Error('Operation aborted'));
+    input.signal?.addEventListener('abort', abort, { once: true });
+    try {
+      const response = await this.fetch(input.upload.url, {
+        method: input.upload.method,
+        headers: Object.fromEntries(input.upload.headers.map((header) => [header.name, header.value])),
+        body,
+        signal: input.signal,
+        duplex: 'half'
+      } as unknown as RequestInit);
+      if (!response.ok) throw new Error(`Artifact upload failed (${response.status}): ${(await response.text()).slice(0, 500)}`);
+      return { etag: response.headers.get('etag')?.replace(/^"|"$/g, '') || undefined };
+    } finally {
+      input.signal?.removeEventListener('abort', abort);
+      body.destroy();
+    }
+  }
+
+  async commitArtifact(input: {
+    lease: WorkerLeaseIdentity;
+    runToken: string;
+    commit: Omit<ArtifactCommitMessage, 'protocolVersion' | 'messageId' | 'sentAt' | 'type' | 'runId' | 'generation'>;
+  }): Promise<ArtifactSnapshot> {
+    const response = artifactCommittedMessageSchema.parse(await this.request('/internal/v2/workers/artifacts/commit', input.runToken, {
+      type: 'artifact.commit', runId: input.lease.runId, generation: input.lease.generation, ...input.commit
+    }));
+    assertArtifactFence(response, input.lease);
+    return { ...response.artifact, runId: response.runId };
+  }
+
   private async request(path: string, token: string, body: Record<string, unknown>, allowEmpty = false): Promise<unknown> {
     if (!token.trim()) throw new Error('Run token is required');
     const controller = new AbortController();
@@ -158,6 +233,12 @@ export class FetchWorkerControlTransport implements WorkerControlTransport {
     } finally {
       clearTimeout(timeout);
     }
+  }
+}
+
+function assertArtifactFence(message: { runId: string; generation: number }, lease: WorkerLeaseIdentity): void {
+  if (message.runId !== lease.runId || message.generation !== lease.generation) {
+    throw new Error('Artifact response does not match the active run generation');
   }
 }
 

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 export interface MaterializableSource {
@@ -12,12 +13,14 @@ export interface MaterializableSource {
   sha256: string;
   downloadUrl: string;
   downloadHeaders: Array<{ name: string; value: string }>;
+  expiresAt?: string;
 }
 
 export interface MaterializableRunSpec {
   runId: string;
   sources: MaterializableSource[];
   repository?: unknown;
+  resourceLimits?: { maxSourceBytes: number };
 }
 
 export interface SourceDownloadAdapter {
@@ -62,8 +65,13 @@ export async function materializeExecutionWorkspace(input: {
   ]);
 
   const manifestSources: Array<Record<string, unknown>> = [];
+  const totalSourceBytes = input.runSpec.sources.reduce((total, source) => total + source.sizeBytes, 0);
+  if (input.runSpec.resourceLimits && totalSourceBytes > input.runSpec.resourceLimits.maxSourceBytes) {
+    throw new Error(`Sources exceed ${input.runSpec.resourceLimits.maxSourceBytes} bytes`);
+  }
   for (const source of input.runSpec.sources) {
     if (input.signal?.aborted) throw abortError(input.signal);
+    if (source.expiresAt && Date.parse(source.expiresAt) <= Date.now()) throw new Error(`Source ${source.id} download instruction has expired`);
     const destination = safeJoin(inputDirectory, 'sources', source.id, source.fileName);
     await mkdir(dirname(destination), { recursive: true });
     await input.downloader.downloadToFile({ source, destination, signal: input.signal });
@@ -71,7 +79,7 @@ export async function materializeExecutionWorkspace(input: {
     if (!info.isFile() || info.size !== source.sizeBytes) {
       throw new Error(`Source ${source.id} size mismatch`);
     }
-    const sha256 = createHash('sha256').update(await readFile(destination)).digest('hex');
+    const sha256 = await hashFile(destination, input.signal);
     if (sha256 !== source.sha256) {
       throw new Error(`Source ${source.id} sha256 mismatch`);
     }
@@ -100,6 +108,19 @@ export async function materializeExecutionWorkspace(input: {
     repositoryDirectory,
     manifestPath
   };
+}
+
+async function hashFile(path: string, signal?: AbortSignal): Promise<string> {
+  const hash = createHash('sha256');
+  const stream = createReadStream(path);
+  const abort = () => stream.destroy(signal ? abortError(signal) : new Error('Operation aborted'));
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    for await (const chunk of stream) hash.update(chunk as Buffer);
+    return hash.digest('hex');
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 export function safeJoin(root: string, ...segments: string[]): string {

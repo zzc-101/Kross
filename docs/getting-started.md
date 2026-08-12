@@ -168,9 +168,7 @@ npm run dev --workspace @kross/tui
 ./scripts/start-cloud.sh --stop
 ```
 
-动态 Worker 容器会移除，但每个工作区命名卷和 Gateway 的
-`kross-server-data` 卷仍会保留。永久删除某个工作区时，应先在 Web 中选择
-“删除工作区并删除数据卷”，这样 Gateway 注册表和 Docker 资源会一起清理。
-`docker compose down -v` 只删除 Compose 声明的服务端数据卷，不会代替逐个删除
-动态工作区卷；不要把它当作完整卸载命令。更多细节见
-[Cloud Agent 部署与运维](cloud-agent-deployment.md#生命周期与恢复)。
+新 SaaS 架构会保留 Compose 声明的 PostgreSQL 数据卷。`docker compose down -v`
+会删除本地控制面数据库，属于破坏性操作。Run Worker 是短命执行单元，Source 与
+Artifact 的持久内容应位于 BlobStore，而不是依赖 Worker 容器或执行卷。更多细节见
+[SaaS Work Agent 部署与运维](cloud-agent-deployment.md#数据与恢复)。

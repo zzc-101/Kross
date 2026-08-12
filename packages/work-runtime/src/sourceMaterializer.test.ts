@@ -25,4 +25,14 @@ describe('Source materialization', () => {
   it('rejects traversal outside the execution root', () => {
     expect(() => safeJoin('/work', '..', 'escape')).toThrow('Unsafe workspace path');
   });
+
+  it('rejects aggregate Source bytes before downloading', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kross-work-'));
+    const downloadToFile = async () => { throw new Error('must not download'); };
+    const runSpec = {
+      runId: 'run1', resourceLimits: { maxSourceBytes: 1 },
+      sources: [{ id: 'source1', kind: 'upload', displayName: 'input', fileName: 'input.txt', mimeType: 'text/plain', sizeBytes: 2, sha256: 'a'.repeat(64), downloadUrl: 'https://example.test', downloadHeaders: [] }]
+    } satisfies MaterializableRunSpec;
+    await expect(materializeExecutionWorkspace({ runSpec, physicalRoot: root, downloader: { downloadToFile } })).rejects.toThrow('Sources exceed 1 bytes');
+  });
 });

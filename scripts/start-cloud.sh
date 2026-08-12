@@ -10,13 +10,11 @@ ENV_EXAMPLE="$PROJECT_DIR/.env.example"
 usage() {
   cat <<'EOF'
 用法：
-  ./scripts/start-cloud.sh             构建镜像并启动 Cloud Agent
+  ./scripts/start-cloud.sh             构建并启动 SaaS Work Agent
   ./scripts/start-cloud.sh --no-build  使用现有镜像启动
-  ./scripts/start-cloud.sh --stop      停止服务并保留数据卷
-  ./scripts/start-cloud.sh --logs      持续查看 Web 与 Gateway 日志
-  ./scripts/start-cloud.sh --migrate   只读检查 Gateway 数据迁移计划
-  ./scripts/start-cloud.sh --migrate-apply
-                                      备份并迁移 Gateway 数据
+  ./scripts/start-cloud.sh --stop      停止服务并保留 PostgreSQL 数据卷
+  ./scripts/start-cloud.sh --logs      持续查看服务日志
+  ./scripts/start-cloud.sh --migrate   单独执行数据库迁移
   ./scripts/start-cloud.sh --help      显示帮助
 EOF
 }
@@ -38,72 +36,61 @@ require_docker() {
     echo "错误：未找到 Docker，请先安装并启动 Docker Desktop。" >&2
     exit 1
   fi
-
   if ! docker compose version >/dev/null 2>&1; then
     echo "错误：当前 Docker 未提供 Compose 插件。" >&2
     exit 1
   fi
-
   if ! docker info >/dev/null 2>&1; then
     echo "错误：Docker Engine 未运行，请先启动 Docker Desktop。" >&2
     exit 1
   fi
 }
 
-ensure_env() {
-  generated_token=""
+ensure_secret() {
+  key=$1
+  current=$(read_env_value "$key")
+  if [ -n "$current" ]; then
+    return
+  fi
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "错误：无法生成 $key，请安装 openssl 或手动配置。" >&2
+    exit 1
+  fi
+  generated=$(openssl rand -hex 32)
+  temp_env=$(mktemp "${TMPDIR:-/tmp}/kross-env.XXXXXX")
+  awk -v key="$key" -v value="$generated" '
+    index($0, key "=") == 1 { print key "=" value; updated = 1; next }
+    { print }
+    END { if (!updated) print key "=" value }
+  ' "$ENV_FILE" >"$temp_env"
+  mv "$temp_env" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+  echo "已生成 $key 并保存到 $ENV_FILE。"
+}
 
+ensure_env() {
   if [ ! -f "$ENV_FILE" ]; then
     cp "$ENV_EXAMPLE" "$ENV_FILE"
     echo "已根据 .env.example 创建 .env。"
   fi
-
-  access_token=$(read_env_value KROSS_ACCESS_TOKEN)
-  if [ -z "$access_token" ]; then
-    if ! command -v openssl >/dev/null 2>&1; then
-      echo "错误：无法生成访问令牌，请安装 openssl 或手动设置 KROSS_ACCESS_TOKEN。" >&2
-      exit 1
-    fi
-
-    generated_token=$(openssl rand -hex 32)
-    temp_env=$(mktemp "${TMPDIR:-/tmp}/kross-env.XXXXXX")
-    trap 'rm -f "$temp_env"' EXIT HUP INT TERM
-    awk -v token="$generated_token" '
-      /^KROSS_ACCESS_TOKEN=/ {
-        print "KROSS_ACCESS_TOKEN=" token
-        updated = 1
-        next
-      }
-      { print }
-      END {
-        if (!updated) {
-          print "KROSS_ACCESS_TOKEN=" token
-        }
-      }
-    ' "$ENV_FILE" >"$temp_env"
-    mv "$temp_env" "$ENV_FILE"
-    trap - EXIT HUP INT TERM
-    chmod 600 "$ENV_FILE"
-  fi
+  ensure_secret KROSS_POSTGRES_PASSWORD
+  ensure_secret KROSS_ORCHESTRATOR_SERVICE_TOKEN
+  ensure_secret KROSS_BLOB_SIGNING_SECRET
 }
 
 wait_for_web() {
   port=$(read_env_value KROSS_PORT)
-  if [ -z "$port" ]; then
-    port=8787
-  fi
-
+  if [ -z "$port" ]; then port=8787; fi
   attempt=0
-  while [ "$attempt" -lt 30 ]; do
-    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/healthz"; then
+  while [ "$attempt" -lt 60 ]; do
+    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/health"; then
       return 0
     fi
     attempt=$((attempt + 1))
     sleep 1
   done
-
-  echo "Web 入口未能在 30 秒内就绪，最近日志如下：" >&2
-  docker compose logs --tail 80 web gateway >&2
+  echo "Web 入口未能在 60 秒内就绪，最近日志如下：" >&2
+  docker compose logs --tail 100 web server orchestrator migrate >&2
   return 1
 }
 
@@ -113,56 +100,35 @@ case "$command" in
     require_docker
     ensure_env
     cd "$PROJECT_DIR"
-
     if [ "$command" = "start" ]; then
-      echo "正在构建 Web、Gateway 和 Worker 镜像……"
-      docker compose --profile build build
+      echo "正在构建 Web、Server、Orchestrator 和 Worker 镜像……"
+      docker compose build
     fi
-
-    echo "正在启动 Cloud Agent……"
-    docker compose up -d web gateway
+    echo "正在启动 SaaS Work Agent……"
+    docker compose up -d web orchestrator
     wait_for_web
-
     port=$(read_env_value KROSS_PORT)
-    if [ -z "$port" ]; then
-      port=8787
-    fi
-
-    echo
-    echo "Cloud Agent 已启动：http://localhost:$port"
-    if [ -n "$generated_token" ]; then
-      echo "首次登录访问令牌：$generated_token"
-      echo "令牌已保存到 $ENV_FILE，请妥善保管。"
-    else
-      echo "请使用 $ENV_FILE 中的 KROSS_ACCESS_TOKEN 登录。"
-    fi
-    echo "查看日志：./scripts/start-cloud.sh --logs"
-    echo "停止服务：./scripts/start-cloud.sh --stop"
+    if [ -z "$port" ]; then port=8787; fi
+    echo "SaaS Work Agent 已启动：http://localhost:$port"
     ;;
   --stop)
     require_docker
+    ensure_env
     cd "$PROJECT_DIR"
-    KROSS_ACCESS_TOKEN=unused docker compose down
-    echo "Cloud Agent 已停止，工作区和服务端数据卷均已保留。"
+    docker compose down
+    echo "服务已停止，PostgreSQL 数据卷已保留。"
     ;;
   --logs)
     require_docker
+    ensure_env
     cd "$PROJECT_DIR"
-    KROSS_ACCESS_TOKEN=unused docker compose logs -f web gateway
+    docker compose logs -f web server orchestrator migrate postgres
     ;;
   --migrate | --migrate-apply)
     require_docker
+    ensure_env
     cd "$PROJECT_DIR"
-    if docker compose ps --status running --services | grep -q '^gateway$'; then
-      echo "错误：执行 Cloud 数据迁移前必须先停止 Gateway。" >&2
-      exit 1
-    fi
-    migrate_flag="--dry-run"
-    if [ "$command" = "--migrate-apply" ]; then
-      migrate_flag="--apply"
-    fi
-    KROSS_ACCESS_TOKEN=unused docker compose run --rm --no-deps gateway \
-      node dist/server-migrate.mjs "$migrate_flag"
+    docker compose run --rm migrate
     ;;
   --help | -h)
     usage

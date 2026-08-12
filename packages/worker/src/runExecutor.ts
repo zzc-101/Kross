@@ -17,6 +17,7 @@ import {
 
 import type { WorkAgentRuntime, WorkRuntimeFactory } from './coreRuntimeFactory';
 import { RunEventJournal } from './eventJournal';
+import { publishOutputArtifacts } from './artifactPublisher';
 import type { WorkerControlCommand, WorkerControlTransport, WorkerLeaseIdentity } from './transport';
 
 export interface RunExecutorOptions {
@@ -101,7 +102,7 @@ export class RunExecutor {
     try {
       await this.restoreCheckpoint(runSpec, checkpointStore, handle.runtime);
       await emitter.emit({ type: 'run.started', startedAt: this.now().toISOString() });
-      const outcome = await this.runAgent({ runSpec, runtime: handle.runtime, evidence, emitter, checkpointStore, signal: abortController.signal });
+      const outcome = await this.runAgent({ runSpec, runtime: handle.runtime, evidence, emitter, checkpointStore, outputDirectory: workspace.outputDirectory, signal: abortController.signal });
       await this.options.transport.release({
         workerSessionId: registered.workerSessionId,
         lease: this.options.lease,
@@ -144,6 +145,7 @@ export class RunExecutor {
     evidence: WorkRunEvidence;
     emitter: EventEmitter;
     checkpointStore: FileCheckpointStore;
+    outputDirectory: string;
     signal: AbortSignal;
   }): Promise<RunExecutionOutcome> {
     let fullText = '';
@@ -192,6 +194,17 @@ export class RunExecutor {
       return { status: 'waiting_for_approval', summary: finalResult.summary, lastSequence: input.emitter.lastSequence };
     }
     const summary = finalResult.summary || fullText;
+    const artifactIds = finalResult.status === 'completed'
+      ? await publishOutputArtifacts({
+          runSpec: input.runSpec,
+          lease: this.options.lease,
+          runToken: this.options.runToken,
+          outputDirectory: input.outputDirectory,
+          transport: this.options.transport,
+          signal: input.signal
+        })
+      : [];
+    for (const artifactId of artifactIds) input.evidence.recordArtifact(artifactId);
     if (finalResult.status === 'completed') {
       input.evidence.recordResponse(summary);
       await input.emitter.emit({
@@ -202,7 +215,10 @@ export class RunExecutor {
           projectId: input.runSpec.projectId,
           taskId: input.runSpec.taskId,
           role: 'agent',
-          content: [{ type: 'text', text: summary }],
+          content: [
+            { type: 'text', text: summary },
+            ...artifactIds.map((artifactId) => ({ type: 'artifact_reference' as const, artifactId }))
+          ],
           createdAt: this.now().toISOString()
         }
       });

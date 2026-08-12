@@ -56,13 +56,10 @@ export class DockerBackend implements ContainerBackend {
 
   async launch(request: RunLaunchRequest): Promise<BackendHandle> {
     assertSafeLaunchRequest(request);
-    if (
-      request.networkAccess !== 'disabled' &&
-      !this.controlPlaneContainer
-    ) {
+    if (!this.controlPlaneContainer) {
       throw new OrchestratorError(
         'CONTROL_PLANE_PEER_REQUIRED',
-        '启用网络的 Worker 必须配置受限控制面/Connector Proxy 容器',
+        'Worker 必须配置受限控制面/Connector Proxy 容器以完成注册和心跳',
         500
       );
     }
@@ -94,19 +91,17 @@ export class DockerBackend implements ContainerBackend {
       });
       volumeCreated = true;
 
-      if (request.networkAccess !== 'disabled') {
-        await this.docker.createNetwork({
-          Name: names.networkName,
-          Driver: 'bridge',
-          Internal: true,
-          CheckDuplicate: true,
-          Labels: { ...labels, [NETWORK_LABEL]: 'true' }
-        });
-        networkCreated = true;
-        await this.docker.getNetwork(names.networkName).connect({
-          Container: this.controlPlaneContainer!
-        });
-      }
+      await this.docker.createNetwork({
+        Name: names.networkName,
+        Driver: 'bridge',
+        Internal: true,
+        CheckDuplicate: true,
+        Labels: { ...labels, [NETWORK_LABEL]: 'true' }
+      });
+      networkCreated = true;
+      await this.docker.getNetwork(names.networkName).connect({
+        Container: this.controlPlaneContainer!
+      });
 
       container = await this.docker.createContainer({
         name: names.containerName,
@@ -126,8 +121,7 @@ export class DockerBackend implements ContainerBackend {
         StopTimeout: this.stopTimeoutSeconds,
         HostConfig: {
           Binds: [`${names.volumeName}:/work:rw`],
-          NetworkMode:
-            request.networkAccess === 'disabled' ? 'none' : names.networkName,
+          NetworkMode: names.networkName,
           Memory: request.resourceLimits.memoryBytes,
           MemorySwap: request.resourceLimits.memoryBytes,
           NanoCpus: request.resourceLimits.cpuMillis * 1_000_000,
@@ -152,8 +146,7 @@ export class DockerBackend implements ContainerBackend {
         containerId: container.id,
         containerName: names.containerName,
         volumeName: names.volumeName,
-        networkName:
-          request.networkAccess === 'disabled' ? undefined : names.networkName,
+        networkName: names.networkName,
         deadlineAt
       };
     } catch (error) {
@@ -235,10 +228,7 @@ export class DockerBackend implements ContainerBackend {
           containerId: summary.Id,
           containerName: summary.Names?.[0]?.replace(/^\//, '') ?? names.containerName,
           volumeName: names.volumeName,
-          networkName:
-            summary.HostConfig?.NetworkMode === 'none'
-              ? undefined
-              : names.networkName,
+          networkName: names.networkName,
           deadlineAt
         };
         return [this.inspect(handle)];

@@ -1,8 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import {
+  artifactCommittedMessageSchema,
+  artifactReservedMessageSchema,
   internalWorkerMessageSchema,
-  leaseRenewedMessageSchema,
+    leaseRenewedMessageSchema,
   resourceIdSchema,
   workerEventAckMessageSchema,
   workerRegisteredMessageSchema
@@ -11,12 +13,15 @@ import {
 import type { ApiService } from './apiService';
 import { ServerError } from './errors';
 import type { WorkerControlService } from './workerControl';
+import type { BlobStore, SignedBlobUrlProvider } from './blobStore';
 
 const MAX_BODY_BYTES = 1_048_576;
 
 export interface HttpServerOptions {
   readonly api: ApiService;
   readonly workerControl?: WorkerControlService;
+  readonly blobStore?: BlobStore;
+  readonly signedBlobUrls?: SignedBlobUrlProvider;
   readonly exposeErrorDetails?: boolean;
 }
 
@@ -35,6 +40,11 @@ async function handleRequest(
     const url = new URL(request.url ?? '/', 'http://server.local');
     if (request.method === 'GET' && url.pathname === '/health') {
       sendJson(response, 200, { status: 'ok', service: 'kross-control-plane' });
+      return;
+    }
+    const blobMatch = match(url.pathname, /^\/api\/v2\/blobs\/(upload|download)\/([^/]+)$/);
+    if (blobMatch) {
+      await handleSignedBlob(options, request, response, blobMatch[0]!, blobMatch[1]!);
       return;
     }
     if (url.pathname.startsWith('/internal/v2/workers/')) {
@@ -81,6 +91,24 @@ async function handleRequest(
         sendJson(response, 201, await options.api.createTask(identity, organizationId, body, headers['idempotency-key'])); return;
       }
     }
+    const projectSourcesMatch = match(url.pathname, /^\/api\/v2\/projects\/([^/]+)\/sources$/);
+    if (request.method === 'GET' && projectSourcesMatch) {
+      sendJson(response, 200, { items: await options.api.listSources(identity, organizationId, projectSourcesMatch[0]!) }); return;
+    }
+    const sourceCreateMatch = match(url.pathname, /^\/api\/v2\/projects\/([^/]+)\/sources\/(uploads|inline|external)$/);
+    if (request.method === 'POST' && sourceCreateMatch) {
+      const body = await readJson(request);
+      const result = sourceCreateMatch[1] === 'uploads'
+        ? await options.api.createSourceUpload(identity, organizationId, sourceCreateMatch[0]!, body)
+        : sourceCreateMatch[1] === 'inline'
+          ? await options.api.createInlineSource(identity, organizationId, sourceCreateMatch[0]!, body)
+          : await options.api.createExternalSource(identity, organizationId, sourceCreateMatch[0]!, body);
+      sendJson(response, 201, result); return;
+    }
+    const sourceCompleteMatch = match(url.pathname, /^\/api\/v2\/sources\/([^/]+)\/complete$/);
+    if (request.method === 'POST' && sourceCompleteMatch) {
+      sendJson(response, 200, await options.api.completeSource(identity, organizationId, sourceCompleteMatch[0]!, await readJson(request))); return;
+    }
     const taskMatch = match(url.pathname, /^\/api\/v2\/tasks\/([^/]+)$/);
     if (request.method === 'GET' && taskMatch) {
       sendJson(response, 200, await options.api.getTask(identity, organizationId, taskMatch[0]!)); return;
@@ -88,6 +116,19 @@ async function handleRequest(
     const taskRunsMatch = match(url.pathname, /^\/api\/v2\/tasks\/([^/]+)\/runs$/);
     if (request.method === 'POST' && taskRunsMatch) {
       sendJson(response, 201, await options.api.createRun(identity, organizationId, taskRunsMatch[0]!, await readJson(request), headers['idempotency-key'])); return;
+    }
+    const taskArtifactsMatch = match(url.pathname, /^\/api\/v2\/tasks\/([^/]+)\/artifacts$/);
+    if (request.method === 'GET' && taskArtifactsMatch) {
+      sendJson(response, 200, { items: await options.api.listArtifacts(identity, organizationId, taskArtifactsMatch[0]!) }); return;
+    }
+    const artifactMatch = match(url.pathname, /^\/api\/v2\/artifacts\/([^/]+)$/);
+    if (request.method === 'GET' && artifactMatch) {
+      sendJson(response, 200, await options.api.getArtifact(identity, organizationId, artifactMatch[0]!)); return;
+    }
+    const artifactContentMatch = match(url.pathname, /^\/api\/v2\/artifacts\/([^/]+)\/content$/);
+    if (request.method === 'GET' && artifactContentMatch) {
+      response.writeHead(302, { location: await options.api.artifactContentUrl(identity, organizationId, artifactContentMatch[0]!), 'cache-control': 'private, no-store' });
+      response.end(); return;
     }
     const runMatch = match(url.pathname, /^\/api\/v2\/runs\/([^/]+)$/);
     if (request.method === 'GET' && runMatch) {
@@ -164,7 +205,54 @@ async function handleWorkerRequest(
     response.end();
     return;
   }
+  if (path === '/internal/v2/workers/artifacts/reserve' && message.type === 'artifact.reserve') {
+    sendJson(response, 200, artifactReservedMessageSchema.parse(await service.reserveArtifact(token, message)));
+    return;
+  }
+  if (path === '/internal/v2/workers/artifacts/commit' && message.type === 'artifact.commit') {
+    sendJson(response, 200, artifactCommittedMessageSchema.parse(await service.commitArtifact(token, message)));
+    return;
+  }
   throw new ServerError('worker_message_route_mismatch', 'Worker message type does not match route', 400);
+}
+
+async function handleSignedBlob(
+  options: HttpServerOptions, request: IncomingMessage, response: ServerResponse,
+  action: string, token: string
+): Promise<void> {
+  if (!options.blobStore || !options.signedBlobUrls) {
+    throw new ServerError('blob_service_unavailable', 'Blob service is unavailable', 503);
+  }
+  if (action === 'upload') {
+    if (request.method !== 'PUT') throw new ServerError('method_not_allowed', 'Signed upload requires PUT', 405);
+    const claim = options.signedBlobUrls.verify(token, 'upload');
+    const contentType = request.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase();
+    if (claim.mimeType !== undefined && contentType !== claim.mimeType) {
+      throw new ServerError('blob_mime_mismatch', 'Uploaded MIME type does not match', 422);
+    }
+    const stored = await options.blobStore.put(claim.blobKey, request, {
+      maxBytes: claim.maxBytes ?? MAX_BODY_BYTES,
+      ...(claim.sizeBytes === undefined ? {} : { expectedSizeBytes: claim.sizeBytes }),
+      ...(claim.sha256 === undefined ? {} : { expectedSha256: claim.sha256 })
+    });
+    sendJson(response, 201, stored);
+    return;
+  }
+  if (action === 'download') {
+    if (request.method !== 'GET') throw new ServerError('method_not_allowed', 'Signed download requires GET', 405);
+    const claim = options.signedBlobUrls.verify(token, 'download');
+    const metadata = await options.blobStore.stat(claim.blobKey);
+    if (!metadata) throw new ServerError('blob_not_found', 'Blob not found', 404);
+    response.writeHead(200, {
+      'content-type': claim.mimeType ?? 'application/octet-stream',
+      'content-length': String(metadata.sizeBytes), 'etag': `"${metadata.sha256}"`,
+      'cache-control': 'private, no-store'
+    });
+    for await (const chunk of options.blobStore.read(claim.blobKey)) response.write(chunk);
+    response.end();
+    return;
+  }
+  throw new ServerError('not_found', 'Route not found', 404);
 }
 
 function normalizeHeaders(request: IncomingMessage): Record<string, string | undefined> {

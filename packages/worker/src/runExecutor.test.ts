@@ -4,12 +4,12 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AgentExecutionProfile, AgentResult, AgentRunStreamEvent } from '@kross/core';
-import type { RunSpec, WorkerRunEventEnvelope } from '@kross/protocol';
+import type { ArtifactSnapshot, RunSpec, WorkerRunEventEnvelope } from '@kross/protocol';
 import { FileCheckpointStore, type SourceDownloadAdapter } from '@kross/work-runtime';
 import { RunExecutor } from './runExecutor';
 import { createRunSpec } from './testFixtures';
 import type { WorkAgentRuntime, WorkRuntimeFactory } from './coreRuntimeFactory';
-import type { WorkerControlCommand, WorkerControlTransport, WorkerLeaseIdentity } from './transport';
+import type { ArtifactReservation, WorkerControlCommand, WorkerControlTransport, WorkerLeaseIdentity } from './transport';
 
 const lease: WorkerLeaseIdentity = { workerId: 'worker1', runId: 'run1', generation: 1, leaseId: 'lease1' };
 const downloader: SourceDownloadAdapter = { downloadToFile: vi.fn() };
@@ -107,6 +107,9 @@ class FakeTransport implements WorkerControlTransport {
   }
   async heartbeat() { return { leaseExpiresAt: '2099-08-12T00:00:00.000Z', generation: 1, leaseId: 'lease1' }; }
   async release() {}
+  async reserveArtifact(): Promise<ArtifactReservation> { throw new Error('No artifacts expected'); }
+  async uploadArtifact(): Promise<{ etag?: string }> { throw new Error('No artifacts expected'); }
+  async commitArtifact(): Promise<ArtifactSnapshot> { throw new Error('No artifacts expected'); }
   subscribe(listener: (command: WorkerControlCommand) => void) { this.listener = listener; return () => { this.listener = undefined; }; }
   issue(command: WorkerControlCommand) { this.listener?.(command); }
 }

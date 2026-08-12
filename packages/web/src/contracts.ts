@@ -1,0 +1,99 @@
+import {
+  approvalPageSchema,
+  artifactPageSchema,
+  isoDateTimeSchema,
+  resourceIdSchema,
+  runStatusSchema,
+  runSnapshotSchema,
+  sourcePageSchema,
+  taskMessagePageSchema,
+  taskPageSchema,
+  taskSnapshotSchema,
+  taskStatusSchema,
+  taskTypeSchema
+} from '@kross/protocol';
+import { z } from 'zod';
+
+export const identitySchema = z
+  .object({ userId: resourceIdSchema, displayName: z.string().min(1).max(200) })
+  .strict();
+export const membershipSchema = z
+  .object({
+    id: resourceIdSchema,
+    organizationId: resourceIdSchema,
+    userId: resourceIdSchema,
+    role: z.enum(['owner', 'admin', 'member', 'viewer']),
+    status: z.literal('active'),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema
+  })
+  .strict();
+export const bootstrapSchema = z
+  .object({ user: identitySchema, memberships: z.array(membershipSchema) })
+  .strict();
+
+export const projectSchema = z
+  .object({
+    id: resourceIdSchema,
+    organizationId: resourceIdSchema,
+    kind: z.enum(['general', 'repository']),
+    name: z.string().min(1).max(200),
+    description: z.string().max(10_000).optional(),
+    status: z.enum(['active', 'archived', 'deleted']),
+    createdBy: resourceIdSchema,
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema
+  })
+  .strict();
+export const projectListSchema = z.object({ items: z.array(projectSchema) }).strict();
+
+// Temporary normalization for the current P1 server. All exported values are
+// re-parsed into Protocol v2 snapshots before entering UI state.
+export const serverTaskRecordSchema = z
+  .object({
+    id: resourceIdSchema,
+    organizationId: resourceIdSchema,
+    projectId: resourceIdSchema,
+    type: taskTypeSchema,
+    status: taskStatusSchema,
+    title: z.string().min(1),
+    objective: z.string(),
+    constraints: z.array(z.string()),
+    acceptanceCriteria: z.array(z.string()),
+    latestRunId: resourceIdSchema.optional(),
+    createdBy: resourceIdSchema,
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema
+  })
+  .strict();
+export const serverRunRecordSchema = z
+  .object({
+    id: resourceIdSchema,
+    organizationId: resourceIdSchema,
+    projectId: resourceIdSchema,
+    taskId: resourceIdSchema,
+    attempt: z.number().int().positive(),
+    status: runStatusSchema,
+    mode: z.enum(['auto', 'plan']),
+    queuedAt: isoDateTimeSchema,
+    startedAt: isoDateTimeSchema.optional(),
+    finishedAt: isoDateTimeSchema.optional(),
+    createdBy: resourceIdSchema
+  })
+  .strict();
+
+export const publicSchemas = {
+  bootstrap: bootstrapSchema,
+  projects: projectListSchema,
+  project: projectSchema,
+  taskPage: taskPageSchema,
+  task: taskSnapshotSchema,
+  messages: taskMessagePageSchema,
+  run: runSnapshotSchema,
+  sources: sourcePageSchema,
+  artifacts: artifactPageSchema,
+  approvals: approvalPageSchema
+} as const;
+
+export type Bootstrap = z.infer<typeof bootstrapSchema>;
+export type Project = z.infer<typeof projectSchema>;

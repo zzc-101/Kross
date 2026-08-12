@@ -16,15 +16,18 @@ import type {
   CreateProjectCommand,
   CreateRunCommand,
   CreateTaskCommand,
+  ArtifactRepository,
   IdempotencyRepository,
   MembershipRepository,
   OrganizationRepository,
   ProjectRepository,
   RunEventRepository,
   RunRepository,
+  SourceRepository,
   TaskRepository
 } from './repositories';
 import type { SseService } from './sse';
+import type { SourceArtifactService } from './sourceArtifactService';
 
 const createProjectSchema = z.object({
   kind: z.enum(['general', 'repository']), name: z.string().trim().min(1).max(200),
@@ -44,6 +47,26 @@ const createRunSchema = z.object({
   mode: z.enum(['auto', 'plan']).default('auto'), selectedSourceIds: z.array(resourceIdSchema).max(100).optional(),
   requestedModelProfileId: resourceIdSchema.optional()
 }).strict();
+const sourceCommon = {
+  scope: z.enum(['project', 'task']).default('project'), taskId: resourceIdSchema.optional(),
+  displayName: z.string().trim().min(1).max(500), previousSourceId: resourceIdSchema.optional()
+};
+const createUploadSourceSchema = z.object({
+  ...sourceCommon, mimeType: z.string().trim().min(3).max(255),
+  sizeBytes: z.number().int().nonnegative().max(104_857_600).optional(),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/).optional()
+}).strict();
+const createInlineSourceSchema = z.object({
+  ...sourceCommon, mimeType: z.string().trim().min(3).max(255), content: z.string().max(20_000_000)
+}).strict();
+const createExternalSourceSchema = z.object({
+  ...sourceCommon, kind: z.enum(['url', 'repository']), locator: z.string().trim().min(1).max(8_192),
+  origin: z.record(z.unknown())
+}).strict();
+const completeSourceSchema = z.object({
+  sizeBytes: z.number().int().nonnegative().max(104_857_600),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/), mimeType: z.string().trim().min(3).max(255)
+}).strict();
 
 export interface ApiDependencies {
   readonly identity: IdentityProvider;
@@ -56,6 +79,10 @@ export interface ApiDependencies {
   readonly events: RunEventRepository;
   readonly idempotency: IdempotencyRepository;
   readonly sse: SseService;
+  readonly sources: SourceRepository;
+  readonly artifacts: ArtifactRepository;
+  readonly sourceArtifacts: SourceArtifactService;
+  readonly runCancellation?: { cancel(runId: string, organizationId: string): Promise<void> };
 }
 
 export class ApiService {
@@ -90,6 +117,34 @@ export class ApiService {
     return this.dependencies.projects.get(context, parse(resourceIdSchema, projectId));
   }
 
+  public async listSources(identity: Identity, organizationId: string, projectId: string) {
+    const context = await this.context(identity, organizationId, 'source.read');
+    return this.dependencies.sources.list(context, parse(resourceIdSchema, projectId));
+  }
+
+  public async createSourceUpload(identity: Identity, organizationId: string, projectId: string, body: unknown) {
+    const context = await this.context(identity, organizationId, 'source.create');
+    const parsed = parse(createUploadSourceSchema, body);
+    return this.dependencies.sourceArtifacts.createUpload(context, { ...parsed, projectId: parse(resourceIdSchema, projectId), scope: parsed.scope ?? 'project' });
+  }
+
+  public async createInlineSource(identity: Identity, organizationId: string, projectId: string, body: unknown) {
+    const context = await this.context(identity, organizationId, 'source.create');
+    const parsed = parse(createInlineSourceSchema, body);
+    return this.dependencies.sourceArtifacts.createInline(context, { ...parsed, projectId: parse(resourceIdSchema, projectId), scope: parsed.scope ?? 'project' });
+  }
+
+  public async createExternalSource(identity: Identity, organizationId: string, projectId: string, body: unknown) {
+    const context = await this.context(identity, organizationId, 'source.create');
+    const parsed = parse(createExternalSourceSchema, body);
+    return this.dependencies.sourceArtifacts.createExternal(context, { ...parsed, projectId: parse(resourceIdSchema, projectId), scope: parsed.scope ?? 'project' });
+  }
+
+  public async completeSource(identity: Identity, organizationId: string, sourceId: string, body: unknown) {
+    const context = await this.context(identity, organizationId, 'source.create');
+    return this.dependencies.sourceArtifacts.completeUpload(context, parse(resourceIdSchema, sourceId), parse(completeSourceSchema, body));
+  }
+
   public async listTasks(identity: Identity, organizationId: string, projectId: string) {
     const context = await this.context(identity, organizationId, 'task.read');
     return this.dependencies.tasks.list(context, parse(resourceIdSchema, projectId));
@@ -109,6 +164,24 @@ export class ApiService {
   public async getTask(identity: Identity, organizationId: string, taskId: string) {
     const context = await this.context(identity, organizationId, 'task.read');
     return this.dependencies.tasks.get(context, parse(resourceIdSchema, taskId));
+  }
+
+  public async listArtifacts(identity: Identity, organizationId: string, taskId: string) {
+    const context = await this.context(identity, organizationId, 'artifact.read');
+    return this.dependencies.artifacts.list(context, parse(resourceIdSchema, taskId));
+  }
+
+  public async getArtifact(identity: Identity, organizationId: string, artifactId: string) {
+    const context = await this.context(identity, organizationId, 'artifact.read');
+    return this.dependencies.artifacts.get(context, parse(resourceIdSchema, artifactId));
+  }
+
+  public async artifactContentUrl(identity: Identity, organizationId: string, artifactId: string) {
+    const artifact = await this.getArtifact(identity, organizationId, artifactId);
+    if (artifact.status !== 'ready' || typeof artifact.blob_key !== 'string') {
+      throw new ServerError('artifact_not_ready', 'Artifact content is not ready', 409);
+    }
+    return this.dependencies.sourceArtifacts.createDownloadUrl(artifact.blob_key);
   }
 
   public async createRun(
@@ -136,7 +209,12 @@ export class ApiService {
 
   public async cancelRun(identity: Identity, organizationId: string, runId: string) {
     const context = await this.context(identity, organizationId, 'run.cancel');
-    return this.dependencies.runs.requestCancel(context, parse(resourceIdSchema, runId));
+    const parsedRunId = parse(resourceIdSchema, runId);
+    const run = await this.dependencies.runs.requestCancel(context, parsedRunId);
+    if (run.status === 'cancelling') {
+      await this.dependencies.runCancellation?.cancel(parsedRunId, context.organizationId);
+    }
+    return run;
   }
 
   public async replayEvents(

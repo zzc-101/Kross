@@ -115,18 +115,22 @@ describe('DockerBackend', () => {
     );
   });
 
-  it('uses Docker network none when all network access is disabled', async () => {
+  it('keeps an internal control-plane network when external access is disabled', async () => {
     const docker = new FakeDocker();
-    const backend = new DockerBackend(docker as unknown as Docker);
+    const backend = new DockerBackend(docker as unknown as Docker, {
+      controlPlaneContainer: 'connector-proxy'
+    });
     const request = { ...launchRequest(), networkAccess: 'disabled' as const };
 
     await backend.launch(request);
 
-    expect(docker.networkConfigs).toHaveLength(0);
+    expect(docker.networkConfigs).toHaveLength(1);
+    expect(docker.networkConfigs[0]).toMatchObject({ Internal: true });
+    expect(docker.connectedPeers).toEqual(['connector-proxy']);
     expect(
       (docker.containerConfigs[0]?.HostConfig as Record<string, unknown>)
         .NetworkMode
-    ).toBe('none');
+    ).toMatch(/^kross-run-net-/);
   });
 
   it('rolls back container, network and volume when Worker start fails', async () => {

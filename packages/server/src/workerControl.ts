@@ -1,4 +1,6 @@
 import type {
+  ArtifactCommitMessage,
+  ArtifactReserveMessage,
   InternalWorkerMessage,
   RunSpec,
   WorkerRunEventEnvelope
@@ -11,6 +13,7 @@ import type { OrganizationContext } from '@kross/work-domain';
 import type { SqlExecutor, TransactionRunner } from './database';
 import { conflict, notFound, ServerError } from './errors';
 import { PostgresLeaseQueue, type RunLease } from './leaseQueue';
+import type { SourceArtifactService } from './sourceArtifactService';
 
 export type WorkerRegisterRequest = Extract<InternalWorkerMessage, { type: 'worker.register' }>;
 export type WorkerHeartbeatRequest = Extract<InternalWorkerMessage, { type: 'worker.heartbeat' }>;
@@ -57,6 +60,8 @@ export interface WorkerControlService {
   appendEvent(token: string, envelope: WorkerRunEventEnvelope): Promise<WorkerEventAckResponse>;
   heartbeat(token: string, message: WorkerHeartbeatRequest): Promise<LeaseRenewedResponse>;
   release(token: string, message: WorkerReleaseRequest): Promise<void>;
+  reserveArtifact(token: string, message: ArtifactReserveMessage): Promise<Record<string, unknown>>;
+  commitArtifact(token: string, message: ArtifactCommitMessage): Promise<Record<string, unknown>>;
 }
 
 export interface IssuedRunToken {
@@ -81,6 +86,7 @@ export interface PostgresWorkerControlOptions {
   readonly heartbeatIntervalMs?: number;
   readonly leaseDurationMs?: number;
   readonly now?: () => Date;
+  readonly sourceArtifacts?: SourceArtifactService;
 }
 
 /** PostgreSQL-backed implementation of the run-scoped Worker trust boundary. */
@@ -89,6 +95,7 @@ export class PostgresWorkerControlService implements WorkerControlService {
   private readonly leaseDurationMs: number;
   private readonly now: () => Date;
   private readonly leases: PostgresLeaseQueue;
+  private readonly sourceArtifacts?: SourceArtifactService;
 
   public constructor(
     private readonly sql: SqlExecutor,
@@ -98,6 +105,7 @@ export class PostgresWorkerControlService implements WorkerControlService {
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 10_000;
     this.leaseDurationMs = options.leaseDurationMs ?? 30_000;
     this.now = options.now ?? (() => new Date());
+    this.sourceArtifacts = options.sourceArtifacts;
     this.leases = new PostgresLeaseQueue(transactions);
   }
 
@@ -163,6 +171,21 @@ export class PostgresWorkerControlService implements WorkerControlService {
          SELECT $5, organization_id, project_id, task_id, id, $3, $6, $7, $8, $9 FROM target
          ON CONFLICT (run_id, generation, seq) DO NOTHING
          RETURNING seq
+       ), projected AS (
+         UPDATE runs r SET
+           status = CASE
+             WHEN $7 = 'run.started' AND r.status = 'provisioning' THEN 'running'
+             WHEN $7 = 'run.approval_requested' THEN 'waiting_for_approval'
+             WHEN $7 = 'run.terminal' THEN $9::jsonb->'terminal'->>'status'
+             ELSE r.status
+           END,
+           started_at = CASE WHEN $7 = 'run.started' THEN COALESCE(r.started_at, $8::timestamptz) ELSE r.started_at END,
+           finished_at = CASE WHEN $7 = 'run.terminal' THEN $8::timestamptz ELSE r.finished_at END,
+           updated_at = now()
+         FROM target
+         WHERE r.organization_id = target.organization_id AND r.id = target.id
+           AND EXISTS (SELECT 1 FROM inserted)
+         RETURNING r.id
        )
        SELECT COALESCE(MAX(seq), 0)::bigint AS accepted_through_seq
        FROM run_events WHERE run_id = $2 AND generation = $3`,
@@ -200,10 +223,15 @@ export class PostgresWorkerControlService implements WorkerControlService {
     assertBinding(binding, message.runId, message.generation, message.leaseId, message.workerSessionId);
     await this.transactions.transaction(async (client) => {
       const released = await client.query(
-        `UPDATE run_leases SET status = 'released', available_at = now(), lease_id = NULL,
+        `UPDATE run_leases l SET status = CASE
+              WHEN r.status IN ('completed','failed','cancelled') THEN 'completed'
+              ELSE 'released' END,
+            available_at = now(), lease_id = NULL,
             lease_owner = NULL, lease_expires_at = NULL, updated_at = now()
-         WHERE organization_id = $1 AND run_id = $2 AND lease_id = $3 AND generation = $4
-           AND lease_owner = $5 AND status = 'leased'`,
+         FROM runs r
+         WHERE l.organization_id = $1 AND l.run_id = $2 AND l.lease_id = $3 AND l.generation = $4
+           AND l.lease_owner = $5 AND l.status = 'leased'
+           AND r.organization_id = l.organization_id AND r.id = l.run_id`,
         [binding.organizationId, binding.runId, binding.leaseId, binding.generation, binding.leaseOwner]
       );
       if (released.rowCount !== 1) throw notFound('Lease');
@@ -212,6 +240,20 @@ export class PostgresWorkerControlService implements WorkerControlService {
          WHERE token_hash = $1 AND revoked_at IS NULL`, [binding.tokenHash]
       );
     });
+  }
+
+  public async reserveArtifact(token: string, message: ArtifactReserveMessage): Promise<Record<string, unknown>> {
+    const binding = await this.authenticate(token, true);
+    assertBinding(binding, message.runId, message.generation);
+    if (!this.sourceArtifacts) throw new ServerError('artifact_service_unavailable', 'Artifact service is unavailable', 503);
+    return this.sourceArtifacts.reserveArtifact(workerContext(binding), binding.generation, message);
+  }
+
+  public async commitArtifact(token: string, message: ArtifactCommitMessage): Promise<Record<string, unknown>> {
+    const binding = await this.authenticate(token, true);
+    assertBinding(binding, message.runId, message.generation);
+    if (!this.sourceArtifacts) throw new ServerError('artifact_service_unavailable', 'Artifact service is unavailable', 503);
+    return this.sourceArtifacts.commitArtifact(workerContext(binding), binding.generation, message);
   }
 
   private async authenticate(token: string, requireSession = false): Promise<TokenBinding> {
@@ -265,6 +307,29 @@ export class PostgresWorkerControlService implements WorkerControlService {
     const model = asObject(row.model_snapshot);
     const repository = row.repository_binding == null ? undefined : asObject(row.repository_binding);
     const messages = Array.isArray(row.messages) ? row.messages : [];
+    const selectedSourceIds = stringArray(row.selected_source_ids);
+    let sources: Record<string, unknown>[] = [];
+    if (selectedSourceIds.length > 0) {
+      if (!this.sourceArtifacts) throw new ServerError('source_service_unavailable', 'Source service is unavailable', 503);
+      const selected = await this.sql.query(
+        `SELECT id, kind, display_name, mime_type, size_bytes, sha256, blob_key
+         FROM sources WHERE organization_id = $1 AND id = ANY($2::text[]) AND status = 'ready'`,
+        [binding.organizationId, selectedSourceIds]
+      );
+      if (selected.rows.length !== selectedSourceIds.length) {
+        throw conflict('source_not_ready', 'Every selected Source must be ready and belong to this Organization');
+      }
+      sources = selected.rows.map((source) => {
+        const expiresAt = new Date(this.now().getTime() + 15 * 60_000).toISOString();
+        return {
+          id: String(source.id), kind: source.kind, displayName: String(source.display_name),
+          fileName: safeFileName(String(source.display_name), String(source.id)), mimeType: String(source.mime_type),
+          sizeBytes: Number(source.size_bytes), sha256: String(source.sha256),
+          downloadUrl: this.sourceArtifacts!.createDownloadUrl(String(source.blob_key)),
+          downloadHeaders: [], expiresAt
+        };
+      });
+    }
     return runSpecSchema.parse({
       protocolVersion: 2,
       organizationId: binding.organizationId, projectId: String(row.project_id), taskId: String(row.task_id),
@@ -275,7 +340,7 @@ export class PostgresWorkerControlService implements WorkerControlService {
         constraints: row.task_constraints, acceptanceCriteria: row.task_acceptance_criteria,
         messages: messages.map(mapRunSpecMessage)
       },
-      sources: [],
+      sources,
       ...(repository === undefined ? {} : { repository }),
       model,
       mode: row.mode, executionProfile: row.execution_profile,
@@ -349,4 +414,9 @@ function mapRunSpecMessage(value: unknown): Record<string, unknown> {
   const text = blocks.map(asObject).filter((block) => block.type === 'text')
     .map((block) => String(block.text ?? '')).filter(Boolean).join('\n');
   return { id: String(message.id), role: message.role, text, createdAt: iso(message.created_at) };
+}
+
+function safeFileName(value: string, fallback: string): string {
+  const normalized = value.normalize('NFKC').replace(/[^A-Za-z0-9._ -]+/g, '_').replace(/^\.+/, '').slice(0, 240);
+  return normalized && /^[A-Za-z0-9]/.test(normalized) ? normalized : `${fallback}.bin`;
 }

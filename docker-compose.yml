@@ -31,17 +31,26 @@ services:
 
   server:
     container_name: kross-server
+    image: kross-server:local
     build:
       context: .
       dockerfile: docker/server.Dockerfile
     environment:
       DATABASE_URL: postgres://kross:${KROSS_POSTGRES_PASSWORD}@postgres:5432/kross
       KROSS_DEV_IDENTITY: ${KROSS_DEV_IDENTITY:-1}
+      KROSS_BLOB_SIGNING_SECRET: ${KROSS_BLOB_SIGNING_SECRET:?请设置 KROSS_BLOB_SIGNING_SECRET}
+      KROSS_BLOB_ROOT: /var/lib/kross/blobs
       PORT: 8787
+      KROSS_PUBLIC_BASE_URL: ${KROSS_PUBLIC_BASE_URL:-http://kross-server:8787}
+      KROSS_ORCHESTRATOR_URL: http://orchestrator:8790
+      KROSS_ORCHESTRATOR_SERVICE_TOKEN: ${KROSS_ORCHESTRATOR_SERVICE_TOKEN:?请设置 KROSS_ORCHESTRATOR_SERVICE_TOKEN}
+      KROSS_SCHEDULER_OWNER: ${KROSS_SCHEDULER_OWNER:-kross-server}
     depends_on:
       migrate:
         condition: service_completed_successfully
     expose: ["8787"]
+    volumes:
+      - kross-blobs-v2:/var/lib/kross/blobs
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 5s
@@ -51,6 +60,7 @@ services:
     restart: unless-stopped
 
   orchestrator:
+    image: kross-orchestrator:local
     build:
       context: .
       dockerfile: docker/orchestrator.Dockerfile
@@ -61,8 +71,6 @@ services:
       KROSS_CONTROL_PLANE_CONTAINER: kross-server
       PORT: 8790
     depends_on:
-      server:
-        condition: service_healthy
       worker-image:
         condition: service_completed_successfully
     expose: ["8790"]
@@ -81,6 +89,7 @@ services:
     restart: "no"
 
   web:
+    image: kross-web:local
     build:
       context: .
       dockerfile: docker/web.Dockerfile
@@ -94,6 +103,7 @@ services:
 
 volumes:
   kross-postgres-v2:
+  kross-blobs-v2:
 
 networks:
   kross-control:

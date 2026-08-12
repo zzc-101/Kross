@@ -1,535 +1,81 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { SessionSnapshot } from '@kross/protocol/legacy';
-import { useTranslation } from 'react-i18next';
+import { useState, type FormEvent } from 'react';
+import { Archive, Bot, Boxes, CircleAlert, FileText, FolderKanban, LoaderCircle, Play, Plus, Square, Wifi, WifiOff } from 'lucide-react';
 
-import { InspectionPanel } from './InspectionPanel';
-import { ActionDialog, type DialogAction } from './OperationDialog';
-import { SetupPanel } from './SetupPanel';
-import { AppLayout } from './components/app/AppLayout';
-import {
-  WorkspaceForm,
-  WorkspaceProgressPanel
-} from './components/workspace/WorkspacePanels';
-import { usePwa } from './pwa';
-import { fetchSetupStatus, type SetupStatus } from './setupApi';
-import { parseWebSlashCommand } from './slashCommands';
-import { useCloud } from './useCloud';
+import { useWorkbench } from './useWorkbench';
 
-interface AppProps {
-  endpoint: string;
-  token: string;
-  onLogout: () => void;
-}
+export function App({ devUserId, onChangeIdentity }: { devUserId: string; onChangeIdentity(): void }) {
+  const workbench = useWorkbench(devUserId);
+  const [newProject, setNewProject] = useState(false);
+  const [newTask, setNewTask] = useState(false);
 
-export function App({ endpoint, token, onLogout }: AppProps) {
-  const { t } = useTranslation();
-  const cloud = useCloud(endpoint, token);
-  const pwa = usePwa();
-  const { state, client, connection } = cloud;
-  const selectedWorkspace = state.workspaces.find(
-    (workspace) => workspace.id === state.workspaceId
-  );
-  const [input, setInput] = useState('');
-  const [mobilePanel, setMobilePanel] = useState<'chat' | 'sessions' | 'todo'>('chat');
-  const [sessionQuery, setSessionQuery] = useState('');
-  const [showWorkspaceForm, setShowWorkspaceForm] = useState(false);
-  const [showSetup, setShowSetup] = useState(false);
-  const [dialogAction, setDialogAction] = useState<DialogAction>();
-  const [setupStatus, setSetupStatus] = useState<SetupStatus>();
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const visibleSessions = state.sessions.filter((session) => {
-    const query = sessionQuery.trim().toLocaleLowerCase();
-    return !query ||
-      session.title.toLocaleLowerCase().includes(query) ||
-      session.preview.toLocaleLowerCase().includes(query);
-  });
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [state.messages, state.running]);
-
-  useEffect(() => {
-    if (connection !== 'online') return;
-    const parameters = new URLSearchParams(window.location.search);
-    const action = parameters.get('approval');
-    const workspaceId = parameters.get('workspace');
-    const sessionId = parameters.get('session');
-    const runId = parameters.get('runId');
-    if (
-      (action === 'approve' || action === 'reject') &&
-      workspaceId &&
-      sessionId &&
-      runId
-    ) {
-      client.send({
-        type: 'session.approval',
-        workspaceId,
-        sessionId,
-        runId,
-        approved: action === 'approve'
-      });
-      parameters.delete('approval');
-      parameters.delete('runId');
-      window.history.replaceState(
-        null,
-        '',
-        `${window.location.pathname}${parameters.size ? `?${parameters}` : ''}`
-      );
-    }
-  }, [client, connection]);
-
-  useEffect(() => {
-    if (
-      state.workspaceId &&
-      selectedWorkspace?.status !== 'creating' &&
-      state.sessions.length === 0 &&
-      !state.snapshot
-    ) {
-      cloud.selectWorkspace(state.workspaceId);
-    }
-  }, [
-    cloud.selectWorkspace,
-    selectedWorkspace?.status,
-    state.snapshot,
-    state.sessions.length,
-    state.workspaceId
-  ]);
-
-  useEffect(() => {
-    if (connection !== 'online') return;
-    void fetchSetupStatus(endpoint, token)
-      .then(setSetupStatus)
-      .catch(() => setSetupStatus(undefined));
-  }, [connection, endpoint, token]);
-
-  const inspect = (kind: 'trace' | 'diff', argument?: string) => {
-    if (!state.workspaceId || !state.snapshot) return;
-    client.send({
-      type: 'session.inspect',
-      workspaceId: state.workspaceId,
-      sessionId: state.snapshot.summary.id,
-      kind,
-      argument
-    });
-  };
-
-  const sendSessionSettings = (settings: {
-    mode?: 'auto' | 'plan' | 'conductor';
-    model?: string;
-    modelProfileId?: string;
-    thinkingEffort?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-    permissionMode?: 'default' | 'classifier' | 'auto';
-  }) => {
-    if (!state.workspaceId || !state.snapshot) return;
-    client.send({
-      type: 'session.settings',
-      workspaceId: state.workspaceId,
-      sessionId: state.snapshot.summary.id,
-      ...settings
-    });
-  };
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const value = input.trim();
-    if (!value || state.running) return;
-    if (!value.startsWith('/')) {
-      cloud.sendInput(value);
-      setInput('');
-      return;
-    }
-
-    const { command, argument } = parseWebSlashCommand(value);
-    if (!command) {
-      cloud.appendLocalMessage('system', t('commands.unknown', {
-        command: value.split(/\s+/)[0]
-      }));
-      setInput('');
-      return;
-    }
-
-    const rejectUsage = () =>
-      cloud.appendLocalMessage('system', t('commands.usage', {
-        usage: command.usage
-      }));
-    if (command.id === 'help') {
-      cloud.appendLocalMessage('agent', t('commands.helpText'));
-    } else if (command.id === 'new') {
-      if (state.workspaceId) cloud.createSession(state.workspaceId);
-    } else if (command.id === 'mode') {
-      if (['auto', 'plan', 'conductor'].includes(argument)) {
-        sendSessionSettings({ mode: argument as 'auto' | 'plan' | 'conductor' });
-      } else {
-        rejectUsage();
-      }
-    } else if (command.id === 'model') {
-      if (argument) {
-        if (state.models.some((model) => model.id === argument)) {
-          sendSessionSettings({ modelProfileId: argument });
-        } else {
-          cloud.appendLocalMessage('system', t('commands.modelUnavailable', {
-            model: argument
-          }));
-        }
-      } else if (state.models.length === 0) {
-        cloud.appendLocalMessage('system', t('commands.noConfiguredModels'));
-      } else {
-        setDialogAction({
-          kind: 'model',
-          model: state.models.some(
-            (model) => model.id === state.snapshot?.modelProfileId
-          )
-            ? state.snapshot!.modelProfileId!
-            : state.models[0]!.id,
-          options: state.models.map((model) => model.id)
-        });
-      }
-    } else if (command.id === 'think') {
-      if (['off', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(argument)) {
-        sendSessionSettings({
-          thinkingEffort: argument as 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-        });
-      } else {
-        rejectUsage();
-      }
-    } else if (command.id === 'perm') {
-      if (['default', 'classifier', 'auto'].includes(argument)) {
-        sendSessionSettings({
-          permissionMode: argument as 'default' | 'classifier' | 'auto'
-        });
-      } else {
-        rejectUsage();
-      }
-    } else if (command.id === 'context') {
-      const usage = state.snapshot?.contextUsage;
-      cloud.appendLocalMessage(
-        'agent',
-        usage
-          ? t('commands.contextReport', {
-              used: usage.usedTokens.toLocaleString(),
-              max: usage.maxTokens.toLocaleString(),
-              threshold: usage.compactThreshold.toLocaleString(),
-              percent: Math.round(usage.headerRatio * 100)
-            })
-          : t('commands.contextUnavailable')
-      );
-    } else if (command.id === 'compact') {
-      if (state.workspaceId && state.snapshot) {
-        client.send({
-          type: 'session.compact',
-          workspaceId: state.workspaceId,
-          sessionId: state.snapshot.summary.id,
-          ...(argument ? { instructions: argument } : {})
-        });
-      }
-    } else if (command.id === 'status') {
-      const snapshot = state.snapshot;
-      cloud.appendLocalMessage('agent', [
-        t('commands.statusReport', {
-          mode: snapshot?.mode ?? '-',
-          model: snapshot?.model ?? '-',
-          thinking: snapshot?.thinkingEffort ?? '-',
-          permission: snapshot?.permissionMode ?? '-',
-          todos: snapshot?.todos.length ?? 0,
-          running: state.running ? t('status.running') : t('execution.idle')
-        }),
-        formatWebCapabilities(snapshot?.capabilities),
-        formatWebCallMetrics(snapshot?.lastCallMetrics)
-      ].join('\n\n'));
-    } else if (
-      command.id === 'instructions' ||
-      command.id === 'skills' ||
-      command.id === 'mcp' ||
-      command.id === 'processes' ||
-      command.id === 'undo'
-    ) {
-      if (state.workspaceId && state.snapshot) {
-        client.send({
-          type: 'session.runtime-command',
-          workspaceId: state.workspaceId,
-          sessionId: state.snapshot.summary.id,
-          name: command.id,
-          ...(argument ? { argument } : {})
-        });
-      }
-    } else if (command.id === 'diff' || command.id === 'trace') {
-      inspect(command.id, argument || undefined);
-    }
-    setInput('');
-  };
-
-  const enableNotifications = async () => {
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') return;
-    const registration = await navigator.serviceWorker.register('/sw.js');
-    const httpEndpoint = endpoint
-      .replace(/^wss:/, 'https:')
-      .replace(/^ws:/, 'http:')
-      .replace(/\/ws$/, '');
-    const response = await fetch(`${httpEndpoint}/api/config`, {
-      headers: { authorization: `Bearer ${token}` }
-    });
-    const config = await response.json() as { vapidPublicKey?: string };
-    if (!config.vapidPublicKey) {
-      throw new Error(t('notifications.gatewayNotConfigured'));
-    }
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: decodeVapidKey(config.vapidPublicKey)
-    });
-    const serialized = subscription.toJSON();
-    if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys.auth) {
-      throw new Error(t('notifications.incompleteSubscription'));
-    }
-    client.send({
-      type: 'push.subscribe',
-      subscription: {
-        endpoint: serialized.endpoint,
-        expirationTime: serialized.expirationTime,
-        keys: {
-          p256dh: serialized.keys.p256dh,
-          auth: serialized.keys.auth
-        }
-      }
-    });
-  };
-
-  const pushBranch = () => {
-    if (!state.workspaceId || !state.snapshot) return;
-    setDialogAction({
-      kind: 'git-push',
-      remote: 'origin',
-      branch: selectedWorkspace?.defaultBranch ?? 'main'
-    });
-  };
-
-  const createPullRequest = () => {
-    if (!state.workspaceId || !state.snapshot) return;
-    setDialogAction({
-      kind: 'git-pr',
-      head: '',
-      base: selectedWorkspace?.defaultBranch ?? 'main',
-      title: state.snapshot.summary.title,
-      body: ''
-    });
-  };
-
-  const submitDialogAction = (action: DialogAction) => {
-    if (action.kind === 'rename-session' && state.workspaceId) {
-      client.send({
-        type: 'session.rename',
-        workspaceId: state.workspaceId,
-        sessionId: action.sessionId,
-        title: action.title.trim()
-      });
-    } else if (action.kind === 'delete-session' && state.workspaceId) {
-      client.send({
-        type: 'session.delete',
-        workspaceId: state.workspaceId,
-        sessionId: action.sessionId
-      });
-    } else if (
-      action.kind === 'model' &&
-      state.workspaceId &&
-      state.snapshot
-    ) {
-      client.send({
-        type: 'session.settings',
-        workspaceId: state.workspaceId,
-        sessionId: state.snapshot.summary.id,
-        modelProfileId: action.model.trim()
-      });
-    } else if (
-      action.kind === 'git-push' &&
-      state.workspaceId &&
-      state.snapshot
-    ) {
-      client.send({
-        type: 'git.push',
-        workspaceId: state.workspaceId,
-        sessionId: state.snapshot.summary.id,
-        remote: action.remote.trim(),
-        branch: action.branch.trim(),
-        setUpstream: true
-      });
-    } else if (
-      action.kind === 'git-pr' &&
-      state.workspaceId &&
-      state.snapshot
-    ) {
-      client.send({
-        type: 'git.pull-request',
-        workspaceId: state.workspaceId,
-        sessionId: state.snapshot.summary.id,
-        head: action.head.trim(),
-        base: action.base.trim(),
-        title: action.title.trim(),
-        body: action.body
-      });
-    } else if (action.kind === 'delete-workspace') {
-      client.send({
-        type: 'workspace.delete',
-        workspaceId: action.workspaceId,
-        removeVolume: action.removeVolume
-      });
-    }
-    setDialogAction(undefined);
-  };
-
+  if (workbench.loading) return <StatePage icon={<LoaderCircle className="spin" />} title="正在进入工作空间" detail="正在加载身份与组织信息…" />;
   return (
-    <div className="app">
-      <AppLayout
-        cloud={cloud}
-        pwa={pwa}
-        setupStatus={setupStatus}
-        selectedWorkspace={selectedWorkspace}
-        visibleSessions={visibleSessions}
-        input={input}
-        onInputChange={setInput}
-        onSubmit={submit}
-        mobilePanel={mobilePanel}
-        onMobilePanelChange={setMobilePanel}
-        sessionQuery={sessionQuery}
-        onSessionQueryChange={setSessionQuery}
-        bottomRef={bottomRef}
-        onLogout={onLogout}
-        onOpenWorkspaceForm={() => setShowWorkspaceForm(true)}
-        onOpenSetup={() => setShowSetup(true)}
-        onDialogAction={setDialogAction}
-        onInspect={inspect}
-        onEnableNotifications={enableNotifications}
-        onPushBranch={pushBranch}
-        onCreatePullRequest={createPullRequest}
-      />
-
-      {state.inspection && (
-        <InspectionPanel
-          inspection={state.inspection}
-          onInspect={inspect}
-          onClose={cloud.clearInspection}
-        />
-      )}
-      {showWorkspaceForm && (
-        <WorkspaceForm
-          onClose={() => setShowWorkspaceForm(false)}
-          onCreate={(name, gitUrl, defaultBranch, credential) => {
-            client.send({
-              type: 'workspace.create',
-              name,
-              gitUrl,
-              defaultBranch: defaultBranch || undefined,
-              credential
-            });
-            setShowWorkspaceForm(false);
-          }}
-        />
-      )}
-      {state.workspaceProgress && (
-        <WorkspaceProgressPanel
-          progress={state.workspaceProgress}
-          onClose={cloud.clearWorkspaceProgress}
-          onRetry={() => {
-            cloud.clearWorkspaceProgress();
-            setShowWorkspaceForm(true);
-          }}
-        />
-      )}
-      {showSetup && (
-        <SetupPanel
-          endpoint={endpoint}
-          token={token}
-          workspaceCount={state.workspaces.length}
-          workspaceId={state.workspaceId}
-          models={state.models}
-          onSaveWorkspaceProvider={(profile) => {
-            if (!state.workspaceId) return;
-            client.send({
-              type: 'models.workspace.upsert',
-              workspaceId: state.workspaceId,
-              profile
-            });
-          }}
-          onDeleteWorkspaceProvider={(profileId) => {
-            if (!state.workspaceId) return;
-            client.send({
-              type: 'models.workspace.delete',
-              workspaceId: state.workspaceId,
-              profileId
-            });
-          }}
-          onClose={() => setShowSetup(false)}
-          onStatus={setSetupStatus}
-        />
-      )}
-      {dialogAction && (
-        <ActionDialog
-          key={`${dialogAction.kind}-${
-            'sessionId' in dialogAction
-              ? dialogAction.sessionId
-              : 'workspaceId' in dialogAction
-                ? dialogAction.workspaceId
-                : ''
-          }`}
-          action={dialogAction}
-          onSubmit={submitDialogAction}
-          onClose={() => setDialogAction(undefined)}
-        />
-      )}
-      {state.errors.length > 0 && (
-        <div className="toast-stack" aria-live="assertive">
-          {state.errors.map((error) => (
-            <button
-              className="toast"
-              role="alert"
-              key={error.id}
-              onClick={() => cloud.clearError(error.id)}
-            >
-              {error.message}
+    <div className="shell">
+      <header className="topbar">
+        <a className="brand" href="/"><span>K</span><div><strong>Kross Work</strong><small>让 Agent 把工作交付出来</small></div></a>
+        <div className="top-actions">
+          <span className={`connection ${workbench.connection}`}>{workbench.connection === 'connected' ? <Wifi size={14} /> : <WifiOff size={14} />}{connectionLabel(workbench.connection)}</span>
+          <button className="ghost" onClick={onChangeIdentity}>{devUserId}</button>
+        </div>
+      </header>
+      {workbench.error && <div className="error-banner" role="alert"><CircleAlert size={17} />{workbench.error}</div>}
+      <main className="workspace">
+        <aside className="sidebar">
+          <div className="section-title"><span>项目</span><button aria-label="创建项目" onClick={() => setNewProject(true)}><Plus size={16} /></button></div>
+          {workbench.projects.length === 0 ? <Empty compact title="还没有项目" detail="创建一个普通项目开始工作。" /> : workbench.projects.map((project) => (
+            <button key={project.id} className={`nav-item ${workbench.projectId === project.id ? 'active' : ''}`} onClick={() => workbench.setProjectId(project.id)}>
+              <FolderKanban size={17} /><span>{project.name}</span><small>{project.kind === 'general' ? '普通' : '仓库'}</small>
             </button>
           ))}
-        </div>
-      )}
+          <div className="section-title task-title"><span>任务</span><button aria-label="创建任务" disabled={!workbench.projectId} onClick={() => setNewTask(true)}><Plus size={16} /></button></div>
+          {workbench.tasks.map((task) => (
+            <button key={task.id} className={`task-item ${workbench.task?.id === task.id ? 'active' : ''}`} onClick={() => void workbench.selectTask(task.id)}>
+              <span>{task.title}</span><small><i className={`status-dot ${task.status}`} />{statusLabel(task.status)}</small>
+            </button>
+          ))}
+        </aside>
+        <section className="task-stage">
+          {!workbench.task ? <Empty hero title="选择一个任务" detail="任务是目标、资料、运行记录和最终交付物的长期容器。" /> : (
+            <>
+              <div className="task-header">
+                <div><span className="eyebrow">{workbench.task.type} · {statusLabel(workbench.task.status)}</span><h1>{workbench.task.title}</h1><p>{workbench.task.objective}</p></div>
+                <div className="run-actions">
+                  {workbench.runState.run && !['completed', 'failed', 'cancelled'].includes(workbench.runState.run.status)
+                    ? <button className="secondary" onClick={() => void workbench.cancelRun()}><Square size={15} />取消运行</button>
+                    : <><button className="secondary" onClick={() => void workbench.startRun('plan')}><FileText size={15} />只做计划</button><button className="primary" onClick={() => void workbench.startRun('auto')}><Play size={15} />执行任务</button></>}
+                </div>
+              </div>
+              <div className="conversation">
+                <article className="message user"><span className="avatar">你</span><div><strong>目标</strong><p>{workbench.task.objective}</p></div></article>
+                {workbench.messages.map((message) => <article className={`message ${message.role}`} key={message.id}><span className="avatar">{message.role === 'agent' ? <Bot size={18} /> : message.role === 'user' ? '你' : '系'}</span><div>{message.content.map((block, index) => block.type === 'text' ? <p key={index}>{block.text}</p> : <span className="reference" key={index}>{block.label ?? (block.type === 'source_reference' ? '资料' : '交付物')}</span>)}</div></article>)}
+                {Object.entries(workbench.runState.drafts).map(([id, text]) => <article className="message agent streaming" key={id}><span className="avatar"><Bot size={18} /></span><div><p>{text}</p><i /></div></article>)}
+                {workbench.runState.progress && <div className="progress-card"><LoaderCircle className="spin" size={18} /><div><strong>{phaseLabel(workbench.runState.progress.phase)}</strong><p>{workbench.runState.progress.message}</p>{workbench.runState.progress.percent !== undefined && <div className="progress-track"><span style={{ width: `${workbench.runState.progress.percent}%` }} /></div>}</div></div>}
+              </div>
+            </>
+          )}
+        </section>
+        <aside className="inspector">
+          <InspectorSection icon={<Boxes size={16} />} title="资料" empty="项目还没有可用资料">{workbench.sources.map((source) => <Resource key={source.id} name={source.displayName} meta={`${source.kind} · ${statusLabel(source.status)}`} />)}</InspectorSection>
+          <InspectorSection icon={<Archive size={16} />} title="交付物" empty="运行完成后在这里查看交付物">{workbench.artifacts.map((artifact) => <Resource key={artifact.id} name={artifact.displayName} meta={`${artifact.kind} · ${statusLabel(artifact.status)}`} />)}</InspectorSection>
+          <InspectorSection icon={<CircleAlert size={16} />} title="审批" empty="当前没有待处理审批">{workbench.approvals.map((approval) => <div className="approval" key={approval.id}><span className={`risk ${approval.riskLevel}`}>{approval.riskLevel}</span><strong>{approval.actionPreview}</strong><p>{approval.status === 'pending' ? '审批动作将在服务端能力就绪后开放。' : statusLabel(approval.status)}</p></div>)}</InspectorSection>
+          {workbench.runState.run && <InspectorSection icon={<Bot size={16} />} title="当前运行"><dl className="run-meta"><div><dt>状态</dt><dd>{statusLabel(workbench.runState.run.status)}</dd></div><div><dt>模式</dt><dd>{workbench.runState.run.mode === 'plan' ? '只做计划' : '自动执行'}</dd></div><div><dt>尝试</dt><dd>#{workbench.runState.run.attempt}</dd></div></dl></InspectorSection>}
+        </aside>
+      </main>
+      {newProject && <CreateDialog title="创建项目" fields={[['name', '项目名称'], ['description', '项目说明（可选）']]} onClose={() => setNewProject(false)} onSubmit={(data) => workbench.createProject(data.name ?? '')} />}
+      {newTask && <CreateDialog title="创建任务" fields={[['title', '任务标题'], ['objective', '明确描述目标和期望交付']]} textarea="objective" onClose={() => setNewTask(false)} onSubmit={(data) => workbench.createTask(data.title ?? '', data.objective ?? '')} />}
     </div>
   );
 }
 
-function formatWebCapabilities(
-  capabilities: SessionSnapshot['capabilities']
-): string {
-  if (!capabilities) return 'Capabilities: unknown';
-  return `Capabilities: tools=${flag(capabilities.toolCalling)} · thinking=${flag(capabilities.thinking)} · cache=${flag(capabilities.promptCaching)} · structured=${flag(capabilities.structuredOutput)} · vision=${flag(capabilities.multimodalRead)}`;
+function CreateDialog({ title, fields, textarea, onClose, onSubmit }: { title: string; fields: Array<[string, string]>; textarea?: string; onClose(): void; onSubmit(data: Record<string, string>): Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form className="dialog" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setBusy(true); const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>; void onSubmit(data).finally(() => { setBusy(false); onClose(); }); }}><h2>{title}</h2>{fields.map(([name, label]) => <label key={name}><span>{label}</span>{textarea === name ? <textarea name={name} required /> : <input name={name} required={name !== 'description'} autoFocus={name === fields[0]?.[0]} />}</label>)}<div className="dialog-actions"><button type="button" className="ghost" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? '创建中…' : '创建'}</button></div></form></div>;
 }
 
-function formatWebCallMetrics(
-  metrics: SessionSnapshot['lastCallMetrics']
-): string {
-  if (!metrics) return 'Last call: none';
-  const usage = metrics.usage;
-  return [
-    'Last call:',
-    `${metrics.status}`,
-    `${metrics.durationMs}ms`,
-    usage?.totalTokens !== undefined ? `${usage.totalTokens} tokens` : undefined,
-    usage?.cacheReadTokens !== undefined
-      ? `${usage.cacheReadTokens} cached`
-      : undefined,
-    usage?.estimatedCostUsd !== undefined
-      ? `$${usage.estimatedCostUsd.toFixed(usage.estimatedCostUsd < 0.01 ? 4 : 2)}`
-      : 'cost unknown',
-    metrics.errorCategory
-  ].filter(Boolean).join(' · ');
-}
-
-function flag(value: boolean): string {
-  return value ? 'yes' : 'no';
-}
-
-function decodeVapidKey(value: string): ArrayBuffer {
-  const padding = '='.repeat((4 - value.length % 4) % 4);
-  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(base64);
-  const bytes = Uint8Array.from(raw, (character) => character.charCodeAt(0));
-  return bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength
-  ) as ArrayBuffer;
-}
+function InspectorSection({ icon, title, empty, children }: { icon: React.ReactNode; title: string; empty?: string; children?: React.ReactNode }) { return <section className="inspect-section"><h2>{icon}{title}</h2>{children ? <div className="resource-list">{children}</div> : empty && <p className="muted">{empty}</p>}</section>; }
+function Resource({ name, meta }: { name: string; meta: string }) { return <div className="resource"><div className="resource-icon"><FileText size={16} /></div><div><strong>{name}</strong><small>{meta}</small></div></div>; }
+function Empty({ title, detail, compact, hero }: { title: string; detail: string; compact?: boolean; hero?: boolean }) { return <div className={`empty ${compact ? 'compact' : ''} ${hero ? 'hero' : ''}`}><div className="empty-mark">K</div><strong>{title}</strong><p>{detail}</p></div>; }
+function StatePage({ icon, title, detail }: { icon: React.ReactNode; title: string; detail: string }) { return <main className="state-page">{icon}<h1>{title}</h1><p>{detail}</p></main>; }
+function statusLabel(value: string) { return ({ open: '进行中', completed: '已完成', cancelled: '已取消', archived: '已归档', queued: '排队中', provisioning: '准备中', running: '运行中', waiting_for_approval: '等待审批', cancelling: '取消中', failed: '失败', ready: '可用', pending: '处理中', processing: '处理中', uploading: '上传中', approved: '已批准', rejected: '已拒绝', expired: '已过期' } as Record<string, string>)[value] ?? value; }
+function phaseLabel(value: string) { return ({ planning: '制定计划', gathering_sources: '整理资料', executing: '执行任务', using_tool: '使用工具', waiting_for_approval: '等待审批', creating_artifact: '生成交付物', verifying: '验证结果', finalizing: '整理结果' } as Record<string, string>)[value] ?? value; }
+function connectionLabel(value: string) { return value === 'connected' ? '实时连接' : value === 'retrying' ? '正在重连' : '正在连接'; }

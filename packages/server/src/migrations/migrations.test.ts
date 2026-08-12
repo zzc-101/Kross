@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { workAgentV2Migration } from './001_work_agent_v2';
+import { sourceArtifactBlobMigration } from './002_source_artifact_blob';
 
 describe('Work Agent PostgreSQL migration', () => {
   it('creates every P1 tenant-owned resource and tenant-scoped foreign keys', () => {
@@ -28,5 +29,13 @@ describe('Work Agent PostgreSQL migration', () => {
   it('does not contain SQLite or Docker control-plane semantics', () => {
     expect(workAgentV2Migration.toLowerCase()).not.toContain('sqlite');
     expect(workAgentV2Migration.toLowerCase()).not.toContain('workspace_registry');
+  });
+});
+
+describe('Source/Artifact Blob migration', () => {
+  it('adds idempotent reservation and pending-to-ready storage constraints', () => {
+    expect(sourceArtifactBlobMigration).toContain('artifacts_reserve_idempotency');
+    expect(sourceArtifactBlobMigration).toContain('artifacts_pending_upload_metadata');
+    expect(sourceArtifactBlobMigration).toContain('upload_blob_key IS NULL AND blob_key IS NOT NULL');
   });
 });

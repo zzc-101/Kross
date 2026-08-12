@@ -1,6 +1,6 @@
 import { createWriteStream } from 'node:fs';
 import { resolve } from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 
@@ -73,8 +73,18 @@ export function createFetchSourceDownloader(fetchImpl: typeof globalThis.fetch =
       const response = await fetchImpl(source.downloadUrl, { headers, signal });
       if (!response.ok) throw new Error(`Source ${source.id} download failed (${response.status})`);
       if (!response.body) throw new Error(`Source ${source.id} download returned no body`);
+      let received = 0;
+      const limiter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          received += chunk.length;
+          callback(received > source.sizeBytes
+            ? new Error(`Source ${source.id} download exceeds declared size`)
+            : undefined, chunk);
+        }
+      });
       await pipeline(
         Readable.fromWeb(response.body as import('node:stream/web').ReadableStream),
+        limiter,
         createWriteStream(destination, { mode: 0o600 }),
         { signal }
       );

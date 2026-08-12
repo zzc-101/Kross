@@ -45,4 +45,38 @@ describe('FetchWorkerControlTransport', () => {
     });
     await expect(transport.register(lease, 'token')).rejects.toThrow();
   });
+
+  it('uses strict fenced Artifact reserve and commit endpoints', async () => {
+    const now = '2026-08-12T00:00:00.000Z';
+    const fetch = vi.fn(async (url: URL | RequestInfo) => {
+      if (String(url).endsWith('/reserve')) return Response.json({
+        protocolVersion: 2, messageId: 'reserved1', sentAt: now, type: 'artifact.reserved',
+        idempotencyKey: 'reserve-key', runId: 'run1', generation: 1, artifactId: 'artifact1',
+        alreadyCommitted: false,
+        upload: { method: 'PUT', url: 'https://blob.example.test/upload', headers: [], expiresAt: '2099-01-01T00:00:00.000Z' }
+      });
+      return Response.json({
+        protocolVersion: 2, messageId: 'committed1', sentAt: now, type: 'artifact.committed',
+        idempotencyKey: 'commit-key', runId: 'run1', generation: 1,
+        artifact: {
+          id: 'artifact1', organizationId: 'org1', projectId: 'project1', taskId: 'task1', kind: 'document',
+          displayName: 'report.md', status: 'ready', mimeType: 'text/markdown', sizeBytes: 8, sha256: 'a'.repeat(64),
+          sourceIds: [], previewAvailable: true, readyAt: now, createdAt: now
+        }
+      });
+    });
+    const transport = new FetchWorkerControlTransport({ controlPlaneUrl: 'https://control.example.test', fetch: fetch as typeof globalThis.fetch });
+    const reserved = await transport.reserveArtifact({ lease, runToken: 'token', artifact: {
+      idempotencyKey: 'reserve-key', taskId: 'task1', kind: 'document', displayName: 'report.md', mimeType: 'text/markdown', sizeBytes: 8, sha256: 'a'.repeat(64), sourceIds: []
+    } });
+    expect(reserved).toMatchObject({ artifactId: 'artifact1', alreadyCommitted: false });
+    const committed = await transport.commitArtifact({ lease, runToken: 'token', commit: {
+      idempotencyKey: 'commit-key', artifactId: 'artifact1', sizeBytes: 8, sha256: 'a'.repeat(64)
+    } });
+    expect(committed).toMatchObject({ id: 'artifact1', runId: 'run1', status: 'ready' });
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://control.example.test/internal/v2/workers/artifacts/reserve',
+      'https://control.example.test/internal/v2/workers/artifacts/commit'
+    ]);
+  });
 });
