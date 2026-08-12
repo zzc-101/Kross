@@ -15,12 +15,16 @@ import {
   RunProgressMonitor,
   VerificationFailureLedger
 } from './runProgressMonitor';
-import type { VerificationGateAssessment } from '../verification';
 import { classifyToolCallPhase, type RunPhase } from './runPhase';
 import {
   classifyRuntimeError,
   type RuntimeErrorClassification
 } from '../errors/runtimeError';
+import type {
+  AgentCompletionAssessment,
+  AgentCompletionPolicy
+} from './agentExecutionProfile';
+import { sanitizeAgentCompletionMetadata } from './agentExecutionProfile';
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
 export const MAX_VERIFICATION_FOLLOWUPS = 1;
@@ -124,10 +128,11 @@ export interface StreamingToolLoopDeps {
     signal?: AbortSignal;
   }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>>;
   attachChangedFiles(result: AgentResult): Promise<AgentResult>;
-  assessVerificationGate(
+  assessCompletionGate(
     runId: string,
     originalUserInput: string
-  ): Promise<VerificationGateAssessment>;
+  ): Promise<AgentCompletionAssessment>;
+  completionPolicy: AgentCompletionPolicy;
   setRunPhase(
     runId: string,
     phase: RunPhase,
@@ -170,10 +175,8 @@ export async function* runStreamingToolLoop(
   let stage: CancellationStage = 'context';
   let stallRecoveryPending = false;
   let verificationFollowupCount = params.verificationFollowupCount ?? 0;
-  let verificationFollowup:
-    | Pick<VerificationGateAssessment, 'report' | 'reason'>
-    | undefined;
-  let verifiedCompletionPending = false;
+  let completionFollowup: AgentCompletionAssessment | undefined;
+  let satisfiedCompletion: AgentCompletionAssessment | undefined;
   let convergenceIntervention: string | undefined;
   const stallDetector = new ToolLoopStallDetector();
   const progressMonitor = new RunProgressMonitor();
@@ -188,18 +191,16 @@ export async function* runStreamingToolLoop(
       if (stallRecoveryPending) {
         overlays.push(renderPrompt('agent.stall.recovery'));
       }
-      if (verificationFollowup) {
+      if (completionFollowup) {
         overlays.push(
-          renderPrompt('agent.verification.followup', {
-            status: verificationFollowup.report.status,
-            reason: verificationFollowup.reason
-          })
+          deps.completionPolicy.buildFollowupPrompt?.(completionFollowup) ??
+            `Completion policy is not satisfied: ${completionFollowup.reason}`
         );
       }
-      if (verifiedCompletionPending) {
-        overlays.push(
-          'The latest post-mutation verification passed. If the user request is satisfied, stop exploring and return the final answer now. Only call another tool when a concrete unmet requirement remains.'
-        );
+      if (satisfiedCompletion) {
+        const satisfiedPrompt =
+          deps.completionPolicy.buildSatisfiedPrompt?.(satisfiedCompletion);
+        if (satisfiedPrompt) overlays.push(satisfiedPrompt);
       }
       if (convergenceIntervention) {
         overlays.push(convergenceIntervention);
@@ -214,8 +215,8 @@ export async function* runStreamingToolLoop(
         params.signal
       );
       stallRecoveryPending = false;
-      verificationFollowup = undefined;
-      verifiedCompletionPending = false;
+      completionFollowup = undefined;
+      satisfiedCompletion = undefined;
       convergenceIntervention = undefined;
       throwIfAborted(params.signal);
       const messages = prepared.messages;
@@ -340,48 +341,47 @@ export async function* runStreamingToolLoop(
           trigger: 'model-final',
           iteration
         });
-        if (deps.toolGateway) {
-          const assessment = await deps.assessVerificationGate(
-            params.runId,
-            params.originalUserInput
-          );
-          if (!assessment.satisfied) {
-            if (verificationFollowupCount < MAX_VERIFICATION_FOLLOWUPS) {
-              verificationFollowupCount += 1;
-              verificationFollowup = assessment;
-              await deps.record(params.runId, 'run.verification.followup', {
-                iteration,
-                attempt: verificationFollowupCount,
-                maxAttempts: MAX_VERIFICATION_FOLLOWUPS,
-                status: assessment.report.status,
-                reason: assessment.reason,
-                lastMutationIndex: assessment.lastMutationIndex,
-                requiredKinds: assessment.requiredKinds,
-                observedKinds: assessment.observedKinds
-              });
-              // 丢弃模型过早的“完成”摘要；它已进入会话，但不能成为最终结果。
-              fullText = '';
-              iteration += 1;
-              continue;
-            }
-            await deps.record(params.runId, 'run.verification.exhausted', {
+        const assessment =
+          deps.toolGateway || deps.completionPolicy.assessWithoutTools
+            ? await deps.assessCompletionGate(
+                params.runId,
+                params.originalUserInput
+              )
+            : undefined;
+        if (assessment && !assessment.satisfied) {
+          const eventPrefix =
+            deps.completionPolicy.eventPrefix ?? 'run.completion';
+          if (verificationFollowupCount < MAX_VERIFICATION_FOLLOWUPS) {
+            verificationFollowupCount += 1;
+            completionFollowup = assessment;
+            await deps.record(params.runId, `${eventPrefix}.followup`, {
               iteration,
-              attempts: verificationFollowupCount,
-              status: assessment.report.status,
+              attempt: verificationFollowupCount,
+              maxAttempts: MAX_VERIFICATION_FOLLOWUPS,
+              status: assessment.status,
               reason: assessment.reason,
-              lastMutationIndex: assessment.lastMutationIndex,
-              requiredKinds: assessment.requiredKinds,
-              observedKinds: assessment.observedKinds
+              metadata: sanitizeAgentCompletionMetadata(assessment.metadata)
             });
-            const summary = `无法确认任务完成：${assessment.reason}`;
-            const landed = await params.handlers.onStalled({
-              summary,
-              fullText,
-              fullThinking
-            });
-            yield { type: 'result', result: landed };
-            return;
+            // 丢弃模型过早的“完成”摘要；它已进入会话，但不能成为最终结果。
+            fullText = '';
+            iteration += 1;
+            continue;
           }
+          await deps.record(params.runId, `${eventPrefix}.exhausted`, {
+            iteration,
+            attempts: verificationFollowupCount,
+            status: assessment.status,
+            reason: assessment.reason,
+            metadata: sanitizeAgentCompletionMetadata(assessment.metadata)
+          });
+          const summary = `无法确认任务完成：${assessment.reason}`;
+          const landed = await params.handlers.onStalled({
+            summary,
+            fullText,
+            fullThinking
+          });
+          yield { type: 'result', result: landed };
+          return;
         }
         break;
       }
@@ -443,23 +443,27 @@ export async function* runStreamingToolLoop(
         iteration
       });
 
-      const postToolVerification = await deps.assessVerificationGate(
+      const postToolVerification = await deps.assessCompletionGate(
         params.runId,
         params.originalUserInput
       );
       if (
         postToolVerification.satisfied &&
-        postToolVerification.report.status === 'passed'
+        postToolVerification.status === 'passed'
       ) {
-        verifiedCompletionPending = true;
+        satisfiedCompletion = postToolVerification;
         await deps.record(params.runId, 'run.completion.recommended', {
           iteration,
-          verificationStatus: postToolVerification.report.status,
-          reason: postToolVerification.reason
+          verificationStatus: postToolVerification.status,
+          reason: postToolVerification.reason,
+          metadata: sanitizeAgentCompletionMetadata(
+            postToolVerification.metadata
+          )
         });
         verificationFailureLedger.reset();
       } else if (
-        postToolVerification.report.status === 'failed' &&
+        postToolVerification.status === 'failed' &&
+        typeof postToolVerification.metadata?.lastMutationIndex === 'number' &&
         toolCalls.some((call) =>
           classifyToolCallPhase(
             call,
@@ -468,7 +472,7 @@ export async function* runStreamingToolLoop(
         )
       ) {
         const failedStrategy = verificationFailureLedger.observe({
-          lastMutationIndex: postToolVerification.lastMutationIndex,
+          lastMutationIndex: postToolVerification.metadata.lastMutationIndex,
           reason: postToolVerification.reason
         });
         if (failedStrategy.state === 'rejected') {

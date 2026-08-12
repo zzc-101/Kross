@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import {
   permissionModeSchema,
   thinkingEffortSchema
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 import { z } from 'zod';
 
 import {

@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/zzc-101/Kross/main/packages/protocol/schemas/kross-task-snapshot-v2.schema.json",
+  "title": "KrossTaskSnapshotV2",
+  "x-kross-protocol-version": 2,
+  "$ref": "#/definitions/KrossTaskSnapshotV2",
+  "definitions": {
+    "KrossTaskSnapshotV2": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+        },
+        "organizationId": {
+          "$ref": "#/definitions/KrossTaskSnapshotV2/properties/id"
+        },
+        "projectId": {
+          "$ref": "#/definitions/KrossTaskSnapshotV2/properties/id"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "general",
+            "research",
+            "document",
+            "data",
+            "coding",
+            "automation"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "completed",
+            "cancelled",
+            "archived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "\\S"
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768,
+          "pattern": "\\S"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/KrossTaskSnapshotV2/properties/objective"
+          },
+          "maxItems": 50
+        },
+        "acceptanceCriteria": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/KrossTaskSnapshotV2/properties/objective"
+          },
+          "maxItems": 50
+        },
+        "latestRunId": {
+          "$ref": "#/definitions/KrossTaskSnapshotV2/properties/id"
+        },
+        "messageCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sourceCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifactCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "createdBy": {
+          "$ref": "#/definitions/KrossTaskSnapshotV2/properties/id"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "$ref": "#/definitions/KrossTaskSnapshotV2/properties/createdAt"
+        },
+        "completedAt": {
+          "$ref": "#/definitions/KrossTaskSnapshotV2/properties/createdAt"
+        },
+        "cancelledAt": {
+          "$ref": "#/definitions/KrossTaskSnapshotV2/properties/createdAt"
+        },
+        "archivedAt": {
+          "$ref": "#/definitions/KrossTaskSnapshotV2/properties/createdAt"
+        }
+      },
+      "required": [
+        "id",
+        "organizationId",
+        "projectId",
+        "type",
+        "status",
+        "title",
+        "objective",
+        "constraints",
+        "acceptanceCriteria",
+        "messageCount",
+        "runCount",
+        "sourceCount",
+        "artifactCount",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

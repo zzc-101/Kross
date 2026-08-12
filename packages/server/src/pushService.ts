@@ -7,7 +7,7 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 
-import type { ClientCommand } from '@kross/protocol';
+import type { ClientCommand } from '@kross/protocol/legacy';
 import webpush from 'web-push';
 import {
   assertServerDataVersion,

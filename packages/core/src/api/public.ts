@@ -10,6 +10,25 @@ export {
 } from '../runtime/agentRuntime';
 
 export {
+  createCodingAgentExecutionProfile,
+  type AgentCompletionAssessment,
+  type AgentCompletionPolicy,
+  type AgentCompletionPolicyContext,
+  type AgentCompletionStatus,
+  type AgentContextSourceContext,
+  type AgentContextSourceOverlay,
+  type AgentExecutionProfile,
+  type AgentExecutionProfileContext,
+  type AgentExecutionPromptPhase,
+  type AgentProgressDescriptor,
+  type AgentResultPolicyContext,
+  type AgentReviewPolicy,
+  type AgentSystemPromptContext,
+  type AgentToolCallPolicyContext,
+  type AgentToolPolicyOverlay
+} from '../runtime/agentExecutionProfile';
+
+export {
   agentModeSchema,
   agentReportSchema,
   agentResultSchema,
@@ -153,6 +172,7 @@ export {
   createSessionContext,
   type ContextMaintenanceResult,
   type ContextSection,
+  type ContextSource,
   type SessionContextState
 } from '../context/sessionContext';
 

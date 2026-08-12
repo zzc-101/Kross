@@ -40,9 +40,7 @@ import {
 } from '../trace/observableTraceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
 import {
-  assessVerificationGate,
   collectVerificationReport,
-  identifyRequestedVerificationCommand,
   type KnownVerificationCommand
 } from '../verification';
 import type { ProjectInstructionsSnapshot } from '../workspace/projectInstructions';
@@ -88,6 +86,15 @@ import {
   phaseForLifecycleEvent,
   type RunPhase
 } from './runPhase';
+import {
+  createCodingAgentExecutionProfile,
+  type AgentCompletionPolicy,
+  type AgentExecutionProfile,
+  type AgentExecutionPromptPhase,
+  type AgentProgressDescriptor,
+  type AgentReviewPolicy,
+  type AgentToolPolicyOverlay
+} from './agentExecutionProfile';
 
 export { DEFAULT_MAX_TOOL_ITERATIONS } from './toolLoop';
 
@@ -146,11 +153,34 @@ export class AgentRuntime extends EventEmitter {
   private readonly modelSession: ModelSession;
   private readonly modeFlows: ModeFlows;
   private readonly sessionServices: SessionServices;
+  private readonly executionProfile: AgentExecutionProfile;
+  private readonly completionPolicy: AgentCompletionPolicy;
+  private readonly reviewPolicy: AgentReviewPolicy;
+  private readonly toolPolicy: AgentToolPolicyOverlay;
   private readonly runPhases = new Map<string, RunPhase>();
   private readonly verificationPendingRuns = new Set<string>();
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
+    this.executionProfile =
+      options.executionProfile ?? createCodingAgentExecutionProfile();
+    const profileContext = {
+      workspaceRoot: options.workspaceRoot,
+      traceStore: options.traceStore
+    };
+    this.completionPolicy =
+      this.executionProfile.createCompletionPolicy(profileContext);
+    this.reviewPolicy = this.executionProfile.createReviewPolicy?.(
+      profileContext
+    ) ?? {
+      supportsConductor: false,
+      unsupportedReason:
+        'This execution profile does not provide a Conductor review policy.'
+    };
+    this.toolPolicy = this.executionProfile.getToolPolicy?.(profileContext) ?? {
+      observeCodingVerificationLifecycle:
+        this.executionProfile.id === 'coding'
+    };
     this.createRunId =
       options.createRunId ?? (() => `run-${Date.now().toString(36)}`);
     this.now = options.now ?? (() => new Date());
@@ -164,14 +194,18 @@ export class AgentRuntime extends EventEmitter {
     this.toolGateway = options.toolGateway;
     this.inspection = new RuntimeInspection(options);
     this.toolLoop = new RuntimeToolLoop({
+      executionProfileId: this.executionProfile.id,
+      listTools: (mode) => this.listVisibleTools(mode),
       llmClient: options.llmClient,
       toolGateway: this.toolGateway,
       sessionContext: this.sessionContext,
       maxToolIterations: options.maxToolIterations,
       record: (runId, type, payload) => this.record(runId, type, payload),
       attachChangedFiles: (result) => this.attachChangedFiles(result),
-      assessVerificationGate: (runId, originalUserInput) =>
-        this.assessRunVerificationGate(runId, originalUserInput),
+      assessCompletionGate: (runId, originalUserInput) =>
+        this.assessRunCompletionGate(runId, originalUserInput),
+      completionPolicy: this.completionPolicy,
+      buildSystemPrompt: (input) => this.buildSystemPrompt(input),
       observeToolCall: (input) => this.observeToolCall(input),
       completeVerificationObservation: (runId, options) =>
         this.completeVerificationObservation(runId, options),
@@ -182,7 +216,7 @@ export class AgentRuntime extends EventEmitter {
       interruptTurn: (reason) => this.sessionContext.interruptTurn(reason),
       appendAssistantForCancel: (summary) =>
         this.sessionContext.appendAssistant(summary),
-      syncTodoContext: () => this.sessionServices.syncTodoContextSource(),
+      syncContextSources: (mode) => this.syncContextSources('agent', mode),
       onContextMaintained: (runId, maintenance) =>
         this.recordContextMaintenanceEvents(runId, maintenance),
       onCheckpointChanged: () => this.emit('work-state.changed'),
@@ -210,6 +244,7 @@ export class AgentRuntime extends EventEmitter {
       runAgentToolLoop: (input, mode, runId, flowOptions) =>
         this.runAgentToolLoop(input, mode, runId, flowOptions),
       attachChangedFiles: (result) => this.attachChangedFiles(result),
+      buildSystemPrompt: (input) => this.buildSystemPrompt(input),
       finishTurnWithAssistant: (userInput, assistantOutput) =>
         this.finishTurnWithAssistant(userInput, assistantOutput)
     });
@@ -234,6 +269,14 @@ export class AgentRuntime extends EventEmitter {
 
   getSessionMode(): AgentMode {
     return this.sessionServices.getSessionMode();
+  }
+
+  getExecutionProfileId(): string {
+    return this.executionProfile.id;
+  }
+
+  describeProgress(event: TraceEvent): AgentProgressDescriptor | undefined {
+    return this.executionProfile.describeProgress?.(event);
   }
 
   /**
@@ -392,6 +435,19 @@ export class AgentRuntime extends EventEmitter {
       );
     }
     const workStateRestored = this.sessionServices.restoreWorkState(state);
+    const unsupportedConductorRestored =
+      this.sessionServices.getPendingModeExecution()?.kind === 'conductor' &&
+      !this.reviewPolicy.supportsConductor;
+    if (unsupportedConductorRestored) {
+      this.sessionServices.clearPendingModeExecution();
+      this.toolLoop.clearRunCheckpoint();
+      if (this.sessionContext.getThread().getOpenTurnId()) {
+        this.sessionContext.interruptTurn(
+          '当前 execution profile 不支持恢复 Conductor 执行'
+        );
+      }
+      return false;
+    }
     return checkpointRestored && workStateRestored;
   }
 
@@ -771,6 +827,19 @@ export class AgentRuntime extends EventEmitter {
           return;
 
         case 'conductor-gate-flow':
+          if (!this.reviewPolicy.supportsConductor) {
+            if (input.requestedMode === 'auto') {
+              yield* this.runAgentToolLoop(input, 'auto', runId);
+              return;
+            }
+            const result = await this.finishUnsupportedConductor(
+              runId,
+              input.input
+            );
+            yield { type: 'text-delta', text: result.summary };
+            yield { type: 'result', result };
+            return;
+          }
           yield* this.modeFlows.conductorGatePhase(
             input,
             runId,
@@ -779,6 +848,15 @@ export class AgentRuntime extends EventEmitter {
           return;
 
         case 'conductor-execute':
+          if (!this.reviewPolicy.supportsConductor) {
+            const result = await this.finishUnsupportedConductor(
+              runId,
+              input.input
+            );
+            yield { type: 'text-delta', text: result.summary };
+            yield { type: 'result', result };
+            return;
+          }
           yield* this.modeFlows.conductorExecutePhase(
             runId,
             action.pending,
@@ -984,12 +1062,90 @@ export class AgentRuntime extends EventEmitter {
     return missingModel;
   }
 
+  private async finishUnsupportedConductor(
+    runId: string,
+    userInput: string
+  ): Promise<AgentResult> {
+    const reason =
+      this.reviewPolicy.unsupportedReason ??
+      `Execution profile "${this.executionProfile.id}" does not support Conductor review.`;
+    const result = await this.attachChangedFiles(
+      agentResultSchema.parse({
+        runId,
+        mode: 'conductor',
+        status: 'failed',
+        summary: reason,
+        report: {
+          changedFiles: [],
+          evidence: [
+            `execution-profile=${this.executionProfile.id}`,
+            'Conductor was not started because no compatible review policy is available.'
+          ],
+          risks: []
+        }
+      })
+    );
+    await this.record(runId, 'run.completed', { ...result });
+    this.finishTurnWithAssistant(userInput, result.summary);
+    return result;
+  }
+
   private finishTurnWithAssistant(userInput: string, assistantOutput: string): void {
     if (!this.sessionContext.getThread().getOpenTurnId()) {
       this.sessionContext.beginTurn(userInput);
     }
     this.sessionContext.appendAssistant(assistantOutput);
     this.sessionContext.commitTurn();
+  }
+
+  private buildSystemPrompt(input: {
+    phase: AgentExecutionPromptPhase;
+    mode: AgentMode;
+    defaultPrompt: string;
+  }): string {
+    return this.executionProfile.buildSystemPrompt({
+      ...input,
+      sessionMode: this.sessionServices.getSessionMode(),
+      workspaceRoot: this.options.workspaceRoot
+    });
+  }
+
+  private applyProfileContextSources(
+    phase: AgentExecutionPromptPhase,
+    mode: AgentMode
+  ): void {
+    const overlay = this.executionProfile.getContextSources?.({
+      phase,
+      mode,
+      sessionMode: this.sessionServices.getSessionMode(),
+      workspaceRoot: this.options.workspaceRoot
+    });
+    for (const sourceId of overlay?.remove ?? []) {
+      this.sessionContext.removeSource(sourceId);
+    }
+    for (const source of overlay?.sources ?? []) {
+      this.sessionContext.addSource(source);
+    }
+  }
+
+  private syncContextSources(
+    phase: AgentExecutionPromptPhase,
+    mode: AgentMode
+  ): void {
+    this.sessionServices.syncTodoContextSource();
+    this.sessionServices.syncProjectRegistrySource();
+    this.sessionServices.refreshProjectInstructions();
+    this.sessionServices.refreshSkills();
+    this.sessionServices.syncModelProfilesSource();
+    this.sessionServices.syncSessionModeSource();
+    this.sessionServices.syncPermissionModeSource();
+    this.applyProfileContextSources(phase, mode);
+  }
+
+  private listVisibleTools(mode: AgentMode): ToolMetadata[] {
+    const available = this.toolGateway?.listTools({ mode }) ?? [];
+    const isVisible = this.toolPolicy.isToolVisible;
+    return isVisible ? available.filter((tool) => isVisible(tool)) : available;
   }
 
   private buildPlannerContext(mode: AgentMode): {
@@ -1000,19 +1156,18 @@ export class AgentRuntime extends EventEmitter {
     };
     tools: ToolMetadata[];
   } {
-    const tools = this.toolGateway?.listTools({ mode }) ?? [];
-    this.sessionServices.syncTodoContextSource();
-    this.sessionServices.syncProjectRegistrySource();
-    this.sessionServices.refreshProjectInstructions();
-    this.sessionServices.refreshSkills();
-    this.sessionServices.syncModelProfilesSource();
-    this.sessionServices.syncSessionModeSource();
-    this.sessionServices.syncPermissionModeSource();
+    const tools = this.listVisibleTools(mode);
+    this.syncContextSources('agent', mode);
+    const defaultPrompt = renderAgentExecutionPrompt({
+      sessionMode: this.sessionServices.getSessionMode(),
+      mode
+    });
     return {
       buildContextInput: {
-        systemPrompt: renderAgentExecutionPrompt({
-          sessionMode: this.sessionServices.getSessionMode(),
-          mode
+        systemPrompt: this.buildSystemPrompt({
+          phase: 'agent',
+          mode,
+          defaultPrompt
         }),
         mode,
         tools
@@ -1062,17 +1217,19 @@ export class AgentRuntime extends EventEmitter {
             }).mode
           : 'auto'
         : input.requestedMode;
-    this.sessionServices.syncTodoContextSource();
-    this.sessionServices.refreshProjectInstructions();
-    this.sessionServices.refreshSkills();
-    this.sessionServices.syncModelProfilesSource();
-    const tools = this.toolGateway?.listTools({ mode }) ?? [];
+    const tools = this.listVisibleTools(mode);
+    this.syncContextSources('agent', mode);
+    const defaultPrompt = renderAgentExecutionPrompt({
+      sessionMode: this.sessionServices.getSessionMode(),
+      mode
+    });
     return {
       mode,
       buildContextInput: {
-        systemPrompt: renderAgentExecutionPrompt({
-          sessionMode: this.sessionServices.getSessionMode(),
-          mode
+        systemPrompt: this.buildSystemPrompt({
+          phase: 'agent',
+          mode,
+          defaultPrompt
         }),
         mode,
         tools
@@ -1116,78 +1273,48 @@ export class AgentRuntime extends EventEmitter {
         ...extractChangedFilesFromEvents(events)
       ])
     ].sort();
-    const requestedCommand = identifyRequestedVerificationCommand(
-      extractRunInput(events) ?? ''
-    );
-    const verification = traceReadable
-      ? assessVerificationGate(events, {
-          changedFiles,
-          knownCommands: configuredVerificationCommands(this.options),
-          requestedCommand
-        }).report
-      : {
-          status: 'not-run' as const,
-          commands: [],
-          evidence: [],
-          reason:
-            'Verification evidence could not be collected because the run trace was unavailable.'
-        };
-    const risks = [...result.report.risks];
-    if (
-      result.status === 'completed' &&
-      (changedFiles.length > 0 || requestedCommand) &&
-      verification.status !== 'passed'
-    ) {
-      risks.push(
-        verification.status === 'failed'
-          ? '最后一次工作区修改后的验证仍然失败；当前结果不能视为已验证完成'
-          : requestedCommand && changedFiles.length === 0
-            ? `用户明确要求的验证命令（${requestedCommand.label}）没有获得通过证据`
-            : '最后一次工作区修改后没有可信的验证通过证据；改动仍存在未验证风险'
-      );
-    }
-
-    return agentResultSchema.parse({
+    const attached = agentResultSchema.parse({
       ...result,
       report: {
         ...result.report,
-        changedFiles,
-        verification,
-        risks: [...new Set(risks)]
+        changedFiles
       }
     });
+    const finalized = this.completionPolicy.finalizeResult
+      ? await this.completionPolicy.finalizeResult({
+          runId: result.runId,
+          originalUserInput: extractRunInput(events) ?? '',
+          events,
+          changedFiles,
+          traceReadable,
+          knownVerificationCommands: configuredVerificationCommands(
+            this.options
+          ),
+          result: attached
+        })
+      : attached;
+    return agentResultSchema.parse(finalized);
   }
 
-  private async assessRunVerificationGate(
+  private async assessRunCompletionGate(
     runId: string,
     originalUserInput: string
   ) {
+    let events: TraceEvent[] = [];
+    let traceReadable = true;
     try {
-      const events = await this.options.traceStore.readRun(runId);
-      const changedFiles = extractChangedFilesFromEvents(events);
-      return assessVerificationGate(events, {
-        changedFiles,
-        knownCommands: configuredVerificationCommands(this.options),
-        requestedCommand:
-          identifyRequestedVerificationCommand(originalUserInput)
-      });
+      events = await this.options.traceStore.readRun(runId);
     } catch {
-      // Trace 不可读时不能安全地断言发生过修改，也不能让完成门无限追问。
-      return {
-        required: false,
-        satisfied: true,
-        report: {
-          status: 'not-run' as const,
-          commands: [],
-          evidence: [],
-          reason: 'Run trace was unavailable, so verification could not be assessed.'
-        },
-        reason: 'Run trace was unavailable, so verification could not be assessed.',
-        lastMutationIndex: -1,
-        requiredKinds: [],
-        observedKinds: []
-      };
+      traceReadable = false;
     }
+    return this.completionPolicy.assess({
+      runId,
+      originalUserInput,
+      events,
+      changedFiles: extractChangedFilesFromEvents(events),
+      traceReadable,
+      knownVerificationCommands: configuredVerificationCommands(this.options)
+    });
   }
 
   private async observeToolCall(input: {
@@ -1197,15 +1324,25 @@ export class AgentRuntime extends EventEmitter {
     iteration: number;
   }): Promise<void> {
     const metadata = input.tools.find((tool) => tool.name === input.call.name);
-    const classified = classifyToolCallPhase(input.call, metadata, {
-      verificationPending: this.verificationPendingRuns.has(input.runId)
+    const verificationPending = this.verificationPendingRuns.has(input.runId);
+    const defaultClassification = classifyToolCallPhase(input.call, metadata, {
+      verificationPending
     });
+    const classified = this.toolPolicy.classifyToolCall?.({
+      call: input.call,
+      metadata,
+      verificationPending,
+      defaultClassification
+    }) ?? defaultClassification;
     await this.setRunPhase(input.runId, classified.phase, {
       trigger: 'tool-call',
       toolName: input.call.name,
       iteration: input.iteration
     });
-    if (!classified.verification) {
+    if (
+      this.toolPolicy.observeCodingVerificationLifecycle === false ||
+      !classified.verification
+    ) {
       return;
     }
     this.verificationPendingRuns.add(input.runId);

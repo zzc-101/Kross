@@ -1,4 +1,4 @@
-import type { SessionSnapshot } from '@kross/protocol';
+import type { SessionSnapshot } from '@kross/protocol/legacy';
 
 type PendingApproval = NonNullable<SessionSnapshot['pendingApproval']>;
 

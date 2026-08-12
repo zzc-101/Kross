@@ -1,4 +1,4 @@
-import type { EventEnvelope } from '@kross/protocol';
+import type { EventEnvelope } from '@kross/protocol/legacy';
 import type { TFunction } from 'i18next';
 import { Check, Clipboard, Copy, Play, RotateCcw } from 'lucide-react';
 import { useMemo, useState } from 'react';

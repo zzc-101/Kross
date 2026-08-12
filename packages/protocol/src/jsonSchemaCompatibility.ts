@@ -8,9 +8,9 @@ export interface SchemaCompatibilityIssue {
 /**
  * Conservative wire-compatibility check for generated Protocol schemas.
  *
- * Additive optional properties and new union variants are accepted. Removing
- * variants/properties/enum values, changing required fields, or narrowing
- * primitive constraints requires a new PROTOCOL_VERSION.
+ * Additive optional properties are accepted only for open objects. Strict
+ * objects reject unknown properties, so adding even an optional property
+ * changes the accepted instance set and requires a new PROTOCOL_VERSION.
  */
 export function findBreakingSchemaChanges(
   previous: JsonSchema,
@@ -48,9 +48,25 @@ function compareSchema(
   compareNumericConstraint(
     oldSchema,
     newSchema,
+    'exclusiveMinimum',
+    path,
+    (oldValue, newValue) => newValue > oldValue,
+    issues
+  );
+  compareNumericConstraint(
+    oldSchema,
+    newSchema,
     'minLength',
     path,
     (oldValue, newValue) => newValue > oldValue,
+    issues
+  );
+  compareNumericConstraint(
+    oldSchema,
+    newSchema,
+    'exclusiveMaximum',
+    path,
+    (oldValue, newValue) => newValue < oldValue,
     issues
   );
   compareNumericConstraint(
@@ -61,6 +77,24 @@ function compareSchema(
     (oldValue, newValue) => newValue < oldValue,
     issues
   );
+  compareNumericConstraint(
+    oldSchema,
+    newSchema,
+    'minProperties',
+    path,
+    (oldValue, newValue) => newValue > oldValue,
+    issues
+  );
+  compareNumericConstraint(
+    oldSchema,
+    newSchema,
+    'maxProperties',
+    path,
+    (oldValue, newValue) => newValue < oldValue,
+    issues
+  );
+  compareMultipleOf(oldSchema, newSchema, path, issues);
+  compareBooleanConstraint(oldSchema, newSchema, 'uniqueItems', path, issues);
   compareNumericConstraint(
     oldSchema,
     newSchema,
@@ -181,6 +215,16 @@ function compareObject(
     : undefined;
   if (!oldProperties) return;
   const newProperties = isObject(next.properties) ? next.properties : {};
+  if (previous.additionalProperties === false) {
+    for (const name of Object.keys(newProperties)) {
+      if (!(name in oldProperties)) {
+        issues.push({
+          path: `${path}/properties/${name}`,
+          message: 'strict 对象新增字段'
+        });
+      }
+    }
+  }
   for (const [name, oldProperty] of Object.entries(oldProperties)) {
     if (!(name in newProperties)) {
       issues.push({
@@ -268,10 +312,14 @@ function compareNumericConstraint(
   key:
     | 'minimum'
     | 'maximum'
+    | 'exclusiveMinimum'
+    | 'exclusiveMaximum'
     | 'minLength'
     | 'maxLength'
     | 'minItems'
-    | 'maxItems',
+    | 'maxItems'
+    | 'minProperties'
+    | 'maxProperties',
   path: string,
   isNarrower: (oldValue: number, newValue: number) => boolean,
   issues: SchemaCompatibilityIssue[]
@@ -288,6 +336,45 @@ function compareNumericConstraint(
     isNarrower(oldValue, newValue)
   ) {
     issues.push({ path, message: `${key} 约束收紧：${oldValue} -> ${newValue}` });
+  }
+}
+
+function compareMultipleOf(
+  previous: JsonSchema,
+  next: JsonSchema,
+  path: string,
+  issues: SchemaCompatibilityIssue[]
+): void {
+  const oldValue = previous.multipleOf;
+  const newValue = next.multipleOf;
+  if (typeof newValue !== 'number' || newValue <= 0) return;
+  if (typeof oldValue !== 'number' || oldValue <= 0) {
+    issues.push({ path, message: `新增 multipleOf 约束：${newValue}` });
+    return;
+  }
+  const preservesEveryOldMultiple = Number.isInteger(oldValue / newValue);
+  if (!preservesEveryOldMultiple && newValue % oldValue !== 0) {
+    issues.push({
+      path,
+      message: `multipleOf 约束不兼容：${oldValue} -> ${newValue}`
+    });
+  } else if (!preservesEveryOldMultiple) {
+    issues.push({
+      path,
+      message: `multipleOf 约束收紧：${oldValue} -> ${newValue}`
+    });
+  }
+}
+
+function compareBooleanConstraint(
+  previous: JsonSchema,
+  next: JsonSchema,
+  key: 'uniqueItems',
+  path: string,
+  issues: SchemaCompatibilityIssue[]
+): void {
+  if (previous[key] !== true && next[key] === true) {
+    issues.push({ path, message: `新增 ${key} 约束` });
   }
 }
 

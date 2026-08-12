@@ -19,7 +19,7 @@ import {
   PROTOCOL_VERSION,
   type ClientCommand,
   type EventEnvelope
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 import { z } from 'zod';
 import { describe, expect, it, vi } from 'vitest';
 

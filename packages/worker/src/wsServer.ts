@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import {
   clientCommandSchema,
   type EventEnvelope
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 import { WebSocketServer, WebSocket } from 'ws';
 
 import { WorkerService } from './workerService';

@@ -5,7 +5,7 @@ import {
   type ModelProfile,
   type SessionSnapshot,
   type WorkspaceProgress
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 
 import { CloudClient, type ConnectionState } from './cloudClient';

@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { eventEnvelopeSchema, PROTOCOL_VERSION } from '@kross/protocol';
+import { eventEnvelopeSchema, PROTOCOL_VERSION } from '@kross/protocol/legacy';
 import { describe, expect, it } from 'vitest';
 
 import type { ContainerOrchestrator } from './containerOrchestrator';

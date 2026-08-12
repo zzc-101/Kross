@@ -4,9 +4,17 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./legacy": "./src/legacy.ts"
+  },
+  "scripts": {
+    "schema:check": "tsx scripts/generate-json-schemas.ts --check",
+    "schema:update": "tsx scripts/generate-json-schemas.ts --update",
+    "test": "vitest run --root ../.. packages/protocol/src",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@kross/work-domain": "0.1.0",
     "zod": "^3.23.8"
   }
 }

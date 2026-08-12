@@ -6,7 +6,7 @@ import {
   type CloudWorkspace,
   type EventEnvelope,
   type SessionSnapshot
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 
 import type {
   ContainerOrchestrator,

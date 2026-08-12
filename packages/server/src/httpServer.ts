@@ -11,7 +11,7 @@ import {
   PROTOCOL_VERSION,
   type ClientCommand,
   type EventEnvelope
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 
 import { readBearerToken, tokenMatches } from './auth';
 import { GatewayService } from './gatewayService';

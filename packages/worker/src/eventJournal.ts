@@ -14,7 +14,7 @@ import {
   eventEnvelopeSchema,
   type EventEnvelope,
   type ServerEvent
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 import {
   assertWorkerDataVersion,
   isRecord

@@ -1,0 +1,529 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/zzc-101/Kross/main/packages/protocol/schemas/kross-approval-snapshot-v2.schema.json",
+  "title": "KrossApprovalSnapshotV2",
+  "x-kross-protocol-version": 2,
+  "$ref": "#/definitions/KrossApprovalSnapshotV2",
+  "definitions": {
+    "KrossApprovalSnapshotV2": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "runId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "run",
+                "organization"
+              ]
+            },
+            "riskLevel": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
+            },
+            "actionPreview": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32768,
+              "pattern": "\\S"
+            },
+            "target": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "plan"
+                    },
+                    "planDigest": {
+                      "type": "string",
+                      "minLength": 64,
+                      "maxLength": 64,
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "planDigest"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "tool"
+                    },
+                    "toolCallId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "toolName": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 240,
+                      "pattern": "\\S"
+                    },
+                    "argumentsHash": {
+                      "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target/anyOf/0/properties/planDigest"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "toolCallId",
+                    "toolName",
+                    "argumentsHash"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "external_action"
+                    },
+                    "actionType": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 240,
+                      "pattern": "\\S"
+                    },
+                    "idempotencyKey": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "^[\\x21-\\x7e]+$"
+                    },
+                    "argumentsHash": {
+                      "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target/anyOf/0/properties/planDigest"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "actionType",
+                    "idempotencyKey",
+                    "argumentsHash"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "elevated_access"
+                    },
+                    "capability": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 240,
+                      "pattern": "\\S"
+                    },
+                    "argumentsHash": {
+                      "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target/anyOf/0/properties/planDigest"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "capability",
+                    "argumentsHash"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "requestedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "expiresAt": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+            },
+            "status": {
+              "type": "string",
+              "const": "pending"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "runId",
+            "scope",
+            "riskLevel",
+            "actionPreview",
+            "target",
+            "requestedAt",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "organizationId": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "projectId": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "taskId": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "runId": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "scope": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/scope"
+                },
+                "riskLevel": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/riskLevel"
+                },
+                "actionPreview": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/actionPreview"
+                },
+                "target": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target"
+                },
+                "requestedAt": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+                },
+                "expiresAt": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/expiresAt"
+                },
+                "status": {
+                  "type": "string",
+                  "const": "approved"
+                },
+                "decidedAt": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+                },
+                "decidedBy": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "decisionReason": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "decisionIdempotencyKey": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target/anyOf/2/properties/idempotencyKey"
+                }
+              },
+              "required": [
+                "id",
+                "organizationId",
+                "projectId",
+                "taskId",
+                "runId",
+                "scope",
+                "riskLevel",
+                "actionPreview",
+                "target",
+                "requestedAt",
+                "status",
+                "decidedAt",
+                "decidedBy",
+                "decisionIdempotencyKey"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "organizationId": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "projectId": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "taskId": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "runId": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "scope": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/scope"
+                },
+                "riskLevel": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/riskLevel"
+                },
+                "actionPreview": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/actionPreview"
+                },
+                "target": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target"
+                },
+                "requestedAt": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+                },
+                "expiresAt": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/expiresAt"
+                },
+                "status": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/1/anyOf/0/properties/status"
+                },
+                "decidedAt": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+                },
+                "decidedBy": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+                },
+                "decisionReason": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/1/anyOf/0/properties/decisionReason"
+                },
+                "decisionIdempotencyKey": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target/anyOf/2/properties/idempotencyKey"
+                },
+                "consumedAt": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+                },
+                "consumptionIdempotencyKey": {
+                  "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target/anyOf/2/properties/idempotencyKey"
+                }
+              },
+              "required": [
+                "id",
+                "organizationId",
+                "projectId",
+                "taskId",
+                "runId",
+                "scope",
+                "riskLevel",
+                "actionPreview",
+                "target",
+                "requestedAt",
+                "status",
+                "decidedAt",
+                "decidedBy",
+                "decisionIdempotencyKey",
+                "consumedAt",
+                "consumptionIdempotencyKey"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "runId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "scope": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/scope"
+            },
+            "riskLevel": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/riskLevel"
+            },
+            "actionPreview": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/actionPreview"
+            },
+            "target": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target"
+            },
+            "requestedAt": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+            },
+            "expiresAt": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/expiresAt"
+            },
+            "status": {
+              "type": "string",
+              "const": "rejected"
+            },
+            "decidedAt": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+            },
+            "decidedBy": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "decisionReason": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/1/anyOf/0/properties/decisionReason"
+            },
+            "decisionIdempotencyKey": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target/anyOf/2/properties/idempotencyKey"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "runId",
+            "scope",
+            "riskLevel",
+            "actionPreview",
+            "target",
+            "requestedAt",
+            "status",
+            "decidedAt",
+            "decidedBy",
+            "decisionIdempotencyKey"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "runId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "scope": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/scope"
+            },
+            "riskLevel": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/riskLevel"
+            },
+            "actionPreview": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/actionPreview"
+            },
+            "target": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target"
+            },
+            "requestedAt": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+            },
+            "expiresAt": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/expiresAt"
+            },
+            "status": {
+              "type": "string",
+              "const": "expired"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "runId",
+            "scope",
+            "riskLevel",
+            "actionPreview",
+            "target",
+            "requestedAt",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "runId": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/id"
+            },
+            "scope": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/scope"
+            },
+            "riskLevel": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/riskLevel"
+            },
+            "actionPreview": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/actionPreview"
+            },
+            "target": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/target"
+            },
+            "requestedAt": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/requestedAt"
+            },
+            "expiresAt": {
+              "$ref": "#/definitions/KrossApprovalSnapshotV2/anyOf/0/properties/expiresAt"
+            },
+            "status": {
+              "type": "string",
+              "const": "cancelled"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "runId",
+            "scope",
+            "riskLevel",
+            "actionPreview",
+            "target",
+            "requestedAt",
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

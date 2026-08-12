@@ -1,4 +1,4 @@
-import type { ModelProfile } from '@kross/protocol';
+import type { ModelProfile } from '@kross/protocol/legacy';
 import { AlertTriangle, Check, Server, Trash2, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';

@@ -50,8 +50,8 @@
     "test": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.base.json",
     "package:check": "npm run build && node scripts/package-smoke.mjs",
-    "protocol:check": "tsx scripts/generate-protocol-schemas.ts --check",
-    "protocol:update": "tsx scripts/generate-protocol-schemas.ts --update",
+    "protocol:check": "npm run --workspace @kross/protocol schema:check",
+    "protocol:update": "npm run --workspace @kross/protocol schema:update",
     "check": "npm run version:check && npm run api:check && npm run protocol:check && npm run typecheck && npm test -- --run && npm run docs:check && npm run package:check",
     "prepack": "npm run build"
   },

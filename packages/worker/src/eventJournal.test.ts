@@ -10,6 +10,8 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { PROTOCOL_VERSION } from '@kross/protocol/legacy';
+
 import { EventJournal } from './eventJournal';
 
 describe('EventJournal', () => {
@@ -149,10 +151,10 @@ describe('EventJournal', () => {
     const eventPath = join(root, 'w1', 's1.jsonl');
     writeFileSync(
       eventPath,
-      `${JSON.stringify({ ...event, protocolVersion: 2 })}\n`
+      `${JSON.stringify({ ...event, protocolVersion: PROTOCOL_VERSION + 1 })}\n`
     );
     expect(() => new EventJournal(root).replay('w1', 's1')).toThrow(
-      'Worker event journal 使用不受支持的数据版本 2'
+      `Worker event journal 使用不受支持的数据版本 ${PROTOCOL_VERSION + 1}`
     );
 
     const requestPath = join(root, 'w1', 'requests', 's1.json');

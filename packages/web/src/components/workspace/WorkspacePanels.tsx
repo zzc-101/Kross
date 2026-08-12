@@ -1,4 +1,4 @@
-import type { CloudWorkspace, WorkspaceProgress } from '@kross/protocol';
+import type { CloudWorkspace, WorkspaceProgress } from '@kross/protocol/legacy';
 import type { TFunction } from 'i18next';
 import { Bot, CircleCheck, FolderGit2, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';

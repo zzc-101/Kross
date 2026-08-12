@@ -25,7 +25,7 @@ import {
   type ModelProfile,
   type ServerEvent,
   type SessionSnapshot
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 
 import { EventJournal } from './eventJournal';
 import { inspectGitDiff } from './gitInspection';

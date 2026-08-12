@@ -44,12 +44,16 @@ import {
   isIndependentRead,
   toLlmTools
 } from './toolLoopShared';
-import type { VerificationGateAssessment } from '../verification';
 import { classifyToolCallPhase, type RunPhase } from './runPhase';
 import {
   cloneRunCheckpoint,
   type RunCheckpointV1
 } from './runCheckpoint';
+import type {
+  AgentCompletionAssessment,
+  AgentCompletionPolicy,
+  AgentExecutionPromptPhase
+} from './agentExecutionProfile';
 
 export { toLlmTools } from './toolLoopShared';
 
@@ -74,6 +78,9 @@ interface PendingToolSession {
 }
 
 export interface RuntimeToolLoopOptions {
+  executionProfileId: string;
+  /** Profile-filtered view of tools already exposed by ToolGateway. */
+  listTools(mode: AgentMode): ToolMetadata[];
   llmClient?: LlmClient;
   toolGateway?: ToolGateway;
   sessionContext: SessionContext;
@@ -84,10 +91,16 @@ export interface RuntimeToolLoopOptions {
     payload: Record<string, unknown>
   ): Promise<void>;
   attachChangedFiles(result: AgentResult): Promise<AgentResult>;
-  assessVerificationGate(
+  assessCompletionGate(
     runId: string,
     originalUserInput: string
-  ): Promise<VerificationGateAssessment>;
+  ): Promise<AgentCompletionAssessment>;
+  completionPolicy: AgentCompletionPolicy;
+  buildSystemPrompt(input: {
+    phase: AgentExecutionPromptPhase;
+    mode: AgentMode;
+    defaultPrompt: string;
+  }): string;
   observeToolCall(input: {
     runId: string;
     call: LlmToolCall;
@@ -107,8 +120,8 @@ export interface RuntimeToolLoopOptions {
   abortTurn(reason: string): void;
   interruptTurn(reason: string): void;
   appendAssistantForCancel(summary: string): void;
-  /** Refresh session todo list into context sources before model calls. */
-  syncTodoContext?: () => void;
+  /** Rebuild built-in and profile context sources before resumed model calls. */
+  syncContextSources?: (mode: AgentMode) => void;
   onContextMaintained?(
     runId: string,
     maintenance: import('../context/contextGovernor').ContextMaintenanceResult[]
@@ -136,10 +149,21 @@ export class RuntimeToolLoop {
 
   restoreRunCheckpoint(checkpoint?: RunCheckpointV1): boolean {
     this.pendingToolSessions.clear();
-    this.activeCheckpoint = checkpoint
-      ? cloneRunCheckpoint(checkpoint)
-      : undefined;
+    this.activeCheckpoint = undefined;
     if (!checkpoint) return true;
+    const persistedProfileId = checkpoint.executionProfileId;
+    if (
+      (persistedProfileId === undefined &&
+        this.options.executionProfileId !== 'coding') ||
+      (persistedProfileId !== undefined &&
+        persistedProfileId !== this.options.executionProfileId)
+    ) {
+      return false;
+    }
+    this.activeCheckpoint = cloneRunCheckpoint({
+      ...checkpoint,
+      executionProfileId: this.options.executionProfileId
+    });
     if (checkpoint.status === 'running') {
       // An arbitrary in-flight LLM/tool boundary is not safe to replay. The
       // restored open turn follows the normal interrupted-turn cleanup path.
@@ -179,7 +203,7 @@ export class RuntimeToolLoop {
       this.activeCheckpoint = undefined;
       return false;
     }
-    const tools = this.options.toolGateway.listTools({ mode: checkpoint.mode });
+    const tools = this.options.listTools(checkpoint.mode);
     if (!tools.some((tool) => tool.name === checkpoint.pendingCall!.name)) {
       this.activeCheckpoint = undefined;
       return false;
@@ -379,8 +403,14 @@ export class RuntimeToolLoop {
       return;
     }
 
+    this.options.syncContextSources?.(session.mode);
+    const defaultPrompt = renderAgentExecutionPrompt({ mode: session.mode });
     const buildContextInput = {
-      systemPrompt: renderAgentExecutionPrompt({ mode: session.mode }),
+      systemPrompt: this.options.buildSystemPrompt({
+        phase: 'agent',
+        mode: session.mode,
+        defaultPrompt
+      }),
       mode: session.mode,
       tools: session.tools
     };
@@ -516,6 +546,7 @@ export class RuntimeToolLoop {
     ];
     this.updateCheckpoint({
       version: 1,
+      executionProfileId: this.options.executionProfileId,
       runId: input.runId,
       mode: input.mode,
       originalUserInput: input.originalUserInput,
@@ -837,8 +868,9 @@ export class RuntimeToolLoop {
       executeToolBatch: (input) => this.executeToolBatch(input),
       streamSoftLand: (input) => this.streamSoftLand(input),
       attachChangedFiles: (result) => this.options.attachChangedFiles(result),
-      assessVerificationGate: (runId, originalUserInput) =>
-        this.options.assessVerificationGate(runId, originalUserInput),
+      assessCompletionGate: (runId, originalUserInput) =>
+        this.options.assessCompletionGate(runId, originalUserInput),
+      completionPolicy: this.options.completionPolicy,
       setRunPhase: (runId, phase, details) =>
         this.options.setRunPhase(runId, phase, details),
       toLlmTools,
@@ -938,6 +970,7 @@ export class RuntimeToolLoop {
     this.pendingToolSessions.set(session.runId, session);
     this.updateCheckpoint({
       version: 1,
+      executionProfileId: this.options.executionProfileId,
       runId: session.runId,
       mode: session.mode,
       originalUserInput: session.originalUserInput,

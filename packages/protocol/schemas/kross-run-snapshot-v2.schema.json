@@ -1,0 +1,859 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/zzc-101/Kross/main/packages/protocol/schemas/kross-run-snapshot-v2.schema.json",
+  "title": "KrossRunSnapshotV2",
+  "x-kross-protocol-version": 2,
+  "$ref": "#/definitions/KrossRunSnapshotV2",
+  "definitions": {
+    "KrossRunSnapshotV2": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "attempt": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 10000
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "plan"
+              ]
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "queuedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "startedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "executionProfile": {
+              "type": "string",
+              "const": "work"
+            },
+            "model": {
+              "type": "object",
+              "properties": {
+                "requestedModelProfileId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "\\S"
+                },
+                "provider": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "\\S"
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240,
+                  "pattern": "\\S"
+                },
+                "baseUrlOrigin": {
+                  "type": "string",
+                  "format": "uri",
+                  "maxLength": 4096,
+                  "pattern": "^https?:\\/\\/"
+                }
+              },
+              "required": [
+                "provider",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            "permissionPolicy": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "allowNetworkAccess": {
+                  "type": "boolean"
+                },
+                "allowRepositoryWrite": {
+                  "type": "boolean"
+                },
+                "allowedConnectorScopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240,
+                    "pattern": "\\S"
+                  },
+                  "maxItems": 100
+                },
+                "approvalPolicy": {
+                  "type": "object",
+                  "properties": {
+                    "requirePlanApproval": {
+                      "type": "boolean"
+                    },
+                    "requireExternalActionApproval": {
+                      "type": "boolean"
+                    },
+                    "minimumToolRiskRequiringApproval": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high",
+                            "critical"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "allowAdminOrganizationHighRiskApproval": {
+                      "type": "boolean"
+                    },
+                    "allowMemberHighRiskApproval": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "requirePlanApproval",
+                    "requireExternalActionApproval",
+                    "minimumToolRiskRequiringApproval",
+                    "allowAdminOrganizationHighRiskApproval",
+                    "allowMemberHighRiskApproval"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "version",
+                "allowNetworkAccess",
+                "allowRepositoryWrite",
+                "allowedConnectorScopes",
+                "approvalPolicy"
+              ],
+              "additionalProperties": false
+            },
+            "resourceLimits": {
+              "type": "object",
+              "properties": {
+                "cpuMillis": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 64000
+                },
+                "memoryBytes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "maxPids": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1000000
+                },
+                "diskBytes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "maxDurationMs": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 86400000
+                },
+                "maxSourceBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "maxArtifactBytes": {
+                  "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/resourceLimits/properties/maxSourceBytes"
+                },
+                "maxEventPayloadBytes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1048576
+                },
+                "maxTokens": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "maxCostUsd": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "cpuMillis",
+                "memoryBytes",
+                "maxPids",
+                "diskBytes",
+                "maxDurationMs",
+                "maxSourceBytes",
+                "maxArtifactBytes",
+                "maxEventPayloadBytes"
+              ],
+              "additionalProperties": false
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "inputTokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "outputTokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "reasoningTokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "estimatedCostUsd": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "durationMs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "toolCalls": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "inputTokens",
+                "outputTokens",
+                "estimatedCostUsd",
+                "durationMs",
+                "toolCalls"
+              ],
+              "additionalProperties": false
+            },
+            "checkpointAvailable": {
+              "type": "boolean"
+            },
+            "workerGeneration": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "status": {
+              "type": "string",
+              "const": "queued"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "attempt",
+            "mode",
+            "createdAt",
+            "queuedAt",
+            "executionProfile",
+            "model",
+            "permissionPolicy",
+            "resourceLimits",
+            "usage",
+            "checkpointAvailable",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "attempt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/attempt"
+            },
+            "mode": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/mode"
+            },
+            "createdAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "queuedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "startedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/startedAt"
+            },
+            "executionProfile": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/executionProfile"
+            },
+            "model": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/model"
+            },
+            "permissionPolicy": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/permissionPolicy"
+            },
+            "resourceLimits": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/resourceLimits"
+            },
+            "usage": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/usage"
+            },
+            "checkpointAvailable": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/checkpointAvailable"
+            },
+            "workerGeneration": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/workerGeneration"
+            },
+            "status": {
+              "type": "string",
+              "const": "provisioning"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "attempt",
+            "mode",
+            "createdAt",
+            "queuedAt",
+            "executionProfile",
+            "model",
+            "permissionPolicy",
+            "resourceLimits",
+            "usage",
+            "checkpointAvailable",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "attempt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/attempt"
+            },
+            "mode": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/mode"
+            },
+            "createdAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "queuedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "startedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/startedAt"
+            },
+            "executionProfile": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/executionProfile"
+            },
+            "model": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/model"
+            },
+            "permissionPolicy": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/permissionPolicy"
+            },
+            "resourceLimits": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/resourceLimits"
+            },
+            "usage": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/usage"
+            },
+            "checkpointAvailable": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/checkpointAvailable"
+            },
+            "workerGeneration": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/workerGeneration"
+            },
+            "status": {
+              "type": "string",
+              "const": "running"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "attempt",
+            "mode",
+            "createdAt",
+            "queuedAt",
+            "executionProfile",
+            "model",
+            "permissionPolicy",
+            "resourceLimits",
+            "usage",
+            "checkpointAvailable",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "attempt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/attempt"
+            },
+            "mode": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/mode"
+            },
+            "createdAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "queuedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "startedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/startedAt"
+            },
+            "executionProfile": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/executionProfile"
+            },
+            "model": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/model"
+            },
+            "permissionPolicy": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/permissionPolicy"
+            },
+            "resourceLimits": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/resourceLimits"
+            },
+            "usage": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/usage"
+            },
+            "checkpointAvailable": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/checkpointAvailable"
+            },
+            "workerGeneration": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/workerGeneration"
+            },
+            "status": {
+              "type": "string",
+              "const": "waiting_for_approval"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "attempt",
+            "mode",
+            "createdAt",
+            "queuedAt",
+            "executionProfile",
+            "model",
+            "permissionPolicy",
+            "resourceLimits",
+            "usage",
+            "checkpointAvailable",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "attempt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/attempt"
+            },
+            "mode": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/mode"
+            },
+            "createdAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "queuedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "startedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/startedAt"
+            },
+            "executionProfile": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/executionProfile"
+            },
+            "model": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/model"
+            },
+            "permissionPolicy": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/permissionPolicy"
+            },
+            "resourceLimits": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/resourceLimits"
+            },
+            "usage": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/usage"
+            },
+            "checkpointAvailable": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/checkpointAvailable"
+            },
+            "workerGeneration": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/workerGeneration"
+            },
+            "status": {
+              "type": "string",
+              "const": "cancelling"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "attempt",
+            "mode",
+            "createdAt",
+            "queuedAt",
+            "executionProfile",
+            "model",
+            "permissionPolicy",
+            "resourceLimits",
+            "usage",
+            "checkpointAvailable",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "attempt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/attempt"
+            },
+            "mode": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/mode"
+            },
+            "createdAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "queuedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "startedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/startedAt"
+            },
+            "executionProfile": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/executionProfile"
+            },
+            "model": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/model"
+            },
+            "permissionPolicy": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/permissionPolicy"
+            },
+            "resourceLimits": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/resourceLimits"
+            },
+            "usage": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/usage"
+            },
+            "checkpointAvailable": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/checkpointAvailable"
+            },
+            "workerGeneration": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/workerGeneration"
+            },
+            "status": {
+              "type": "string",
+              "const": "completed"
+            },
+            "finishedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "attempt",
+            "mode",
+            "createdAt",
+            "queuedAt",
+            "executionProfile",
+            "model",
+            "permissionPolicy",
+            "resourceLimits",
+            "usage",
+            "checkpointAvailable",
+            "status",
+            "finishedAt"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "attempt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/attempt"
+            },
+            "mode": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/mode"
+            },
+            "createdAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "queuedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "startedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/startedAt"
+            },
+            "executionProfile": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/executionProfile"
+            },
+            "model": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/model"
+            },
+            "permissionPolicy": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/permissionPolicy"
+            },
+            "resourceLimits": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/resourceLimits"
+            },
+            "usage": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/usage"
+            },
+            "checkpointAvailable": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/checkpointAvailable"
+            },
+            "workerGeneration": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/workerGeneration"
+            },
+            "status": {
+              "type": "string",
+              "const": "failed"
+            },
+            "finishedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "failure": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "^[A-Z][A-Z0-9_]*$"
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000,
+                  "pattern": "\\S"
+                },
+                "retryable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "summary",
+                "retryable"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "attempt",
+            "mode",
+            "createdAt",
+            "queuedAt",
+            "executionProfile",
+            "model",
+            "permissionPolicy",
+            "resourceLimits",
+            "usage",
+            "checkpointAvailable",
+            "status",
+            "finishedAt",
+            "failure"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "organizationId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "taskId": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/id"
+            },
+            "attempt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/attempt"
+            },
+            "mode": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/mode"
+            },
+            "createdAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "queuedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            },
+            "startedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/startedAt"
+            },
+            "executionProfile": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/executionProfile"
+            },
+            "model": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/model"
+            },
+            "permissionPolicy": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/permissionPolicy"
+            },
+            "resourceLimits": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/resourceLimits"
+            },
+            "usage": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/usage"
+            },
+            "checkpointAvailable": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/checkpointAvailable"
+            },
+            "workerGeneration": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/workerGeneration"
+            },
+            "status": {
+              "type": "string",
+              "const": "cancelled"
+            },
+            "finishedAt": {
+              "$ref": "#/definitions/KrossRunSnapshotV2/anyOf/0/properties/createdAt"
+            }
+          },
+          "required": [
+            "id",
+            "organizationId",
+            "projectId",
+            "taskId",
+            "attempt",
+            "mode",
+            "createdAt",
+            "queuedAt",
+            "executionProfile",
+            "model",
+            "permissionPolicy",
+            "resourceLimits",
+            "usage",
+            "checkpointAvailable",
+            "status",
+            "finishedAt"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

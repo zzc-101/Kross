@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { SessionSnapshot } from '@kross/protocol';
+import type { SessionSnapshot } from '@kross/protocol/legacy';
 import { useTranslation } from 'react-i18next';
 
 import { InspectionPanel } from './InspectionPanel';

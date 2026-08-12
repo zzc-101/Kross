@@ -6,7 +6,7 @@ import {
   PROTOCOL_VERSION,
   type ClientCommand,
   type EventEnvelope
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 import { describe, expect, it } from 'vitest';
 
 import type {

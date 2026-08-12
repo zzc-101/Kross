@@ -20,6 +20,7 @@ import type { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationCoordinator } from '../mutations/mutationService';
 import type { ProcessManager } from '../process/processManager';
 import type { McpManager } from '../mcp/register';
+import type { AgentExecutionProfile } from './agentExecutionProfile';
 
 export type {
   PendingConductorExecution,
@@ -29,6 +30,8 @@ export type {
 
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
+  /** Defaults to the built-in Coding profile when omitted. */
+  executionProfile?: AgentExecutionProfile;
   /** 高级模型（指挥家规划 + 验收）；也是默认 agent 模型 */
   llmClient?: LlmClient;
   /**

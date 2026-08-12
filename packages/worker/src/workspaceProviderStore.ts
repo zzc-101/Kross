@@ -12,7 +12,7 @@ import { dirname } from 'node:path';
 import {
   modelProviderSchema,
   type ModelProfile
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 import { z } from 'zod';
 
 const privateProfileSchema = z.object({

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PROTOCOL_VERSION } from '@kross/protocol/legacy';
+
 import {
   CloudClient,
   httpEndpoint,
@@ -100,7 +102,7 @@ describe('CloudClient SSE transport', () => {
     await vi.waitFor(() => expect(transport.streams).toHaveLength(1));
 
     const envelope = JSON.stringify({
-      protocolVersion: 1,
+      protocolVersion: PROTOCOL_VERSION,
       workspaceId: 'w1',
       sessionId: 's1',
       seq: 3,

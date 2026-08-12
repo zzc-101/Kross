@@ -1,8 +1,14 @@
 import { z } from 'zod';
 
-export const PROTOCOL_VERSION = 1 as const;
+export const LEGACY_PROTOCOL_VERSION = 1 as const;
 
-export const protocolVersionSchema = z.literal(PROTOCOL_VERSION);
+/**
+ * @deprecated Temporary workspace/session-shaped Cloud compatibility schema.
+ * New SaaS code must use publicEventSchemas.ts and internalWorkerSchemas.ts.
+ */
+/** @deprecated Use LEGACY_PROTOCOL_VERSION from @kross/protocol/legacy. */
+export const PROTOCOL_VERSION = LEGACY_PROTOCOL_VERSION;
+export const protocolVersionSchema = z.literal(LEGACY_PROTOCOL_VERSION);
 export const identifierSchema = z.string().min(1).max(200);
 export const agentModeSchema = z.enum(['auto', 'plan', 'conductor']);
 export const thinkingEffortSchema = z.enum([

@@ -6,7 +6,8 @@ Python、Java 或其他控制面直接验证消息。
 
 ## 语言无关产物
 
-当前 `PROTOCOL_VERSION` 为 `1`：
+本页以下内容描述隔离在 `@kross/protocol/legacy` 的旧 Cloud v1。新的 Work Protocol
+根入口版本为 `2`，其生成产物位于 `packages/protocol/schemas/`。
 
 | 产物 | 用途 |
 |---|---|
@@ -17,17 +18,18 @@ Python、Java 或其他控制面直接验证消息。
 Schema 的 `$id` 指向仓库中的稳定路径，`x-kross-protocol-version` 与
 `PROTOCOL_VERSION` 一致。应用版本、数据格式版本和协议版本彼此独立。
 
-修改 `packages/protocol/src/schemas.ts` 后运行：
+修改 `packages/protocol/src/legacySchemas.ts` 后运行旧 Cloud 的定向测试；Work Protocol
+v2 的事实源位于 `packages/protocol/src/resourceSchemas.ts`、
+`publicEventSchemas.ts` 与 `internalWorkerSchemas.ts`，修改后运行：
 
 ```bash
 npm run protocol:update
 npm run protocol:check
 ```
 
-普通 CI 会执行 `protocol:check`，阻止 Zod 与已提交 JSON Schema 漂移。生成器允许
-增加可选字段和新的命令/事件分支；移除字段或分支、改变 required 状态、移除 enum
-值或收紧基本约束会被视为破坏性变更。此时必须提升 `PROTOCOL_VERSION`，生成新的
-版本文件，并保留旧文件供已有客户端使用。
+普通 CI 会执行 `protocol:check`，阻止 Zod 与已提交 JSON Schema 漂移。v2 使用严格
+对象，因此新增字段、移除字段或分支、改变 required 状态、移除 enum 值及收紧约束
+均视为破坏性变更。此时必须提升 `PROTOCOL_VERSION` 并生成新版本产物。
 
 ## 命令与结果关联
 

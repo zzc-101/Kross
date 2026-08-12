@@ -1,4 +1,4 @@
-import type { SessionSnapshot } from '@kross/protocol';
+import type { SessionSnapshot } from '@kross/protocol/legacy';
 
 export type CloudTrace = SessionSnapshot['traces'][number];
 export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled';

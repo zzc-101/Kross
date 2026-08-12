@@ -3,7 +3,7 @@ import {
   eventEnvelopeSchema,
   type ClientCommand,
   type EventEnvelope
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 
 export type ConnectionState =
   | 'connecting'

@@ -20,6 +20,10 @@ import {
 import type { AgentRuntimeOptions } from '../runtime/agentRuntimeTypes';
 import { AgentRuntime } from '../runtime/agentRuntime';
 import {
+  createCodingAgentExecutionProfile,
+  type AgentExecutionProfile
+} from '../runtime/agentExecutionProfile';
+import {
   createDefaultSubagentRunner,
   type SubagentRunDeps
 } from '../runtime/subagentRunner';
@@ -70,6 +74,8 @@ export interface CreateAgentHostOptions {
   fetch?: LlmFetch;
   config?: CreateAgentHostConfigOptions;
   runtimeOptions?: Partial<AgentRuntimeOptions>;
+  /** Defaults to the current local Coding Agent behavior. */
+  executionProfile?: AgentExecutionProfile;
   /** Experimental, notification-only, redacted lifecycle extension. */
   experimentalLifecycleHooks?: ExperimentalLifecycleHooksOptions;
 }
@@ -132,6 +138,8 @@ export async function createAgentHost(
           config,
           tooling
         ),
+        executionProfile:
+          options.executionProfile ?? createCodingAgentExecutionProfile(),
         ...options.runtimeOptions,
         ...overrides
       });

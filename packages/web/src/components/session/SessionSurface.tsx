@@ -1,4 +1,4 @@
-import type { AgentResult } from '@kross/protocol';
+import type { AgentResult } from '@kross/protocol/legacy';
 import type { TFunction } from 'i18next';
 import { ChevronRight } from 'lucide-react';
 import { memo, useState, type ReactNode } from 'react';

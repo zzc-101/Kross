@@ -19,6 +19,8 @@ const toolCallSchema = z.object({
 export const runCheckpointSchema = z
   .object({
     version: z.literal(1),
+    /** Optional only for persisted checkpoints written before profiles existed. */
+    executionProfileId: z.string().min(1).max(100).optional(),
     runId: z.string().min(1),
     mode: agentModeSchema,
     originalUserInput: z.string(),
@@ -54,6 +56,8 @@ export const runCheckpointSchema = z
 
 export interface RunCheckpointV1 {
   version: 1;
+  /** Missing only on legacy v1 Coding checkpoints. New checkpoints always set it. */
+  executionProfileId?: string;
   runId: string;
   mode: z.infer<typeof agentModeSchema>;
   originalUserInput: string;

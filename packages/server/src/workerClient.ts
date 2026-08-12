@@ -5,7 +5,7 @@ import {
   eventEnvelopeSchema,
   type ClientCommand,
   type EventEnvelope
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 import WebSocket from 'ws';
 
 export interface WorkerClientOptions {

@@ -36,6 +36,7 @@ import type {
 import type { ModelSession } from './modelSession';
 import type { SessionServices } from './sessionServices';
 import { requiresVerificationForFiles } from '../verification';
+import type { AgentExecutionPromptPhase } from './agentExecutionProfile';
 
 export interface ModeFlowsDeps {
   options: AgentRuntimeOptions;
@@ -53,6 +54,11 @@ export interface ModeFlowsDeps {
     options?: { planText?: string }
   ) => AsyncIterable<AgentRunStreamEvent>;
   attachChangedFiles: (result: AgentResult) => Promise<AgentResult>;
+  buildSystemPrompt(input: {
+    phase: AgentExecutionPromptPhase;
+    mode: AgentMode;
+    defaultPrompt: string;
+  }): string;
   finishTurnWithAssistant: (userInput: string, assistantOutput: string) => void;
 }
 
@@ -79,8 +85,13 @@ export class ModeFlows {
     yield { type: 'text-delta', text: header };
 
     let planBody = '';
+    const defaultPlanPrompt = renderModePhasePrompt('plan.body', 'plan');
     for await (const event of this.streamPlainAssistantText({
-      systemPrompt: renderModePhasePrompt('plan.body', 'plan'),
+      systemPrompt: this.deps.buildSystemPrompt({
+        phase: 'plan',
+        mode: 'plan',
+        defaultPrompt: defaultPlanPrompt
+      }),
       userText: input.input,
       signal: input.signal,
       purpose: 'plan-body'
@@ -301,12 +312,20 @@ export class ModeFlows {
             )
             .join('\n')
         : '（没有已配置的模型档案；不要填写 modelProfileId）';
+    const defaultConductorPlanPrompt = renderModePhasePrompt(
+      'conductor.plan',
+      'conductor'
+    );
     try {
       const response = await client.complete({
         messages: [
           {
             role: 'system',
-            content: renderModePhasePrompt('conductor.plan', 'conductor')
+            content: this.deps.buildSystemPrompt({
+              phase: 'conductor-plan',
+              mode: 'conductor',
+              defaultPrompt: defaultConductorPlanPrompt
+            })
           },
           {
             role: 'user',
@@ -622,10 +641,14 @@ export class ModeFlows {
             title: `验收 ${rootLabel}`.slice(0, 48),
             mode: 'explore',
             role: 'reviewer',
-            systemPrompt: renderModePhasePrompt(
-              'conductor.review',
-              'conductor'
-            ),
+            systemPrompt: this.deps.buildSystemPrompt({
+              phase: 'conductor-review',
+              mode: 'conductor',
+              defaultPrompt: renderModePhasePrompt(
+                'conductor.review',
+                'conductor'
+              )
+            }),
             parentRunId: runId,
             parentDepth: 0,
             signal,
@@ -706,7 +729,14 @@ export class ModeFlows {
     }
     if (!reviewText.trim() && seniorClient) {
       for await (const event of this.streamPlainAssistantText({
-        systemPrompt: renderModePhasePrompt('conductor.review', 'conductor'),
+        systemPrompt: this.deps.buildSystemPrompt({
+          phase: 'conductor-review',
+          mode: 'conductor',
+          defaultPrompt: renderModePhasePrompt(
+            'conductor.review',
+            'conductor'
+          )
+        }),
         userText: renderPrompt('conductor.review.user', {
           goal,
           digest,

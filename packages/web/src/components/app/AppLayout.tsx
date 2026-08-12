@@ -1,4 +1,4 @@
-import type { CloudWorkspace, SessionSnapshot } from '@kross/protocol';
+import type { CloudWorkspace, SessionSnapshot } from '@kross/protocol/legacy';
 import type { TFunction } from 'i18next';
 import {
   Activity,

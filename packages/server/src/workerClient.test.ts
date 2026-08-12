@@ -1,6 +1,6 @@
 import { once } from 'node:events';
 
-import { PROTOCOL_VERSION } from '@kross/protocol';
+import { PROTOCOL_VERSION } from '@kross/protocol/legacy';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
 

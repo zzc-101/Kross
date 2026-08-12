@@ -10,7 +10,7 @@ import { dirname } from 'node:path';
 import {
   workspaceSchema,
   type CloudWorkspace
-} from '@kross/protocol';
+} from '@kross/protocol/legacy';
 import { z } from 'zod';
 import { assertServerDataVersion } from './persistenceVersion';
 
