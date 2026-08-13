@@ -185,7 +185,14 @@ export class WorkApiClient {
 
   private async optionalPage<T extends z.ZodTypeAny>(path: string, schema: T): Promise<Array<z.infer<T>['items'][number]>> {
     try {
-      const value = await this.get(path, schema);
+      const raw = await this.raw(path);
+      const parsed = schema.safeParse(raw);
+      const value = parsed.success
+        ? parsed.data
+        : schema.parse({
+            ...z.object({ items: z.array(z.unknown()) }).passthrough().parse(raw),
+            pageInfo: { hasMore: false }
+          });
       return value.items;
     } catch (error) {
       if (error instanceof ApiError && [404, 501, 503].includes(error.status)) return [];

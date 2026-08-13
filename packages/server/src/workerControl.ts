@@ -401,7 +401,7 @@ export class PostgresWorkerControlService implements WorkerControlService {
       leaseExpiresAt: iso(row.lease_expires_at), issuedAt: this.now().toISOString(),
       task: {
         type: row.task_type, title: row.task_title, objective: row.task_objective,
-        constraints: row.task_constraints, acceptanceCriteria: row.task_acceptance_criteria,
+        constraints: stringArray(row.task_constraints), acceptanceCriteria: stringArray(row.task_acceptance_criteria),
         messages: messages.map(mapRunSpecMessage)
       },
       sources,
@@ -469,7 +469,13 @@ function asObject(value: unknown): Record<string, unknown> {
 }
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+  if (typeof value !== 'string') return [];
+  try {
+    return stringArray(JSON.parse(value));
+  } catch {
+    return [];
+  }
 }
 
 function mapRunSpecMessage(value: unknown): Record<string, unknown> {

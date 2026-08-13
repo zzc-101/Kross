@@ -37,6 +37,16 @@ describe('WorkApiClient', () => {
     ]);
   });
 
+  it('normalizes an unpaginated empty server collection', async () => {
+    const client = new WorkApiClient({
+      baseUrl: 'https://work.test',
+      fetch: async () => jsonResponse({ items: [] })
+    });
+    client.selectOrganization('org-1');
+
+    await expect(client.listSources('project-1')).resolves.toEqual([]);
+  });
+
   it('rejects malformed payloads instead of leaking unchecked JSON into UI state', async () => {
     const client = new WorkApiClient({
       baseUrl: 'https://work.test',

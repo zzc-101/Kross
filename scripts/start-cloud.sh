@@ -65,7 +65,7 @@ ensure_secret() {
   ' "$ENV_FILE" >"$temp_env"
   mv "$temp_env" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
-  echo "已生成 $key 并保存到 $ENV_FILE。"
+  echo "已生成 $key 并保存到 ${ENV_FILE}。"
 }
 
 ensure_env() {
@@ -83,7 +83,7 @@ wait_for_web() {
   if [ -z "$port" ]; then port=8787; fi
   attempt=0
   while [ "$attempt" -lt 60 ]; do
-    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/health"; then
+    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/healthz"; then
       return 0
     fi
     attempt=$((attempt + 1))

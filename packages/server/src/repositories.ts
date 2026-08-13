@@ -99,6 +99,16 @@ function optionalIso(value: unknown): string | undefined {
   return value === null || value === undefined ? undefined : iso(value);
 }
 
+function stringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+  if (typeof value !== 'string') return [];
+  try {
+    return stringArray(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
 function mapProject(row: Record<string, unknown>): ProjectRecord {
   return {
     id: String(row.id), organizationId: String(row.organization_id),
@@ -113,7 +123,7 @@ function mapTask(row: Record<string, unknown>): TaskRecord {
   return {
     id: String(row.id), organizationId: String(row.organization_id), projectId: String(row.project_id),
     type: row.type as TaskType, title: String(row.title), objective: String(row.objective),
-    constraints: row.constraints as string[], acceptanceCriteria: row.acceptance_criteria as string[],
+    constraints: stringArray(row.constraints), acceptanceCriteria: stringArray(row.acceptance_criteria),
     status: row.status as TaskRecord['status'],
     ...(row.latest_run_id == null ? {} : { latestRunId: String(row.latest_run_id) }),
     createdBy: String(row.created_by), createdAt: iso(row.created_at), updatedAt: iso(row.updated_at)
@@ -259,9 +269,9 @@ export class TaskRepository {
         acceptance_criteria, status, created_by)
        SELECT $1, $2, p.id, $4, $5, $6, $7, $8, 'open', $9
        FROM projects p WHERE p.organization_id = $2 AND p.id = $3 AND p.status <> 'deleted'
-       RETURNING *`,
+      RETURNING *`,
       [id, context.organizationId, command.projectId, command.type, command.title, command.objective,
-        command.constraints ?? [], command.acceptanceCriteria ?? [], context.userId]
+        JSON.stringify(command.constraints ?? []), JSON.stringify(command.acceptanceCriteria ?? []), context.userId]
     );
     if (!result.rows[0]) throw notFound('Project');
     return mapTask(result.rows[0]);
@@ -308,7 +318,7 @@ export class RunRepository {
               requestedModelProfileId: command.requestedModelProfileId,
               provider: 'environment', model: 'environment-default', credentialHandle: 'environment-default'
             },
-            defaultPermissionPolicy, defaultResourceLimits, command.selectedSourceIds ?? [], emptyUsage, context.userId]
+            defaultPermissionPolicy, defaultResourceLimits, JSON.stringify(command.selectedSourceIds ?? []), emptyUsage, context.userId]
         );
         await client.query(
           `UPDATE tasks SET latest_run_id = $3, updated_at = now()

@@ -24,7 +24,10 @@ describe('SaaS vertical journey', () => {
       projectId: project.id, type: 'research', title: 'Research competitors',
       objective: 'Deliver a cited comparison', acceptanceCriteria: ['Artifact is ready']
     });
+    expect(state.task?.constraints).toBe('[]');
+    expect(state.task?.acceptance_criteria).toBe('["Artifact is ready"]');
     const run = await new RunRepository(state, state).create(context, { taskId: task.id, mode: 'auto' });
+    expect(state.run?.selected_source_ids).toBe('[]');
 
     const workerControl = new PostgresWorkerControlService(state, state, {
       now: () => new Date(now),
