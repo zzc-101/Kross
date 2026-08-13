@@ -1,8 +1,10 @@
 # Kross SaaS Work Agent 完整实施方案
 
-> 状态：待维护者确认
+> 状态：实施中；P0–P5 已形成可运行纵向版本，尚未达到生产 SaaS 完成定义
 >
-> 日期：2026-08-12
+> 初稿日期：2026-08-12
+>
+> 最近更新：2026-08-13（`42a20de`）
 >
 > 实施分支：`codex/saas-work-agent`
 >
@@ -26,6 +28,34 @@
   不删除，也不改变格式。
 - 首个可部署版本以“单集群、多租户就绪”为目标。开发环境可以单用户运行，但所有
   持久化记录从第一天开始携带组织边界，避免后续再做租户拆分。
+- 云端前端拆成两个独立产品入口：普通用户工作台 `packages/web` 与组织管理端
+  `packages/admin-web`。两端共享控制面和设计语言，但不共享路由、权限入口或产品
+  信息架构。
+
+### 1.1 当前实施快照
+
+截至 2026-08-13，分支 `codex/saas-work-agent` 已经可以通过 Docker Compose 启动，
+默认入口为：
+
+- 用户端：`http://localhost:8787`
+- 组织管理端：`http://localhost:8788`
+
+当前版本已经完成 PostgreSQL migration、Protocol v2、Work Domain、Run
+Orchestrator、Worker Runtime、Source/Artifact 基础链路、Approval/Checkpoint、用户
+工作台和组织管理端的可运行纵向实现。`npm run check` 共通过 194 个测试文件、1101
+项测试；隔离 Compose Smoke 已覆盖 PostgreSQL、Migration、Server、Orchestrator、
+Worker 镜像、用户端和管理端。
+
+这不代表生产版本已经完成。当前能力分为三类：
+
+| 分类 | 当前状态 | 说明 |
+|---|---|---|
+| 已形成真实纵向链路 | 多租户数据、Project/Task/Run、消息、Source、Artifact、Approval、Lease、Worker Token、双 Web 部署 | 已有真实 PostgreSQL/Docker/浏览器验收 |
+| 已有基础实现但仍需加固 | Checkpoint 恢复、Connector/Schedule、移动端、Artifact 预览、模型配置 | 有合同或骨架，不等于生产质量 |
+| 尚未实现 | 生产 OIDC/Session/CSRF、Credential Broker、真实 OAuth Connector、平台运营后台、计费配额、完整监控告警、备份恢复演练 | 属于 P6–P7 的发布阻塞项 |
+
+按产品完成度评估：技术底座约 60%，普通用户 MVP 约 45%，可运营 SaaS 约 25%。后续
+评审应以本节和第 19、22 节为准，不能把“接口存在”计作“产品完成”。
 
 ## 2. 产品目标与非目标
 
@@ -64,7 +94,8 @@ flowchart TB
     TUI["TUI / kross exec"] --> CODING["Coding Profile"]
     CODING --> CORE["packages/core"]
 
-    WEB["SaaS Web"] --> SERVER["Control Plane"]
+    WEB["用户工作台"] --> SERVER["Control Plane"]
+    ADMIN["组织管理端"] --> SERVER
     SERVER --> ORCH["Run Orchestrator"]
     ORCH --> WORKER["Ephemeral Run Worker"]
     WORKER --> WORK["Work Runtime + Work Profile"]
@@ -111,6 +142,19 @@ I/O；真正的容量瓶颈通常来自模型限流、浏览器内存、Worker �
 Run Event、SSE 和数据库 JSONB 不保存完整附件、Artifact、长工具输出或二进制。
 大内容写入 Blob Store，事件只保存摘要、哈希、大小、MIME、来源和对象引用。
 
+### 3.6 用户端与管理端的信任边界
+
+- 用户端和管理端使用不同静态构建产物与 Nginx 入口，默认端口分别为 `8787` 和
+  `8788`。
+- 两端只通过 Public/Admin REST API 使用控制面，均不直接访问 PostgreSQL、Blob
+  根目录、Orchestrator 或 Docker Socket。
+- `/api/v2/admin/*` 必须重新解析 OrganizationContext 并执行 owner/admin 权限检查，
+  不能因为请求来自管理端域名就自动信任。
+- 所有管理写操作必须记录 Audit Event；Credential API 只接受 Handle/Secret
+  Provider 引用，禁止通过响应或日志返回长期凭证明文。
+- 平台运营后台属于更高信任域，未来应使用独立应用、身份声明和 API namespace，
+  不能复用组织管理端的 owner 权限。
+
 ## 4. 代码边界与目标包结构
 
 ```text
@@ -126,12 +170,14 @@ packages/
   orchestrator/      # 新增：Docker 调度、租约、资源限制、容器回收
   worker/            # 重写：无状态 Run Executor，复用 Core 与 Work Runtime
   web/               # 重写：SaaS Work Agent Web/PWA
+  admin-web/         # 新增：组织成员、模型、策略、连接器与审计管理端
 
 docker/
   server.Dockerfile
   orchestrator.Dockerfile
   worker.Dockerfile
   web.Dockerfile
+  admin-web.Dockerfile
 ```
 
 暂不单独创建 `storage`、`artifacts` 或 `connectors` workspace。先在 Server 内以
@@ -149,6 +195,7 @@ docker/
 | `packages/server/**` | 破坏性重写 |
 | `packages/worker/**` | 破坏性重写为 Run Executor |
 | `packages/web/**` | 破坏性重写 |
+| `packages/admin-web/**` | 独立新增；仅承载组织管理能力，不混入普通用户任务工作台 |
 | `docker/**` | 按新控制面与执行面重写 |
 
 ## 5. 核心术语与领域模型
@@ -290,6 +337,16 @@ Artifact 不覆盖历史版本。后续 Run 修改交付物时创建新 Artifact
 - 状态、授权用户、scope 清单
 - 加密凭证引用、最近检查时间和错误类别
 - 工具与资源能力快照
+
+#### ModelProfile 与 CredentialHandle
+
+- ModelProfile 保存组织可选择的供应商、模型 ID、非敏感配置、状态和可选
+  CredentialHandle 引用。
+- CredentialHandle 只保存 Secret Provider 中的引用和非敏感元数据，不保存可由管理
+  API 读回的模型 Key、OAuth Token 或私钥。
+- Run 创建时保存模型与策略快照；Worker 只获得短期、Run-scoped 的凭证能力。
+- 当前 migration 和 Admin API 已支持两类元数据，但真实 Secret Provider、轮换和短期
+  Credential Broker 尚未实现。
 
 #### Schedule
 
@@ -440,12 +497,15 @@ DELETE /api/v2/projects/:projectId
 
 GET    /api/v2/projects/:projectId/sources
 POST   /api/v2/projects/:projectId/sources/uploads
+POST   /api/v2/projects/:projectId/sources/inline
+POST   /api/v2/projects/:projectId/sources/external
 POST   /api/v2/sources/:sourceId/complete
 DELETE /api/v2/sources/:sourceId
 
 GET    /api/v2/projects/:projectId/tasks
 POST   /api/v2/projects/:projectId/tasks
 GET    /api/v2/tasks/:taskId
+GET    /api/v2/tasks/:taskId/messages
 POST   /api/v2/tasks/:taskId/messages
 POST   /api/v2/tasks/:taskId/runs
 
@@ -471,10 +531,34 @@ PATCH  /api/v2/schedules/:scheduleId
 DELETE /api/v2/schedules/:scheduleId
 
 GET    /api/v2/events
+
+POST   /api/v2/admin/bootstrap
+GET    /api/v2/admin/dashboard
+GET    /api/v2/admin/members
+POST   /api/v2/admin/members
+PATCH  /api/v2/admin/members/:membershipId
+DELETE /api/v2/admin/members/:membershipId
+GET    /api/v2/admin/models
+POST   /api/v2/admin/models
+PATCH  /api/v2/admin/models/:modelProfileId
+DELETE /api/v2/admin/models/:modelProfileId
+GET    /api/v2/admin/credentials
+POST   /api/v2/admin/credentials
+PATCH  /api/v2/admin/credentials/:credentialHandleId
+DELETE /api/v2/admin/credentials/:credentialHandleId
+GET    /api/v2/admin/connectors
+GET    /api/v2/admin/approval-policy
+PATCH  /api/v2/admin/approval-policy
+GET    /api/v2/admin/audit-logs
 ```
 
 创建 Task、Run、Approval Decision 和外部动作必须支持 `Idempotency-Key`。重复请求
 返回第一次结果。
+
+当前实现已覆盖 Project/Task/Message/Run、Source、Artifact、Approval、Connector、
+Schedule 和 Admin 主路径；Project/Task/Source 的完整更新/删除、Run retry、通用分页
+以及 OpenAPI 仍待补齐。上述列表是目标 REST 合同，不应因为路由列在文档中就推断其
+已经全部实现。
 
 ### 8.3 SSE 契约
 
@@ -633,9 +717,11 @@ Approval 决策还必须验证用户能访问对应 Task/Run，不能只检查 A
 
 ### 11.3 Secrets
 
-- 数据库只保存加密密文或 Secrets Provider 引用。
-- 开发环境使用版本化 AES-GCM envelope encryption，主密钥来自环境或文件挂载。
-- 生产实现可以接 KMS，但接口从第一版存在。
+- 目标状态下数据库只保存加密密文或 Secrets Provider 引用。
+- 当前实现只允许管理 Credential Handle 引用和安全元数据，并拒绝疑似 secret、token、
+  password、API key 字段；它尚未提供生产 Secret Provider。
+- 后续开发环境可使用版本化 AES-GCM envelope encryption，主密钥来自环境或文件
+  挂载；生产实现接 KMS/Secret Manager，并通过短期 Credential Broker 向 Run 授权。
 - OAuth refresh token、模型 key、Git key 不进入 RunEvent、Trace、错误正文或日志。
 - Worker 不接收长期 Connector refresh token；通过 Run-scoped Connector Proxy 调用。
 
@@ -676,7 +762,12 @@ Schedule Tick 由 Server 的数据库调度器领取，按用户时区计算 `ne
 
 ## 14. Web 产品信息架构
 
-### 14.1 一级导航
+云端包含普通用户工作台和组织管理端两个独立前端。它们可以共享基础组件和视觉
+token，但必须分别构建、部署和鉴权。普通组织 `owner/admin` 只能进入自己组织的
+管理端；未来的平台运营后台使用独立 `platform_admin` 身份，不得把平台权限编码成
+某个普通组织角色。
+
+### 14.1 用户端一级导航
 
 ```text
 Home
@@ -687,7 +778,37 @@ Connectors
 Settings
 ```
 
-### 14.2 关键页面
+当前用户端已经落地 Home、Project/Task 导航、History API URL 恢复、组织切换、
+Composer、Source 上传/Inline Source、Artifact 下载入口、Approval 和 Run 摘要。尚未
+完整落地的设计包括独立 Schedules/Connectors/Settings 页面、Artifact 丰富预览、
+Run 完整时间线和离线 PWA。
+
+### 14.2 组织管理端
+
+管理端独立位于 `packages/admin-web`，默认端口 `8788`，当前一级导航为：
+
+```text
+Dashboard
+Members & Roles
+Model Profiles
+Connectors
+Approval Policy
+Audit Logs
+```
+
+管理端职责：
+
+- 首次开发部署创建首个 Organization 与 owner；生产部署改由受保护 Provisioning
+  流程完成。
+- 管理成员邀请、角色、状态和最后一个 owner 保护。
+- 管理 Model Profile 与 Credential Handle 元数据；任何 API 都不得回传凭证明文。
+- 查看 Connector 安装状态并配置组织级审批与保留策略。
+- 查看所有管理写操作产生的 Audit Event。
+
+当前缺口：Credential Handle 的专用 UI、生产密钥写入/轮换流程、组织资料编辑、配额
+与用量页面、Schedule 集中管理和平台级运营后台。
+
+### 14.3 用户端关键页面
 
 #### Home
 
@@ -728,7 +849,7 @@ Composer 支持：
 - 在线预览、下载、来源、版本链和“继续修改”。
 - “继续修改”向原 Task 追加消息并创建新 Run，不覆盖原 Artifact。
 
-### 14.3 前端状态策略
+### 14.4 前端状态策略
 
 - REST 快照是权威状态，SSE 用于增量更新。
 - URL 包含 organization/project/task/run 标识，支持刷新恢复。
@@ -873,6 +994,21 @@ Repository Project 仍可以提供 Diff、Push 和 PR 工具，但它们作为 W
 
 每个阶段必须独立可验证、可提交，不把未完成的跨阶段占位逻辑伪装成完成。
 
+### 19.1 当前阶段状态
+
+| 阶段 | 状态 | 已落地 | 主要剩余项 |
+|---|---|---|---|
+| P0 合同与边界 | 基本完成 | Work Domain、Protocol v2、Execution Profile、TUI 边界 | 后续变更继续守住 Coding 回归 |
+| P1 PostgreSQL 基础 | 基本完成 | Migration、RBAC、租户 Repository、Lease、幂等、Audit 基础 | 更完整的管理资源编辑与审计导出 |
+| P2 Run 纵向链路 | 部分完成 | Orchestrator、短期 Token、RunSpec、Worker、事件、SSE | 真实模型长任务和崩溃矩阵验证 |
+| P3 Source/Artifact | 部分完成 | 本地 Blob、签名上传、物化、reserve/commit、下载入口 | S3 Adapter、丰富预览、修订与继续修改 |
+| P4 Approval/恢复 | 部分完成 | Approval 决策、消费约束、Checkpoint 上传/恢复 | 实时通知及副作用前后崩溃全矩阵 |
+| P5 用户 Web | 部分完成 | Home、路由、Task、Composer、Source、Artifact、Approval、Run 摘要 | 完整 Run Detail、移动端、PWA、端到端弱网测试 |
+| P6 管理/Connector/身份 | 早期实现 | 独立管理端、成员、模型元数据、策略、审计、Schedule/Connector 数据骨架 | OIDC、CSRF、Credential Broker、真实 Connector、通知 |
+| P7 生产加固 | 未完成 | Compose、健康检查、隔离 Smoke、部署文档基础 | 配额、限流、指标告警、备份恢复、压测、安全发布门 |
+
+以下 P0–P7 内容继续作为目标与验收合同；表中“部分完成”不得改写成“验收通过”。
+
 ### P0：合同与保护边界
 
 目标：为破坏性改造建立不会伤害 TUI 的护栏。
@@ -1013,10 +1149,10 @@ Repository Project 仍可以提供 Diff、Push 和 PR 工具，但它们作为 W
 - Artifact/Source 可被猜测 ID 越权下载。
 - TUI/Coding Eval 出现未解释回归。
 
-## 20. 后续多子代理执行方案
+## 20. 历史执行波次与后续协作规则
 
-文档确认后，按依赖波次派生子代理。团队同时最多四个活跃 Agent，因此每波由主
-Agent 协调整合，最多三个子代理并行。
+Wave 1–4 已用于形成当前纵向版本，保留如下记录便于追溯依赖关系。后续继续派生
+子代理时，团队同时最多四个活跃 Agent，由主 Agent 协调整合，最多三个子代理并行。
 
 ### Wave 1：合同与边界
 
@@ -1061,14 +1197,15 @@ Wave 1 完成并合并后才能开始数据库与 Worker；不能让后续 Agent
 4. 修复冲突后再开启下一波。
 5. 每个阶段独立提交，不自动推送。
 
-## 21. 维护者待确认决策
+## 21. 已确认的架构决策
 
-以下推荐值用于实施；文档确认时请逐项接受或修改：
+以下值已经用于当前实现；若要修改，必须单独形成架构决策并更新迁移方案：
 
 | 决策 | 推荐默认值 | 影响 |
 |---|---|---|
 | Cloud v1 数据 | 不迁移，旧卷只保留人工删除说明 | 显著减少兼容成本 |
 | 初始部署 | 单集群、自托管可运行、多租户数据模型 | 兼顾 MVP 与 SaaS 演进 |
+| Web 入口 | 用户端与组织管理端独立构建和部署 | 避免普通任务体验与高权限管理能力耦合 |
 | 数据库 | PostgreSQL，首版不用 Redis | 减少基础设施数量 |
 | Blob | 本地开发 Adapter + S3 生产 Adapter | 支持大文件和横向扩展 |
 | 身份 | Dev Identity + 可插拔 OIDC；不自建密码系统 | 需要选择生产 OIDC Provider |
@@ -1094,3 +1231,20 @@ Wave 1 完成并合并后才能开始数据库与 Worker；不能让后续 Agent
 - `packages/tui` 无产品代码改动，现有 Coding Agent 测试、Eval 和 package smoke
   全部通过。
 - 部署、备份、恢复、旧 Cloud 卷处理和已知限制有文档。
+
+### 22.1 当前完成定义差距
+
+当前版本尚未满足本节完成定义，主要阻塞为：
+
+1. 尚未以正式 Credential Broker 和真实 Provider 完成受预算端到端 Run 验收。
+2. Artifact 已有收集和下载链路，但常见文档/数据的完整在线预览与版本链未完成。
+3. Approval/Checkpoint 已有实现，但审批前后 Worker 崩溃的副作用安全矩阵尚未全部
+   通过真实容器测试。
+4. Connector Proxy 和 Schedule 已有数据与服务骨架，真实 OAuth、通知和完整管理 UI
+   未完成。
+5. 当前只提供 Dev Identity；生产 OIDC、Secure/HttpOnly Session、CSRF 与会话撤销
+   尚未实现。
+6. 配额、限流、成本、指标、告警、备份恢复演练、容量测试和安全发布审查尚未完成。
+
+因此当前对外表述必须使用“可运行开发预览”或“纵向实现”，不能称为 Release
+Candidate，也不能宣称已经满足生产多租户 SaaS 要求。
