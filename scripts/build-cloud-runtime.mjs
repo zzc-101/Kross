@@ -15,7 +15,7 @@ const outfile = resolve(root, output);
 
 await mkdir(dirname(outfile), { recursive: true });
 await build({
-  entryPoints: [resolve(root, 'packages/worker/src/main.ts')],
+  entryPoints: [resolve(root, 'apps/worker/src/main.ts')],
   outfile,
   bundle: true,
   platform: 'node',

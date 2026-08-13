@@ -198,15 +198,18 @@ flowchart TB
     G --> P["Processes / MCP / Subagents"]
 ```
 
-Kross is a TypeScript monorepo:
+Kross is a TypeScript and Java monorepo:
 
 - `packages/core`: Agent Runtime, Harness completion gate, context governance, sessions, tools, permissions, Skills, MCP, and model adapters.
-- `packages/tui`: Ink-based interactive terminal interface.
 - `packages/protocol`: browser-safe Zod wire protocol for commands, events, replay, and session snapshots.
-- `packages/server`: authentication, HTTP/SSE Gateway, workspace registry, Docker orchestration, and Web Push.
-- `packages/worker`: headless Agent host running inside a workspace container and reusing `packages/core`.
-- `packages/web`: responsive React, Vite, and Radix/shadcn Web/PWA client, served by a dedicated Nginx container that proxies Gateway APIs.
-- `packages/eval`: deterministic, no-network Fixture LLM runner for Agent Harness contracts.
+- `packages/work-domain`: browser-safe Work domain model.
+- `packages/work-runtime`: Worker-side Work runtime.
+- `apps/tui`: Ink-based interactive terminal interface.
+- `apps/web`: responsive React, Vite, and Radix/shadcn user workbench, served by a dedicated Nginx container that proxies control-plane APIs.
+- `apps/admin-web`: organization admin console.
+- `apps/worker`: headless Agent host running inside a workspace container and reusing `packages/core`.
+- `apps/eval`: deterministic, no-network Fixture LLM runner for Agent Harness contracts.
+- `control-plane`: Java Spring Boot control plane (identity, work, approvals, worker protocol, Docker launch).
 - `docs`: user guides, technical architecture, Harness documentation, and release notes.
 
 The Cloud Agent supports streaming sessions, tool and plan approvals, reconnect replay, workspace isolation, session and tool history, Todo progress, subagent state, context usage and manual compaction, Diff/Trace, Web Push, Git Push/PR, resource limits, and idle reaping. The Web client exposes Core commands including `/status`, `/context`, `/compact`, `/instructions`, `/skills`, `/processes`, and `/undo`.
@@ -297,7 +300,7 @@ Run individual Cloud components from their own workspaces:
 
 ```bash
 npm run dev --workspace @kross/web
-npm run dev --workspace @kross/server
+npm run dev --workspace @kross/admin-web
 npm run dev --workspace @kross/worker
 ```
 

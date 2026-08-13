@@ -4,5 +4,5 @@ dist
 coverage
 *.log
 .DS_Store
-backend/target
+control-plane/target
 .env

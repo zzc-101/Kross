@@ -58,10 +58,10 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
-          cache-dependency-path: backend/pom.xml
+          cache-dependency-path: control-plane/pom.xml
 
       - name: Compile control plane
-        working-directory: backend
+        working-directory: control-plane
         run: ./mvnw -B -DskipTests compile
 
   package:
@@ -99,7 +99,7 @@ jobs:
         run: docker build --file docker/worker.Dockerfile --tag kross-worker:local .
 
       - name: Build control-plane image
-        run: docker build --file docker/server.Dockerfile --tag kross-server:local .
+        run: docker build --file docker/control-plane.Dockerfile --tag kross-server:local .
 
       - name: Build web image
         run: docker build --file docker/web.Dockerfile --tag kross-web:local .

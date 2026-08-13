@@ -6,12 +6,15 @@ const args = parseArgs(process.argv.slice(2));
 const failures = [];
 const rootPackage = readJson('package.json');
 const lockfile = readJson('package-lock.json');
-const workspacePaths = readdirSync(join(root, 'packages'), {
-  withFileTypes: true
-})
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => `packages/${entry.name}`)
-  .filter((path) => existsSync(join(root, path, 'package.json')))
+const workspacePaths = ['packages', 'apps']
+  .flatMap((rootName) => {
+    const dir = join(root, rootName);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => `${rootName}/${entry.name}`)
+      .filter((path) => existsSync(join(root, path, 'package.json')));
+  })
   .sort();
 const workspacePackages = workspacePaths.map((path) => ({
   path,
@@ -58,15 +61,15 @@ const runtimeVersionFiles = [
     pattern: /clientVersion\s*\?\?\s*'([^']+)'/u
   },
   {
-    path: 'packages/tui/src/main.tsx',
+    path: 'apps/tui/src/main.tsx',
     pattern: /return\s+'([^']+)';\s*\n\}/u
   },
   {
-    path: 'packages/tui/src/App.tsx',
+    path: 'apps/tui/src/App.tsx',
     pattern: /version\s*=\s*'([^']+)'/u
   },
   {
-    path: 'packages/tui/src/ui/WelcomeHome.tsx',
+    path: 'apps/tui/src/ui/WelcomeHome.tsx',
     pattern: /version\s*=\s*'([^']+)'/u
   }
 ];

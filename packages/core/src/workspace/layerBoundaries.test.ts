@@ -17,12 +17,12 @@ describe('project instruction layer boundaries', () => {
 
     expect(source).not.toMatch(/from\s+['"][^'"]*runtime/);
     expect(source).not.toMatch(/from\s+['"][^'"]*context\/sessionContext/);
-    expect(source).not.toContain('packages/tui');
+    expect(source).not.toContain('apps/tui');
   });
 
   it('keeps TUI instruction inspection behind AgentRuntime public APIs', () => {
     const source = readFileSync(
-      join(repoRoot, 'packages/tui/src/app/appCommands.ts'),
+      join(repoRoot, 'apps/tui/src/app/appCommands.ts'),
       'utf8'
     );
 

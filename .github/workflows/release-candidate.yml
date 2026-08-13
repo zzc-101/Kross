@@ -67,7 +67,7 @@ jobs:
 
       - name: Build versioned Server image
         run: |
-          docker build --file docker/server.Dockerfile \
+          docker build --file docker/control-plane.Dockerfile \
             --tag "kross-server:$VERSION" \
             --tag "kross-server:$SHORT_SHA" \
             --tag kross-server:local .

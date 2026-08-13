@@ -12,22 +12,27 @@ Kross 是本地优先的 TypeScript 编程 Agent。Core 提供与界面无关的
 
 ```mermaid
 flowchart TB
-    TUI["packages/tui · Ink"] --> CORE["packages/core"]
-    HEADLESS["packages/tui · exec"] --> CORE
-    WORKER["packages/worker"] --> CORE
+    TUI["apps/tui · Ink"] --> CORE["packages/core"]
+    HEADLESS["apps/tui · exec"] --> CORE
+    WORKER["apps/worker"] --> CORE
     WORKER --> PROTOCOL["packages/protocol"]
-    SERVER["packages/server"] --> PROTOCOL
-    WEB["packages/web"] --> PROTOCOL
+    CONTROL["control-plane"] --> PROTOCOL
+    WEB["apps/web"] --> PROTOCOL
+    ADMIN["apps/admin-web"] --> PROTOCOL
 ```
 
-| Workspace | 职责 |
+| 路径 | 职责 |
 |---|---|
 | `packages/core` | Runtime、上下文、会话、工具、权限、Skills、MCP、模型与验证 |
-| `packages/tui` | Ink 终端交互、Headless NDJSON 与本地 Runtime 宿主 |
 | `packages/protocol` | Cloud 命令、事件、回放与快照的 Zod 线协议 |
-| `packages/server` | 认证、SSE/HTTP Gateway、工作区注册与 Docker 编排 |
-| `packages/worker` | 工作区容器内的 headless Runtime 宿主 |
-| `packages/web` | React/Vite Web 与 PWA 客户端 |
+| `packages/work-domain` | 浏览器安全的 Work 领域模型 |
+| `packages/work-runtime` | Worker 侧 Work 运行时 |
+| `apps/tui` | Ink 终端交互、Headless NDJSON 与本地 Runtime 宿主 |
+| `apps/web` | 普通用户工作台 |
+| `apps/admin-web` | 组织管理端 |
+| `apps/worker` | 工作区容器内的 headless Runtime 宿主 |
+| `apps/eval` | Harness Eval Runner |
+| `control-plane` | Java Spring Boot 控制面 |
 
 Core 不依赖任何界面或 Cloud 包。Protocol 不依赖 Core，并且只包含浏览器安全的
 schema 与类型。产品包之间不得通过穿越目录的相对路径耦合。

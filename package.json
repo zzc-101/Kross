@@ -32,7 +32,8 @@
     "node": ">=22.19.0"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "npm run typecheck && npm run build:cli && npm run build:web && npm run build:admin-web",
@@ -45,7 +46,7 @@
     "cloud:stop": "./scripts/start-cloud.sh --stop",
     "cloud:smoke": "./scripts/cloud-container-smoke.sh",
     "docs:check": "node scripts/check-doc-links.mjs",
-    "eval": "tsx packages/eval/src/cli.ts",
+    "eval": "tsx apps/eval/src/cli.ts",
     "release:metadata": "node scripts/release-metadata.mjs",
     "version:check": "node scripts/check-version-consistency.mjs",
     "test": "vitest",

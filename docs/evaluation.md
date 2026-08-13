@@ -77,7 +77,7 @@ Runner 结束后还会独立执行同一组验证命令。当前真实通道只�
 
 ## Case 契约
 
-Case 位于 `packages/eval/cases/*.json`，使用版本化的 `schemaVersion`。每个
+Case 位于 `apps/eval/cases/*.json`，使用版本化的 `schemaVersion`。每个
 Case 定义：
 
 - fixture 目录、用户 Prompt 和运行模式；
@@ -138,10 +138,10 @@ Trace 路径。
 
 ## 添加 Case
 
-1. 在 `packages/eval/fixtures/<case-id>/` 创建最小输入项目。
-2. 在 `packages/eval/cases/<case-id>.json` 定义版本化 Case。
+1. 在 `apps/eval/fixtures/<case-id>/` 创建最小输入项目。
+2. 在 `apps/eval/cases/<case-id>.json` 定义版本化 Case。
 3. 先单独运行该 Case，再运行全部 Fixture Eval。
-4. 为 Runner 的新行为在 `packages/eval/src/` 添加 Vitest 测试。
+4. 为 Runner 的新行为在 `apps/eval/src/` 添加 Vitest 测试。
 
 Fixture 应尽量小、可跨平台且不包含依赖缓存。验证命令必须直接指定可执行文件和
 参数，不能依赖 shell 展开。普通 Fixture Case 不应读取网络、用户主目录、真实

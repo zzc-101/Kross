@@ -13,21 +13,26 @@ npm ci
 npm run dev --workspace @kross/tui
 ```
 
-Web、Gateway 和 Worker 也分别从 `@kross/web`、`@kross/server` 与
-`@kross/worker` workspace 启动；根目录只负责全仓构建、测试和发布检查。
+Web、管理端和 Worker 也分别从 `@kross/web`、`@kross/admin-web` 与
+`@kross/worker` workspace 启动；Java 控制面在 `control-plane/`。根目录只负责
+全仓构建、测试和发布检查。
 
 ## 仓库边界
 
-| Workspace | 职责 |
+| 路径 | 职责 |
 |---|---|
 | `packages/core` | Runtime、上下文、工具、会话、权限、Skills、MCP 与模型适配 |
-| `packages/tui` | Ink 终端交互和本地宿主 |
 | `packages/protocol` | Cloud 命令、事件与快照的 Zod 线协议 |
-| `packages/server` | Gateway、认证、工作区注册与 Docker 编排 |
-| `packages/worker` | 容器内的 headless Agent 宿主 |
-| `packages/web` | React/Vite Web 与 PWA 客户端 |
+| `packages/work-domain` | 浏览器安全的 Work 领域模型 |
+| `packages/work-runtime` | Worker 侧 Work 运行时 |
+| `apps/tui` | Ink 终端交互和本地宿主 |
+| `apps/web` | 普通用户工作台 |
+| `apps/admin-web` | 组织管理端 |
+| `apps/worker` | 容器内的 headless Agent 宿主 |
+| `apps/eval` | Harness Eval Runner |
+| `control-plane` | Java Spring Boot 控制面 |
 
-依赖应保持从产品层指向 Core/Protocol，Core 不得反向依赖 TUI、Web、Server 或
+依赖应保持从产品层指向 Core/Protocol，Core 不得反向依赖 TUI、Web 或
 Worker。跨包引用使用 workspace 包名，不使用穿越目录的相对路径。
 
 扩展点的稳定级别、工具契约和协议边界见[扩展 Kross](docs/extensions.md)。新增公开

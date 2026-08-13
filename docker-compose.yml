@@ -43,7 +43,7 @@ services:
     image: kross-server:local
     build:
       context: .
-      dockerfile: docker/server.Dockerfile
+      dockerfile: docker/control-plane.Dockerfile
     environment:
       PORT: 8787
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/kross

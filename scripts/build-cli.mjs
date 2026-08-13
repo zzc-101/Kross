@@ -13,7 +13,7 @@ const outfile = resolve(root, 'dist/kross.js');
 await rm(resolve(root, 'dist'), { recursive: true, force: true });
 
 await build({
-  entryPoints: [resolve(root, 'packages/tui/src/main.tsx')],
+  entryPoints: [resolve(root, 'apps/tui/src/main.tsx')],
   outfile,
   bundle: true,
   platform: 'node',

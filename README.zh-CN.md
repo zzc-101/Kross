@@ -203,15 +203,18 @@ flowchart TB
     G --> P["Processes / MCP / Subagents"]
 ```
 
-仓库采用 TypeScript monorepo：
+仓库采用 TypeScript + Java monorepo：
 
 - `packages/core`：Agent runtime、Harness 完成门、上下文治理、会话、工具、权限、Skills、MCP 与模型适配。
-- `packages/tui`：基于 Ink 的交互式终端界面。
 - `packages/protocol`：浏览器安全的 Zod 线协议，定义命令、事件、回放和会话快照。
-- `packages/server`：认证、HTTP/SSE 网关、工作区注册、Docker 编排与 Web Push。
-- `packages/worker`：运行在工作区容器内的 headless Agent 宿主，复用 `packages/core`。
-- `packages/web`：基于 React、Vite 和 Radix/shadcn 的响应式 Web/PWA 客户端，由独立 Nginx 容器托管并反代 Gateway API。
-- `packages/eval`：用于验证 Agent Harness 契约的确定性、无网络 Fixture LLM Runner。
+- `packages/work-domain`：浏览器安全的 Work 领域模型。
+- `packages/work-runtime`：Worker 侧 Work 运行时。
+- `apps/tui`：基于 Ink 的交互式终端界面。
+- `apps/web`：基于 React、Vite 和 Radix/shadcn 的用户工作台，由独立 Nginx 容器托管并反代控制面 API。
+- `apps/admin-web`：组织管理端。
+- `apps/worker`：运行在工作区容器内的 headless Agent 宿主，复用 `packages/core`。
+- `apps/eval`：用于验证 Agent Harness 契约的确定性、无网络 Fixture LLM Runner。
+- `control-plane`：Java Spring Boot 控制面（身份、工作流、审批、Worker 协议与 Docker 启动）。
 - `docs`：用户指南、技术概览、Harness 说明和发布文档。
 
 Cloud Agent 当前支持流式会话、工具与计划审批、断线回放、工作区隔离、会话与
@@ -300,7 +303,7 @@ Cloud 各组件单独开发可使用：
 
 ```bash
 npm run dev --workspace @kross/web
-npm run dev --workspace @kross/server
+npm run dev --workspace @kross/admin-web
 npm run dev --workspace @kross/worker
 ```
 

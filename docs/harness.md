@@ -87,7 +87,7 @@ Trace、session checkpoint 和 mutation journal 都可能包含本地路径、�
 
 ## 确定性 Eval
 
-`packages/eval` 使用 Fixture LLM 或显式选择的真实 Provider，并通过真实
+`apps/eval` 使用 Fixture LLM 或显式选择的真实 Provider，并通过真实
 `AgentRuntime` 在一次性工作区中验证 Harness 契约。普通 CI 只运行 Fixture，不
 读取模型凭证。断言依据文件 hash、Trace、结构化结果和验证命令退出状态。运行
 方式、Case 与报告 schema 见[Harness Eval](evaluation.md)。

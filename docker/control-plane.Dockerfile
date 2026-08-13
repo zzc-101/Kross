@@ -1,8 +1,8 @@
 FROM eclipse-temurin:21-jdk-jammy AS build
 WORKDIR /src
-COPY backend/mvnw backend/pom.xml ./
-COPY backend/.mvn .mvn
-COPY backend/src src
+COPY control-plane/mvnw control-plane/pom.xml ./
+COPY control-plane/.mvn .mvn
+COPY control-plane/src src
 RUN chmod +x mvnw && ./mvnw -q -DskipTests package
 
 FROM eclipse-temurin:21-jre-jammy AS runtime

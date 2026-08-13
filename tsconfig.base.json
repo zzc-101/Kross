@@ -6,7 +6,7 @@
     "moduleResolution": "Bundler",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["packages/web/src/*"]
+      "@/*": ["apps/web/src/*"]
     },
     "jsx": "react-jsx",
     "strict": true,
@@ -22,9 +22,11 @@
   "include": [
     "packages/**/*.ts",
     "packages/**/*.tsx",
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
     "vitest.config.ts"
   ],
   "exclude": [
-    "packages/eval/fixtures"
+    "apps/eval/fixtures"
   ]
 }

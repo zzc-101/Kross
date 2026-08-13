@@ -4,12 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const packagesRoot = resolve(packageRoot, '..');
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('SaaS package layer boundaries', () => {
   it('keeps Core independent from SaaS product packages', () => {
-    expectPackageSources('core', [
+    expectPackageSources('packages/core', [
       '@kross/work-domain',
       '@kross/work-runtime',
       '@kross/protocol',
@@ -20,7 +19,7 @@ describe('SaaS package layer boundaries', () => {
   });
 
   it('keeps the local TUI independent from SaaS domain and hosts', () => {
-    expectPackageSources('tui', [
+    expectPackageSources('apps/tui', [
       '@kross/work-domain',
       '@kross/work-runtime',
       '@kross/protocol',
@@ -31,7 +30,7 @@ describe('SaaS package layer boundaries', () => {
   });
 
   it('keeps Work Domain browser-safe and infrastructure-free', () => {
-    expectPackageSources('work-domain', [
+    expectPackageSources('packages/work-domain', [
       'node:',
       '@kross/core',
       '@kross/protocol',
@@ -43,7 +42,7 @@ describe('SaaS package layer boundaries', () => {
   });
 
   it('keeps Work Runtime independent from control-plane and UI packages', () => {
-    expectPackageSources('work-runtime', [
+    expectPackageSources('packages/work-runtime', [
       '@kross/protocol',
       '@kross/server',
       '@kross/orchestrator',
@@ -54,13 +53,13 @@ describe('SaaS package layer boundaries', () => {
   });
 });
 
-function expectPackageSources(packageName: string, forbidden: string[]): void {
-  const root = join(packagesRoot, packageName);
+function expectPackageSources(relativePath: string, forbidden: string[]): void {
+  const root = join(repoRoot, relativePath);
   const files = collectSourceFiles(join(root, 'src'));
   const manifest = readFileSync(join(root, 'package.json'), 'utf8');
 
   for (const token of forbidden) {
-    expect(manifest, `${packageName}/package.json imports ${token}`).not.toContain(
+    expect(manifest, `${relativePath}/package.json imports ${token}`).not.toContain(
       `"${token}"`
     );
     for (const file of files) {

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "vitest run --root ../.. packages/admin-web/src",
+    "test": "vitest run --root ../.. apps/admin-web/src",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
