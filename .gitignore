@@ -1,6 +1,7 @@
 node_modules/
 runs/
 dist/
+backend/target/
 coverage/
 .DS_Store
 __pycache__/

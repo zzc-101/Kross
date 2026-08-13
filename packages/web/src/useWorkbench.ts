@@ -33,6 +33,7 @@ export function useWorkbench(devUserId: string) {
   const [runState, dispatch] = useReducer(reducePublicEvent, initialRunViewState);
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'retrying'>('connecting');
   const [loading, setLoading] = useState(true);
+  const [needsOrganization, setNeedsOrganization] = useState(false);
   const [error, setError] = useState<string>();
 
   const guarded = useCallback(async <T,>(operation: () => Promise<T>): Promise<T | undefined> => {
@@ -47,8 +48,8 @@ export function useWorkbench(devUserId: string) {
       if (bootstrap) setMemberships(bootstrap.memberships);
       const requested = typeof localStorage === 'undefined' ? undefined : localStorage.getItem(`kross.organization.${devUserId}`);
       const first = bootstrap?.memberships.find((item) => item.organizationId === requested)?.organizationId ?? bootstrap?.memberships[0]?.organizationId;
-      if (first) { api.selectOrganization(first); setOrganizationId(first); }
-      else if (bootstrap) setError('当前账号尚未加入任何组织');
+      if (first) { api.selectOrganization(first); setOrganizationId(first); setNeedsOrganization(false); }
+      else if (bootstrap) setNeedsOrganization(true);
     }).finally(() => setLoading(false));
   }, [api, guarded]);
 
@@ -120,6 +121,19 @@ export function useWorkbench(devUserId: string) {
     });
     return () => controller.abort();
   }, [devUserId, organizationId, task?.latestRunId]);
+
+  const bootstrapOrganization = useCallback(async (name: string, slug: string) => {
+    const bootstrap = await guarded(() => api.bootstrapOrganization({ name, slug }));
+    if (!bootstrap) return false;
+    setMemberships(bootstrap.memberships);
+    const first = bootstrap.memberships[0]?.organizationId;
+    if (!first) return false;
+    api.selectOrganization(first);
+    setOrganizationId(first);
+    setNeedsOrganization(false);
+    localStorage.setItem(`kross.organization.${devUserId}`, first);
+    return true;
+  }, [api, guarded, devUserId]);
 
   const createProject = useCallback(async (name: string) => {
     const project = await guarded(() => api.createProject({ name }));
@@ -228,7 +242,7 @@ export function useWorkbench(devUserId: string) {
     approvals: mergeById(approvals, runState.approvals).filter(
       (approval) => !resolvedApprovalIds.has(approval.id)
     ),
-    runState, connection, loading, error, createProject, createTask, startRun,
+    runState, connection, loading, error, needsOrganization, bootstrapOrganization, createProject, createTask, startRun,
     cancelRun, decideApproval, appendMessage, uploadSource, createInlineSource, openArtifact
   };
 }

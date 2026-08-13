@@ -15,67 +15,19 @@ services:
     networks: [kross-control]
     restart: unless-stopped
 
-  migrate:
-    build:
-      context: .
-      dockerfile: docker/server.Dockerfile
-    command: ["node", "dist/server-migrate.mjs"]
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      DATABASE_URL: postgres://kross:${KROSS_POSTGRES_PASSWORD}@postgres:5432/kross
-      KROSS_DEV_IDENTITY: ${KROSS_DEV_IDENTITY:-1}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks: [kross-control]
-    restart: "no"
-
-  server:
-    image: kross-server:local
-    build:
-      context: .
-      dockerfile: docker/server.Dockerfile
-    environment:
-      DATABASE_URL: postgres://kross:${KROSS_POSTGRES_PASSWORD}@postgres:5432/kross
-      KROSS_DEV_IDENTITY: ${KROSS_DEV_IDENTITY:-1}
-      KROSS_BLOB_SIGNING_SECRET: ${KROSS_BLOB_SIGNING_SECRET:?请设置 KROSS_BLOB_SIGNING_SECRET}
-      KROSS_BLOB_ROOT: /var/lib/kross/blobs
-      PORT: 8787
-      KROSS_PUBLIC_BASE_URL: ${KROSS_PUBLIC_BASE_URL:-http://kross-server:8787}
-      KROSS_ORCHESTRATOR_URL: http://orchestrator:8790
-      KROSS_ORCHESTRATOR_SERVICE_TOKEN: ${KROSS_ORCHESTRATOR_SERVICE_TOKEN:?请设置 KROSS_ORCHESTRATOR_SERVICE_TOKEN}
-      KROSS_SCHEDULER_OWNER: ${KROSS_SCHEDULER_OWNER:-kross-server}
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    expose: ["8787"]
+      MINIO_ROOT_USER: ${KROSS_S3_ACCESS_KEY:-kross}
+      MINIO_ROOT_PASSWORD: ${KROSS_S3_SECRET_KEY:?请设置 KROSS_S3_SECRET_KEY}
+    ports:
+      - "${KROSS_S3_PORT:-9000}:9000"
     volumes:
-      - kross-blobs-v2:/var/lib/kross/blobs
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-    networks: [kross-control]
-    restart: unless-stopped
-
-  orchestrator:
-    image: kross-orchestrator:local
-    build:
-      context: .
-      dockerfile: docker/orchestrator.Dockerfile
-    environment:
-      KROSS_ORCHESTRATOR_SERVICE_TOKEN: ${KROSS_ORCHESTRATOR_SERVICE_TOKEN:?请设置 KROSS_ORCHESTRATOR_SERVICE_TOKEN}
-      KROSS_WORKER_IMAGE: kross-worker:local
-      KROSS_ORCHESTRATOR_MANAGER_ID: ${KROSS_ORCHESTRATOR_MANAGER_ID:-kross-saas}
-      KROSS_CONTROL_PLANE_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-server-1
-      PORT: 8790
-    depends_on:
-      worker-image:
-        condition: service_completed_successfully
-    expose: ["8790"]
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks: [kross-control]
+      - kross-minio-v2:/data
+    networks:
+      kross-control:
+        aliases: [minio]
     restart: unless-stopped
 
   worker-image:
@@ -86,6 +38,50 @@ services:
     command: ["true"]
     networks: [kross-control]
     restart: "no"
+
+  server:
+    image: kross-server:local
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    environment:
+      PORT: 8787
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/kross
+      SPRING_DATASOURCE_USERNAME: kross
+      SPRING_DATASOURCE_PASSWORD: ${KROSS_POSTGRES_PASSWORD:?请设置 KROSS_POSTGRES_PASSWORD}
+      KROSS_DEV_IDENTITY: ${KROSS_DEV_IDENTITY:-1}
+      KROSS_CREDENTIAL_MASTER_KEY: ${KROSS_CREDENTIAL_MASTER_KEY:?请设置 KROSS_CREDENTIAL_MASTER_KEY}
+      KROSS_PUBLIC_BASE_URL: ${KROSS_PUBLIC_BASE_URL:-http://kross-server:8787}
+      KROSS_SCHEDULER_OWNER: ${KROSS_SCHEDULER_OWNER:-kross-server}
+      KROSS_WORKER_IMAGE: kross-worker:local
+      KROSS_ORCHESTRATOR_MANAGER_ID: ${KROSS_ORCHESTRATOR_MANAGER_ID:-kross-saas}
+      KROSS_CONTROL_PLANE_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-server-1
+      KROSS_S3_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-minio-1
+      KROSS_S3_ENDPOINT: http://minio:9000
+      KROSS_S3_PUBLIC_ENDPOINT: ${KROSS_S3_PUBLIC_ENDPOINT:-http://127.0.0.1:9000}
+      KROSS_S3_BUCKET: ${KROSS_S3_BUCKET:-kross}
+      KROSS_S3_ACCESS_KEY: ${KROSS_S3_ACCESS_KEY:-kross}
+      KROSS_S3_SECRET_KEY: ${KROSS_S3_SECRET_KEY:?请设置 KROSS_S3_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      worker-image:
+        condition: service_completed_successfully
+    expose: ["8787"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 40s
+    networks:
+      kross-control:
+        aliases: [kross-server]
+    restart: unless-stopped
 
   web:
     image: kross-web:local
@@ -115,7 +111,7 @@ services:
 
 volumes:
   kross-postgres-v2:
-  kross-blobs-v2:
+  kross-minio-v2:
 
 networks:
   kross-control:

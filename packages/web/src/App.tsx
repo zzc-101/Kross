@@ -11,6 +11,14 @@ export function App({ devUserId, onChangeIdentity }: { devUserId: string; onChan
   const [newSource, setNewSource] = useState(false);
 
   if (workbench.loading) return <StatePage icon={<LoaderCircle className="spin" />} title="正在进入工作空间" detail="正在加载身份与组织信息…" />;
+  if (workbench.needsOrganization) {
+    return <OrganizationSetup
+      devUserId={devUserId}
+      error={workbench.error}
+      onChangeIdentity={onChangeIdentity}
+      onCreate={(name, slug) => workbench.bootstrapOrganization(name, slug)}
+    />;
+  }
   return (
     <div className="shell">
       <header className="topbar">
@@ -155,6 +163,38 @@ function InspectorSection({ icon, title, action, empty, children }: { icon: Reac
 function Resource({ name, meta, action }: { name: string; meta: string; action?: React.ReactNode }) { return <div className="resource"><div className="resource-icon"><FileText size={16} /></div><div><strong>{name}</strong><small>{meta}</small></div>{action}</div>; }
 function Empty({ title, detail, compact, hero }: { title: string; detail: string; compact?: boolean; hero?: boolean }) { return <div className={`empty ${compact ? 'compact' : ''} ${hero ? 'hero' : ''}`}><div className="empty-mark">K</div><strong>{title}</strong><p>{detail}</p></div>; }
 function StatePage({ icon, title, detail }: { icon: React.ReactNode; title: string; detail: string }) { return <main className="state-page">{icon}<h1>{title}</h1><p>{detail}</p></main>; }
+function OrganizationSetup({ devUserId, error, onChangeIdentity, onCreate }: {
+  devUserId: string; error?: string; onChangeIdentity(): void;
+  onCreate(name: string, slug: string): Promise<boolean>;
+}) {
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [busy, setBusy] = useState(false);
+  function updateName(value: string) {
+    setName(value);
+    setSlug(slugFromName(value));
+  }
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    await onCreate(name.trim(), slug.trim());
+    setBusy(false);
+  }
+  return <main className="identity-page"><form onSubmit={(event) => void submit(event)}>
+    <div className="empty-mark">K</div>
+    <h1>创建第一个组织</h1>
+    <p>工作台和管理端需要同一个开发用户 ID（当前为 {devUserId}）。创建组织后即可添加项目、配置模型并执行任务。</p>
+    <label><span>组织名称</span><input required value={name} onChange={(event) => updateName(event.target.value)} autoFocus /></label>
+    <label><span>组织标识</span><input required minLength={2} pattern="[a-z0-9][a-z0-9-]{1,62}" value={slug} onChange={(event) => setSlug(event.target.value)} /></label>
+    {error && <p className="approval-error" role="alert">{error}</p>}
+    <button className="primary" disabled={busy}>{busy ? '正在创建…' : '创建并进入工作台'}</button>
+    <button type="button" className="ghost" onClick={onChangeIdentity}>切换开发身份</button>
+  </form></main>;
+}
+function slugFromName(value: string): string {
+  const ascii = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return ascii.length >= 2 ? ascii : `org-${Math.random().toString(36).slice(2, 10)}`;
+}
 function statusLabel(value: string) { return ({ open: '进行中', completed: '已完成', cancelled: '已取消', archived: '已归档', queued: '排队中', provisioning: '准备中', running: '运行中', waiting_for_approval: '等待审批', cancelling: '取消中', failed: '失败', ready: '可用', pending: '处理中', processing: '处理中', uploading: '上传中', approved: '已批准', rejected: '已拒绝', expired: '已过期' } as Record<string, string>)[value] ?? value; }
 function phaseLabel(value: string) { return ({ planning: '制定计划', gathering_sources: '整理资料', executing: '执行任务', using_tool: '使用工具', waiting_for_approval: '等待审批', creating_artifact: '生成交付物', verifying: '验证结果', finalizing: '整理结果' } as Record<string, string>)[value] ?? value; }
 function connectionLabel(value: string) { return value === 'connected' ? '实时连接' : value === 'retrying' ? '正在重连' : '正在连接'; }

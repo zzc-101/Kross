@@ -49,9 +49,10 @@ export async function runWorkerMain(env: Record<string, string | undefined> = pr
   const runtimeFactory = createCoreWorkRuntimeFactory({
     modelEnvironmentResolver: {
       async resolve() {
-        // Provider credentials are injected as run-scoped environment secrets by
-        // the Orchestrator. No refresh token or durable control-plane credential is accepted.
-        return env;
+        // Provider credentials are minted by the control plane with the run-scoped token.
+        // Orchestrator never receives API keys, refresh tokens, or durable control-plane secrets.
+        const minted = await transport.mintModelEnvironment({ runToken: config.runToken });
+        return { ...env, ...minted };
       }
     }
   });

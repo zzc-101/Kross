@@ -96,16 +96,40 @@ function InviteForm({ api, close, done }: { api: AdminApiClient; close: () => vo
 
 function ModelsPage({ api }: { api: AdminApiClient }) {
   const state = useResource(() => api.models(), [api]); const [showForm, setShowForm] = useState(false);
-  return <PageFrame title="模型配置" subtitle="管理组织可用模型与默认路由，不会在界面中暴露密钥" action={<button className="button" onClick={() => setShowForm(true)}><Plus />添加模型</button>}>
+  return <PageFrame title="模型配置" subtitle="录入供应商、模型 ID 和 API Key。密钥只写不读，界面不会回显明文。" action={<button className="button" onClick={() => setShowForm(true)}><Plus />添加模型</button>}>
     {showForm && <ModelForm api={api} close={() => setShowForm(false)} done={state.reload} />}
-    <Resource state={state} empty="尚未配置模型。">{models => <div className="card-grid">{models.map(m => <article className="card model-card" key={m.id}><div className="card-icon"><Cpu /></div><div className="grow"><div className="title-line"><h3>{m.name}</h3><Badge tone={m.status === 'active' ? 'green' : 'neutral'}>{m.status === 'active' ? '已启用' : '已停用'}</Badge></div><p>{m.provider} · {m.model}</p><small>{m.credentialHandleId ? '已关联凭证句柄' : '尚未关联凭证'} · 更新于 {formatDate(m.updatedAt)}</small></div><label className="switch"><input type="checkbox" checked={m.status === 'active'} onChange={() => api.updateModel(m.id, { status: m.status === 'active' ? 'disabled' : 'active' }).then(state.reload)} /><span /></label></article>)}</div>}</Resource>
+    <Resource state={state} empty="尚未配置模型。请先添加一个带 API Key 的模型，工作台才能执行任务。">{models => <div className="card-grid">{models.map(m => <article className="card model-card" key={m.id}><div className="card-icon"><Cpu /></div><div className="grow"><div className="title-line"><h3>{m.name}</h3><Badge tone={m.status === 'active' ? 'green' : 'neutral'}>{m.status === 'active' ? '已启用' : '已停用'}</Badge></div><p>{m.provider} · {m.model}</p><small>{m.credentialHandleId ? '已关联凭证' : '尚未关联凭证'} · 更新于 {formatDate(m.updatedAt)}</small></div><label className="switch"><input type="checkbox" checked={m.status === 'active'} onChange={() => api.updateModel(m.id, { status: m.status === 'active' ? 'disabled' : 'active' }).then(state.reload)} /><span /></label></article>)}</div>}</Resource>
   </PageFrame>;
 }
 
 function ModelForm({ api, close, done }: { api: AdminApiClient; close: () => void; done: () => void }) {
-  const [form, setForm] = useState({ name: '', provider: '', model: '' }); const [error, setError] = useState('');
-  const submit = async (e: FormEvent) => { e.preventDefault(); try { await api.createModel(form); close(); done(); } catch (x) { setError(messageOf(x)); } };
-  return <form className="card inline-form model-form" onSubmit={submit}>{(['name', 'provider', 'model'] as const).map((key, i) => <label key={key}>{['显示名称', '供应商', '模型 ID'][i]}<input required value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} /></label>)}<button className="button">保存</button><button type="button" className="button secondary" onClick={close}>取消</button>{error && <span className="form-error">{error}</span>}</form>;
+  const [form, setForm] = useState({ name: '', provider: 'openai', model: '', apiKey: '', baseUrl: '' }); const [error, setError] = useState('');
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      await api.createModel({
+        name: form.name, provider: form.provider, model: form.model, apiKey: form.apiKey,
+        ...(form.baseUrl.trim() ? { baseUrl: form.baseUrl.trim() } : {})
+      });
+      close(); done();
+    } catch (x) { setError(messageOf(x)); }
+  };
+  return <form className="card inline-form model-form" onSubmit={submit}>
+    <label>显示名称<input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="默认模型" /></label>
+    <label>供应商<select required value={form.provider} onChange={e => setForm({ ...form, provider: e.target.value })}>
+      <option value="openai">OpenAI</option>
+      <option value="anthropic">Anthropic</option>
+      <option value="openrouter">OpenRouter</option>
+      <option value="deepseek">DeepSeek</option>
+      <option value="xai">xAI</option>
+    </select></label>
+    <label>模型 ID<input required value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder="gpt-4.1-mini" /></label>
+    <label>API Key<input required type="password" autoComplete="off" minLength={8} value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} placeholder="只写一次，不会回显" /></label>
+    <label>兼容网关地址（可选）<input value={form.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://api.openai.com/v1" /></label>
+    <button className="button">保存</button>
+    <button type="button" className="button secondary" onClick={close}>取消</button>
+    {error && <span className="form-error">{error}</span>}
+  </form>;
 }
 
 function ConnectorsPage({ api }: { api: AdminApiClient }) {
@@ -140,7 +164,11 @@ function Centered({ children }: { children: ReactNode }) { return <main classNam
 function IdentityForm({ value, setValue, submit }: { value: string; setValue: (x: string) => void; submit: (x: string) => void }) { return <form className="identity-form" onSubmit={e => { e.preventDefault(); submit(value.trim()); }}><input required value={value} onChange={e => setValue(e.target.value)} aria-label="开发用户 ID" /><button className="button">切换开发身份</button></form>; }
 function OrganizationSetup({ api, identity, setIdentity, changeIdentity, done }: { api: AdminApiClient; identity: string; setIdentity: (x: string) => void; changeIdentity: (x: string) => void; done: (x: Bootstrap) => void }) {
   const [name, setName] = useState(''); const [slug, setSlug] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  const updateName = (value: string) => { setName(value); setSlug(value.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/(^-|-$)/g, '')); };
+  const updateName = (value: string) => {
+    setName(value);
+    const ascii = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+    setSlug(ascii.length >= 2 ? ascii : `org-${crypto.randomUUID().slice(0, 8)}`);
+  };
   const submit = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setError(''); try { done(await api.bootstrapOrganization({ organizationId: crypto.randomUUID(), name, slug, defaultTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai' })); } catch (x) { setError(messageOf(x)); } finally { setBusy(false); } };
   return <main className="setup"><section className="setup-intro"><span className="brand-mark"><Bot /></span><h1>建立你的管理空间</h1><p>创建第一个组织后，你将成为所有者，并可以邀请团队成员、配置模型和制定 Agent 的运行策略。</p><ul><li><ShieldCheck />权限边界和审批策略</li><li><Cpu />模型、成本与用量配置</li><li><ScrollText />完整的管理审计记录</li></ul></section><section className="card setup-card"><small>首次设置</small><h2>创建组织</h2><p>此信息之后仍可在组织设置中修改。</p><form onSubmit={submit}><label>组织名称<input autoFocus required value={name} onChange={e => updateName(e.target.value)} placeholder="例如：Kross 产品团队" /></label><label>组织标识<input required minLength={2} value={slug} onChange={e => setSlug(e.target.value)} placeholder="kross-team" /></label>{error && <span className="form-error">{error}</span>}<button className="button wide" disabled={busy}>{busy ? '正在创建…' : '创建并进入管理中心'}</button></form><div className="setup-divider">开发身份</div><IdentityForm value={identity} setValue={setIdentity} submit={changeIdentity} /></section></main>;
 }

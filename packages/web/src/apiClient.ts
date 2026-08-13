@@ -68,6 +68,27 @@ export class WorkApiClient {
     return this.get('/api/v2/me', bootstrapSchema, false);
   }
 
+  async bootstrapOrganization(input: { name: string; slug: string }): Promise<Bootstrap> {
+    await this.request('/api/v2/admin/bootstrap', z.object({
+      organization: z.object({
+        id: z.string().min(1), slug: z.string().min(1), name: z.string().min(1), defaultTimezone: z.string().min(1)
+      }).strict(),
+      membership: z.object({
+        id: z.string().min(1), userId: z.string().min(1), role: z.literal('owner'), status: z.literal('active')
+      }).strict()
+    }).strict(), {
+      method: 'POST',
+      organization: false,
+      body: {
+        organizationId: globalThis.crypto?.randomUUID?.() ?? `org-${Date.now()}`,
+        name: input.name,
+        slug: input.slug,
+        defaultTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
+      }
+    });
+    return this.me();
+  }
+
   listProjects(): Promise<Project[]> {
     return this.get('/api/v2/projects', projectListSchema).then((page) => page.items);
   }

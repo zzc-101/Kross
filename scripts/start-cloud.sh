@@ -12,9 +12,9 @@ usage() {
 用法：
   ./scripts/start-cloud.sh             构建并启动 SaaS Work Agent
   ./scripts/start-cloud.sh --no-build  使用现有镜像启动
-  ./scripts/start-cloud.sh --stop      停止服务并保留 PostgreSQL 数据卷
+  ./scripts/start-cloud.sh --stop      停止服务并保留 PostgreSQL / MinIO 数据卷
   ./scripts/start-cloud.sh --logs      持续查看服务日志
-  ./scripts/start-cloud.sh --migrate   单独执行数据库迁移
+  ./scripts/start-cloud.sh --migrate   启动控制面以执行 Flyway 迁移
   ./scripts/start-cloud.sh --help      显示帮助
 EOF
 }
@@ -74,8 +74,8 @@ ensure_env() {
     echo "已根据 .env.example 创建 .env。"
   fi
   ensure_secret KROSS_POSTGRES_PASSWORD
-  ensure_secret KROSS_ORCHESTRATOR_SERVICE_TOKEN
-  ensure_secret KROSS_BLOB_SIGNING_SECRET
+  ensure_secret KROSS_CREDENTIAL_MASTER_KEY
+  ensure_secret KROSS_S3_SECRET_KEY
 }
 
 wait_for_web() {
@@ -90,7 +90,7 @@ wait_for_web() {
     sleep 1
   done
   echo "Web 入口未能在 60 秒内就绪，最近日志如下：" >&2
-  docker compose logs --tail 100 web server orchestrator migrate >&2
+  docker compose logs --tail 100 web server minio postgres >&2
   return 1
 }
 
@@ -106,7 +106,7 @@ wait_for_admin_web() {
     sleep 1
   done
   echo "管理端入口未能在 60 秒内就绪，最近日志如下：" >&2
-  docker compose logs --tail 100 admin-web server migrate >&2
+  docker compose logs --tail 100 admin-web server postgres >&2
   return 1
 }
 
@@ -117,11 +117,11 @@ case "$command" in
     ensure_env
     cd "$PROJECT_DIR"
     if [ "$command" = "start" ]; then
-      echo "正在构建用户端、管理端、Server、Orchestrator 和 Worker 镜像……"
+      echo "正在构建用户端、管理端、Java 控制面和 Worker 镜像……"
       docker compose build
     fi
     echo "正在启动 SaaS Work Agent……"
-    docker compose up -d web admin-web orchestrator
+    docker compose up -d web admin-web
     wait_for_web
     wait_for_admin_web
     port=$(read_env_value KROSS_PORT)
@@ -136,19 +136,21 @@ case "$command" in
     ensure_env
     cd "$PROJECT_DIR"
     docker compose down
-    echo "服务已停止，PostgreSQL 数据卷已保留。"
+    echo "服务已停止，PostgreSQL 与 MinIO 数据卷已保留。"
     ;;
   --logs)
     require_docker
     ensure_env
     cd "$PROJECT_DIR"
-    docker compose logs -f web admin-web server orchestrator migrate postgres
+    docker compose logs -f web admin-web server minio postgres
     ;;
   --migrate | --migrate-apply)
     require_docker
     ensure_env
     cd "$PROJECT_DIR"
-    docker compose run --rm migrate
+    docker compose up -d postgres minio
+    docker compose up -d --force-recreate --no-deps server
+    echo "控制面已启动，Flyway 会在进程启动时执行迁移。"
     ;;
   --help | -h)
     usage

@@ -29,7 +29,9 @@ export class AdminApiClient {
   inviteMember(input: { userId: string; displayName: string; role: Member['role'] }) { return this.request('/api/v2/admin/members', memberSchema, { method: 'POST', body: input }); }
   updateMember(memberId: string, input: Partial<Pick<Member, 'role' | 'status'>>) { return this.request(`/api/v2/admin/members/${encodeURIComponent(memberId)}`, memberSchema, { method: 'PATCH', body: input }); }
   models() { return this.request('/api/v2/admin/models', page(modelSchema)).then(x => x.items); }
-  createModel(input: { name: string; provider: string; model: string }) { return this.request('/api/v2/admin/models', modelSchema, { method: 'POST', body: input }); }
+  createModel(input: { name: string; provider: string; model: string; apiKey: string; baseUrl?: string }) {
+    return this.request('/api/v2/admin/models', modelSchema, { method: 'POST', body: input });
+  }
   updateModel(modelId: string, input: Partial<Pick<ModelConfig, 'name' | 'provider' | 'model' | 'status'>>) { return this.request(`/api/v2/admin/models/${encodeURIComponent(modelId)}`, modelSchema, { method: 'PATCH', body: input }); }
   deleteModel(modelId: string) { return this.request(`/api/v2/admin/models/${encodeURIComponent(modelId)}`, z.object({ id: z.string().min(1), removed: z.literal(true) }).strict(), { method: 'DELETE' }); }
   async connectors() { try { return (await this.request('/api/v2/admin/connectors', connectorPageSchema)).items; } catch (error) { if (error instanceof AdminApiError && error.status === 404) return []; throw error; } }

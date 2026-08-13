@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kross.catalog.CatalogMapper">
+  <select id="listCredentials" resultType="com.kross.catalog.entity.CredentialHandle">
+    SELECT *, count(*) OVER()::integer AS total FROM credential_handles
+    WHERE organization_id = #{organizationId}
+    ORDER BY created_at DESC, id DESC LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <insert id="insertCredential">
+    INSERT INTO credential_handles
+      (id, organization_id, name, provider, handle, metadata, secret_ciphertext, created_by)
+    VALUES (#{id}, #{organizationId}, #{name}, #{provider}, #{handle},
+            #{metadata, typeHandler=com.kross.support.JsonbTypeHandler}, #{secretCiphertext}, #{createdBy})
+  </insert>
+
+  <update id="updateCredential">
+    UPDATE credential_handles SET name = COALESCE(#{name}, name), status = COALESCE(#{status}, status),
+      metadata = COALESCE(#{metadata, typeHandler=com.kross.support.JsonbTypeHandler}, metadata), updated_at = now()
+    WHERE organization_id = #{organizationId} AND id = #{id}
+  </update>
+
+  <delete id="deleteCredential">
+    DELETE FROM credential_handles WHERE organization_id = #{organizationId} AND id = #{id}
+  </delete>
+
+  <select id="listModels" resultType="com.kross.catalog.entity.ModelProfile">
+    SELECT *, count(*) OVER()::integer AS total FROM model_profiles
+    WHERE organization_id = #{organizationId}
+    ORDER BY created_at DESC, id DESC LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <insert id="insertModel">
+    INSERT INTO model_profiles
+      (id, organization_id, name, provider, model, credential_handle_id, configuration, created_by)
+    VALUES (#{id}, #{organizationId}, #{name}, #{provider}, #{model}, #{credentialHandleId},
+            #{configuration, typeHandler=com.kross.support.JsonbTypeHandler}, #{createdBy})
+  </insert>
+
+  <update id="updateModel">
+    UPDATE model_profiles SET name = COALESCE(#{name}, name), provider = COALESCE(#{provider}, provider),
+      model = COALESCE(#{model}, model),
+      credential_handle_id = CASE WHEN #{credentialHandleId} IS NOT NULL OR #{status} IS NOT NULL THEN COALESCE(#{credentialHandleId}, credential_handle_id) ELSE credential_handle_id END,
+      configuration = COALESCE(#{configuration, typeHandler=com.kross.support.JsonbTypeHandler}, configuration),
+      status = COALESCE(#{status}, status), updated_at = now()
+    WHERE organization_id = #{organizationId} AND id = #{id}
+  </update>
+
+  <delete id="deleteModel">
+    DELETE FROM model_profiles WHERE organization_id = #{organizationId} AND id = #{id}
+  </delete>
+
+  <select id="findCredentialId" resultType="string">
+    SELECT id FROM credential_handles WHERE organization_id = #{organizationId} AND id = #{id}
+  </select>
+
+  <select id="listAudit" resultType="com.kross.catalog.entity.AuditEvent">
+    SELECT id::text AS id, actor_user_id, action, resource_type, resource_id, payload, occurred_at,
+           count(*) OVER()::integer AS total
+    FROM audit_events
+    WHERE organization_id = #{organizationId}
+      AND (#{action}::text IS NULL OR action = #{action})
+      AND (#{resourceType}::text IS NULL OR resource_type = #{resourceType})
+    ORDER BY occurred_at DESC, id DESC LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <select id="listConnectors" resultType="com.kross.catalog.entity.ConnectorInstallation">
+    SELECT i.id, i.organization_id, i.project_id, i.connector_definition_id, i.display_name,
+           i.credential_handle, i.granted_scopes, i.status, i.last_error_code, i.installed_by,
+           i.created_at, i.updated_at, d.name AS connector_name, d.allowed_tools, d.required_scopes
+    FROM connector_installations i
+    JOIN connector_definitions d ON d.id = i.connector_definition_id
+    WHERE i.organization_id = #{organizationId} AND i.status &lt;&gt; 'revoked'
+    ORDER BY i.created_at DESC
+  </select>
+
+  <insert id="insertInstallation">
+    INSERT INTO connector_installations
+      (id, organization_id, project_id, connector_definition_id, display_name, credential_handle,
+       granted_scopes, status, last_error_code, installed_by)
+    SELECT #{id}, #{organizationId}, #{projectId}, d.id, #{displayName}, #{credentialHandle},
+           #{grantedScopes, typeHandler=com.kross.support.JsonbTypeHandler},
+           CASE WHEN d.status = 'available' THEN 'available' ELSE 'unavailable' END,
+           CASE WHEN d.status = 'available' THEN NULL ELSE 'proxy_unavailable' END, #{userId}
+    FROM connector_definitions d
+    WHERE d.id = #{definitionId}
+      AND (#{projectId}::text IS NULL OR EXISTS (
+        SELECT 1 FROM projects p WHERE p.organization_id = #{organizationId} AND p.id = #{projectId}))
+      AND d.required_scopes &lt;@ #{grantedScopes, typeHandler=com.kross.support.JsonbTypeHandler}
+  </insert>
+
+  <select id="revokeInstallation" resultType="com.kross.catalog.entity.ConnectorInstallation">
+    UPDATE connector_installations SET status = 'revoked', credential_handle = NULL, updated_at = now()
+    WHERE organization_id = #{organizationId} AND id = #{id} AND status &lt;&gt; 'revoked'
+    RETURNING *
+  </select>
+
+  <select id="listSchedules" resultType="com.kross.catalog.entity.Schedule">
+    SELECT * FROM schedules
+    WHERE organization_id = #{organizationId} AND status &lt;&gt; 'deleted' ORDER BY created_at DESC
+  </select>
+
+  <insert id="insertSchedule">
+    INSERT INTO schedules
+      (id, organization_id, project_id, task_id, cron_expression, timezone, selected_source_ids,
+       next_run_at, concurrency_policy, external_action_policy, created_by)
+    SELECT #{id}, t.organization_id, t.project_id, t.id, #{cron}, #{timezone},
+           #{sourceIds, typeHandler=com.kross.support.JsonbTypeHandler}, #{nextRunAt}, 'skip', 'draft_only', #{userId}
+    FROM tasks t WHERE t.organization_id = #{organizationId} AND t.project_id = #{projectId} AND t.id = #{taskId}
+  </insert>
+
+  <update id="updateScheduleStatus">
+    UPDATE schedules SET status = #{status}, updated_at = now(),
+      next_run_at = CASE WHEN #{status} = 'active' THEN GREATEST(next_run_at, now()) ELSE next_run_at END
+    WHERE organization_id = #{organizationId} AND id = #{id} AND status &lt;&gt; 'deleted'
+  </update>
+</mapper>

@@ -70,6 +70,7 @@ export interface WorkerControlTransport {
   }): Promise<ApprovalDecisionMessage | undefined>;
   uploadCheckpoint(input: { runToken: string; absolutePath: string; sha256: string; sizeBytes: number }): Promise<{ checkpointKey: string }>;
   downloadCheckpoint(input: { runToken: string; checkpointKey: string; destination: string }): Promise<void>;
+  mintModelEnvironment(input: { runToken: string }): Promise<Record<string, string | undefined>>;
   subscribe?(listener: (command: WorkerControlCommand) => void): () => void;
 }
 
@@ -266,6 +267,33 @@ export class FetchWorkerControlTransport implements WorkerControlTransport {
     const response = await this.fetch(url, { headers: { authorization: `Bearer ${input.runToken}` } });
     if (!response.ok || !response.body) throw new Error(`Checkpoint download failed (${response.status})`);
     await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream), createWriteStream(input.destination, { mode: 0o600 }));
+  }
+
+  async mintModelEnvironment(input: { runToken: string }): Promise<Record<string, string | undefined>> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error('Control plane request timed out')), this.timeoutMs);
+    try {
+      const url = new URL('/internal/v2/workers/model-environment', this.options.controlPlaneUrl);
+      const response = await this.fetch(url, {
+        headers: { authorization: `Bearer ${input.runToken}`, accept: 'application/json' },
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        throw new Error(`Control plane model environment failed (${response.status}): ${(await response.text()).slice(0, 500)}`);
+      }
+      const parsed = await response.json() as { env?: unknown };
+      if (!parsed.env || typeof parsed.env !== 'object' || Array.isArray(parsed.env)) {
+        throw new Error('Control plane returned an invalid model environment');
+      }
+      const env: Record<string, string | undefined> = {};
+      for (const [key, value] of Object.entries(parsed.env as Record<string, unknown>)) {
+        if (typeof value === 'string' && value.length > 0) env[key] = value;
+      }
+      if (!env.AGENT_LLM_PROVIDER) throw new Error('Control plane returned a model environment without AGENT_LLM_PROVIDER');
+      return env;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async request(path: string, token: string, body: Record<string, unknown>, allowEmpty = false): Promise<unknown> {

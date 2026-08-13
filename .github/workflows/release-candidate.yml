@@ -72,13 +72,6 @@ jobs:
             --tag "kross-server:$SHORT_SHA" \
             --tag kross-server:local .
 
-      - name: Build versioned Orchestrator image
-        run: |
-          docker build --file docker/orchestrator.Dockerfile \
-            --tag "kross-orchestrator:$VERSION" \
-            --tag "kross-orchestrator:$SHORT_SHA" \
-            --tag kross-orchestrator:local .
-
       - name: Build versioned Web image
         run: |
           docker build --file docker/web.Dockerfile \
@@ -91,7 +84,7 @@ jobs:
 
       - name: Record container image metadata
         run: |
-          for component in web server orchestrator worker; do
+          for component in web server worker; do
             printf '%s ' "$component" >> release/container-images.txt
             docker image inspect \
               "kross-$component:$VERSION" \

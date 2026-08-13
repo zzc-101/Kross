@@ -6,34 +6,16 @@ import { build } from 'esbuild';
 const target = process.argv[2];
 const output = process.argv[3];
 
-if (
-  (target !== 'server' &&
-    target !== 'server-migrate' &&
-    target !== 'worker' &&
-    target !== 'orchestrator') ||
-  !output
-) {
-  throw new Error(
-    '用法: node scripts/build-cloud-runtime.mjs <server|server-migrate|worker|orchestrator> <output>'
-  );
+if (target !== 'worker' || !output) {
+  throw new Error('用法: node scripts/build-cloud-runtime.mjs worker <output>');
 }
 
 const root = process.cwd();
-const entryPoint = resolve(
-  root,
-  target === 'server'
-    ? 'packages/server/src/main.ts'
-    : target === 'server-migrate'
-      ? 'packages/server/src/migrate.ts'
-      : target === 'worker'
-        ? 'packages/worker/src/main.ts'
-        : 'packages/orchestrator/src/main.ts'
-);
 const outfile = resolve(root, output);
 
 await mkdir(dirname(outfile), { recursive: true });
 await build({
-  entryPoints: [entryPoint],
+  entryPoints: [resolve(root, 'packages/worker/src/main.ts')],
   outfile,
   bundle: true,
   platform: 'node',

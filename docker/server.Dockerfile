@@ -1,31 +1,15 @@
-FROM node:22-bookworm-slim AS build
-WORKDIR /app
-COPY package.json package-lock.json tsconfig.base.json ./
-COPY packages/protocol/package.json packages/protocol/package.json
-COPY packages/work-domain/package.json packages/work-domain/package.json
-COPY packages/server/package.json packages/server/package.json
-RUN npm ci
-COPY scripts/build-cloud-runtime.mjs scripts/build-cloud-runtime.mjs
-COPY packages/protocol packages/protocol
-COPY packages/work-domain packages/work-domain
-COPY packages/server packages/server
-RUN node scripts/build-cloud-runtime.mjs server build/server.mjs
-RUN node scripts/build-cloud-runtime.mjs server-migrate build/server-migrate.mjs
+FROM eclipse-temurin:21-jdk-jammy AS build
+WORKDIR /src
+COPY backend/mvnw backend/pom.xml ./
+COPY backend/.mvn .mvn
+COPY backend/src src
+RUN chmod +x mvnw && ./mvnw -q -DskipTests package
 
-FROM node:22-bookworm-slim AS production-deps
+FROM eclipse-temurin:21-jre-jammy AS runtime
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY package.json package-lock.json ./
-COPY packages/protocol/package.json packages/protocol/package.json
-COPY packages/work-domain/package.json packages/work-domain/package.json
-COPY packages/server/package.json packages/server/package.json
-RUN npm ci --omit=dev --include-workspace-root=false --workspace @kross/server \
-  && npm cache clean --force
-
-FROM node:22-bookworm-slim AS runtime
-ENV NODE_ENV=production
-WORKDIR /app
-COPY --from=production-deps /app/node_modules node_modules
-COPY --from=build /app/build/server.mjs dist/server.mjs
-COPY --from=build /app/build/server-migrate.mjs dist/server-migrate.mjs
+COPY --from=build /src/target/kross-control-plane.jar app.jar
 EXPOSE 8787
-CMD ["node", "dist/server.mjs"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

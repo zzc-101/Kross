@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kross.identity.IdentityMapper">
+  <insert id="upsertUser">
+    INSERT INTO users (id, display_name)
+    VALUES (#{id}, #{displayName})
+    ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name
+  </insert>
+
+  <select id="findActiveMembership" resultType="com.kross.identity.entity.Membership">
+    SELECT id, organization_id, user_id, role, status, created_at, updated_at
+    FROM organization_memberships
+    WHERE organization_id = #{organizationId} AND user_id = #{userId} AND status = 'active'
+  </select>
+
+  <select id="listMembershipsForUser" resultType="com.kross.identity.entity.Membership">
+    SELECT id, organization_id, user_id, role, status, created_at, updated_at
+    FROM organization_memberships
+    WHERE user_id = #{userId} AND status = 'active'
+  </select>
+
+  <select id="findOrganization" resultType="com.kross.identity.entity.Organization">
+    SELECT id, slug, name, status, default_timezone, data_retention_days, approval_policy, created_at, updated_at
+    FROM organizations WHERE id = #{id}
+  </select>
+
+  <select id="countUsersWithMembership" resultType="int">
+    SELECT count(*)::int FROM organization_memberships WHERE user_id = #{userId}
+  </select>
+
+  <select id="countOrganizations" resultType="int">
+    SELECT count(*)::int FROM organizations
+  </select>
+
+  <insert id="insertOrganization">
+    INSERT INTO organizations (id, slug, name, status, default_timezone, data_retention_days, approval_policy)
+    VALUES (#{id}, #{slug}, #{name}, 'active', #{timezone}, 90, #{policy, typeHandler=com.kross.support.JsonbTypeHandler})
+  </insert>
+
+  <insert id="insertMembership">
+    INSERT INTO organization_memberships (id, organization_id, user_id, role, status)
+    VALUES (#{id}, #{organizationId}, #{userId}, #{role}, #{status})
+  </insert>
+
+  <select id="listMembers" resultType="com.kross.identity.entity.Member">
+    SELECT m.id, m.user_id, u.display_name, m.role, m.status, m.created_at, m.updated_at,
+           count(*) OVER()::integer AS total
+    FROM organization_memberships m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.organization_id = #{organizationId}
+      AND (#{status}::text IS NULL OR m.status = #{status})
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <select id="findMember" resultType="com.kross.identity.entity.Member">
+    SELECT m.id, m.user_id, u.display_name, m.role, m.status, m.created_at, m.updated_at, 1 AS total
+    FROM organization_memberships m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.organization_id = #{organizationId} AND m.id = #{id}
+  </select>
+
+  <select id="countActiveOwners" resultType="int">
+    SELECT count(*)::int FROM organization_memberships
+    WHERE organization_id = #{organizationId} AND role = 'owner' AND status = 'active'
+      AND (#{excludingId}::text IS NULL OR id &lt;&gt; #{excludingId})
+  </select>
+
+  <update id="updateMembership">
+    UPDATE organization_memberships
+    SET role = COALESCE(#{role}, role), status = COALESCE(#{status}, status), updated_at = now()
+    WHERE organization_id = #{organizationId} AND id = #{id}
+  </update>
+
+  <delete id="deleteMembership">
+    DELETE FROM organization_memberships WHERE organization_id = #{organizationId} AND id = #{id}
+  </delete>
+
+  <update id="updatePolicy">
+    UPDATE organizations
+    SET default_timezone = COALESCE(#{timezone}, default_timezone),
+        data_retention_days = CASE WHEN #{setRetention} THEN #{retentionDays} ELSE data_retention_days END,
+        approval_policy = COALESCE(#{policy, typeHandler=com.kross.support.JsonbTypeHandler}, approval_policy),
+        updated_at = now()
+    WHERE id = #{id}
+  </update>
+
+  <select id="dashboardCounts" resultType="com.kross.identity.entity.DashboardCounts">
+    SELECT
+      (SELECT count(*)::integer FROM organization_memberships WHERE organization_id = #{organizationId} AND status = 'active') AS active_members,
+      (SELECT count(*)::integer FROM projects WHERE organization_id = #{organizationId} AND status = 'active') AS active_projects,
+      (SELECT count(*)::integer FROM runs WHERE organization_id = #{organizationId}
+         AND status IN ('queued','provisioning','running','waiting_for_approval','cancelling')) AS active_runs,
+      (SELECT count(*)::integer FROM approvals WHERE organization_id = #{organizationId} AND status = 'pending') AS pending_approvals,
+      (SELECT count(*)::integer FROM connector_installations WHERE organization_id = #{organizationId} AND status = 'available') AS active_connectors
+  </select>
+</mapper>
