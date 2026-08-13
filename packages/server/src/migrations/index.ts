@@ -2,6 +2,7 @@ import type { SqlExecutor, TransactionRunner } from '../database';
 import { workAgentV2Migration } from './001_work_agent_v2';
 import { sourceArtifactBlobMigration } from './002_source_artifact_blob';
 import { connectorsSchedulesMigration } from './003_connectors_schedules';
+import { adminConsoleMigration } from './004_admin_console';
 
 export interface Migration {
   readonly version: number;
@@ -12,7 +13,8 @@ export interface Migration {
 export const serverMigrations: readonly Migration[] = [
   { version: 1, name: 'work_agent_v2', sql: workAgentV2Migration },
   { version: 2, name: 'source_artifact_blob', sql: sourceArtifactBlobMigration },
-  { version: 3, name: 'connectors_schedules', sql: connectorsSchedulesMigration }
+  { version: 3, name: 'connectors_schedules', sql: connectorsSchedulesMigration },
+  { version: 4, name: 'admin_console', sql: adminConsoleMigration }
 ];
 
 export async function migrateServerDatabase(executor: SqlExecutor & TransactionRunner): Promise<void> {

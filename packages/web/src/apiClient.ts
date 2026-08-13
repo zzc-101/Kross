@@ -2,8 +2,11 @@ import {
   approvalPageSchema,
   approvalSummarySchema,
   artifactPageSchema,
+  artifactSnapshotSchema,
+  artifactSummarySchema,
   runSummarySchema,
   sourcePageSchema,
+  sourceSummarySchema,
   taskMessagePageSchema,
   taskMessageSchema,
   taskPageSchema,
@@ -24,8 +27,11 @@ import {
   projectListSchema,
   projectSchema,
   serverApprovalRecordSchema,
+  serverArtifactRecordSchema,
   serverRunRecordSchema,
+  serverSourceRecordSchema,
   serverTaskRecordSchema,
+  sourceUploadReservationSchema,
   type Bootstrap,
   type Project
 } from './contracts';
@@ -155,11 +161,53 @@ export class WorkApiClient {
   }
 
   listSources(projectId: string): Promise<SourceSummary[]> {
-    return this.optionalPage(`/api/v2/projects/${encodeURIComponent(projectId)}/sources`, sourcePageSchema);
+    return this.raw(`/api/v2/projects/${encodeURIComponent(projectId)}/sources`).then((raw) => {
+      const official = sourcePageSchema.safeParse(raw);
+      if (official.success) return official.data.items;
+      return z.object({ items: z.array(serverSourceRecordSchema) }).parse(raw).items.map(toSourceSummary);
+    });
   }
 
   listArtifacts(taskId: string): Promise<ArtifactSummary[]> {
-    return this.optionalPage(`/api/v2/tasks/${encodeURIComponent(taskId)}/artifacts`, artifactPageSchema);
+    return this.raw(`/api/v2/tasks/${encodeURIComponent(taskId)}/artifacts`).then((raw) => {
+      const official = artifactPageSchema.safeParse(raw);
+      if (official.success) return official.data.items;
+      return z.object({ items: z.array(serverArtifactRecordSchema) }).parse(raw).items.map(toArtifactSummary);
+    });
+  }
+
+  async uploadSource(projectId: string, file: File): Promise<SourceSummary> {
+    const sha256 = await digestFile(file);
+    const reservation = sourceUploadReservationSchema.parse(await this.raw(
+      `/api/v2/projects/${encodeURIComponent(projectId)}/sources/uploads`,
+      { method: 'POST', body: { scope: 'project', displayName: file.name, mimeType: file.type || 'application/octet-stream', sizeBytes: file.size, sha256 } }
+    ));
+    const headers = new Headers();
+    for (const header of reservation.upload.headers) headers.set(header.name, header.value);
+    const uploaded = await this.fetcher(reservation.upload.url, { method: 'PUT', headers, body: file });
+    if (!uploaded.ok) throw new ApiError(uploaded.status, 'SOURCE_UPLOAD_FAILED', `资料上传失败 (${uploaded.status})`);
+    const completed = serverSourceRecordSchema.parse(await this.raw(
+      `/api/v2/sources/${encodeURIComponent(reservation.id)}/complete`,
+      { method: 'POST', body: { sizeBytes: file.size, sha256, mimeType: file.type || 'application/octet-stream' } }
+    ));
+    return toSourceSummary(completed);
+  }
+
+  async createInlineSource(projectId: string, displayName: string, content: string): Promise<SourceSummary> {
+    const row = serverSourceRecordSchema.parse(await this.raw(
+      `/api/v2/projects/${encodeURIComponent(projectId)}/sources/inline`,
+      { method: 'POST', body: { scope: 'project', displayName, mimeType: 'text/plain', content } }
+    ));
+    return toSourceSummary(row);
+  }
+
+  async openArtifact(artifactId: string): Promise<string> {
+    const raw = await this.raw(`/api/v2/artifacts/${encodeURIComponent(artifactId)}`);
+    const official = artifactSnapshotSchema.safeParse(raw);
+    if (!official.success) toArtifactSummary(serverArtifactRecordSchema.parse(raw));
+    const response = await this.authorizedFetch(`/api/v2/artifacts/${encodeURIComponent(artifactId)}/content`);
+    if (!response.ok) throw new ApiError(response.status, 'ARTIFACT_DOWNLOAD_FAILED', `交付物下载失败 (${response.status})`);
+    return URL.createObjectURL(await response.blob());
   }
 
   listApprovals(runId?: string): Promise<ApprovalSummary[]> {
@@ -213,6 +261,15 @@ export class WorkApiClient {
   private async raw(path: string, init: {
     method?: string; body?: unknown; idempotencyKey?: string; organization?: boolean;
   } = {}): Promise<unknown> {
+    const response = await this.authorizedFetch(path, init);
+    const json = await response.json().catch(() => undefined) as { error?: { code?: string; message?: string } } | undefined;
+    if (!response.ok) throw new ApiError(response.status, json?.error?.code ?? 'HTTP_ERROR', json?.error?.message ?? `请求失败 (${response.status})`);
+    return json;
+  }
+
+  private authorizedFetch(path: string, init: {
+    method?: string; body?: unknown; idempotencyKey?: string; organization?: boolean;
+  } = {}): Promise<Response> {
     const headers = new Headers({ accept: 'application/json' });
     if (this.options.devUserId) headers.set('x-kross-user-id', this.options.devUserId);
     if ((init.organization ?? true) && this.organizationId) {
@@ -220,13 +277,10 @@ export class WorkApiClient {
     }
     if (init.idempotencyKey) headers.set('idempotency-key', init.idempotencyKey);
     if (init.body !== undefined) headers.set('content-type', 'application/json');
-    const response = await this.fetcher(new URL(path, this.options.baseUrl ?? location.origin), {
+    return this.fetcher(new URL(path, this.options.baseUrl ?? location.origin), {
       method: init.method ?? 'GET', headers, credentials: 'include',
       body: init.body === undefined ? undefined : JSON.stringify(init.body)
     });
-    const json = await response.json().catch(() => undefined) as { error?: { code?: string; message?: string } } | undefined;
-    if (!response.ok) throw new ApiError(response.status, json?.error?.code ?? 'HTTP_ERROR', json?.error?.message ?? `请求失败 (${response.status})`);
-    return json;
   }
 }
 
@@ -289,4 +343,33 @@ function toApprovalSummary(row: z.infer<typeof serverApprovalRecordSchema>): App
       decisionIdempotencyKey: row.decision_idempotency_key
     } : {})
   });
+}
+
+function toSourceSummary(row: z.infer<typeof serverSourceRecordSchema>): SourceSummary {
+  return sourceSummarySchema.parse({
+    id: row.id, organizationId: row.organization_id, projectId: row.project_id,
+    kind: row.kind, scope: row.scope, status: row.status, displayName: row.display_name,
+    ...(row.task_id ? { taskId: row.task_id } : {}),
+    ...(row.mime_type ? { mimeType: row.mime_type } : {}),
+    ...(row.size_bytes != null ? { sizeBytes: Number(row.size_bytes) } : {}),
+    ...(row.previous_source_id ? { previousSourceId: row.previous_source_id } : {}),
+    createdBy: row.created_by, createdAt: row.created_at
+  });
+}
+
+function toArtifactSummary(row: z.infer<typeof serverArtifactRecordSchema>): ArtifactSummary {
+  return artifactSummarySchema.parse({
+    id: row.id, organizationId: row.organization_id, projectId: row.project_id,
+    taskId: row.task_id, runId: row.run_id, kind: row.kind, status: row.status,
+    displayName: row.display_name,
+    ...(row.mime_type ? { mimeType: row.mime_type } : {}),
+    ...(row.size_bytes != null ? { sizeBytes: Number(row.size_bytes) } : {}),
+    ...(row.previous_artifact_id ? { parentArtifactId: row.previous_artifact_id } : {}),
+    createdAt: row.created_at
+  });
+}
+
+async function digestFile(file: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }

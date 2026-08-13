@@ -35,9 +35,10 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run typecheck && npm run build:cli && npm run build:web",
+    "build": "npm run typecheck && npm run build:cli && npm run build:web && npm run build:admin-web",
     "build:cli": "node scripts/build-cli.mjs",
     "build:web": "npm run --workspace @kross/web build",
+    "build:admin-web": "npm run --workspace @kross/admin-web build",
     "api:check": "node scripts/check-core-api-surface.mjs",
     "api:update": "node scripts/check-core-api-surface.mjs --update",
     "cloud:start": "./scripts/start-cloud.sh",

@@ -29,3 +29,39 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } } @keyframes blink { 50% { opacity: 0; } }
 @media (max-width: 980px) { .workspace { grid-template-columns: 220px 1fr; }.inspector { display: none; } }
 @media (max-width: 680px) { .shell { height: auto; min-height: 100vh; overflow: visible; }.brand small, .connection { display: none; }.topbar { height: 60px; padding: 0 14px; }.workspace { display: block; }.sidebar { border: 0; border-bottom: 1px solid #dde2dc; padding: 12px; max-height: 250px; }.task-stage { overflow: visible; }.task-header { padding: 22px 18px; display: grid; }.run-actions { width: 100%; }.run-actions button { flex: 1; }.conversation { padding: 22px 18px 80px; }.task-header h1 { font-size: 23px; } }
+
+.brand-button { border: 0; background: transparent; text-align: left; padding: 0; }
+.organization-picker { max-width: 240px; border: 1px solid #d9ded8; border-radius: 8px; padding: 7px 9px; background: #fff; color: #526058; font-size: 11px; }
+.home-nav { margin-bottom: 20px; }
+.composer { position: sticky; bottom: 0; max-width: 808px; margin: -78px auto 18px; padding: 10px; display: grid; grid-template-columns: 1fr auto; gap: 8px; background: #fffffff2; border: 1px solid #dbe1da; border-radius: 13px; box-shadow: 0 12px 36px #1b33231c; backdrop-filter: blur(10px); }
+.composer textarea { min-height: 48px; max-height: 160px; border: 0; resize: vertical; padding: 8px; outline: none; background: transparent; }
+.composer small { grid-column: 1 / -1; color: #949b96; font-size: 9px; padding-left: 8px; }
+.inspect-heading { display: flex; align-items: center; justify-content: space-between; }
+.icon-button { border: 0; padding: 5px; border-radius: 6px; display: grid; place-items: center; color: #66726a; background: transparent; }
+.icon-button:hover { background: #e9ede8; }
+.resource { grid-template-columns: 31px minmax(0,1fr) auto; }
+.tool-events { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e4e7e3; }
+.tool-events > strong { display: flex; align-items: center; gap: 5px; font-size: 10px; }
+.tool-events div { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; }
+.tool-events small { color: #858e88; }
+.home-view { max-width: 900px; margin: auto; padding: 70px 48px; }
+.home-view h1 { font: 500 38px Georgia, serif; margin: 8px 0 12px; }
+.home-view > p { color: #6e7972; max-width: 560px; line-height: 1.7; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 34px 0; }
+.stat-grid div { border: 1px solid #e1e6df; border-radius: 12px; padding: 18px; background: #f9faf8; }
+.stat-grid strong, .stat-grid span { display: block; }
+.stat-grid strong { font: 500 26px Georgia, serif; }
+.stat-grid span { color: #7d8780; font-size: 10px; margin-top: 4px; }
+.home-heading { display: flex; justify-content: space-between; align-items: center; margin-top: 36px; }
+.home-heading h2 { font: 500 20px Georgia, serif; }
+.project-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.project-grid button { display: grid; grid-template-columns: 28px 1fr; text-align: left; gap: 4px 8px; border: 1px solid #e0e5de; border-radius: 12px; padding: 18px; color: #34443a; background: #fff; }
+.project-grid button:hover { border-color: #8ba794; box-shadow: 0 8px 24px #23402c0c; }
+.project-grid strong { align-self: center; }
+.project-grid span { grid-column: 2; color: #7e8881; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.source-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+.source-tabs button { display: flex; align-items: center; gap: 6px; border: 1px solid #dde2dc; background: #fafbf9; border-radius: 7px; padding: 8px 10px; color: #68736c; font-size: 11px; }
+.source-tabs button.active { color: #175036; border-color: #8eac99; background: #eaf1eb; }
+.file-drop { position: relative; min-height: 150px; display: grid !important; place-content: center; justify-items: center; gap: 10px !important; border: 1px dashed #aebbb1; border-radius: 10px; background: #f8faf7; color: #69756d; }
+.file-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+@media (max-width: 680px) { .organization-picker { max-width: 130px; }.home-view { padding: 38px 20px; }.stat-grid { grid-template-columns: 1fr; }.project-grid { grid-template-columns: 1fr; }.composer { margin-left: 12px; margin-right: 12px; } }

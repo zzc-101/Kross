@@ -30,7 +30,6 @@ services:
     restart: "no"
 
   server:
-    container_name: kross-server
     image: kross-server:local
     build:
       context: .
@@ -68,7 +67,7 @@ services:
       KROSS_ORCHESTRATOR_SERVICE_TOKEN: ${KROSS_ORCHESTRATOR_SERVICE_TOKEN:?请设置 KROSS_ORCHESTRATOR_SERVICE_TOKEN}
       KROSS_WORKER_IMAGE: kross-worker:local
       KROSS_ORCHESTRATOR_MANAGER_ID: ${KROSS_ORCHESTRATOR_MANAGER_ID:-kross-saas}
-      KROSS_CONTROL_PLANE_CONTAINER: kross-server
+      KROSS_CONTROL_PLANE_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-server-1
       PORT: 8790
     depends_on:
       worker-image:
@@ -101,11 +100,23 @@ services:
     networks: [kross-control]
     restart: unless-stopped
 
+  admin-web:
+    image: kross-admin-web:local
+    build:
+      context: .
+      dockerfile: docker/admin-web.Dockerfile
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "${KROSS_ADMIN_PORT:-8788}:8788"
+    networks: [kross-control]
+    restart: unless-stopped
+
 volumes:
   kross-postgres-v2:
   kross-blobs-v2:
 
 networks:
   kross-control:
-    name: kross-control-v2
     driver: bridge

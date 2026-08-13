@@ -9,6 +9,7 @@ export KROSS_ORCHESTRATOR_SERVICE_TOKEN="0123456789abcdef0123456789abcdef-${smok
 export KROSS_BLOB_SIGNING_SECRET="abcdef0123456789abcdef0123456789-${smoke_suffix}"
 export KROSS_DEV_IDENTITY=1
 export KROSS_PORT=0
+export KROSS_ADMIN_PORT=0
 
 cleanup() {
   status=$?
@@ -25,20 +26,25 @@ trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
 
 docker compose config --quiet
-docker compose up -d --build web orchestrator
+docker compose up -d --build web admin-web orchestrator
 
 attempt=0
 while [ "$attempt" -lt 90 ]; do
   published=$(docker compose port web 8787 2>/dev/null || true)
   port=${published##*:}
-  if [ -n "$port" ] && curl --fail --silent "http://127.0.0.1:$port/health" \
+  admin_published=$(docker compose port admin-web 8788 2>/dev/null || true)
+  admin_port=${admin_published##*:}
+  if [ -n "$port" ] && [ -n "$admin_port" ] \
+    && curl --fail --silent "http://127.0.0.1:$port/healthz" \
+      | grep -q '"status":"ok"' \
+    && curl --fail --silent "http://127.0.0.1:$admin_port/healthz" \
     | grep -q '"status":"ok"'
   then
     docker compose exec -T server node -e \
       "fetch('http://127.0.0.1:8787/api/v2/me',{headers:{'x-kross-user-id':'smoke-user'}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
     docker compose exec -T orchestrator node -e \
       "fetch('http://127.0.0.1:8790/healthz',{headers:{authorization:'Bearer $KROSS_ORCHESTRATOR_SERVICE_TOKEN'}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-    echo "SaaS container smoke 通过：PostgreSQL、Migration、Server、Orchestrator、Web 已就绪"
+    echo "SaaS container smoke 通过：PostgreSQL、Migration、Server、Orchestrator、用户端与管理端均已就绪"
     exit 0
   fi
   attempt=$((attempt + 1))

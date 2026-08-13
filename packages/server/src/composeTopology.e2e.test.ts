@@ -4,24 +4,25 @@ import { describe, expect, it } from 'vitest';
 
 describe('SaaS compose topology', () => {
   it('keeps the Docker socket out of Server and has no dependency cycle', async () => {
-    const compose = await readFile('docker-compose.yml', 'utf8');
+    const compose = await readFile(new URL('../../../docker-compose.yml', import.meta.url), 'utf8');
     const blocks = serviceBlocks(compose);
     expect(blocks.server).not.toContain('/var/run/docker.sock');
     expect(blocks.orchestrator).toContain('/var/run/docker.sock:/var/run/docker.sock');
     expect(findCycle({
       postgres: [], migrate: ['postgres'], server: ['migrate'],
-      orchestrator: ['worker-image'], 'worker-image': [], web: ['server']
+      orchestrator: ['worker-image'], 'worker-image': [], web: ['server'], 'admin-web': ['server']
     })).toBeUndefined();
     expect(blocks.server).toContain('KROSS_ORCHESTRATOR_URL: http://orchestrator:8790');
     expect(blocks.web).toContain('condition: service_healthy');
   });
 
   it('smoke checks the exact Dev Identity header used by Server', async () => {
-    const smoke = await readFile('scripts/cloud-container-smoke.sh', 'utf8');
+    const smoke = await readFile(new URL('../../../scripts/cloud-container-smoke.sh', import.meta.url), 'utf8');
     expect(smoke).toContain("'x-kross-user-id':'smoke-user'");
     expect(smoke).not.toContain('x-kross-dev-user');
     expect(smoke).toContain('docker compose config --quiet');
-    expect(smoke).toContain('docker compose up -d --build web orchestrator');
+    expect(smoke).toContain('docker compose up -d --build web admin-web orchestrator');
+    expect(smoke).toContain('docker compose port admin-web 8788');
     expect(smoke).toContain("orchestrator node -e");
   });
 });

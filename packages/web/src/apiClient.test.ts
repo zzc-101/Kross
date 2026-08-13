@@ -47,6 +47,41 @@ describe('WorkApiClient', () => {
     await expect(client.listSources('project-1')).resolves.toEqual([]);
   });
 
+  it('uploads a Source through reservation, signed PUT and completion', async () => {
+    const calls: string[] = [];
+    const source = sourceRecord('uploading');
+    const client = new WorkApiClient({
+      baseUrl: 'https://work.test',
+      fetch: async (input) => {
+        const url = String(input); calls.push(url);
+        if (url === 'https://blob.test/upload') return new Response(null, { status: 200 });
+        if (url.endsWith('/sources/uploads')) return jsonResponse({
+          ...source,
+          upload: { method: 'PUT', url: 'https://blob.test/upload', headers: [{ name: 'content-type', value: 'text/plain' }], expiresAt: '2026-08-12T01:00:00.000Z' }
+        });
+        return jsonResponse({ ...source, status: 'ready', size_bytes: 5 });
+      }
+    });
+    client.selectOrganization('org-1');
+
+    await expect(client.uploadSource('project-1', new File(['hello'], 'notes.txt', { type: 'text/plain' })))
+      .resolves.toMatchObject({ id: 'source-1', status: 'ready', sizeBytes: 5 });
+    expect(calls).toEqual([
+      'https://work.test/api/v2/projects/project-1/sources/uploads',
+      'https://blob.test/upload',
+      'https://work.test/api/v2/sources/source-1/complete'
+    ]);
+  });
+
+  it('rejects malformed database Source rows before UI state', async () => {
+    const client = new WorkApiClient({
+      baseUrl: 'https://work.test',
+      fetch: async () => jsonResponse({ items: [{ ...sourceRecord('ready'), organization_id: '../escape' }] })
+    });
+    client.selectOrganization('org-1');
+    await expect(client.listSources('project-1')).rejects.toThrow();
+  });
+
   it('rejects malformed payloads instead of leaking unchecked JSON into UI state', async () => {
     const client = new WorkApiClient({
       baseUrl: 'https://work.test',
@@ -101,5 +136,14 @@ function approvalRecord(status: 'pending' | 'approved' | 'rejected') {
     decided_at: status === 'pending' ? null : '2026-08-12T00:01:00.000Z',
     decided_by: status === 'pending' ? null : 'user-1',
     decision_idempotency_key: status === 'pending' ? null : 'decision-1'
+  };
+}
+
+function sourceRecord(status: 'uploading' | 'ready') {
+  return {
+    id: 'source-1', organization_id: 'org-1', project_id: 'project-1', task_id: null,
+    kind: 'upload', scope: 'project', status, display_name: 'notes.txt',
+    mime_type: 'text/plain', size_bytes: status === 'ready' ? 5 : null,
+    previous_source_id: null, created_by: 'user-1', created_at: '2026-08-12T00:00:00.000Z'
   };
 }

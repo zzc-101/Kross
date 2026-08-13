@@ -99,13 +99,13 @@ npm run dev --workspace @kross/tui
 
 ### Run the Self-hosted Cloud Agent
 
-Cloud Agent requires Docker Engine and Docker Compose. On first run, the startup script creates `.env` from `.env.example`, generates an access token, builds the Web, Gateway, and Worker images, and starts them in the background:
+Cloud Agent requires Docker Engine and Docker Compose. On first run, the startup script creates `.env` from `.env.example`, generates internal service secrets, builds the user Web, Admin Web, Server, Orchestrator, and Worker images, and starts them in the background:
 
 ```bash
 ./scripts/start-cloud.sh
 ```
 
-Open `http://localhost:8787` and sign in with the token printed by the script or stored as `KROSS_ACCESS_TOKEN` in `.env`. Common management commands:
+Open `http://localhost:8787` for the user workbench or `http://localhost:8788` for the organization administration console. Local development uses the explicit development identity flow; public deployments must replace it with production OIDC/session authentication. Common management commands:
 
 ```bash
 ./scripts/start-cloud.sh --no-build
@@ -113,7 +113,7 @@ Open `http://localhost:8787` and sign in with the token printed by the script or
 ./scripts/start-cloud.sh --stop
 ```
 
-Public deployments must place a TLS reverse proxy in front of the Web entry point. The Gateway requires access to the Docker Socket, which is effectively a privileged host control plane; deploy it only on a dedicated or otherwise controlled host. See [Cloud deployment and operations](docs/cloud-agent-deployment.md) for configuration, security boundaries, and the acceptance checklist.
+Public deployments must place a TLS reverse proxy in front of both Web entry points. Only the Orchestrator requires access to the Docker Socket, which is effectively a privileged host control plane; deploy it only on a dedicated or otherwise controlled host. See [Cloud deployment and operations](docs/cloud-agent-deployment.md) for configuration, security boundaries, and the acceptance checklist.
 
 ## Basic Usage
 

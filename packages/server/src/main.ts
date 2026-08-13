@@ -13,7 +13,7 @@ const application = createServerApplication(pool, {
   schedulerOwner: config.schedulerOwner
 });
 const server = createApiHttpServer({
-  api: application.api, workerControl: application.workerControl,
+  api: application.api, admin: application.admin, workerControl: application.workerControl,
   blobStore: application.blobStore, signedBlobUrls: application.signedBlobUrls
 });
 let scheduleTickRunning = false;

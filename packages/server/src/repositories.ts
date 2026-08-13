@@ -66,6 +66,7 @@ export interface RunEventRecord {
   readonly timestamp: string;
   readonly payload: Readonly<Record<string, unknown>>;
 }
+export interface TaskMessageRecord extends Record<string, unknown> { readonly id: string; }
 
 export interface CreateProjectCommand {
   readonly kind: 'general' | 'repository';
@@ -470,13 +471,13 @@ export class ApprovalRepository {
 export class TaskMessageRepository {
   public constructor(private readonly sql: SqlExecutor) {}
 
-  public async list(context: OrganizationContext, taskId: string): Promise<Record<string, unknown>[]> {
+  public async list(context: OrganizationContext, taskId: string): Promise<TaskMessageRecord[]> {
     const result = await this.sql.query(
       `SELECT * FROM task_messages
        WHERE organization_id = $1 AND task_id = $2 ORDER BY created_at ASC, id ASC`,
       [context.organizationId, taskId]
     );
-    return result.rows;
+    return result.rows.map(mapTaskMessage);
   }
 
   public async append(
@@ -485,18 +486,27 @@ export class TaskMessageRepository {
     role: 'user' | 'agent' | 'system',
     content: readonly Record<string, unknown>[],
     runId?: string
-  ): Promise<Record<string, unknown>> {
+  ): Promise<TaskMessageRecord> {
     const result = await this.sql.query(
       `INSERT INTO task_messages
        (id, organization_id, project_id, task_id, run_id, role, content, created_by)
        SELECT $1, t.organization_id, t.project_id, t.id, $4, $5, $6, $7
        FROM tasks t WHERE t.organization_id = $2 AND t.id = $3 RETURNING *`,
-      [randomUUID(), context.organizationId, taskId, runId ?? null, role, content,
+      [randomUUID(), context.organizationId, taskId, runId ?? null, role, JSON.stringify(content),
         role === 'user' ? context.userId : null]
     );
     if (!result.rows[0]) throw notFound('Task');
-    return result.rows[0];
+    return mapTaskMessage(result.rows[0]);
   }
+}
+
+function mapTaskMessage(row: Record<string, unknown>): TaskMessageRecord {
+  return {
+    id: String(row.id), organizationId: String(row.organization_id), projectId: String(row.project_id),
+    taskId: String(row.task_id), ...(row.run_id == null ? {} : { runId: String(row.run_id) }),
+    role: String(row.role), content: row.content,
+    ...(row.created_by == null ? {} : { createdBy: String(row.created_by) }), createdAt: iso(row.created_at)
+  };
 }
 
 export class SourceRepository {

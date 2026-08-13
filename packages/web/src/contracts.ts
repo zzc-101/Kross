@@ -101,6 +101,46 @@ export const serverApprovalRecordSchema = z
   })
   .passthrough();
 
+export const serverSourceRecordSchema = z.object({
+  id: resourceIdSchema,
+  organization_id: resourceIdSchema,
+  project_id: resourceIdSchema,
+  task_id: resourceIdSchema.nullish(),
+  kind: z.enum(['upload', 'url', 'repository', 'connector', 'generated']),
+  scope: z.enum(['project', 'task']),
+  status: z.enum(['uploading', 'processing', 'ready', 'failed', 'deleted']),
+  display_name: z.string().min(1).max(500),
+  mime_type: z.string().nullish(),
+  size_bytes: z.union([z.number(), z.string()]).nullish(),
+  previous_source_id: resourceIdSchema.nullish(),
+  created_by: resourceIdSchema,
+  created_at: isoDateTimeSchema
+}).passthrough();
+
+export const serverArtifactRecordSchema = z.object({
+  id: resourceIdSchema,
+  organization_id: resourceIdSchema,
+  project_id: resourceIdSchema,
+  task_id: resourceIdSchema,
+  run_id: resourceIdSchema,
+  kind: z.enum(['document', 'spreadsheet', 'presentation', 'image', 'data', 'archive', 'code', 'other']),
+  status: z.enum(['pending', 'ready', 'failed', 'deleted']),
+  display_name: z.string().min(1).max(500),
+  mime_type: z.string().nullish(),
+  size_bytes: z.union([z.number(), z.string()]).nullish(),
+  previous_artifact_id: resourceIdSchema.nullish(),
+  created_at: isoDateTimeSchema
+}).passthrough();
+
+export const sourceUploadReservationSchema = serverSourceRecordSchema.extend({
+  upload: z.object({
+    method: z.literal('PUT'),
+    url: z.string().url(),
+    headers: z.array(z.object({ name: z.string().min(1), value: z.string() }).strict()),
+    expiresAt: isoDateTimeSchema
+  }).strict()
+}).passthrough();
+
 export const publicSchemas = {
   bootstrap: bootstrapSchema,
   projects: projectListSchema,

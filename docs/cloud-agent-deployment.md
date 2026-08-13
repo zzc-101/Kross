@@ -5,7 +5,8 @@
 
 ## 组件边界
 
-- `web`：浏览器工作台和同源 Nginx 入口。
+- `web`：普通用户工作台和同源 Nginx 入口。
+- `admin-web`：组织管理员控制台；与用户工作台分开部署并复用同一控制面。
 - `server`：身份、RBAC、Project/Task/Run、事件、Source/Artifact 与 Worker 控制面。
 - `postgres`：控制面权威数据、幂等记录、租约和事件游标。
 - `orchestrator`：唯一能访问 Docker Socket 的内部服务，按 Run 创建短命 Worker。
@@ -25,7 +26,8 @@ Socket。
 
 脚本首次运行会从 `.env.example` 创建 `.env`，生成 PostgreSQL 密码和内部
 Orchestrator 服务令牌，构建镜像，执行 migration，并启动 Web、Server、
-Orchestrator 与 PostgreSQL。默认入口为 `http://localhost:8787`。
+Orchestrator 与 PostgreSQL。用户端默认入口为 `http://localhost:8787`，管理端默认
+入口为 `http://localhost:8788`。
 
 ```bash
 ./scripts/start-cloud.sh --no-build
@@ -42,6 +44,7 @@ Orchestrator 与 PostgreSQL。默认入口为 `http://localhost:8787`。
 | 变量 | 用途 |
 |---|---|
 | `KROSS_PORT` | Web 对宿主机暴露的端口，默认 `8787` |
+| `KROSS_ADMIN_PORT` | 管理端对宿主机暴露的端口，默认 `8788` |
 | `KROSS_POSTGRES_PASSWORD` | 本地 PostgreSQL 密码；脚本可自动生成 |
 | `KROSS_ORCHESTRATOR_SERVICE_TOKEN` | Server 与 Orchestrator 的内部服务令牌，至少 32 字节 |
 | `KROSS_BLOB_SIGNING_SECRET` | Source/Artifact 短期 URL 的 HMAC 密钥，至少 32 字节 |

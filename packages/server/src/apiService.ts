@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import {
   assertMembershipCanPerform,
+  taskMessageContentBlockSchema,
   taskTypeSchema,
   type OrganizationAction,
   type OrganizationContext
@@ -24,7 +25,8 @@ import type {
   RunEventRepository,
   RunRepository,
   SourceRepository,
-  TaskRepository
+  TaskRepository,
+  TaskMessageRepository
 } from './repositories';
 import type { SseService } from './sse';
 import type { SourceArtifactService } from './sourceArtifactService';
@@ -83,6 +85,9 @@ const scheduleStatusSchema = z.object({ status: z.enum(['active', 'paused']) }).
 const decideApprovalSchema = z.object({
   decision: z.enum(['approved', 'rejected']), reason: z.string().max(10_000).optional()
 }).strict();
+const appendTaskMessageSchema = z.object({
+  content: z.array(taskMessageContentBlockSchema).min(1).max(100)
+}).strict();
 
 export interface ApiDependencies {
   readonly identity: IdentityProvider;
@@ -91,6 +96,7 @@ export interface ApiDependencies {
   readonly organizations: OrganizationRepository;
   readonly projects: ProjectRepository;
   readonly tasks: TaskRepository;
+  readonly taskMessages: TaskMessageRepository;
   readonly runs: RunRepository;
   readonly events: RunEventRepository;
   readonly idempotency: IdempotencyRepository;
@@ -183,6 +189,17 @@ export class ApiService {
   public async getTask(identity: Identity, organizationId: string, taskId: string) {
     const context = await this.context(identity, organizationId, 'task.read');
     return this.dependencies.tasks.get(context, parse(resourceIdSchema, taskId));
+  }
+
+  public async listTaskMessages(identity: Identity, organizationId: string, taskId: string) {
+    const context = await this.context(identity, organizationId, 'task.read');
+    return this.dependencies.taskMessages.list(context, parse(resourceIdSchema, taskId));
+  }
+
+  public async appendTaskMessage(identity: Identity, organizationId: string, taskId: string, body: unknown, key: string | undefined) {
+    const context = await this.context(identity, organizationId, 'task.create');
+    const parsedTaskId=parse(resourceIdSchema,taskId); const input=parse(appendTaskMessageSchema,body);
+    return this.idempotent(context,'task_message.append',key,{taskId:parsedTaskId,...input},()=>this.dependencies.taskMessages.append(context,parsedTaskId,'user',input.content));
   }
 
   public async listArtifacts(identity: Identity, organizationId: string, taskId: string) {

@@ -14,11 +14,14 @@ import type { ApiService } from './apiService';
 import { ServerError } from './errors';
 import type { WorkerControlService } from './workerControl';
 import type { BlobStore, SignedBlobUrlProvider } from './blobStore';
+import type { AdminService } from './adminService';
+import type { Identity } from './identity';
 
 const MAX_BODY_BYTES = 1_048_576;
 
 export interface HttpServerOptions {
   readonly api: ApiService;
+  readonly admin?: AdminService;
   readonly workerControl?: WorkerControlService;
   readonly blobStore?: BlobStore;
   readonly signedBlobUrls?: SignedBlobUrlProvider;
@@ -56,6 +59,11 @@ async function handleRequest(
     const identity = await options.api.authenticate(headers);
     const organizationId = headers['x-kross-organization-id'];
 
+    if (request.method === 'POST' && url.pathname === '/api/v2/admin/bootstrap') {
+      if (!options.admin) throw new ServerError('admin_unavailable', 'Admin API is unavailable', 503);
+      sendJson(response, 201, await options.admin.bootstrap(identity, await readJson(request))); return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/v2/me') {
       sendJson(response, 200, await options.api.me(identity)); return;
     }
@@ -64,6 +72,10 @@ async function handleRequest(
       sendJson(response, 200, { items: me.memberships }); return;
     }
     if (!organizationId) throw new ServerError('organization_required', 'x-kross-organization-id is required', 400);
+
+    if (url.pathname.startsWith('/api/v2/admin/')) {
+      await handleAdminRequest(options, request, response, url, identity, organizationId); return;
+    }
 
     const organizationMatch = match(url.pathname, /^\/api\/v2\/organizations\/([^/]+)$/);
     if (request.method === 'GET' && organizationMatch) {
@@ -112,6 +124,11 @@ async function handleRequest(
     const taskMatch = match(url.pathname, /^\/api\/v2\/tasks\/([^/]+)$/);
     if (request.method === 'GET' && taskMatch) {
       sendJson(response, 200, await options.api.getTask(identity, organizationId, taskMatch[0]!)); return;
+    }
+    const taskMessagesMatch = match(url.pathname, /^\/api\/v2\/tasks\/([^/]+)\/messages$/);
+    if (taskMessagesMatch) {
+      if (request.method === 'GET') { sendJson(response, 200, { items: await options.api.listTaskMessages(identity, organizationId, taskMessagesMatch[0]!) }); return; }
+      if (request.method === 'POST') { sendJson(response, 201, await options.api.appendTaskMessage(identity, organizationId, taskMessagesMatch[0]!, await readJson(request), headers['idempotency-key'])); return; }
     }
     const taskRunsMatch = match(url.pathname, /^\/api\/v2\/tasks\/([^/]+)\/runs$/);
     if (request.method === 'POST' && taskRunsMatch) {
@@ -195,6 +212,44 @@ async function handleRequest(
   } catch (error) {
     sendError(response, error, options.exposeErrorDetails ?? false);
   }
+}
+
+async function handleAdminRequest(
+  options: HttpServerOptions, request: IncomingMessage, response: ServerResponse,
+  url: URL, identity: Identity, organizationId: string
+): Promise<void> {
+  const admin = options.admin;
+  if (!admin) throw new ServerError('admin_unavailable', 'Admin API is unavailable', 503);
+  const query = Object.fromEntries(url.searchParams.entries());
+  if (request.method === 'GET' && url.pathname === '/api/v2/admin/dashboard') { sendJson(response, 200, await admin.dashboard(identity, organizationId)); return; }
+  if (url.pathname === '/api/v2/admin/members') {
+    if (request.method === 'GET') { sendJson(response, 200, await admin.listMembers(identity, organizationId, query)); return; }
+    if (request.method === 'POST') { sendJson(response, 201, await admin.inviteMember(identity, organizationId, await readJson(request))); return; }
+  }
+  const member = match(url.pathname, /^\/api\/v2\/admin\/members\/([^/]+)$/);
+  if (member && request.method === 'PATCH') { sendJson(response, 200, await admin.updateMember(identity, organizationId, member[0]!, await readJson(request))); return; }
+  if (member && request.method === 'DELETE') { sendJson(response, 200, await admin.removeMember(identity, organizationId, member[0]!)); return; }
+  if (url.pathname === '/api/v2/admin/approval-policy') {
+    if (request.method === 'GET') { sendJson(response, 200, await admin.getPolicy(identity, organizationId)); return; }
+    if (request.method === 'PATCH') { sendJson(response, 200, await admin.updatePolicy(identity, organizationId, await readJson(request))); return; }
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v2/admin/connectors') { sendJson(response, 200, { items: await options.api.listConnectors(identity, organizationId) }); return; }
+  if (request.method === 'GET' && url.pathname === '/api/v2/admin/audit-logs') { sendJson(response, 200, await admin.listAuditLogs(identity, organizationId, query)); return; }
+  if (url.pathname === '/api/v2/admin/credentials') {
+    if (request.method === 'GET') { sendJson(response, 200, await admin.listCredentials(identity, organizationId, query)); return; }
+    if (request.method === 'POST') { sendJson(response, 201, await admin.createCredential(identity, organizationId, await readJson(request))); return; }
+  }
+  const credential = match(url.pathname, /^\/api\/v2\/admin\/credentials\/([^/]+)$/);
+  if (credential && request.method === 'PATCH') { sendJson(response, 200, await admin.updateCredential(identity, organizationId, credential[0]!, await readJson(request))); return; }
+  if (credential && request.method === 'DELETE') { sendJson(response, 200, await admin.deleteCredential(identity, organizationId, credential[0]!)); return; }
+  if (url.pathname === '/api/v2/admin/models') {
+    if (request.method === 'GET') { sendJson(response, 200, await admin.listModels(identity, organizationId, query)); return; }
+    if (request.method === 'POST') { sendJson(response, 201, await admin.createModel(identity, organizationId, await readJson(request))); return; }
+  }
+  const model = match(url.pathname, /^\/api\/v2\/admin\/models\/([^/]+)$/);
+  if (model && request.method === 'PATCH') { sendJson(response, 200, await admin.updateModel(identity, organizationId, model[0]!, await readJson(request))); return; }
+  if (model && request.method === 'DELETE') { sendJson(response, 200, await admin.deleteModel(identity, organizationId, model[0]!)); return; }
+  throw new ServerError('not_found', 'Route not found', 404);
 }
 
 async function handleWorkerRequest(

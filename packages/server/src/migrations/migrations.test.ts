@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { workAgentV2Migration } from './001_work_agent_v2';
 import { sourceArtifactBlobMigration } from './002_source_artifact_blob';
 import { connectorsSchedulesMigration } from './003_connectors_schedules';
+import { adminConsoleMigration } from './004_admin_console';
 
 describe('Work Agent PostgreSQL migration', () => {
   it('creates every P1 tenant-owned resource and tenant-scoped foreign keys', () => {
@@ -48,5 +49,15 @@ describe('Connector/Schedule migration', () => {
     expect(connectorsSchedulesMigration).toContain("CHECK (concurrency_policy = 'skip')");
     expect(connectorsSchedulesMigration).toContain("CHECK (external_action_policy = 'draft_only')");
     expect(connectorsSchedulesMigration).toContain('UNIQUE (organization_id, schedule_id, scheduled_for)');
+  });
+});
+
+describe('Admin console migration', () => {
+  it('stores only vault handles and tenant-scopes model credentials', () => {
+    expect(adminConsoleMigration).toContain('CREATE TABLE credential_handles');
+    expect(adminConsoleMigration).toContain('CREATE TABLE model_profiles');
+    expect(adminConsoleMigration).toContain('UNIQUE (organization_id, handle)');
+    expect(adminConsoleMigration).toContain('FOREIGN KEY (organization_id, credential_handle_id)');
+    expect(adminConsoleMigration).not.toMatch(/secret_value|api_key|password|access_token/i);
   });
 });

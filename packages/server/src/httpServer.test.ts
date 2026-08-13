@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ApiService } from './apiService';
 import { createApiHttpServer } from './httpServer';
 import type { WorkerControlService } from './workerControl';
+import type { AdminService } from './adminService';
 
 describe('HTTP v2 control plane', () => {
   const servers: ReturnType<typeof createApiHttpServer>[] = [];
@@ -74,5 +75,50 @@ describe('HTTP v2 control plane', () => {
       method: 'POST', headers: { authorization: 'Bearer token' }, body: '{}'
     });
     expect(result.status).toBe(503);
+  });
+
+  it('routes tenant-scoped admin member queries after authentication', async () => {
+    const api = { authenticate: async () => ({ userId: 'owner-user', displayName: 'Owner' }) } as unknown as ApiService;
+    const listMembers = async (_identity: unknown, organizationId: string) => ({ items: [], page: 1, pageSize: 20, total: organizationId === 'org-a' ? 0 : 1 });
+    const admin = { listMembers } as unknown as AdminService;
+    const server = createApiHttpServer({ api, admin }); servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    const result = await fetch(`http://127.0.0.1:${address.port}/api/v2/admin/members`, {
+      headers: { 'x-kross-user-id': 'owner-user', 'x-kross-organization-id': 'org-a' }
+    });
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({ items: [], page: 1, pageSize: 20, total: 0 });
+  });
+
+  it('allows bootstrap without an organization header but requires admin implementation', async () => {
+    const api = { authenticate: async () => ({ userId: 'first-user', displayName: 'First' }) } as unknown as ApiService;
+    const bootstrap = async () => ({ organization: { id: 'org-first' }, membership: { role: 'owner' } });
+    const admin = { bootstrap } as unknown as AdminService;
+    const server = createApiHttpServer({ api, admin }); servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    const result = await fetch(`http://127.0.0.1:${address.port}/api/v2/admin/bootstrap`, {
+      method: 'POST', headers: { 'x-kross-user-id': 'first-user', 'content-type': 'application/json' },
+      body: JSON.stringify({ organizationId: 'org-first', slug: 'first', name: 'First' })
+    });
+    expect(result.status).toBe(201);
+    expect(await result.json()).toMatchObject({ organization: { id: 'org-first' }, membership: { role: 'owner' } });
+  });
+
+  it('routes task Composer messages with tenant scope and idempotency key', async () => {
+    let received: unknown;
+    const api = {
+      authenticate: async () => ({ userId: 'member-user', displayName: 'Member' }),
+      appendTaskMessage: async (_identity: unknown, organizationId: string, taskId: string, body: unknown, key: string | undefined) => {
+        received={organizationId,taskId,body,key}; return {id:'message-a'};
+      }
+    } as unknown as ApiService;
+    const server=createApiHttpServer({api}); servers.push(server);
+    await new Promise<void>((resolve)=>server.listen(0,'127.0.0.1',resolve));
+    const address=server.address(); if(!address||typeof address==='string') throw new Error('Expected TCP address');
+    const result=await fetch(`http://127.0.0.1:${address.port}/api/v2/tasks/task-a/messages`,{method:'POST',headers:{'x-kross-user-id':'member-user','x-kross-organization-id':'org-a','idempotency-key':'message-key-12345678','content-type':'application/json'},body:JSON.stringify({content:[{type:'text',text:'继续执行'}]})});
+    expect(result.status).toBe(201);
+    expect(received).toEqual({organizationId:'org-a',taskId:'task-a',body:{content:[{type:'text',text:'继续执行'}]},key:'message-key-12345678'});
   });
 });

@@ -23,6 +23,7 @@ import { HttpOrchestratorClient } from './orchestratorClient';
 import { RunScheduler } from './runScheduler';
 import { ConnectorService, ScheduleService } from './connectorSchedule';
 import { ApprovalService } from './approvalService';
+import { AdminService } from './adminService';
 
 export function createServerApplication(pool: SqlPool, options: {
   devIdentityEnabled: boolean;
@@ -53,6 +54,7 @@ export function createServerApplication(pool: SqlPool, options: {
   );
   const sourceArtifacts = new SourceArtifactService(database, database, blobStore, signedBlobUrls);
   const approvalService = new ApprovalService(database, database);
+  const admin = new AdminService({ sql: database, transactions: database, contexts: new OrganizationContextResolver(memberships), bootstrapEnabled: options.devIdentityEnabled });
   const connectors = new ConnectorService(database);
   const schedules = new ScheduleService(database, database);
   const sse = new SseService(events);
@@ -70,13 +72,14 @@ export function createServerApplication(pool: SqlPool, options: {
   const api = new ApiService({
     identity: new DevIdentityProvider(options.devIdentityEnabled),
     contexts: new OrganizationContextResolver(memberships),
-    memberships, organizations, projects, tasks, runs, events, idempotency, sse,
+    memberships, organizations, projects, tasks, taskMessages, runs, events, idempotency, sse,
     sources, artifacts, sourceArtifacts, connectors, schedules, approvalService,
     ...(scheduler === undefined ? {} : { runCancellation: scheduler })
   });
   return {
     database,
     api,
+    admin,
     workerControl,
     blobStore,
     signedBlobUrls,

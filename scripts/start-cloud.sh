@@ -94,6 +94,22 @@ wait_for_web() {
   return 1
 }
 
+wait_for_admin_web() {
+  port=$(read_env_value KROSS_ADMIN_PORT)
+  if [ -z "$port" ]; then port=8788; fi
+  attempt=0
+  while [ "$attempt" -lt 60 ]; do
+    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/healthz"; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  echo "管理端入口未能在 60 秒内就绪，最近日志如下：" >&2
+  docker compose logs --tail 100 admin-web server migrate >&2
+  return 1
+}
+
 command=${1:-start}
 case "$command" in
   start | --no-build)
@@ -101,15 +117,19 @@ case "$command" in
     ensure_env
     cd "$PROJECT_DIR"
     if [ "$command" = "start" ]; then
-      echo "正在构建 Web、Server、Orchestrator 和 Worker 镜像……"
+      echo "正在构建用户端、管理端、Server、Orchestrator 和 Worker 镜像……"
       docker compose build
     fi
     echo "正在启动 SaaS Work Agent……"
-    docker compose up -d web orchestrator
+    docker compose up -d web admin-web orchestrator
     wait_for_web
+    wait_for_admin_web
     port=$(read_env_value KROSS_PORT)
     if [ -z "$port" ]; then port=8787; fi
-    echo "SaaS Work Agent 已启动：http://localhost:$port"
+    admin_port=$(read_env_value KROSS_ADMIN_PORT)
+    if [ -z "$admin_port" ]; then admin_port=8788; fi
+    echo "SaaS Work Agent 用户端已启动：http://localhost:$port"
+    echo "SaaS Work Agent 管理端已启动：http://localhost:$admin_port"
     ;;
   --stop)
     require_docker
@@ -122,7 +142,7 @@ case "$command" in
     require_docker
     ensure_env
     cd "$PROJECT_DIR"
-    docker compose logs -f web server orchestrator migrate postgres
+    docker compose logs -f web admin-web server orchestrator migrate postgres
     ;;
   --migrate | --migrate-apply)
     require_docker

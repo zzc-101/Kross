@@ -12,10 +12,13 @@ import type {
 import { WorkApiClient } from './apiClient';
 import { consumePublicEvents } from './eventStream';
 import { initialRunViewState, reducePublicEvent } from './runReducer';
+import { navigate, readRoute, type WorkbenchRoute } from './routeState';
 
 export function useWorkbench(devUserId: string) {
   const api = useMemo(() => new WorkApiClient({ devUserId }), [devUserId]);
   const [organizationId, setOrganizationId] = useState('');
+  const [memberships, setMemberships] = useState<Awaited<ReturnType<WorkApiClient['me']>>['memberships']>([]);
+  const [route, setRoute] = useState<WorkbenchRoute>(() => typeof location === 'undefined' ? { view: 'home' } : readRoute(location));
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState('');
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
@@ -41,11 +44,19 @@ export function useWorkbench(devUserId: string) {
   useEffect(() => {
     setLoading(true);
     void guarded(() => api.me()).then((bootstrap) => {
-      const first = bootstrap?.memberships[0]?.organizationId;
+      if (bootstrap) setMemberships(bootstrap.memberships);
+      const requested = typeof localStorage === 'undefined' ? undefined : localStorage.getItem(`kross.organization.${devUserId}`);
+      const first = bootstrap?.memberships.find((item) => item.organizationId === requested)?.organizationId ?? bootstrap?.memberships[0]?.organizationId;
       if (first) { api.selectOrganization(first); setOrganizationId(first); }
       else if (bootstrap) setError('当前账号尚未加入任何组织');
     }).finally(() => setLoading(false));
   }, [api, guarded]);
+
+  useEffect(() => {
+    const onPopState = () => setRoute(readRoute(location));
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -53,12 +64,18 @@ export function useWorkbench(devUserId: string) {
     void guarded(() => api.listProjects()).then((items) => {
       if (!items) return;
       setProjects(items);
-      setProjectId((current) => current || items[0]?.id || '');
+      setProjectId((current) => route.view === 'task' && items.some((item) => item.id === route.projectId)
+        ? route.projectId : current && items.some((item) => item.id === current) ? current : items[0]?.id || '');
     });
-  }, [api, guarded, organizationId]);
+  }, [api, guarded, organizationId, route]);
 
   useEffect(() => {
-    if (!projectId) { setTasks([]); setSources([]); return; }
+    if (!projectId) { setTasks([]); setSources([]); setTask(undefined); return; }
+    setTask(undefined);
+    setMessages([]);
+    setArtifacts([]);
+    setApprovals([]);
+    dispatch({ kind: 'reset' });
     void Promise.all([
       guarded(() => api.listTasks(projectId)),
       guarded(() => api.listSources(projectId))
@@ -89,6 +106,11 @@ export function useWorkbench(devUserId: string) {
   }, [api, guarded]);
 
   useEffect(() => {
+    if (route.view !== 'task' || route.projectId !== projectId || !route.taskId || task?.id === route.taskId) return;
+    void selectTask(route.taskId);
+  }, [projectId, route, task?.id, selectTask]);
+
+  useEffect(() => {
     if (!organizationId || !task?.latestRunId) return;
     const controller = new AbortController();
     void consumePublicEvents({
@@ -101,13 +123,13 @@ export function useWorkbench(devUserId: string) {
 
   const createProject = useCallback(async (name: string) => {
     const project = await guarded(() => api.createProject({ name }));
-    if (project) { setProjects((items) => [project, ...items]); setProjectId(project.id); }
+    if (project) { setProjects((items) => [project, ...items]); setProjectId(project.id); navigate({ view: 'task', projectId: project.id }); }
   }, [api, guarded]);
 
   const createTask = useCallback(async (title: string, objective: string) => {
     if (!projectId) return;
     const created = await guarded(() => api.createTask(projectId, { type: 'general', title, objective }));
-    if (created) { setTasks((items) => [created, ...items]); await selectTask(created.id); }
+    if (created) { setTasks((items) => [created, ...items]); navigate({ view: 'task', projectId, taskId: created.id }); await selectTask(created.id); }
   }, [api, guarded, projectId, selectTask]);
 
   const startRun = useCallback(async (mode: 'auto' | 'plan') => {
@@ -146,15 +168,68 @@ export function useWorkbench(devUserId: string) {
     }
   }, [api, refreshApprovals, task?.latestRunId]);
 
+  const selectOrganization = useCallback((nextOrganizationId: string) => {
+    if (!memberships.some((item) => item.organizationId === nextOrganizationId)) return;
+    localStorage.setItem(`kross.organization.${devUserId}`, nextOrganizationId);
+    api.selectOrganization(nextOrganizationId);
+    setOrganizationId(nextOrganizationId);
+    setProjects([]); setProjectId(''); setTasks([]); setTask(undefined); setMessages([]);
+    setSources([]); setArtifacts([]); setApprovals([]); dispatch({ kind: 'reset' });
+    navigate({ view: 'home' });
+  }, [api, devUserId, memberships]);
+
+  const selectProject = useCallback((nextProjectId: string) => {
+    setProjectId(nextProjectId);
+    navigate({ view: 'task', projectId: nextProjectId });
+  }, []);
+
+  const chooseTask = useCallback(async (taskId: string) => {
+    if (!projectId) return;
+    navigate({ view: 'task', projectId, taskId });
+    await selectTask(taskId);
+  }, [projectId, selectTask]);
+
+  const showHome = useCallback(() => navigate({ view: 'home' }), []);
+
+  const appendMessage = useCallback(async (text: string) => {
+    if (!task || !text.trim()) return false;
+    const message = await guarded(() => api.appendMessage(task.id, text.trim()));
+    if (!message) return false;
+    setMessages((items) => [...items, message]);
+    return true;
+  }, [api, guarded, task]);
+
+  const uploadSource = useCallback(async (file: File) => {
+    if (!projectId) return false;
+    const source = await guarded(() => api.uploadSource(projectId, file));
+    if (!source) return false;
+    setSources((items) => [source, ...items.filter((item) => item.id !== source.id)]);
+    return true;
+  }, [api, guarded, projectId]);
+
+  const createInlineSource = useCallback(async (displayName: string, content: string) => {
+    if (!projectId) return false;
+    const source = await guarded(() => api.createInlineSource(projectId, displayName, content));
+    if (!source) return false;
+    setSources((items) => [source, ...items]);
+    return true;
+  }, [api, guarded, projectId]);
+
+  const openArtifact = useCallback(async (artifactId: string) => {
+    const url = await guarded(() => api.openArtifact(artifactId));
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  }, [api, guarded]);
+
   return {
-    organizationId, projects, projectId, setProjectId, tasks, task, selectTask,
+    organizationId, memberships, selectOrganization, projects, projectId, selectProject, tasks, task, selectTask: chooseTask,
+    route, showHome,
     messages: [...messages, ...runState.messages], sources,
     artifacts: mergeById(artifacts, runState.artifacts),
     approvals: mergeById(approvals, runState.approvals).filter(
       (approval) => !resolvedApprovalIds.has(approval.id)
     ),
     runState, connection, loading, error, createProject, createTask, startRun,
-    cancelRun, decideApproval
+    cancelRun, decideApproval, appendMessage, uploadSource, createInlineSource, openArtifact
   };
 }
 
