@@ -26,9 +26,7 @@ await build({
   packages: 'external',
   alias: {
     '@kross/core': resolve(root, 'packages/core/src/index.ts'),
-    '@kross/protocol': resolve(root, 'packages/protocol/src/index.ts'),
-    '@kross/work-domain': resolve(root, 'packages/work-domain/src/index.ts'),
-    '@kross/work-runtime': resolve(root, 'packages/work-runtime/src/index.ts')
+    '@kross/protocol': resolve(root, 'packages/protocol/src/index.ts')
   },
   logLevel: 'info'
 });

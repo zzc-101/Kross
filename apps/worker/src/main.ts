@@ -1,96 +1,50 @@
-import { createWriteStream } from 'node:fs';
 import { resolve } from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 
-import { createCoreWorkRuntimeFactory } from './coreRuntimeFactory';
-import { RunExecutor } from './runExecutor';
-import { FetchWorkerControlTransport } from './transport';
-import type { SourceDownloadAdapter } from '@kross/work-runtime';
+import { runAgentLoop } from './agentLoop';
+import { FetchAgentControlTransport } from './transport';
 
 export interface WorkerMainConfig {
-  workerId: string;
-  runId: string;
-  generation: number;
-  leaseId: string;
-  runToken: string;
+  agentId: string;
+  agentToken: string;
   controlPlaneUrl: string;
-  runSpecUrl: string;
   physicalWorkRoot: string;
 }
 
 export function parseWorkerMainConfig(env: Record<string, string | undefined>): WorkerMainConfig {
-  const runId = required(env, 'KROSS_RUN_ID');
-  const generationText = required(env, 'KROSS_GENERATION');
-  const generation = Number(generationText);
-  if (!Number.isSafeInteger(generation) || generation < 1) throw new Error('KROSS_GENERATION must be a positive integer');
-  const runSpecUrl = required(env, 'KROSS_RUN_SPEC_URL');
-  const controlPlaneUrl = env.KROSS_CONTROL_PLANE_URL?.trim() || new URL(runSpecUrl).origin;
   return {
-    workerId: env.KROSS_WORKER_ID?.trim() || `worker_${runId}_${generation}`,
-    runId,
-    generation,
-    leaseId: required(env, 'KROSS_LEASE_ID'),
-    runToken: required(env, 'KROSS_RUN_TOKEN'),
-    controlPlaneUrl,
-    runSpecUrl,
+    agentId: required(env, 'KROSS_AGENT_ID'),
+    agentToken: required(env, 'KROSS_AGENT_TOKEN'),
+    controlPlaneUrl: required(env, 'KROSS_CONTROL_PLANE_URL'),
     physicalWorkRoot: required(env, 'KROSS_PHYSICAL_WORK_ROOT')
   };
 }
 
 export async function runWorkerMain(env: Record<string, string | undefined> = process.env): Promise<number> {
   const config = parseWorkerMainConfig(env);
-  const transport = new FetchWorkerControlTransport({
-    controlPlaneUrl: config.controlPlaneUrl,
-    runSpecUrl: config.runSpecUrl
+  const transport = new FetchAgentControlTransport({
+    agentId: config.agentId,
+    agentToken: config.agentToken,
+    controlPlaneUrl: config.controlPlaneUrl
   });
-  const downloader = createFetchSourceDownloader();
-  const runtimeFactory = createCoreWorkRuntimeFactory({
-    modelEnvironmentResolver: {
-      async resolve() {
-        // Provider credentials are minted by the control plane with the run-scoped token.
-        // Orchestrator never receives API keys, refresh tokens, or durable control-plane secrets.
-        const minted = await transport.mintModelEnvironment({ runToken: config.runToken });
-        return { ...env, ...minted };
-      }
-    }
-  });
-  const outcome = await new RunExecutor({
-    lease: { workerId: config.workerId, runId: config.runId, generation: config.generation, leaseId: config.leaseId },
-    runToken: config.runToken,
-    physicalWorkRoot: config.physicalWorkRoot,
-    transport,
-    downloader,
-    runtimeFactory
-  }).execute();
-  return outcome.status === 'completed' || outcome.status === 'waiting_for_approval' || outcome.status === 'cancelled' ? 0 : 1;
-}
-
-export function createFetchSourceDownloader(fetchImpl: typeof globalThis.fetch = globalThis.fetch): SourceDownloadAdapter {
-  return {
-    async downloadToFile({ source, destination, signal }) {
-      const headers = Object.fromEntries(source.downloadHeaders.map((header) => [header.name, header.value]));
-      const response = await fetchImpl(source.downloadUrl, { headers, signal });
-      if (!response.ok) throw new Error(`Source ${source.id} download failed (${response.status})`);
-      if (!response.body) throw new Error(`Source ${source.id} download returned no body`);
-      let received = 0;
-      const limiter = new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          received += chunk.length;
-          callback(received > source.sizeBytes
-            ? new Error(`Source ${source.id} download exceeds declared size`)
-            : undefined, chunk);
-        }
-      });
-      await pipeline(
-        Readable.fromWeb(response.body as import('node:stream/web').ReadableStream),
-        limiter,
-        createWriteStream(destination, { mode: 0o600 }),
-        { signal }
-      );
-    }
+  let stopping = false;
+  const onStop = () => {
+    stopping = true;
   };
+  process.once('SIGTERM', onStop);
+  process.once('SIGINT', onStop);
+  try {
+    await runAgentLoop({
+      workspaceRoot: config.physicalWorkRoot,
+      processEnv: env,
+      transport,
+      shouldStop: () => stopping
+    });
+    return 0;
+  } finally {
+    process.removeListener('SIGTERM', onStop);
+    process.removeListener('SIGINT', onStop);
+  }
 }
 
 function required(env: Record<string, string | undefined>, key: string): string {

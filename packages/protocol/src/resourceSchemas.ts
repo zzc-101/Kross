@@ -1,14 +1,3 @@
-import {
-  approvalKinds,
-  approvalStatuses,
-  artifactKinds,
-  artifactStatuses,
-  runStatuses,
-  sourceKinds,
-  sourceStatuses,
-  taskStatuses,
-  taskTypes
-} from '@kross/work-domain';
 import { z } from 'zod';
 
 import {
@@ -39,6 +28,59 @@ import {
   workAgentModeSchema
 } from './commonSchemas';
 import { PROTOCOL_LIMITS } from './limits';
+
+export const sourceKinds = [
+  'upload',
+  'url',
+  'repository',
+  'connector',
+  'generated'
+] as const;
+export const sourceStatuses = [
+  'uploading',
+  'processing',
+  'ready',
+  'failed',
+  'deleted'
+] as const;
+export const taskTypes = [
+  'general',
+  'research',
+  'document',
+  'data',
+  'coding',
+  'automation'
+] as const;
+export const taskStatuses = ['open', 'completed', 'cancelled', 'archived'] as const;
+export const runStatuses = [
+  'queued',
+  'provisioning',
+  'running',
+  'waiting_for_approval',
+  'cancelling',
+  'completed',
+  'failed',
+  'cancelled'
+] as const;
+export const approvalKinds = ['plan', 'tool', 'external_action', 'elevated_access'] as const;
+export const approvalStatuses = [
+  'pending',
+  'approved',
+  'rejected',
+  'expired',
+  'cancelled'
+] as const;
+export const artifactKinds = [
+  'document',
+  'spreadsheet',
+  'presentation',
+  'image',
+  'data',
+  'code',
+  'archive',
+  'other'
+] as const;
+export const artifactStatuses = ['pending', 'ready', 'failed', 'deleted'] as const;
 
 export const taskTypeSchema = z.enum(taskTypes);
 export const taskStatusSchema = z.enum(taskStatuses);

@@ -1,4 +1,3 @@
-import { riskLevels } from '@kross/work-domain';
 import { z } from 'zod';
 
 import { PROTOCOL_LIMITS } from './limits';
@@ -115,5 +114,6 @@ export const failureSchema = z
   })
   .strict();
 
+export const riskLevels = ['low', 'medium', 'high', 'critical'] as const;
 export const riskLevelSchema = z.enum(riskLevels);
 export const workAgentModeSchema = z.enum(['auto', 'plan']);

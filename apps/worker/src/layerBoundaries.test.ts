@@ -7,47 +7,39 @@ import { describe, expect, it } from 'vitest';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('SaaS package layer boundaries', () => {
-  it('keeps Core independent from SaaS product packages', () => {
+  it('keeps Core independent from Cloud product packages', () => {
     expectPackageSources('packages/core', [
-      '@kross/work-domain',
-      '@kross/work-runtime',
       '@kross/protocol',
-      '@kross/server',
       '@kross/worker',
-      '@kross/web'
+      '@kross/web',
+      '@kross/admin-web'
     ]);
   });
 
-  it('keeps the local TUI independent from SaaS domain and hosts', () => {
+  it('keeps the local TUI independent from Cloud domain and hosts', () => {
     expectPackageSources('apps/tui', [
-      '@kross/work-domain',
-      '@kross/work-runtime',
       '@kross/protocol',
-      '@kross/server',
       '@kross/worker',
-      '@kross/web'
+      '@kross/web',
+      '@kross/admin-web'
     ]);
   });
 
-  it('keeps Work Domain browser-safe and infrastructure-free', () => {
-    expectPackageSources('packages/work-domain', [
+  it('keeps Protocol browser-safe and infrastructure-free', () => {
+    expectPackageSources('packages/protocol', [
       'node:',
       '@kross/core',
-      '@kross/protocol',
-      '@kross/server',
       '@kross/worker',
       '@kross/web',
       'react'
     ]);
   });
 
-  it('keeps Work Runtime independent from control-plane and UI packages', () => {
-    expectPackageSources('packages/work-runtime', [
-      '@kross/protocol',
-      '@kross/server',
-      '@kross/orchestrator',
-      '@kross/worker',
+  it('keeps Worker independent from UI packages', () => {
+    expectPackageSources('apps/worker', [
       '@kross/web',
+      '@kross/admin-web',
+      '@kross/tui',
       'react'
     ]);
   });
