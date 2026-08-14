@@ -18,17 +18,6 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return undefined;
-          if (id.includes('@radix-ui') || id.includes('lucide-react')) {
-            return 'ui-vendor';
-          }
-          return 'vendor';
-        }
-      }
-    }
+    sourcemap: true
   }
 });
