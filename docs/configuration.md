@@ -8,7 +8,7 @@ Kross 默认把用户配置和运行数据放在 `~/.kross`。
 
 1. 完整的 Provider 环境变量。
 2. `~/.kross/config.json` 中保存的配置。
-3. 未配置模型时以占位 Runtime 启动 TUI。
+3. 未配置模型时 Worker 无法产生真实回复。
 
 环境变量可以逐字段覆盖同 Provider 的已保存配置。不完整的环境变量不会自动抹掉已导入的密钥。
 

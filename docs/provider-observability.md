@@ -28,10 +28,9 @@ Kross 在 LLM Client 边界记录版本化的 `LlmCallMetrics`。指标只包含
 | `unknown` | 无法安全归类的错误 |
 
 最近一次调用指标会附加到对应 LLM 完成 Trace 事件中，供诊断和报告使用。Runtime
-也提供同一份短期快照：TUI 在 Header 和 `/status` 展示紧凑摘要，Cloud Worker
-通过 Session Snapshot 传给 Web，Web 在对话区展示 token、耗时、缓存、估算费用
-或错误类别。它是单次调用的短期观测，不是计费账本；Provider 账单仍是最终费用
-事实源。
+也提供同一份短期快照：Cloud Worker 通过 Session Snapshot 传给 Web，Web 在对话区
+展示 token、耗时、缓存、估算费用或错误类别。它是单次调用的短期观测，不是计费
+账本；Provider 账单仍是最终费用事实源。
 
 `/trace <runId>` 会按一次运行聚合调用次数、状态、token、缓存、耗时和可用费用，
 并突出 rate-limit、network、timeout 等稳定错误类别。Web Trace 面板将概览字段
@@ -47,14 +46,7 @@ pi-ai 返回的 cost 来自当前模型目录费率和 Provider usage，Kross �
 Prompt caching capability 只表示 Adapter 可以使用缓存。实际 cache read/write
 token 必须以 usage 为准，未返回不等于零命中。
 
-## 与 Eval 矩阵的关系
+## 兼容性说明
 
-```bash
-npm run eval -- --fixture --matrix
-npm run eval -- --provider openai --model gpt-5 \
-  --case read-fixture --runs 3 --budget 0.50 --matrix
-```
-
-这些命令生成按 Provider/模型聚合的兼容矩阵。Fixture 数据用于验证报告算法和
-Runtime 契约；真实模型结果必须显式运行真实 Provider Eval，并遵守预算和密钥
-决策门。不得仅凭模型厂商说明或单次手工对话发布兼容榜单。
+本分支不包含 Eval workspace。Provider 观测指标由 Runtime 在真实调用时记录；
+不得仅凭模型厂商说明或单次手工对话发布兼容榜单。Eval 矩阵仍保留在 `main`。

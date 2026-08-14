@@ -12,7 +12,7 @@ const root = resolve(import.meta.dirname, '..');
 
 export function generateReleaseMetadata(options) {
   const packageJson = JSON.parse(
-    readFileSync(join(root, 'package.json'), 'utf8')
+    readFileSync(join(root, 'worker/package.json'), 'utf8')
   );
   const expectedTag = `v${packageJson.version}`;
   if (options.tag !== expectedTag) {

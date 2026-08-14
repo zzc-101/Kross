@@ -10,7 +10,6 @@ body:
       label: 相关区域
       options:
         - Agent Core / Harness
-        - TUI
         - Cloud
         - 模型 Provider
         - Tools / MCP / Skills
@@ -40,7 +39,7 @@ body:
     id: scope
     attributes:
       label: 边界与兼容性
-      description: 是否影响 TUI、Cloud、协议、持久化格式或权限模型？
+      description: 是否影响 Cloud、协议、持久化格式或权限模型？
   - type: checkboxes
     id: contribution
     attributes:

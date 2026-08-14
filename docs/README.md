@@ -10,7 +10,6 @@
 | 第一次安装和运行 | [快速上手](getting-started.md) |
 | 配置模型、上下文、MCP 或多仓项目 | [配置参考](configuration.md) |
 | 查询斜杠命令和快捷键 | [命令手册](command-reference.md) |
-| 在 Shell 或 CI 中非交互运行 Agent | [Headless 自动化](headless.md) |
 | 了解审批、文件边界和数据风险 | [安全模型](security.md) |
 | 确认受支持的平台、版本和兼容策略 | [支持范围与兼容策略](support.md) |
 | 备份数据并了解持久化格式兼容性 | [数据格式与备份](data-compatibility.md) |
@@ -24,14 +23,12 @@
 | 理解包边界、Runtime、上下文与 Cloud 数据流 | [技术概览](technical-overview.md) |
 | 实现非 TypeScript Cloud 客户端或 Worker | [Cloud Protocol](cloud-protocol.md) |
 | 理解完成门、验证、恢复与工具调度 | [Agent Harness](harness.md) |
-| 运行或扩展确定性 Harness Eval | [确定性 Eval](evaluation.md) |
 | 添加 Skills、MCP、工具、模型或客户端 | [扩展 Kross](extensions.md) |
 | 判断是否直接依赖或发布 Core/Protocol | [SDK 发布决策](sdk-publication.md) |
 | 理解模型能力检测和兼容边界 | [Provider 能力](provider-capabilities.md) |
 | 查看 LLM token、费用、延迟和错误观测边界 | [Provider 调用观测](provider-observability.md) |
-| 检查 npm 包并准备版本发布 | [发布指南](releasing.md) |
-| 查看当前实施暂停点和恢复顺序 | [2026-07-27 实施进度快照](proposals/implementation-progress-2026-07-27.md) |
-| 审阅 SaaS Work Agent 的破坏性改造方案 | [SaaS Work Agent 完整实施方案](proposals/saas-work-agent-implementation.md) |
+| 检查镜像候选并准备版本发布 | [发布指南](releasing.md) |
+| 查看当前 Cloud 工作区方案 | [持久 Agent 工作区](proposals/persistent-agent-workspace.md) |
 
 ## 维护约定
 
@@ -40,4 +37,4 @@
 - 尚未实施的想法优先放在 GitHub Issue，而不是创建长期失真的路线图文档。
 - 扩展能力以[扩展 Kross](extensions.md)标注的稳定级别为准；导出的内部类型不自动
   等于稳定 SDK。
-- `npm run docs:check` 会验证根目录和 `docs/` 中的本地 Markdown 链接。
+- `node scripts/check-doc-links.mjs` 会验证根目录和 `docs/` 中的本地 Markdown 链接。

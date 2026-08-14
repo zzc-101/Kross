@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    name: Verify (${{ matrix.os }}, Node ${{ matrix.node }})
+  frontend:
+    name: Frontend (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -32,22 +32,55 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+          cache-dependency-path: frontend/package-lock.json
           registry-url: https://registry.npmjs.org
 
-      - run: npm ci
-      - run: npm run version:check
-      - run: npm run api:check
-      - run: npm run protocol:check
-      - run: npm run typecheck
-      - run: npm test -- --run
-      - if: matrix.os == 'ubuntu-latest' && matrix.node == '22.19.0'
-        run: npm run eval -- --fixture
-      - run: npm run docs:check
-      - run: npm run build:cli
-      - run: npm run build:web
+      - working-directory: frontend
+        run: npm ci
+      - working-directory: frontend
+        run: npm run typecheck
+      - working-directory: frontend
+        run: npm test
+      - working-directory: frontend
+        run: npm run build
 
-  control-plane:
-    name: Java control plane
+  worker:
+    name: Worker (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: 22.19.0
+          - os: ubuntu-latest
+            node: 24.x
+          - os: macos-latest
+            node: 22.19.0
+          - os: windows-latest
+            node: 22.19.0
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+          registry-url: https://registry.npmjs.org
+
+      - working-directory: worker
+        run: npm ci
+      - working-directory: worker
+        run: npm run typecheck
+      - working-directory: worker
+        run: npm run api:check
+      - working-directory: worker
+        run: npm test
+
+  backend:
+    name: Java backend
     runs-on: ubuntu-latest
 
     steps:
@@ -58,28 +91,22 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
-          cache-dependency-path: control-plane/pom.xml
+          cache-dependency-path: backend/pom.xml
 
-      - name: Compile control plane
-        working-directory: control-plane
+      - name: Compile backend
+        working-directory: backend
         run: ./mvnw -B -DskipTests compile
 
-  package:
-    name: Package smoke test
+  docs:
+    name: Docs and version
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v6
-
       - uses: actions/setup-node@v6
         with:
           node-version: 22.19.0
-          cache: npm
-          registry-url: https://registry.npmjs.org
-
-      - run: npm ci
-      - run: npm run package:check
-      - run: npm audit --omit=dev
+      - run: node scripts/check-version-consistency.mjs
+      - run: node scripts/check-doc-links.mjs
 
   cloud-containers:
     name: Cloud container build
@@ -98,7 +125,7 @@ jobs:
       - name: Build worker image
         run: docker build --file docker/worker.Dockerfile --tag kross-worker:local .
 
-      - name: Build control-plane image
+      - name: Build backend image
         run: docker build --file docker/control-plane.Dockerfile --tag kross-server:local .
 
       - name: Build web image

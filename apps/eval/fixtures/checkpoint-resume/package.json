@@ -1,7 +1,0 @@
-{
-  "name": "checkpoint-resume-fixture",
-  "private": true,
-  "scripts": {
-    "test": "node --test"
-  }
-}

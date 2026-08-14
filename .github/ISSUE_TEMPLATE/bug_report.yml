@@ -1,5 +1,5 @@
 name: Bug 报告
-description: 报告可以复现的 TUI、Cloud、Core 或部署问题
+description: 报告可以复现的 Cloud、Core 或部署问题
 title: "[Bug] "
 labels:
   - bug
@@ -13,9 +13,8 @@ body:
     attributes:
       label: 影响区域
       options:
-        - TUI
         - Cloud Web
-        - Gateway
+        - Control plane
         - Worker
         - Agent Core / Tools
         - 安装或部署

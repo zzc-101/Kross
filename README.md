@@ -5,12 +5,12 @@
 [![CI](https://github.com/zzc-101/Kross/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A local-first, self-hostable coding agent for terminal and Web/PWA workflows. Kross understands project instructions, uses tools to modify code, manages long-running tasks, and keeps users in control before high-risk operations are executed.
+A self-hostable Cloud coding agent. Kross gives each organization member a persistent Agent workspace: a Java control plane, a Web/PWA workbench, and a Docker Worker that runs the same Agent Runtime on a durable volume.
 
-> Kross is under active development. The core local TUI and self-hosted Cloud Agent flows are implemented and ready for evaluation and contribution. Cloud deployments should still be validated in a controlled environment for Docker, mobile, reconnect, Push, and Git workflows before production use. No stable release has been published yet.
+> This branch is Cloud-only. The local Ink TUI and `kross` CLI remain on `main`. Kross is under active development; no stable release has been published yet. Public deployments should still be validated for Docker, mobile, reconnect, Push, and Git workflows.
 
 <p align="center">
-  <img src="docs/images/kross-welcome.png" alt="Kross TUI welcome screen" width="100%">
+  <img src="docs/images/kross-agent-workflow.png" alt="Kross Agent workflow with tool calls, verification, and subagent status" width="100%">
 </p>
 
 ## Why Kross
@@ -18,7 +18,7 @@ A local-first, self-hostable coding agent for terminal and Web/PWA workflows. Kr
 Kross is more than a chat interface that forwards prompts to a model. It provides a complete execution loop for real development work:
 
 - **Three working modes**: `auto` solves tasks directly, `plan` asks for plan approval first, and `conductor` delegates work to subagents and reviews the result.
-- **Local and cloud workflows**: run the Ink TUI directly on your machine or use the responsive Web/PWA with one isolated Docker Worker per workspace.
+- **Persistent per-user workspaces**: one isolated Docker Worker and volume per member; idle containers sleep, the disk stays.
 - **Verifiable completion contract**: after code changes, Kross checks mutation records and real tool traces for verification evidence. Failed or skipped tests are not presented as success.
 - **Stalled-loop protection**: repeated tool calls without progress first trigger a recovery strategy, then stop with a bounded failure report if no progress is possible.
 - **Project instruction awareness**: automatically loads `CLAUDE.md`, `AGENTS.md`, and `KROSS.md` from authorized workspace roots.
@@ -26,80 +26,14 @@ Kross is more than a chat interface that forwards prompts to a model. It provide
 - **Safer file mutations**: records a mutation journal before and after writes and provides conflict-protected `/undo`.
 - **Recoverable sessions and runs**: messages, context, Todos, mode, pending plans, and pending tool approvals survive restarts without replaying completed writes.
 - **Managed background processes**: starts, polls, writes to, and terminates long-running commands with per-session isolation.
-- **Controlled tool scheduling**: independent read-only calls may run concurrently, while writes, execution, Process, and MCP calls remain ordered. Polling without progress automatically backs off.
-- **Transparent inspection**: `/context`, `/trace`, and `/diff` expose context usage, execution traces, and code changes.
-- **Mobile and unreliable-network support**: the Cloud Agent submits messages over HTTP and receives live events over SSE. Workers keep a WebSocket to the control plane only while their container is running.
+- **Controlled tool scheduling**: independent read-only calls may run concurrently, while writes, execution, Process, and MCP calls remain ordered.
+- **Live streaming over the control plane**: the browser submits messages over HTTP and receives text, thinking, and tool events over SSE. Workers keep a WebSocket to the control plane only while their container is running.
 - **Cloud workspace management**: repository cloning, session recovery, real Git Diff, branch Push, Pull Requests, resource limits, and idle reaping.
-- **Native multi-model profiles**: save, name, and switch between multiple OpenAI, Anthropic, OpenRouter, DeepSeek, and xAI configurations without discarding previously configured models.
-
-<p align="center">
-  <img src="docs/images/kross-agent-workflow.png" alt="Kross Agent workflow with tool calls, verification, and subagent status" width="100%">
-</p>
-
-## Choose a Runtime
-
-| Runtime | Best for | Additional requirements |
-|---|---|---|
-| TUI | Local repositories, terminal workflows, and SSH sessions | Node.js and model credentials |
-| Cloud Web/PWA | Remote access, mobile devices, and isolated workspaces | Docker Engine and Compose |
-| Core/Protocol source extension | Custom hosts, tools, or clients | TypeScript development environment |
-
-Start with the TUI for local use. Deploy Cloud when you need cross-device access or container isolation. To add Skills, MCP servers, custom tools, or clients, read [Extending Kross](docs/extensions.md). The extension guide is currently written in Chinese; English documentation contributions are welcome.
+- **Native multi-model profiles**: save, name, and switch between multiple OpenAI, Anthropic, OpenRouter, DeepSeek, and xAI configurations.
 
 ## Quick Start
 
-### Requirements
-
-- Node.js `>= 22.19`
-- npm
-
-### Run the Local TUI
-
-The public npm package has not been released yet, so run Kross from source:
-
-```bash
-git clone https://github.com/zzc-101/Kross.git
-cd Kross
-npm install
-npm run dev --workspace @kross/tui
-```
-
-The planned npm package name is `@zzc-101/kross`, while the installed command remains `kross`. After the first npm release:
-
-```bash
-npm install -g @zzc-101/kross
-kross
-```
-
-The TUI can start without a configured model, but it cannot produce real Agent responses. On first launch, Kross can import detected Claude Code or Codex configuration:
-
-```text
-/import claude
-/import codex
-/import skip
-```
-
-You can also configure a model through environment variables. OpenAI example:
-
-```bash
-export AGENT_LLM_PROVIDER=openai
-export OPENAI_API_KEY=sk-...
-export OPENAI_MODEL=gpt-5
-npm run dev --workspace @kross/tui
-```
-
-Anthropic example:
-
-```bash
-export AGENT_LLM_PROVIDER=anthropic
-export ANTHROPIC_API_KEY=sk-ant-...
-export ANTHROPIC_MODEL=claude-sonnet-4-5
-npm run dev --workspace @kross/tui
-```
-
-### Run the Self-hosted Cloud Agent
-
-Cloud Agent requires Docker Engine and Docker Compose. On first run, the startup script creates `.env` from `.env.example`, generates internal service secrets, builds the user Web, Admin Web, Server, Orchestrator, and Worker images, and starts them in the background:
+Cloud Agent requires Docker Engine and Docker Compose. On first run, the startup script creates `.env` from `.env.example`, generates internal service secrets, builds the user Web, Admin Web, Server, and Worker images, and starts them in the background:
 
 ```bash
 ./scripts/start-cloud.sh
@@ -113,7 +47,7 @@ Open `http://localhost:8787` for the user workbench or `http://localhost:8788` f
 ./scripts/start-cloud.sh --stop
 ```
 
-Public deployments must place a TLS reverse proxy in front of both Web entry points. Only the Orchestrator requires access to the Docker Socket, which is effectively a privileged host control plane; deploy it only on a dedicated or otherwise controlled host. See [Cloud deployment and operations](docs/cloud-agent-deployment.md) for configuration, security boundaries, and the acceptance checklist.
+Public deployments must place a TLS reverse proxy in front of both Web entry points. Only the service that manages containers requires access to the Docker Socket; deploy it only on a dedicated or otherwise controlled host. See [Cloud deployment and operations](docs/cloud-agent-deployment.md) for configuration, security boundaries, and the acceptance checklist.
 
 ## Basic Usage
 
@@ -138,28 +72,18 @@ Delegate a complex task:
 Review the frontend and backend authentication protocol, implement the changes separately, then verify them together.
 ```
 
-Work across multiple directories:
-
-```text
-/add-dir ~/work/api
-/add-dir ~/work/web
-/dirs
-```
-
 ## Common Commands
 
 | Command | Purpose |
 |---|---|
 | `/mode auto\|plan\|conductor` | Change the Agent working mode |
 | `/approve` / `/reject` | Approve or reject a pending plan |
-| `/add-dir <path>` / `/dirs` | Add or inspect authorized workspace roots |
-| `/resume [sessionId]` | Resume a previous session |
 | `/undo [runId\|transactionId]` | Safely revert Agent file mutations |
 | `/context` / `/compact` | Inspect or compact model context |
 | `/instructions` / `/skills` | Inspect loaded project instructions and Skills |
 | `/trace [runId]` / `/diff` | Inspect execution traces and code changes |
 | `/processes` | Inspect managed background processes for the current session |
-| `/model` / `ctrl+p` | Select the model and thinking effort |
+| `/model` | Select the model and thinking effort |
 | `/lang zh\|en` | Change the interface language |
 
 ## Model Configuration
@@ -172,9 +96,7 @@ Work across multiple directories:
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` |
 | xAI | `xai` | `XAI_API_KEY` | `XAI_MODEL` |
 
-Kross natively stores multiple named model profiles in `~/.kross/config.json`; `/import` and the model settings UI add or activate profiles instead of replacing a single global model. Environment variables take precedence over the active profile. Each provider also supports its corresponding `*_BASE_URL`.
-
-Task and Conductor subagents can select any saved profile by `modelProfileId`; when omitted, the subagent inherits the current model. Profile ids are shown in the model settings panel and injected into the Agent's runtime context, so requests such as “delegate exploration to the economy profile” can be translated into a constrained Task call.
+Kross stores named model profiles in backend configuration. Environment variables can still seed a provider during local development. Each provider also supports its corresponding `*_BASE_URL`.
 
 <p align="center">
   <img src="docs/images/kross-model-profiles.png" alt="Kross native multi-model profile settings" width="100%">
@@ -184,12 +106,10 @@ Task and Conductor subagents can select any saved profile by `modelProfileId`; w
 
 ```mermaid
 flowchart TB
-    U["User"] --> T["Ink TUI"]
-    U --> W["Web / PWA"]
-    T --> R["Agent Runtime"]
+    U["User"] --> W["Web / PWA"]
     W --> S["Java Control Plane"]
-    S --> D["Per-workspace Docker Worker"]
-    D --> R
+    S --> D["Per-user Docker Worker"]
+    D --> R["Agent Runtime"]
     R --> C["Context / Sessions / Checkpoints"]
     R --> H["Harness Completion Gate"]
     H --> G["Tool Gateway & Scheduler"]
@@ -198,21 +118,15 @@ flowchart TB
     G --> P["Processes / MCP / Subagents"]
 ```
 
-Kross is a TypeScript and Java monorepo:
+This branch is a frontend / backend / worker layout:
 
-- `packages/core`: Agent Runtime, Harness completion gate, context governance, sessions, tools, permissions, Skills, MCP, and model adapters.
-- `packages/protocol`: browser-safe Zod wire protocol for commands, events, replay, and session snapshots.
-- `apps/tui`: Ink-based interactive terminal interface.
-- `apps/web`: responsive React, Vite, and Radix/shadcn user workbench, served by a dedicated Nginx container that proxies control-plane APIs.
-- `apps/admin-web`: organization admin console.
-- `apps/worker`: headless Agent host running inside a workspace container and reusing `packages/core`.
-- `apps/eval`: deterministic, no-network Fixture LLM runner for Agent Harness contracts.
-- `control-plane`: Java Spring Boot control plane (identity, work, approvals, worker protocol, Docker launch).
+- `frontend/web`: user workbench (React / Vite), served by Nginx and proxied to the Java backend.
+- `frontend/admin-web`: organization admin console.
+- `backend`: Java Spring Boot control plane (identity, work, approvals, worker WebSocket, Docker lifecycle).
+- `worker`: Node executor; Agent Runtime lives in `worker/core`.
 - `docs`: user guides, technical architecture, Harness documentation, and release notes.
 
-The Cloud Agent supports streaming sessions, tool and plan approvals, reconnect replay, workspace isolation, session and tool history, Todo progress, subagent state, context usage and manual compaction, Diff/Trace, Web Push, Git Push/PR, resource limits, and idle reaping. The Web client exposes Core commands including `/status`, `/context`, `/compact`, `/instructions`, `/skills`, `/processes`, and `/undo`.
-
-Real deployments should still validate Docker networking, Worker restart recovery, mobile PWA behavior, unreliable networks, Push, and remote Git credentials against the deployment acceptance checklist.
+The browser never talks to the Worker. Inbound chat is `POST /api/v2/agent/conversations/{id}/messages`; live text, thinking, and tool events leave the control plane over SSE. The Worker connects with WebSocket only while its container is running. Conversation history is stored in PostgreSQL as generic message `parts`.
 
 ## Documentation
 
@@ -229,8 +143,6 @@ Most detailed documentation is currently in Chinese. English documentation contr
 - [Troubleshooting](docs/troubleshooting.md)
 - [Technical overview](docs/technical-overview.md)
 - [Agent Harness](docs/harness.md)
-- [Deterministic Harness Eval](docs/evaluation.md)
-- [Headless automation](docs/headless.md)
 - [Cloud deployment and operations](docs/cloud-agent-deployment.md)
 - [Release guide](docs/releasing.md)
 - [Contributing](CONTRIBUTING.md)
@@ -241,68 +153,22 @@ Most detailed documentation is currently in Chinese. English documentation contr
 - Read-only operations are allowed by default; writes, execution, and network operations require approval.
 - File tools resolve real paths and restrict access to authorized workspaces.
 - `/undo` verifies the current file hash and refuses to overwrite later manual changes.
-- In the local TUI, `Bash` and managed background processes run with the current user's permissions. Review commands before approving them.
 - Cloud Workers use Docker containers as an execution boundary with isolated networks, dropped capabilities, `no-new-privileges`, CPU, memory, PID, and soft disk limits. Containers can still access external networks.
-- The Cloud Gateway mounts the Docker Socket by default. Its permissions are equivalent to a privileged host control plane and it must not be exposed directly to the public Internet.
+- The service that mounts the Docker Socket has permissions equivalent to a privileged host control plane and must not be exposed directly to the public Internet.
 - Scripts referenced by Skills are not executed automatically and still require normal tool approval.
 
 ## Development and Verification
 
 ```bash
-npm run dev --workspace @kross/tui
-npm test -- --run
-npm run typecheck
-npm run version:check
-npm run api:check
-npm run eval -- --fixture
-npm run docs:check
-npm run build
-npm run package:check
+cd frontend && npm ci && npm run dev
+cd frontend && npm run dev:admin
+cd worker && npm ci && npm run dev
+cd backend && ./mvnw -DskipTests compile
+node scripts/check-version-consistency.mjs
+node scripts/check-doc-links.mjs
 ```
 
-Real-model Harness Eval requires an explicit Case, Provider, model, and cost
-budget:
-
-```bash
-npm run eval -- --provider openai --model gpt-5 \
-  --case read-fixture --runs 3 --budget 0.50 --matrix
-```
-
-See [Harness Eval](docs/evaluation.md) for Fixture/real modes, budget semantics,
-and execution restrictions.
-
-`npm run package:check` bundles the CLI, installs the tarball in a temporary directory, verifies `kross --help` and `kross --version`, starts the TUI without a model, and checks the Headless configuration-error contract.
-
-Run one non-interactive task as versioned NDJSON:
-
-```bash
-kross exec "Review the current changes without modifying files." --json
-```
-
-Headless execution keeps the default approval policy and returns distinct exit
-codes for usage, configuration, approval, runtime, verification, and interrupt
-outcomes. See [Headless automation](docs/headless.md) for the event schema and
-security boundaries.
-
-Preview local data migrations without writing, then apply explicitly:
-
-```bash
-kross migrate
-kross migrate --apply
-```
-
-Migration backups, rollback behavior, and current format coverage are documented
-in [Data formats and backup](docs/data-compatibility.md).
-
-Run individual Cloud components from their own workspaces:
-
-```bash
-npm run dev --workspace @kross/web
-npm run dev --workspace @kross/admin-web
-npm run dev --workspace @kross/worker
-```
-
-The repository root intentionally has no default `dev` script. Each runnable workspace owns its development server, while the root coordinates repository-wide builds, tests, packaging, and Cloud lifecycle commands.
+There is no root npm project. Install dependencies in `frontend/` and `worker/` separately. The Java backend does not use npm. Start the full Cloud stack with `./scripts/start-cloud.sh`.
 
 Current gaps include MCP interactive OAuth, cross-session semantic memory, nested directory-level Project Instructions, and continued end-to-end validation of Cloud Agent deployments on real Docker, mobile, and public reverse-proxy environments.
 

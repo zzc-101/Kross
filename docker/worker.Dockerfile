@@ -1,24 +1,14 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
-COPY package.json package-lock.json tsconfig.base.json ./
-COPY packages/core/package.json packages/core/package.json
-COPY packages/protocol/package.json packages/protocol/package.json
-COPY apps/worker/package.json apps/worker/package.json
+COPY worker/package.json worker/package-lock.json ./
 RUN npm ci
-COPY scripts/build-cloud-runtime.mjs scripts/build-cloud-runtime.mjs
-COPY packages/core packages/core
-COPY packages/protocol packages/protocol
-COPY apps/worker apps/worker
-RUN node scripts/build-cloud-runtime.mjs worker build/worker.mjs
+COPY worker/ .
+RUN node scripts/build-runtime.mjs build/worker.mjs
 
 FROM node:22-bookworm-slim AS production-deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-COPY packages/core/package.json packages/core/package.json
-COPY packages/protocol/package.json packages/protocol/package.json
-COPY apps/worker/package.json apps/worker/package.json
-RUN npm ci --omit=dev --include-workspace-root=false --workspace @kross/worker \
-  && npm cache clean --force
+COPY worker/package.json worker/package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production

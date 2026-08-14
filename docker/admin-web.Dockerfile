@@ -1,14 +1,14 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
-COPY package.json package-lock.json tsconfig.base.json ./
-COPY packages/protocol/package.json packages/protocol/package.json
-COPY apps/admin-web/package.json apps/admin-web/package.json
+COPY frontend/package.json frontend/package-lock.json ./
+COPY frontend/web/package.json web/package.json
+COPY frontend/admin-web/package.json admin-web/package.json
 RUN npm ci
-COPY packages/protocol packages/protocol
-COPY apps/admin-web apps/admin-web
-RUN npm run --workspace @kross/admin-web build
+COPY frontend/tsconfig.base.json ./
+COPY frontend/admin-web admin-web
+RUN npm run build -w admin-web
 
 FROM nginx:1.27-alpine AS runtime
 COPY docker/admin-web.nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/apps/admin-web/dist /usr/share/nginx/html
+COPY --from=build /app/admin-web/dist /usr/share/nginx/html
 EXPOSE 8788

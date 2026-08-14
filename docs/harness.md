@@ -16,7 +16,7 @@ flowchart LR
     C -->|"满足或如实降级"| R["结构化结果"]
 ```
 
-一次正常运行会经历探索、计划、执行、验证、复核和完成等可观测阶段。阶段由真实工具与生命周期事件推导，不要求模型用固定格式自报；TUI 和 `/trace` 可以展示这些状态。
+一次正常运行会经历探索、计划、执行、验证、复核和完成等可观测阶段。阶段由真实工具与生命周期事件推导，不要求模型用固定格式自报；工作台和 `/trace` 可以展示这些状态。
 
 ## Prompt 与模式
 
@@ -85,18 +85,8 @@ Session Work State 会持久化版本化 `runCheckpoint`，其中包含运行阶
 
 Trace、session checkpoint 和 mutation journal 都可能包含本地路径、源码片段或工具参数，分享前应检查敏感信息。
 
-## 确定性 Eval
-
-`apps/eval` 使用 Fixture LLM 或显式选择的真实 Provider，并通过真实
-`AgentRuntime` 在一次性工作区中验证 Harness 契约。普通 CI 只运行 Fixture，不
-读取模型凭证。断言依据文件 hash、Trace、结构化结果和验证命令退出状态。运行
-方式、Case 与报告 schema 见[Harness Eval](evaluation.md)。
-
 ## 当前边界
 
-- 本地 TUI 的 `Bash` 和后台进程使用当前用户权限；Cloud 模式下运行在独立
-  Worker 容器内。两种形态仍分别遵循工具审批策略。
-- 已提供确定性 Fixture 基线和带重复次数、总预算的真实 Provider 手动通道；统计
-  置信区间、`pass@k` 和并发调度尚未实现。
+- Cloud 模式下 `Bash` 和后台进程运行在独立 Worker 容器内，并遵循工具审批策略。
 - 跨会话语义记忆尚未实现；MCP 尚不支持交互式 OAuth。
 - 嵌套目录级 Project Instructions 尚未实现，目前按 workspace root 加载。

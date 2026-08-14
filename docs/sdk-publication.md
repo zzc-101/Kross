@@ -5,17 +5,16 @@
 
 ## 决策
 
-v0.1 只发布 `@zzc-101/kross` CLI。`@kross/core` 与 `@kross/protocol` 继续作为
-monorepo 内的 private workspace，不在本阶段发布独立 npm SDK。
+v0.1 不发布任何 npm 包。`worker/core` 是 Worker 内部源码；浏览器和 Java 后端
+都不依赖它。线协议以 `backend` 的 Java DTO 为准。
 
 这不是否定现有 TypeScript Core 的价值，而是区分三种不同的复用边界：
 
 | 使用方 | 当前推荐边界 |
 |---|---|
-| Kross TUI、Headless、Eval、Worker | 仓库内直接消费 `@kross/core` |
+| Kross Worker | 直接使用 `worker/core` |
 | 自定义 TypeScript Host | Fork/源码依赖 `createAgentHost` 和 public API |
-| Web、移动端、未来 SaaS Control Plane | 消费 Cloud Protocol，不依赖 Core |
-| Go、Java、Python 客户端 | 固定版本的 JSON Schema 与线协议语义 |
+| Web、移动端、未来非 Java 客户端 | 消费 Cloud Protocol（Java DTO），不依赖 Core |
 
 未来独立 SaaS 仓库应把 Gateway/Control Plane 当作 Protocol 客户端与路由层。模型
 循环、工具、会话 Checkpoint 和工作区执行仍由 Worker/Core 负责。这样 Control
@@ -33,16 +32,16 @@ Core 已有显式 public/experimental 边界和 API 快照，但仍缺少独立 
 - `0.x` 期间 Host、存储与 Provider 组合仍可能调整；
 - 发布后需要额外维护 SemVer、弃用周期、安全公告和跨版本集成矩阵。
 
-Protocol 比 Core 更接近独立发布条件，但语言无关 JSON Schema 已经满足当前跨仓库
-需求。此时发布 npm 包只会让非 TypeScript 控制面再次绑定 Node 工具链。
+Protocol 比 Core 更接近独立发布条件，但 Java DTO 已经满足当前跨语言需求。
+此时再发一份 npm Protocol 包只会让非 TypeScript 控制面再次绑定 Node 工具链。
 
 ## 当前兼容承诺
 
 - Core `public` 表示首方 Host 优先复用的源码级预览接口；变更进入 Changelog 并
   受 API 快照保护，但不等于长期稳定 npm SDK。
 - Core `experimental` 可在次版本调整；internal 不允许从顶层导出。
-- Cloud Protocol 按 `PROTOCOL_VERSION` 管理破坏性变化。消费者应从 release tag
-  或 commit 固定三份 JSON Schema，不要在生产中跟随 `main`。
+- Cloud Protocol 按协议版本管理破坏性变化。消费者应以 `backend` 的 Java DTO
+  为准，不要把已删除的 npm Protocol 包或旧 JSON Schema 当作事实源。
 - 应用版本、Protocol 版本和持久化 schema 版本分别演进。
 
 ## 重新评估触发条件
@@ -59,7 +58,7 @@ Protocol 比 Core 更接近独立发布条件，但语言无关 JSON Schema 已�
 若决定发布 `@kross/protocol`：
 
 - 确认可用且归属明确的 npm scope；
-- 产出 ESM JavaScript、`.d.ts`、JSON Schema 和正确的 package exports；
+- 产出 ESM JavaScript、`.d.ts` 和正确的 package exports；
 - 在 monorepo 外通过 `npm pack` 安装并验证；
 - 定义 Protocol 版本与 npm SemVer 的映射和弃用窗口；
 - 保持包不依赖 Core、Node 原生模块或服务端私有实现。

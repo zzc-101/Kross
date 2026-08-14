@@ -1,58 +1,50 @@
 # 快速上手
 
-本指南从源码启动 Kross，并完成第一个受审批保护的编程任务。
+本指南从源码启动自托管 Cloud Agent，并完成第一个受审批保护的编程任务。
 
 ## 1. 准备环境
 
 需要：
 
-- Node.js `>= 22.19`
-- npm
-- 一个希望 Kross 操作的本地项目目录
+- Docker Engine 与 Docker Compose v2
+- Node.js `>= 22.19` 与 npm（仅在从源码开发 Web / Worker 时需要）
+- 可用的模型凭证
 
-确认版本：
-
-```bash
-node --version
-npm --version
-```
-
-## 2. 安装
+确认 Docker：
 
 ```bash
-git clone https://github.com/zzc-101/Kross.git
-cd Kross
-npm install
+docker --version
+docker compose version
 ```
 
-Kross 当前从源码运行，尚未发布稳定的全局 CLI 包。仓库已经提供 `@zzc-101/kross` 的构建与安装冒烟测试；首个 npm 版本发布后可以全局安装并直接运行 `kross`。
+## 2. 启动 Cloud Agent
 
-发布后安装、升级和卸载命令如下：
+从仓库根目录运行：
 
 ```bash
-npm install --global @zzc-101/kross
-npm update --global @zzc-101/kross
-npm uninstall --global @zzc-101/kross
+./scripts/start-cloud.sh
 ```
 
-升级和卸载不会自动删除 `~/.kross` 中的模型配置、会话与本地状态。确定不再需要
-这些数据时再手动清理；删除前建议先备份配置。
+首次运行会从 `.env.example` 创建 `.env`、生成内部服务密钥，并构建 Web、管理端、
+控制面和 Worker 镜像。启动后打开：
+
+- 用户工作台：`http://localhost:8787`
+- 组织管理控制台：`http://localhost:8788`
+
+常用命令：
+
+```bash
+./scripts/start-cloud.sh --no-build
+./scripts/start-cloud.sh --logs
+./scripts/start-cloud.sh --stop
+```
+
+本地开发使用显式开发身份流；公网部署必须换成生产 OIDC 或会话认证。配置、安全
+边界和验收清单见 [Cloud Agent 部署与运维](cloud-agent-deployment.md)。
 
 ## 3. 配置模型
 
-### 从已有工具导入
-
-首次启动若检测到 Claude Code 或 Codex 配置，Kross 会显示导入提示：
-
-```text
-/import claude
-/import codex
-/import skip
-```
-
-导入结果写入 `~/.kross/config.json`。
-
-### 使用环境变量
+在管理控制台或控制面配置中保存模型档案。开发环境也可以用环境变量注入：
 
 OpenAI 示例：
 
@@ -72,19 +64,9 @@ export ANTHROPIC_MODEL=claude-sonnet-4-5
 
 其他 Provider 和完整字段见 [配置参考](configuration.md)。
 
-## 4. 启动
+## 4. 完成第一个任务
 
-从 Kross 仓库启动：
-
-```bash
-npm run dev --workspace @kross/tui
-```
-
-没有模型配置时 TUI 仍会启动，但普通任务只会提示补充模型配置。要处理其他本地项目，可在启动后通过 `/add-dir` 授权对应目录。
-
-## 5. 完成第一个任务
-
-直接输入自然语言：
+在工作台直接输入自然语言：
 
 ```text
 检查当前分支的改动，找出最可能的回归并运行相关测试。
@@ -97,9 +79,7 @@ npm run dev --workspace @kross/tui
 3. 审批面板展示工具、风险类型和输入预览。
 4. 选择 Approve 或 Reject 后继续运行。
 
-审批时可使用方向键切换，按 Enter 确认，也可以按 `a` 批准或 `r` 拒绝。
-
-## 6. 选择工作方式
+## 5. 选择工作方式
 
 ### 自动模式
 
@@ -126,41 +106,24 @@ npm run dev --workspace @kross/tui
 把认证改造拆成独立任务，交给 worker 执行并统一验收。
 ```
 
-指挥家模式用于任务编排；它与是否添加多个目录没有绑定关系。
-
-## 7. 添加其他 workspace
-
-```text
-/add-dir ~/work/api
-/add-dir ~/work/web
-/dirs
-```
-
-文件工具只能访问主 workspace 和显式加入的 roots。移除目录：
-
-```text
-/remove-dir api
-```
-
-## 8. 检查与恢复
+## 6. 检查与恢复
 
 ```text
 /diff
 /trace
 /context
 /undo
-/resume
 ```
 
 - `/diff` 查看 Agent 触达的文件和 Git 变更摘要。
 - `/trace` 查看最近运行和工具事件。
 - `/context` 查看上下文预算与来源。
 - `/undo` 在文件未被后续修改时撤销最近事务。
-- `/resume` 打开最近会话选择器。
 
-下一步可阅读 [命令手册](command-reference.md) 和 [安全模型](security.md)。
+对话历史保存在控制面 PostgreSQL。刷新页面后仍可从库中加载完整 `parts`。下一步
+可阅读 [命令手册](command-reference.md) 和 [安全模型](security.md)。
 
-## Cloud Agent 的停止与清理
+## 停止与清理
 
 从仓库启动的 Cloud Agent 可以停止并保留数据：
 
@@ -168,7 +131,6 @@ npm run dev --workspace @kross/tui
 ./scripts/start-cloud.sh --stop
 ```
 
-新 SaaS 架构会保留 Compose 声明的 PostgreSQL 数据卷。`docker compose down -v`
-会删除本地控制面数据库，属于破坏性操作。Run Worker 是短命执行单元，Source 与
-Artifact 的持久内容应位于 BlobStore，而不是依赖 Worker 容器或执行卷。更多细节见
+Compose 声明的 PostgreSQL 数据卷会保留。`docker compose down -v` 会删除本地
+控制面数据库，属于破坏性操作。更多细节见
 [SaaS Work Agent 部署与运维](cloud-agent-deployment.md#数据与恢复)。

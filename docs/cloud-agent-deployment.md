@@ -1,7 +1,6 @@
 # SaaS Work Agent 部署与运维
 
-本文只描述 `codex/saas-work-agent` 分支的新架构。本地 TUI 仍按
-[Getting Started](getting-started.md) 独立运行，不依赖这里的服务。
+本文只描述 `codex/saas-work-agent` 分支的新架构。本分支不再包含本地 TUI。
 
 ## 组件边界
 
@@ -95,7 +94,11 @@ checkpoint。
 ## 发布门禁
 
 ```bash
-npm run check
+cd frontend && npm ci && npm run typecheck && npm test
+cd ../worker && npm ci && npm run typecheck && npm test
+cd ../backend && ./mvnw -B test
+node scripts/check-version-consistency.mjs
+node scripts/check-doc-links.mjs
 KROSS_POSTGRES_PASSWORD=test-password \
 KROSS_ORCHESTRATOR_SERVICE_TOKEN=0123456789abcdef0123456789abcdef \
 docker compose config --quiet
@@ -104,5 +107,5 @@ docker compose config --quiet
 上线前还必须完成：生产身份与 CSRF、对象存储、密钥 broker、限流/配额、审计导出、
 备份恢复演练，以及 Project → Task → Run → Approval → Artifact 的真实纵向 E2E。
 
-详细的产品、数据、协议和分阶段计划见
-[SaaS Work Agent 实现文档](proposals/saas-work-agent-implementation.md)。
+详细的产品、数据和部署边界见
+[持久 Agent 工作区](proposals/persistent-agent-workspace.md)。

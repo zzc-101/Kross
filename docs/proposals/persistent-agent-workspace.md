@@ -10,11 +10,12 @@
 
 **Architecture:** 人是租户边界。Docker volume 长期保存 `/work`，容器按需启停。控制面管生命周期、对话和渠道扇出；Worker 只在容器运行时与控制面保持 WebSocket，用 Core 在 `/work` 里执行。
 
-**Tech Stack:** Java 21 Spring Boot 控制面、PostgreSQL、Docker SDK、`apps/worker` + `@kross/core`。
+**Tech Stack:** Java 21 Spring Boot 控制面、PostgreSQL、Docker SDK、`worker` + `worker/core`。
 
 ## Global Constraints
 
-- 本地 TUI / `kross exec` / `packages/core` 产品行为不改。
+- 本分支是 Cloud-only；本地 TUI / `kross exec` 留在 `main`。
+- Core 作为 `worker/core` 内嵌，不在本分支再 fork 一份。
 - Worker 内部协议保持原始 JSON，不包 `Res`。
 - Java 空值用 `Optional` 或专属工具，不随意删注释，不用 emoji。
 - 不做旧版兼容：删除 Project / Task / Run / Source / Artifact / lease。
@@ -109,7 +110,7 @@ P0 先约定目录，P1 再注入 Core。
 - `com.kross.controller.AgentController`
 - `com.kross.channel.AgentWebSocketHandler` / `AgentSocketHub`
 - `com.kross.support.Tokens`
-- `apps/worker` 常驻循环（`main.ts` / `transport.ts` / `agentLoop.ts`）
+- `worker` 常驻循环（`main.ts` / `transport.ts` / `agentLoop.ts`）
 
 删除：
 

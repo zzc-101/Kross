@@ -5,7 +5,7 @@ Kross 把应用版本、线协议版本和持久化格式版本分开管理。�
 
 ## 当前格式清单
 
-### 本地 TUI 与 Core
+### Core 与 Worker 本地状态
 
 | 数据 | 位置 | 当前版本 | 兼容行为 |
 |---|---|---:|---|
@@ -60,7 +60,7 @@ Gateway 注册表和 `docker volume ls` 为准。
 
 ## 本地备份与恢复
 
-先退出所有 Kross TUI 进程，避免复制到一半的 SQLite WAL 或 JSONL：
+先停止相关 Worker 容器，避免复制到一半的 SQLite WAL 或 JSONL：
 
 ```bash
 cp -a ~/.kross ~/.kross.backup-YYYYMMDD
@@ -71,39 +71,16 @@ cp -a ~/.kross ~/.kross.backup-YYYYMMDD
 配置一起备份。该目录可能包含 API Key、源码片段、命令参数和历史文件正文，备份
 应加密并限制访问。
 
-### Core 本地迁移命令
+### Core 与 Worker 本地迁移
 
-先退出所有 Kross 进程，然后默认以只读方式查看计划：
-
-```bash
-kross migrate
-kross migrate --home /path/to/user-home
-```
-
-只有显式提供 `--apply` 才会写入：
-
-```bash
-kross migrate --apply
-```
-
-当前首批步骤只为无版本旧文件 `config.json` 和 `projects.json` 补 `version: 1`。
-命令不会迁移会话、Trace、Mutation、SQLite、MCP 配置或 Cloud 数据。
-
-Apply 会在 `~/.kross/.migration.lock` 获取独占锁，重新核对文件没有在规划后变化，
-再把原文件及 SHA-256 manifest 保存到
-`~/.kross/.migration-backups/<timestamp>/`。文件通过同目录临时文件原子替换，并
-保留原权限；后续写入失败时，已经写入的文件会自动恢复。报告状态含 `noop`、
-`planned`、`applied`、`rolled-back` 和 `blocked`。`blocked` 或
-`rolled-back` 会返回非零退出码，备份仍保留供人工检查。
-
-迁移备份与主数据具有同等敏感性。确认新版本稳定前不要删除；如果报告
-`rollback failed`，停止启动 Kross，并从报告中的 `backupPath` 人工恢复。
+Worker 容器内的 Core 状态仍使用上述 JSONL / SQLite 格式。本分支不再提供
+`kross migrate` CLI；控制面 schema 由 Flyway 在进程启动时升级。
 
 ## Cloud 备份与恢复
 
-1. 使用 `./scripts/start-cloud.sh --stop` 停止 Web、Gateway 和动态 Worker。
-2. 记录 `docker volume ls` 中的 Gateway 与全部 `kross-workspace-*` 卷。
-3. 对每个命名卷创建一致性归档；不要只备份 `kross-server-data`。
+1. 使用 `./scripts/start-cloud.sh --stop` 停止 Web、控制面和动态 Worker。
+2. 记录 `docker volume ls` 中的 PostgreSQL、MinIO 与全部 `kross-workspace-*` 卷。
+3. 对每个命名卷创建一致性归档。
 4. 恢复时使用相同或更高的 Kross 版本，把归档恢复到原卷名后再启动服务。
 5. 执行[部署验收清单](cloud-agent-deployment.md#部署验收清单)，确认工作区、
    会话、待审批状态和 Git 数据均可读取。
@@ -111,32 +88,17 @@ Apply 会在 `~/.kross/.migration.lock` 获取独占锁，重新核对文件没�
 工作区删除操作和 `docker compose down -v` 会改变可恢复范围。永久删除前至少
 保留一次可验证归档；单纯停止容器不会删除数据卷。
 
-### Cloud 控制面迁移命令
+### Cloud 控制面迁移
 
-Cloud 数据使用独立于 `kross migrate` 的迁移入口。先停止 Gateway，再默认只读
-查看计划：
+控制面 PostgreSQL schema 由 Flyway 在 Server 启动时执行。需要单独跑迁移时：
 
 ```bash
 ./scripts/start-cloud.sh --stop
 ./scripts/start-cloud.sh --migrate
 ```
 
-确认计划后才显式应用：
-
-```bash
-./scripts/start-cloud.sh --migrate-apply
-```
-
-命令在 `kross-server-data` 卷内执行，只处理 Gateway 数据目录中的
-`workspaces.json`、`provider.json` 和 `push-subscriptions.json`，不会进入任何
-Worker 工作区卷。Apply 会获取 `.cloud-migration.lock`，重新验证规划后文件没有
-变化，把原文件和 SHA-256 manifest 备份到
-`.migration-backups/cloud-<timestamp>/`，再原子替换。后续写入失败时，已经写入
-的文件会自动回滚。
-
-报告的 `boundary` 固定为 `cloud-control-plane`，状态与本地迁移相同。Gateway
-运行时脚本会拒绝执行，以避免控制面继续写入造成不一致。备份可能包含 Git 地址、
-Worker Token、Provider API Key 和 Push endpoint，应按密钥材料保护。
+Worker 工作区卷不会被这条命令改写。`docker compose down -v` 会删除本地
+PostgreSQL 和 MinIO 卷，属于破坏性操作。
 
 ## 格式变更要求
 
@@ -146,4 +108,4 @@ Worker Token、Provider API Key 和 Push endpoint，应按密钥材料保护。
 2. 同时提供旧格式 fixture 和未来版本拒绝测试。
 3. 更新本清单和 `CHANGELOG.md`。
 4. 涉及不可逆迁移时提供升级前备份、失败回滚与降级限制。
-5. 运行完整 `npm run check`；Cloud 格式还要构建三个容器并执行部署验收。
+5. 跑 frontend / worker / backend 检查；Cloud 格式还要构建三个容器并执行部署验收。

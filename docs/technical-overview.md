@@ -1,43 +1,37 @@
 # Kross 技术概览
 
-Kross 是本地优先的 TypeScript 编程 Agent。Core 提供与界面无关的运行时，TUI
-和 `kross exec` Headless Host 直接在本机消费 Core；Cloud 为每位成员配备一个
-带持久卷的长期 Agent，Worker 在该容器内消费同一个 Core。
+Kross 是面向自托管部署的 Cloud 编程 Agent。`worker/core` 提供运行时，
+`worker` 在每位成员的持久 Docker 工作区里执行；Web 只通过 Java 后端收发消息，
+浏览器不直连 Worker。
 
 本文只描述当前实现和长期架构边界。安装、配置与命令用法分别见
 [快速上手](getting-started.md)、[配置参考](configuration.md)和
 [命令手册](command-reference.md)。
 
-## 包与依赖方向
+## 目录与依赖方向
 
 ```mermaid
 flowchart TB
-    TUI["apps/tui · Ink"] --> CORE["packages/core"]
-    HEADLESS["apps/tui · exec"] --> CORE
-    WORKER["apps/worker"] --> CORE
-    WORKER --> PROTOCOL["packages/protocol"]
-    CONTROL["control-plane"] --> PROTOCOL
-    WEB["apps/web"] --> PROTOCOL
-    ADMIN["apps/admin-web"] --> PROTOCOL
+    WEB["frontend/web"] --> BACKEND["backend"]
+    ADMIN["frontend/admin-web"] --> BACKEND
+    BACKEND --> WORKER["worker"]
+    WORKER --> CORE["worker/core"]
 ```
 
 | 路径 | 职责 |
 |---|---|
-| `packages/core` | Runtime、上下文、会话、工具、权限、Skills、MCP、模型与验证 |
-| `packages/protocol` | Cloud 命令、事件、回放与快照的 Zod 线协议 |
-| `apps/tui` | Ink 终端交互、Headless NDJSON 与本地 Runtime 宿主 |
-| `apps/web` | 普通用户工作台 |
-| `apps/admin-web` | 组织管理端 |
-| `apps/worker` | 个人 Agent 容器内的常驻 Runtime 宿主 |
-| `apps/eval` | Harness Eval Runner |
-| `control-plane` | Java Spring Boot 控制面（身份、模型、Agent 生命周期） |
+| `frontend/web` | 普通用户工作台 |
+| `frontend/admin-web` | 组织管理端 |
+| `backend` | Java Spring Boot 控制面（身份、模型、Agent 生命周期） |
+| `worker` | 个人 Agent 容器内的常驻 Runtime 宿主 |
+| `worker/core` | Runtime、上下文、会话、工具、权限、Skills、MCP、模型与验证 |
 
-Core 不依赖任何界面或 Cloud 包。Protocol 不依赖 Core，并且只包含浏览器安全的
-schema 与类型。产品包之间不得通过穿越目录的相对路径耦合。
+Core 不依赖 Web 或 Java 后端。浏览器不引用 Core。前后端通过 HTTP/SSE 交换消息；
+Worker 只在容器运行时用 WebSocket 连控制面。
 
 Core 顶层只由 `src/api/public.ts` 和 `src/api/experimental.ts` 组成；内部模块不
-允许通过新的 `export *` 泄漏。`packages/core/api-surface.json` 保存包含类型导出
-的稳定快照，`npm run api:check` 在 CI 中阻止未经分类的增删。
+允许通过新的 `export *` 泄漏。`worker/core/api-surface.json` 保存包含类型导出
+的稳定快照，`npm run api:check`（在 `worker/` 下）阻止未经分类的增删。
 
 ## Runtime 组合
 
@@ -51,9 +45,8 @@ Core 顶层只由 `src/api/public.ts` 和 `src/api/experimental.ts` 组成；内
 
 Host 可以在同一组 Tooling 资源上创建替换用的 `AgentRuntime`，并通过幂等
 `close()` 统一释放 MCP、后台进程和 trace。调用方仍拥有当前运行的
-`AbortController`，必须先取消前台运行，再关闭 Host。TUI 和 Headless 每个进程
-使用一个 Host；Cloud Worker 为每个活跃会话创建独立 Host，保持会话之间的工具、
-trace 和运行状态隔离。
+`AbortController`，必须先取消前台运行，再关闭 Host。Cloud Worker 为每个活跃
+会话创建独立 Host，保持会话之间的工具、trace 和运行状态隔离。
 
 `createAgentHost` 还提供 experimental lifecycle hooks。它们在共享
 `ObservableTraceStore` 边界接收冻结后的脱敏通知，因此同一 Host 重建 Runtime
@@ -61,7 +54,7 @@ trace 和运行状态隔离。
 异步通知、单 Hook 超时、pending 上限和事件速率限制，不参与 Agent 决策。
 
 `AgentRuntime` 是运行门面，负责 run、resume、approval 和 cancel 语义，具体职责
-分别下沉到会话服务、模型会话、模式流程、工具循环、Checkpoint 和完成门。三个
+分别下沉到会话服务、模型会话、模式流程、工具循环、Checkpoint 和完成门。Worker
 宿主只组合和驱动 Runtime，不维护独立 Agent 实现。需要更底层组装时仍可使用
 experimental 的 `bootstrapRuntimeTooling` 与 `createRuntimeOptionsFromEnv`。
 
@@ -139,8 +132,8 @@ cursor 恢复和协议版本 header。所有 MCP 工具仍经过同一 Gateway �
 Context Source 加入当前会话；Prompts 仅通过 `/mcp prompt` 预览，不会静默改变
 系统行为。
 
-本地 TUI 的 `Bash` 和后台进程使用当前用户权限；Cloud 模式下则运行在独立
-Worker 容器内。具体安全边界见[安全模型](security.md)。
+Cloud Worker 的 `Bash` 和后台进程运行在独立容器内。具体安全边界见
+[安全模型](security.md)。
 
 ## Harness 与子代理
 
@@ -177,7 +170,7 @@ Trace Replay 与运行恢复是两条不同路径。`/trace replay <runId>` 只�
 版本化状态帧和汇总，不调用 LLM、Tool Gateway、Git 或外部系统。它要求事件来自
 同一 run、ID 唯一、时间单调、类型已知、以 `run.started` 开始且终态后无追加；
 可关联的工具终态必须有对应 start。缺失、乱序和未知事件返回稳定错误码，供
-TUI、Cloud 检查面板和确定性 Eval 共用。
+Cloud 检查面板使用。
 
 Cloud 会话权威记录保存在控制面 PostgreSQL；Worker 卷保存 `/work` 工作区文件。
 生命周期、备份边界和容器恢复见
@@ -214,9 +207,9 @@ Nginx 容器提供。
 
 ## 当前限制
 
-- 本地 `Bash` 与后台进程使用当前用户权限，执行前依赖权限审批。
+- Cloud Worker 的 `Bash` 与后台进程使用容器内 `node` 用户权限，执行前依赖权限审批。
 - MCP 尚不支持交互式 OAuth。
 - 没有跨会话语义记忆。
 - Project Instructions 只加载 workspace root 顶层。
-- `packages/core` 与 `packages/protocol` 尚未作为稳定 SDK 单独发布。
+- Core 尚未作为稳定 SDK 单独发布。
 - Cloud 的 Docker、移动端、弱网、Push 与 Git 凭证流程仍需社区持续验证。

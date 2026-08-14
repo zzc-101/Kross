@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Removed
+
+- 本分支改为 Cloud-only：移除 Ink TUI、`kross` CLI、`kross exec` Headless
+  Host、Harness Eval workspace，以及对应的 npm 打包、Headless 文档和过时
+  路线图提案。本地终端产品仍保留在 `main`。仓库改为 frontend / backend / worker
+  三块：根目录不再是 npm 项目；Core 并入 `worker/core`；Java 后端不需要 npm。
+
 ### Added
 
 - Cloud 对话渠道网关：Web 入站走 HTTP，出站走 SSE；消息以通用 `parts` 落库，

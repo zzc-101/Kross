@@ -1,42 +1,30 @@
 # 故障排查
 
-## TUI 无法启动
+## Cloud Agent 无法启动
 
-先确认 Node.js：
-
-```bash
-node --version
-```
-
-Kross 要求 Node.js `>= 22.19`。然后重新安装依赖并运行：
+先确认 Docker 与 Compose：
 
 ```bash
-npm install
-npm run dev --workspace @kross/tui
+docker --version
+docker compose version
 ```
 
-## TUI 中无法复制文本
-
-全屏模式下直接按住左键拖选；松开后，Kross 会自动复制选中的文本。本地终端优先使用系统剪贴板，SSH 终端会尝试通过 OSC 52 把内容交给客户端终端。
-
-如果当前终端、跳板机或安全策略禁止剪贴板转发，可关闭 Kross 的鼠标接管，改用终端自身的拖选与复制：
+然后从仓库根目录重新启动并查看日志：
 
 ```bash
-KROSS_DISABLE_MOUSE=1 kross
+./scripts/start-cloud.sh --logs
 ```
 
-关闭后，TUI 内的鼠标滚动和点击也会停用，键盘操作不受影响。
+常见原因包括 `.env` 缺失、端口 `8787`/`8788` 被占用，或首次构建镜像失败。停止
+并保留数据：
 
-## 能进入 TUI，但没有真实模型回复
-
-运行：
-
-```text
-/status
-/model
+```bash
+./scripts/start-cloud.sh --stop
 ```
 
-在模型面板中确认可用模型；环境变量示例：
+## 能打开工作台，但没有真实模型回复
+
+在管理控制台确认已配置可用模型。开发环境也可以用环境变量注入：
 
 ```bash
 export AGENT_LLM_PROVIDER=openai
@@ -44,16 +32,17 @@ export OPENAI_API_KEY=sk-...
 export OPENAI_MODEL=gpt-5
 ```
 
-也可以执行 `/import claude` 或 `/import codex`。如果环境变量只配置了一部分，Kross 会尝试回退到 `~/.kross/config.json` 中可用的同 Provider 配置。
+然后重启 Cloud 栈，让 Worker 拿到新的模型环境。
 
-## `/import` 没有可导入配置
+## 消息发出去后没有直播
 
-导入只在检测到对应工具配置且能解析出模型时可用。检查：
+确认浏览器走的是控制面 SSE：`GET /api/v2/agent/conversations/{id}/events`。
+Nginx 必须关闭 buffering，并且控制面 `spring.mvc.async.request-timeout` 不能把
+长连接提前掐断。Worker 只在容器运行时保持 WebSocket；如果容器已休眠，控制面应
+先唤醒再推任务。
 
-- Codex：`~/.codex/config.toml`、`~/.codex/auth.json` 或相关环境变量。
-- Claude Code：`~/.claude/settings.json`、`~/.claude.json` 或相关环境变量。
-
-也可以跳过导入，直接使用环境变量或手动维护 `~/.kross/config.json`。
+刷新页面后历史仍在，说明 `parts` 已写入 PostgreSQL；只有直播扇出失败时才会
+出现“结束后才看到完整回复”。
 
 ## 计划一直等待确认
 
@@ -69,20 +58,6 @@ export OPENAI_MODEL=gpt-5
 /reject
 ```
 
-按 `Esc` 也会取消待确认计划，并清除持久化 pending 状态。
-
-## 提示缺少 workspace root
-
-恢复的 conductor 计划可能引用当前会话尚未恢复的 repo id。先重新加入目录：
-
-```text
-/add-dir /absolute/path/to/repo
-/dirs
-/approve
-```
-
-计划会保留，目录恢复后可再次批准。
-
 ## `/undo` 报 conflict
 
 这表示目标事务执行后，相关文件又发生了变化。Kross 会拒绝强制覆盖。
@@ -94,12 +69,6 @@ export OPENAI_MODEL=gpt-5
 3. 明确解决冲突后再决定是否人工恢复。
 
 Kross 当前不提供 `--force` undo。
-
-## `/resume` 找不到会话
-
-- 不带参数执行 `/resume`，从当前 workspace 的最近会话中选择。
-- 会话按 workspace 隔离；确认你从正确目录启动。
-- 会话事实源位于 `~/.kross/sessions`，`~/.kross/session-store.db` 只是可重建索引。
 
 ## 恢复会话后工具审批面板没有出现
 
@@ -114,13 +83,12 @@ Kross 不会为了恢复界面而猜测性重放 write / execute 操作。先用
 
 ## `/processes` 看不到之前的进程
 
-managed process 按持久化会话隔离。切换到其他会话后不可查看或控制原会话进程；恢复原 session 后会重新可见。
-
-后台进程不会跨 Kross 进程重启重连。若 Kross 异常退出，应使用系统工具确认是否仍有遗留进程。
+managed process 按持久化会话隔离。切换到其他会话后不可查看或控制原会话进程。
+Worker 容器重启后，原先的后台进程不会自动重连。
 
 ## MCP server 没有加载
 
-检查 `~/.kross/mcp.json` 或 `config.json`：
+检查 Worker 工作区中的 MCP 配置：
 
 - `command` 必须存在且可执行。
 - `args` 必须是字符串数组。
@@ -128,7 +96,7 @@ managed process 按持久化会话隔离。切换到其他会话后不可查看�
 - `disabled` 不能为 `true`。
 - 可增加 `connectTimeoutMs`。
 
-单个 MCP server 失败不会阻止 Kross 启动，错误会输出到 stderr。修改配置后需要重启 Kross；当前没有热重载。
+单个 MCP server 失败不会阻止 Agent 启动。修改配置后需要让 Worker 重新加载。
 
 ## 上下文过大或回答遗忘旧信息
 
@@ -144,18 +112,11 @@ managed process 按持久化会话隔离。切换到其他会话后不可查看�
 /compact 保留精确文件路径、命令、错误文本和所有未完成事项
 ```
 
-也可以在 `~/.kross/config.json` 调整 `context.preserveRecentTokens`、`preserveFullTurns` 和 `compactionInstructions`。
-
 ## 测试似乎运行了旧代码
 
 该仓库的 TypeScript build 会刷新源码旁的 ignored JavaScript 产物。开发中如果测试表现与 TypeScript 源码不一致，先执行：
 
 ```bash
-npm run build
-npm test -- --run
-```
-完整验证：
-
-```bash
-npm run check
+cd frontend && npm run build && npm test
+cd worker && npm test
 ```

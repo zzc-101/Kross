@@ -16,4 +16,4 @@ https://github.com/zzc-101/Kross/security/advisories/new
 
 ## 安全边界
 
-本地 TUI 的 shell 命令使用当前用户权限；Cloud Worker 则以 Docker 容器作为执行边界。运行不受信任仓库、Skills 或 MCP server 前，请先阅读 [安全模型](docs/security.md)。
+Cloud Worker 的 shell 命令使用容器内 `node` 用户权限，并以 Docker 容器作为执行边界。运行不受信任仓库、Skills 或 MCP server 前，请先阅读 [安全模型](docs/security.md)。

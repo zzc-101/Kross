@@ -1,6 +1,6 @@
 # 安全模型
 
-Kross 是本地优先的开发 Agent。本地 TUI 通过 workspace 边界、工具风险分类、显式审批、可审计 trace 和冲突安全撤销降低风险；Cloud 模式额外使用每工作区独立的 Docker Worker 作为执行边界。
+Kross 是自托管 Cloud 开发 Agent。它通过 workspace 边界、工具风险分类、显式审批、可审计 trace 和冲突安全撤销降低风险，并用每用户独立的 Docker Worker 作为执行边界。
 
 ## 信任边界
 
@@ -27,10 +27,6 @@ Kross 会把以下内容提供给模型，应该视为受信任的本地输入�
 
 规则分类器只识别一组已知危险命令模式，不能替代人工判断。
 
-`kross exec` 同样默认使用 `default`，不会因 CI 或非交互环境自动升级。Headless
-第一版不提供交互式审批，遇到审批边界会保存会话并退出 `4`。自动化权限和密钥
-边界见 [Headless 自动化](headless.md#权限与审批)。
-
 ## 文件边界
 
 - 内置文件工具默认限制在主 workspace 和通过 `/add-dir` 授权的 roots。
@@ -38,8 +34,8 @@ Kross 会把以下内容提供给模型，应该视为受信任的本地输入�
 - Git 只读工具也会检查仓库根目录是否位于授权 workspace。
 - Project Instructions 和项目 Skills 拒绝指向 root 外部的 symlink。
 
-这些限制不适用于已批准的任意 shell 命令。本地 TUI 中的 shell 拥有当前系统
-用户权限；Cloud 模式中的 shell 拥有对应 Worker 容器内 `node` 用户的权限。
+这些限制不适用于已批准的任意 shell 命令。Cloud Worker 中的 shell 拥有容器内
+`node` 用户的权限。
 
 ## 文件修改与撤销
 
@@ -63,11 +59,10 @@ mutation blobs 位于 `~/.kross/mutations`，其中可能包含历史文件正�
 
 ## Bash 与后台进程
 
-- 本地 TUI 中，`Bash` 和 `ProcessStart` 使用当前用户权限；cwd/workspace 只约束
-  默认工作目录，不限制获准命令访问用户有权访问的其他系统资源。`auto` 还会明确
-  解除内建文件、搜索和 Git 工具的 workspace 路径边界。
-- Cloud 模式中，命令运行在每工作区独立的 Docker Worker 内。Worker 使用非 root
-  用户、独立 volume 和网络，并丢弃 Linux capabilities、启用
+- Cloud Worker 中，`Bash` 和 `ProcessStart` 运行在每用户独立的 Docker 容器内。
+  cwd/workspace 只约束默认工作目录，不限制获准命令访问该容器内用户有权访问的
+  其他路径。`auto` 还会明确解除内建文件、搜索和 Git 工具的 workspace 路径边界。
+- Worker 使用非 root 用户、独立 volume 和网络，并丢弃 Linux capabilities、启用
   `no-new-privileges` 及 CPU、内存和 PID 限制。
 - Worker 内的命令仍可修改该工作区数据、读取注入该 Worker 的配置并访问外网。
 - managed process 按 Kross 会话隔离控制权限，但不会在同一运行环境内增加第二层
@@ -75,8 +70,8 @@ mutation blobs 位于 `~/.kross/mutations`，其中可能包含历史文件正�
 - Kross 正常退出时会尝试终止其管理的活跃进程；进程异常脱离管理时仍可能需要人工处理。
 - Windows 使用 `taskkill /T /F` 尝试清理整个进程树。
 
-Kross 当前没有规划额外的命令级 Sandbox。日常安全边界是本地审批或 Cloud Worker
-容器；`auto` 是完全访问，只应用于可信环境或可丢弃的工作区。
+Kross 当前没有规划额外的命令级 Sandbox。日常安全边界是 Cloud Worker 容器；
+`auto` 是完全访问，只应用于可信环境或可丢弃的工作区。
 
 ## MCP
 
@@ -114,7 +109,7 @@ ProcessStart 的 trace 使用受限 command-shape preview，ProcessWrite 只记�
 
 ## 当前已知限制
 
-- 本地 TUI 中获批的 shell 命令使用当前用户权限。
+- Cloud Worker 中获批的 shell 命令使用容器内 `node` 用户权限。
 - Cloud Worker 可以访问外网，并可读写自己的持久化工作区。
 - MCP 没有交互式 OAuth 客户端。
 - Project Instructions 当前只扫描 root 顶层。

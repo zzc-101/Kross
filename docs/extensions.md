@@ -9,19 +9,18 @@ Kross 提供三层扩展方式。优先选择配置和文件约定；只有这�
 |---|---|---|
 | 配置扩展 | 项目规则、Skills、MCP、兼容模型端点 | `0.x` 期间尽量保持向后兼容 |
 | 源码扩展 | 自定义工具、审批策略、Runtime 宿主 | 预览接口，升级时需要跟随类型检查 |
-| 协议扩展 | 自定义 Web、移动端或远程 Worker | 以 `PROTOCOL_VERSION` 和 Zod schema 为准 |
+| 协议扩展 | 自定义 Web、移动端或远程 Worker | 以 Java 控制面 DTO 和协议版本为准 |
 
-`packages/core` 和 `packages/protocol` 目前是 monorepo 私有 workspace，尚未作为
-稳定 SDK 单独发布；发布门和未来 SaaS 的消费边界见
+`worker/core` 目前是 Worker 内部源码，尚未作为稳定 SDK 单独发布；发布门见
 [Core 与 Protocol SDK 发布决策](sdk-publication.md)。Core 顶层导出分为：
 
 - `public`：面向自定义本地 Host 的最小组合契约，`0.x` 期间变更会进入
   `CHANGELOG.md`；
-- `experimental`：供首方 TUI、Worker 与开发工具复用，可能在次版本调整；
+- `experimental`：供首方 Worker 与开发工具复用，可能在次版本调整；
 - `internal`：不从 `@kross/core` 顶层导出，禁止通过源码深路径依赖。
 
 权威清单位于
-[`packages/core/api-surface.json`](../packages/core/api-surface.json)。这里的
+[`worker/core/api-surface.json`](../worker/core/api-surface.json)。这里的
 `public` 仍是预发布源码 API，不等于已经承诺长期 SemVer 的独立 SDK。
 
 ## Project Instructions
@@ -163,7 +162,7 @@ Anthropic-compatible 服务使用对应的 `ANTHROPIC_*` 字段。兼容端点�
 - 模型列表与上下文窗口；
 - 流式文本、思考内容和工具调用转换；
 - 错误分类、取消和重试；
-- Core、TUI、Worker 与 Web 的相关测试。
+- Core、Worker 与 Web 的相关测试。
 
 ## 源码级自定义工具
 
@@ -212,9 +211,9 @@ export async function createCustomRuntime() {
 6. 不要绕过 `ToolGateway` 直接执行需要审批的副作用。
 
 内置宿主组合入口位于
-[`packages/core/src/host/createAgentHost.ts`](../packages/core/src/host/createAgentHost.ts)；
+[`worker/core/src/host/createAgentHost.ts`](../worker/core/src/host/createAgentHost.ts)；
 工具契约位于
-[`packages/core/src/tools/toolGateway.ts`](../packages/core/src/tools/toolGateway.ts)。
+[`worker/core/src/tools/toolGateway.ts`](../worker/core/src/tools/toolGateway.ts)。
 `createAgentHost` 的 `close()` 可安全重复调用；开始关闭后不能再创建 Runtime。
 自定义宿主应自行持有当前运行的 `AbortController`，退出时先取消运行，再关闭
 Host。
@@ -258,8 +257,8 @@ Agent 行为时，应实现经过 schema、风险、审批和 Trace 的 Tool/Pro
 
 ## 自定义客户端与 Cloud Protocol
 
-Cloud 的线协议由 `packages/protocol` 中的 Zod schema 定义。客户端发送的每条
-命令必须携带：
+Cloud 的浏览器/Worker 线协议由 Java 控制面 DTO 定义，见 [Cloud Protocol](cloud-protocol.md)。
+客户端发送的每条命令必须携带：
 
 ```ts
 {
@@ -270,17 +269,15 @@ Cloud 的线协议由 `packages/protocol` 中的 Zod schema 定义。客户端�
 
 扩展客户端时：
 
-- 从 `clientCommandSchema` 和 `serverEventSchema` 推导类型，不复制手写接口；
+- 以 `backend` 的 Java DTO 和 `frontend/web` 为参考，不另造一套字段；
 - 按 `seq` 处理事件、断线重放和去重；
 - 用 `requestId` / `correlationId` 关联命令与结果；
 - 保留工具审批、计划审批和取消语义；
-- 遇到不支持的 `PROTOCOL_VERSION` 时明确失败。
+- 遇到不支持的协议版本时明确失败。
 
 当前 HTTP 路由、容器名称、Worker 持久化目录和 Web 组件树属于内部实现，不是稳定
-扩展 API。协议入口见
-[`packages/protocol/src/legacySchemas.ts`](../packages/protocol/src/legacySchemas.ts)，现有 Web
-客户端是首选 TypeScript 参考实现。其他语言使用版本化 JSON Schema、错误与回放
-语义，详见 [Cloud Protocol](cloud-protocol.md)。
+扩展 API。现有 `frontend/web` 是首选 TypeScript 参考实现。其他语言使用后端公开的
+JSON 字段、错误与回放语义，详见 [Cloud Protocol](cloud-protocol.md)。
 
 ## 不应依赖的内部细节
 
@@ -290,7 +287,7 @@ Cloud 的线协议由 `packages/protocol` 中的 Zod schema 定义。客户端�
 - Runtime 内部类的构造顺序；
 - Gateway 私有 HTTP 路径；
 - Docker 容器标签、网络名称和挂载细节；
-- TUI/Web 组件层级和 CSS class；
+- Web 组件层级和 CSS class；
 - 未从 package `index.ts` 导出的源码文件。
 
 `ModeFlows`、`ModelSession`、`SessionServices`、`RuntimeToolLoop` 和 Conductor
@@ -308,20 +305,20 @@ Cloud 的线协议由 `packages/protocol` 中的 Zod schema 定义。客户端�
 - 权限风险与失败恢复策略；
 - 最小测试；
 - 配置和用户文档；
-- 对 TUI、Cloud Worker 和协议兼容性的影响。
+- 对 Cloud Worker 和协议兼容性的影响。
 
 贡献流程见[参与贡献](../CONTRIBUTING.md)。
 
 修改 Core 顶层导出时先选择 public 或 experimental barrel，然后运行：
 
 ```bash
-npm run api:check
+cd worker && npm run api:check
 ```
 
 只有确认边界变化、补齐测试和 `CHANGELOG.md` 后，才运行：
 
 ```bash
-npm run api:update
+cd worker && npm run api:update
 ```
 
 CI 会使用 TypeScript Checker 读取包含 type-only 在内的真实导出，并检查分类快照、

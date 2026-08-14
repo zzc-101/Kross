@@ -5,9 +5,8 @@
 ## 影响范围
 
 - [ ] Core / Harness
-- [ ] TUI
 - [ ] Cloud Web
-- [ ] Gateway / Worker / Protocol
+- [ ] Backend / Worker / Protocol
 - [ ] 配置、持久化或安全边界
 - [ ] 文档或开发体验
 
@@ -16,8 +15,10 @@
 <!-- 列出实际运行的命令和结果。 -->
 
 ```text
-npm run typecheck
-npm test -- --run
+cd frontend && npm run typecheck && npm test && npm run build
+cd worker && npm run typecheck && npm test && npm run api:check
+cd backend && ./mvnw -B -DskipTests compile
+node scripts/check-doc-links.mjs
 ```
 
 ## 提交前检查

@@ -1,91 +1,79 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const args = parseArgs(process.argv.slice(2));
 const failures = [];
-const rootPackage = readJson('package.json');
-const lockfile = readJson('package-lock.json');
-const workspacePaths = ['packages', 'apps']
-  .flatMap((rootName) => {
-    const dir = join(root, rootName);
-    if (!existsSync(dir)) return [];
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => `${rootName}/${entry.name}`)
-      .filter((path) => existsSync(join(root, path, 'package.json')));
-  })
-  .sort();
-const workspacePackages = workspacePaths.map((path) => ({
-  path,
-  manifest: readJson(`${path}/package.json`)
+
+const manifests = [
+  { path: 'frontend/package.json', lockfile: 'frontend/package-lock.json', lockPath: '' },
+  { path: 'frontend/web/package.json', lockfile: 'frontend/package-lock.json', lockPath: 'web' },
+  {
+    path: 'frontend/admin-web/package.json',
+    lockfile: 'frontend/package-lock.json',
+    lockPath: 'admin-web'
+  },
+  { path: 'worker/package.json', lockfile: 'worker/package-lock.json', lockPath: '' }
+].map((entry) => ({
+  ...entry,
+  manifest: readJson(entry.path),
+  lock: readJson(entry.lockfile)
 }));
-const internalNames = new Set(
-  workspacePackages.map(({ manifest }) => manifest.name)
-);
 
-if (!isSemver(rootPackage.version)) {
-  failures.push(`package.json 的版本号不是完整 SemVer：${rootPackage.version}`);
+const versions = new Set(manifests.map((entry) => entry.manifest.version));
+if (versions.size !== 1 || !isSemver([...versions][0])) {
+  failures.push(
+    `frontend 与 worker 的 version 必须是同一个完整 SemVer，当前为 ${
+      [...versions].join(', ') || '缺失'
+    }`
+  );
 }
-
-for (const { path, manifest } of workspacePackages) {
-  if (manifest.version !== rootPackage.version) {
-    failures.push(
-      `${path}/package.json 版本为 ${manifest.version}，应为 ${rootPackage.version}`
-    );
-  }
-  checkInternalDependencies(`${path}/package.json`, manifest);
-}
-checkInternalDependencies('package.json', rootPackage);
-
-checkLockfileEntry('', 'package.json', rootPackage);
-for (const { path, manifest } of workspacePackages) {
-  checkLockfileEntry(path, `${path}/package.json`, manifest);
-}
+const appVersion = [...versions][0];
 
 const nodeVersion = readText('.nvmrc').trim().replace(/^v/u, '');
-const minimumNode = String(rootPackage.engines?.node ?? '').match(
+const frontendEngines = String(manifests[0]?.manifest.engines?.node ?? '').match(
   /^>=\s*(\d+\.\d+\.\d+)$/u
 )?.[1];
-if (!minimumNode) {
-  failures.push('package.json engines.node 必须使用 >=x.y.z 格式');
-} else if (nodeVersion !== minimumNode) {
+const workerEngines = String(
+  manifests.find((entry) => entry.path === 'worker/package.json')?.manifest.engines?.node ?? ''
+).match(/^>=\s*(\d+\.\d+\.\d+)$/u)?.[1];
+if (!frontendEngines || frontendEngines !== workerEngines) {
+  failures.push('frontend 与 worker 的 engines.node 必须同为 >=x.y.z');
+} else if (nodeVersion !== frontendEngines) {
   failures.push(
-    `.nvmrc 为 ${nodeVersion}，应与 engines.node 最低版本 ${minimumNode} 一致`
+    `.nvmrc 为 ${nodeVersion}，应与 engines.node 最低版本 ${frontendEngines} 一致`
   );
 }
 
-const runtimeVersionFiles = [
-  {
-    path: 'packages/core/src/mcp/mcpClient.ts',
-    pattern: /clientVersion\s*\?\?\s*'([^']+)'/u
-  },
-  {
-    path: 'apps/tui/src/main.tsx',
-    pattern: /return\s+'([^']+)';\s*\n\}/u
-  },
-  {
-    path: 'apps/tui/src/App.tsx',
-    pattern: /version\s*=\s*'([^']+)'/u
-  },
-  {
-    path: 'apps/tui/src/ui/WelcomeHome.tsx',
-    pattern: /version\s*=\s*'([^']+)'/u
+const mcpVersion = readText('worker/core/src/mcp/mcpClient.ts').match(
+  /clientVersion\s*\?\?\s*'([^']+)'/u
+)?.[1];
+if (mcpVersion !== appVersion) {
+  failures.push(
+    `worker/core/src/mcp/mcpClient.ts 的运行时兜底版本为 ${mcpVersion ?? '未找到'}，应为 ${appVersion}`
+  );
+}
+
+for (const entry of manifests) {
+  const lockEntry = entry.lock.packages?.[entry.lockPath];
+  if (!lockEntry) {
+    failures.push(`${entry.lockfile} 缺少 ${entry.lockPath || '根'} 条目`);
+    continue;
   }
-];
-for (const { path, pattern } of runtimeVersionFiles) {
-  const actual = readText(path).match(pattern)?.[1];
-  if (actual !== rootPackage.version) {
+  if (lockEntry.name !== undefined && lockEntry.name !== entry.manifest.name) {
     failures.push(
-      `${path} 的运行时兜底版本为 ${actual ?? '未找到'}，应为 ${rootPackage.version}`
+      `${entry.lockfile} 的 ${entry.lockPath || '根'} 名称为 ${lockEntry.name}，应为 ${entry.manifest.name}`
+    );
+  }
+  if (lockEntry.version !== entry.manifest.version) {
+    failures.push(
+      `${entry.lockfile} 的 ${entry.lockPath || '根'} 版本为 ${lockEntry.version}，应为 ${entry.manifest.version}`
     );
   }
 }
 
-if (args.tag !== undefined && args.tag !== `v${rootPackage.version}`) {
-  failures.push(
-    `标签 ${args.tag} 与 package.json 版本不一致，应为 v${rootPackage.version}`
-  );
+if (args.tag !== undefined && args.tag !== `v${appVersion}`) {
+  failures.push(`标签 ${args.tag} 与应用版本不一致，应为 v${appVersion}`);
 }
 
 const changelog = readText('CHANGELOG.md');
@@ -93,15 +81,15 @@ if (!/^## \[Unreleased\]$/mu.test(changelog)) {
   failures.push('CHANGELOG.md 缺少 [Unreleased] 标题');
 }
 if (args.release) {
-  const escapedVersion = escapeRegExp(rootPackage.version);
+  const escapedVersion = escapeRegExp(appVersion);
   if (!new RegExp(`^## \\[${escapedVersion}\\] - \\d{4}-\\d{2}-\\d{2}$`, 'mu').test(changelog)) {
     failures.push(
-      `发布检查要求 CHANGELOG.md 包含 “## [${rootPackage.version}] - YYYY-MM-DD”`
+      `发布检查要求 CHANGELOG.md 包含 “## [${appVersion}] - YYYY-MM-DD”`
     );
   }
   if (!new RegExp(`^\\[${escapedVersion}\\]: https://`, 'mu').test(changelog)) {
     failures.push(
-      `发布检查要求 CHANGELOG.md 包含 [${rootPackage.version}] 的链接定义`
+      `发布检查要求 CHANGELOG.md 包含 [${appVersion}] 的链接定义`
     );
   }
 }
@@ -114,60 +102,7 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   const suffix = args.release ? '（发布模式）' : '';
-  console.log(
-    `版本一致性检查通过：${rootPackage.version}，${workspacePackages.length} 个 workspace${suffix}`
-  );
-}
-
-function checkInternalDependencies(path, manifest) {
-  for (const section of [
-    'dependencies',
-    'devDependencies',
-    'peerDependencies',
-    'optionalDependencies'
-  ]) {
-    for (const [name, range] of Object.entries(manifest[section] ?? {})) {
-      if (internalNames.has(name) && range !== rootPackage.version) {
-        failures.push(
-          `${path} 的 ${section}.${name} 为 ${range}，应使用精确版本 ${rootPackage.version}`
-        );
-      }
-    }
-  }
-}
-
-function checkLockfileEntry(lockPath, manifestPath, manifest) {
-  const entry = lockfile.packages?.[lockPath];
-  if (!entry) {
-    failures.push(`package-lock.json 缺少 ${lockPath || '根包'} 条目`);
-    return;
-  }
-  if (entry.name !== manifest.name) {
-    failures.push(
-      `package-lock.json 的 ${lockPath || '根包'} 名称为 ${entry.name}，应为 ${manifest.name}`
-    );
-  }
-  if (entry.version !== manifest.version) {
-    failures.push(
-      `package-lock.json 的 ${lockPath || '根包'} 版本为 ${entry.version}，应为 ${manifest.version}`
-    );
-  }
-  for (const section of [
-    'dependencies',
-    'devDependencies',
-    'peerDependencies',
-    'optionalDependencies'
-  ]) {
-    const source = manifest[section] ?? {};
-    const locked = entry[section] ?? {};
-    for (const name of internalNames) {
-      if (source[name] !== locked[name]) {
-        failures.push(
-          `package-lock.json 的 ${lockPath || '根包'} ${section}.${name} 与 ${manifestPath} 不一致`
-        );
-      }
-    }
-  }
+  console.log(`版本一致性检查通过：${appVersion}${suffix}`);
 }
 
 function parseArgs(values) {

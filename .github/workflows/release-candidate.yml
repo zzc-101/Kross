@@ -34,24 +34,32 @@ jobs:
         with:
           node-version: 22.19.0
           cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            worker/package-lock.json
           registry-url: https://registry.npmjs.org
 
-      - run: npm ci
+      - working-directory: frontend
+        run: npm ci
+      - working-directory: worker
+        run: npm ci
 
       - name: Validate release contract
-        run: npm run version:check -- --tag "$RELEASE_TAG" --release
+        run: node scripts/check-version-consistency.mjs --tag "$RELEASE_TAG" --release
 
-      - name: Verify source and package
-        run: npm run check
-
-      - name: Prepare npm tarball
+      - name: Verify source
         run: |
-          mkdir release
-          npm pack --ignore-scripts --pack-destination release
+          node scripts/check-doc-links.mjs
+          npm run typecheck --prefix frontend
+          npm run typecheck --prefix worker
+          npm test --prefix worker
+          npm test --prefix frontend
+          npm run api:check --prefix worker
+          npm run build --prefix frontend
 
       - name: Resolve image tags
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('worker/package.json','utf8')).version")
           SHORT_SHA=$(git rev-parse --short=12 HEAD)
           RELEASE_COMMIT=$(git rev-parse HEAD)
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -80,10 +88,11 @@ jobs:
             --tag kross-web:local .
 
       - name: Smoke test release images
-        run: npm run cloud:smoke
+        run: ./scripts/cloud-container-smoke.sh
 
       - name: Record container image metadata
         run: |
+          mkdir -p release
           for component in web server worker; do
             printf '%s ' "$component" >> release/container-images.txt
             docker image inspect \
@@ -94,7 +103,7 @@ jobs:
 
       - name: Generate checksums and release metadata
         run: |
-          npm run release:metadata -- \
+          node scripts/release-metadata.mjs \
             --tag "$RELEASE_TAG" \
             --commit "$RELEASE_COMMIT" \
             --artifacts release

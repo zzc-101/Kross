@@ -1,80 +1,24 @@
 # Cloud Protocol
 
-Kross Cloud Protocol 是 Web、Gateway 与 Workspace Worker 之间的版本化线协议。
-TypeScript 实现以 Zod schema 为事实源，同时提交 Draft-07 JSON Schema，供 Go、
-Python、Java 或其他控制面直接验证消息。
+浏览器只和 Java 后端说话：上行 HTTP，下行 SSE。Worker 只在容器运行时用
+WebSocket 连控制面。线协议的事实源是 `backend` 里的 Java DTO，不再使用独立的
+npm Protocol 包。
 
-## 语言无关产物
+## 浏览器
 
-本页以下内容描述隔离在 `@kross/protocol/legacy` 的旧 Cloud v1。新的 Work Protocol
-根入口版本为 `2`，其生成产物位于 `packages/protocol/schemas/`。
+- 发消息：`POST /api/v2/agent/conversations/{id}/messages`
+- 直播：`GET /api/v2/agent/conversations/{id}/events`（SSE，`event: channel`）
+- 历史：`GET /api/v2/agent/conversations/{id}/messages`
 
-| 产物 | 用途 |
-|---|---|
-| [Client Command v1](schemas/kross-client-command-v1.schema.json) | 验证客户端发出的命令 |
-| [Server Event v1](schemas/kross-server-event-v1.schema.json) | 验证未封装的服务端事件 |
-| [Event Envelope v1](schemas/kross-event-envelope-v1.schema.json) | 验证带工作区、序号和时间的回放事件 |
+SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要把每个 token 写入数据库；
+回合结束再写完整快照。
 
-Schema 的 `$id` 指向仓库中的稳定路径，`x-kross-protocol-version` 与
-`PROTOCOL_VERSION` 一致。应用版本、数据格式版本和协议版本彼此独立。
+## Worker
 
-修改 `packages/protocol/src/legacySchemas.ts` 后运行旧 Cloud 的定向测试；Work Protocol
-v2 的事实源位于 `packages/protocol/src/resourceSchemas.ts`、
-`publicEventSchemas.ts` 与 `internalWorkerSchemas.ts`，修改后运行：
+路径：`ws://<backend>/internal/v2/agents/ws?token=...`
 
-```bash
-npm run protocol:update
-npm run protocol:check
-```
+握手后控制面推送 `agent.job`。生成过程立即推 `agent.events`，结束时用
+`agent.message` 提交完整 `parts`。另有心跳、模型环境和休眠帧。
 
-普通 CI 会执行 `protocol:check`，阻止 Zod 与已提交 JSON Schema 漂移。v2 使用严格
-对象，因此新增字段、移除字段或分支、改变 required 状态、移除 enum 值及收紧约束
-均视为破坏性变更。此时必须提升 `PROTOCOL_VERSION` 并生成新版本产物。
-
-## 命令与结果关联
-
-每条 Client Command 至少包含：
-
-```json
-{
-  "protocolVersion": 1,
-  "requestId": "client-generated-id",
-  "type": "workspace.list"
-}
-```
-
-- `requestId` 由客户端生成，用于幂等和结果关联；重试同一操作时复用原值。
-- 服务端先返回 `request.accepted` 或 `request.error`。
-- 后续 Event Envelope 使用 `correlationId` 指回触发它的 `requestId`。
-- 会话命令同时携带 `workspaceId` 和 `sessionId`；工作区控制命令只携带所需范围。
-- 未识别的 `protocolVersion` 必须明确失败，不能猜测性降级。
-
-`request.error.code` 是供程序分支使用的稳定非空字符串，`message` 是面向用户的
-说明。客户端不应解析自然语言 `message` 推断错误类型，也不应把 HTTP 成功状态
-等同于 Agent 运行成功。
-
-## 事件序号与回放
-
-Event Envelope 的 `seq` 在工作区会话事件流中单调递增。客户端应：
-
-1. 按 `seq` 去重并持久化最后成功应用的序号；
-2. 重连时发送 `session.resume`，并把该序号放入 `lastSeq`；
-3. 依次应用服务端重放事件；
-4. 收到 `replay.complete` 后切换到实时事件；
-5. 发现序号缺口或收到无法解析的版本时停止应用，重新请求快照。
-
-回放只重放已记录的事件与派生状态，不重新执行工具、Git 或其他外部副作用。
-`session.snapshot` 是恢复 UI 的权威状态，流式 delta 不能单独作为持久化事实源。
-
-## Python 消费示例
-
-[Python 示例](../examples/protocol/validate_event.py)不导入任何 Kross TypeScript
-代码，直接用提交的 JSON Schema 验证 Event Envelope：
-
-```bash
-python3 -m pip install 'jsonschema>=4,<5'
-python3 examples/protocol/validate_event.py
-```
-
-生产客户端还应对 `requestId`、`correlationId`、`seq` 和断线恢复建立本地状态，
-而不是只做单条 JSON 校验。
+版本、字段和错误语义以 `backend/src/main/java/com/kross` 下的协议类型为准。
+破坏性变更必须提升协议版本并写入 `CHANGELOG.md`。

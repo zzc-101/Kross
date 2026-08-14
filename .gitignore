@@ -1,7 +1,8 @@
 node_modules/
 runs/
 dist/
-control-plane/target/
+build/
+backend/target/
 coverage/
 .DS_Store
 __pycache__/
@@ -9,13 +10,4 @@ __pycache__/
 npm-debug.log*
 .env
 .superpowers/
-
-# Accidental TS emit next to sources (project runs via tsx / typecheck --noEmit)
-packages/**/*.js
-apps/**/*.js
-!apps/web/public/sw.js
-vitest.config.js
 test.txt
-.benchmark-secrets/
-benchmarks/terminal_bench/results/*
-!benchmarks/terminal_bench/results/.gitkeep

@@ -1,0 +1,31 @@
+{
+  "name": "kross-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build": "node scripts/build-runtime.mjs",
+    "api:check": "node scripts/check-api-surface.mjs",
+    "api:update": "node scripts/check-api-surface.mjs --update"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.80.6",
+    "@vscode/ripgrep": "^1.18.0",
+    "better-sqlite3": "^12.11.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.10.2",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}
