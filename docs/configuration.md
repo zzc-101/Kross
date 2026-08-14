@@ -227,5 +227,3 @@ Skill metadata 自动进入上下文，正文通过 `ReadSkill` 按需加载。�
 | `~/.kross/traces` | 运行 trace JSONL 与索引 |
 | `~/.kross/mutations` | mutation journal 与 content-addressed blobs |
 | `~/.kross/skills` | 个人 Skills |
-
-完整格式清单、旧数据兼容规则和备份步骤见[数据格式与备份](data-compatibility.md)。

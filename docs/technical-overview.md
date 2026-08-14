@@ -4,9 +4,8 @@ Kross 是面向自托管部署的 Cloud 编程 Agent。`worker/core` 提供运�
 `worker` 在每位成员的持久 Docker 工作区里执行；Web 只通过 Java 后端收发消息，
 浏览器不直连 Worker。
 
-本文只描述当前实现和长期架构边界。安装、配置与命令用法分别见
-[快速上手](getting-started.md)、[配置参考](configuration.md)和
-[命令手册](command-reference.md)。
+本文只描述当前实现和长期架构边界。安装与配置见
+[快速上手](getting-started.md)和[配置参考](configuration.md)。
 
 ## 目录与依赖方向
 
@@ -174,8 +173,7 @@ Cloud 检查面板使用。
 
 Cloud 会话权威记录保存在控制面 PostgreSQL；Worker 卷保存 `/work` 工作区文件。
 生命周期、备份边界和容器恢复见
-[Cloud Agent 部署与运维](cloud-agent-deployment.md)。各 JSON/JSONL/SQLite
-格式的版本与升级约束见[数据格式与备份](data-compatibility.md)。
+[Cloud Agent 部署与运维](cloud-agent-deployment.md)。
 
 ## Cloud 数据流
 

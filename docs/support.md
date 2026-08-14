@@ -35,7 +35,7 @@ Docker Desktop on macOS/Windows 适合本地开发和自托管试用，属于社
 
 目前 CI 不执行跨浏览器端到端测试。Web/PWA 面向当前稳定版
 Chrome、Edge、Firefox 和 Safari；浏览器、移动端安装、Push、弱网恢复与远端 Git
-流程应按[部署验收清单](cloud-agent-deployment.md#部署验收清单)在实际环境复验。
+流程应按 [Cloud Agent 部署与运维](cloud-agent-deployment.md) 在实际环境复验。
 
 Gateway 默认使用 Docker Socket 管理 Worker，其权限近似宿主机 root。支持范围
 不等于生产安全承诺；公网部署前必须遵循[安全模型](security.md)和
@@ -50,8 +50,7 @@ Gateway 默认使用 Docker Socket 管理 Worker，其权限近似宿主机 root
 - 当前只维护 `main` 和最新预发布版本，不为旧的 `0.x` 分支承诺长期安全更新。
 - `worker/core` 当前是 Worker 内部源码，不是稳定 SDK。稳定级别见
   [扩展 Kross](extensions.md)；public / experimental 分类描述预发布维护意图，
-  不代表已经发布独立 Core 包。独立发布的触发条件见
-  [SDK 发布决策](sdk-publication.md)。
+  不代表已经发布独立 Core 包。
 
 遇到问题时先查看[故障排查](troubleshooting.md)。可复现问题请附上操作系统、
 Node.js、Docker/Compose、浏览器版本和最小日志；安全问题按

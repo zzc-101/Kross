@@ -121,7 +121,7 @@ export ANTHROPIC_MODEL=claude-sonnet-4-5
 - `/undo` 在文件未被后续修改时撤销最近事务。
 
 对话历史保存在控制面 PostgreSQL。刷新页面后仍可从库中加载完整 `parts`。下一步
-可阅读 [命令手册](command-reference.md) 和 [安全模型](security.md)。
+可阅读 [安全模型](security.md)。
 
 ## 停止与清理
 

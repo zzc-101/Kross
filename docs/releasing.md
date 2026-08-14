@@ -3,7 +3,7 @@
 本分支发布 Cloud 镜像候选，不发布 npm CLI。当前采用人工确认发布：CI 验证代码
 与容器 smoke，但不会自动创建标签或推送镜像。首次公开发布前仍需由项目所有者
 确认 License、镜像仓库和 GitHub 权限。`worker/core` 当前保持为 Worker 内部源码，
-不发布 npm 包；原因见 [SDK 发布决策](sdk-publication.md)。
+不发布 npm 包。
 
 仓库中的 `release-candidate.yml` 只生成候选产物，没有 `contents: write`、
 `packages: write` 或镜像推送权限。它不会创建 GitHub Release 或推送容器镜像。
@@ -88,7 +88,7 @@ git push origin v0.1.0
 ## 安装、升级与回滚验收
 
 Cloud 发布需要分别验证 Web、控制面、Worker 使用同一标签，执行
-[部署验收清单](cloud-agent-deployment.md#部署验收清单)，并保留上一版本镜像。
+[Cloud Agent 部署与运维](cloud-agent-deployment.md)，并保留上一版本镜像。
 数据卷不应随容器回滚自动删除。
 
 三个 `kross-*:ci` 镜像构建完成后可运行：

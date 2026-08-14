@@ -105,7 +105,4 @@ docker compose config --quiet
 ```
 
 上线前还必须完成：生产身份与 CSRF、对象存储、密钥 broker、限流/配额、审计导出、
-备份恢复演练，以及 Project → Task → Run → Approval → Artifact 的真实纵向 E2E。
-
-详细的产品、数据和部署边界见
-[持久 Agent 工作区](proposals/persistent-agent-workspace.md)。
+备份恢复演练，以及从工作台发消息到 Worker 执行的真实纵向 E2E。

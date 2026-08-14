@@ -9,10 +9,8 @@
 |---|---|
 | 第一次安装和运行 | [快速上手](getting-started.md) |
 | 配置模型、上下文、MCP 或多仓项目 | [配置参考](configuration.md) |
-| 查询斜杠命令和快捷键 | [命令手册](command-reference.md) |
 | 了解审批、文件边界和数据风险 | [安全模型](security.md) |
 | 确认受支持的平台、版本和兼容策略 | [支持范围与兼容策略](support.md) |
-| 备份数据并了解持久化格式兼容性 | [数据格式与备份](data-compatibility.md) |
 | 排查启动、模型、撤销或 MCP 问题 | [故障排查](troubleshooting.md) |
 | 部署和维护 Cloud Agent | [Cloud Agent 部署与运维](cloud-agent-deployment.md) |
 
@@ -24,11 +22,9 @@
 | 实现非 TypeScript Cloud 客户端或 Worker | [Cloud Protocol](cloud-protocol.md) |
 | 理解完成门、验证、恢复与工具调度 | [Agent Harness](harness.md) |
 | 添加 Skills、MCP、工具、模型或客户端 | [扩展 Kross](extensions.md) |
-| 判断是否直接依赖或发布 Core/Protocol | [SDK 发布决策](sdk-publication.md) |
 | 理解模型能力检测和兼容边界 | [Provider 能力](provider-capabilities.md) |
 | 查看 LLM token、费用、延迟和错误观测边界 | [Provider 调用观测](provider-observability.md) |
 | 检查镜像候选并准备版本发布 | [发布指南](releasing.md) |
-| 查看当前 Cloud 工作区方案 | [持久 Agent 工作区](proposals/persistent-agent-workspace.md) |
 
 ## 维护约定
 

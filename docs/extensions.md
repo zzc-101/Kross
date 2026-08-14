@@ -11,8 +11,7 @@ Kross 提供三层扩展方式。优先选择配置和文件约定；只有这�
 | 源码扩展 | 自定义工具、审批策略、Runtime 宿主 | 预览接口，升级时需要跟随类型检查 |
 | 协议扩展 | 自定义 Web、移动端或远程 Worker | 以 Java 控制面 DTO 和协议版本为准 |
 
-`worker/core` 目前是 Worker 内部源码，尚未作为稳定 SDK 单独发布；发布门见
-[Core 与 Protocol SDK 发布决策](sdk-publication.md)。Core 顶层导出分为：
+`worker/core` 目前是 Worker 内部源码，尚未作为稳定 SDK 单独发布。Core 顶层导出分为：
 
 - `public`：面向自定义本地 Host 的最小组合契约，`0.x` 期间变更会进入
   `CHANGELOG.md`；
