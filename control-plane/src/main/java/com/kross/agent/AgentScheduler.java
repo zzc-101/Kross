@@ -1,0 +1,29 @@
+package com.kross.agent;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class AgentScheduler {
+  private final AgentService agents;
+  private final AtomicBoolean running = new AtomicBoolean(false);
+
+  @Scheduled(fixedDelayString = "${kross.scheduler.poll-ms:5000}")
+  public void tick() {
+    if (!running.compareAndSet(false, true)) {
+      return;
+    }
+    try {
+      agents.sleepIdleAgents();
+    } catch (RuntimeException error) {
+      log.warn("Agent idle scheduler failed: {}", error.getMessage());
+    } finally {
+      running.set(false);
+    }
+  }
+}

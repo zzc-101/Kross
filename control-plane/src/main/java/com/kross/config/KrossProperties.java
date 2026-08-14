@@ -14,8 +14,10 @@ public class KrossProperties {
   private String orchestratorManagerId = "kross-saas";
   private String controlPlaneContainer = "";
   private String objectStoreContainer = "";
+  private String agentNetwork = "";
   private final Api api = new Api();
   private final Scheduler scheduler = new Scheduler();
+  private final Agent agent = new Agent();
   private final S3 s3 = new S3();
 
   public boolean isDevIdentityEnabled() {
@@ -86,12 +88,24 @@ public class KrossProperties {
     this.objectStoreContainer = objectStoreContainer;
   }
 
+  public Optional<String> getAgentNetwork() {
+    return Optional.ofNullable(agentNetwork).filter(value -> !value.isBlank());
+  }
+
+  public void setAgentNetwork(String agentNetwork) {
+    this.agentNetwork = agentNetwork;
+  }
+
   public Api getApi() {
     return api;
   }
 
   public Scheduler getScheduler() {
     return scheduler;
+  }
+
+  public Agent getAgent() {
+    return agent;
   }
 
   public S3 getS3() {
@@ -162,6 +176,63 @@ public class KrossProperties {
 
     public void setHeartbeatIntervalMs(long heartbeatIntervalMs) {
       this.heartbeatIntervalMs = heartbeatIntervalMs;
+    }
+  }
+
+  public static class Agent {
+    private long idleMs = 900_000;
+    private long tokenTtlMs = 12 * 60 * 60 * 1_000L;
+    private long heartbeatIntervalMs = 10_000;
+    private int cpuMillis = 2_000;
+    private long memoryBytes = 1_073_741_824L;
+    private int maxPids = 512;
+
+    public long getIdleMs() {
+      return idleMs;
+    }
+
+    public void setIdleMs(long idleMs) {
+      this.idleMs = idleMs;
+    }
+
+    public long getTokenTtlMs() {
+      return tokenTtlMs;
+    }
+
+    public void setTokenTtlMs(long tokenTtlMs) {
+      this.tokenTtlMs = tokenTtlMs;
+    }
+
+    public long getHeartbeatIntervalMs() {
+      return heartbeatIntervalMs;
+    }
+
+    public void setHeartbeatIntervalMs(long heartbeatIntervalMs) {
+      this.heartbeatIntervalMs = heartbeatIntervalMs;
+    }
+
+    public int getCpuMillis() {
+      return cpuMillis;
+    }
+
+    public void setCpuMillis(int cpuMillis) {
+      this.cpuMillis = cpuMillis;
+    }
+
+    public long getMemoryBytes() {
+      return memoryBytes;
+    }
+
+    public void setMemoryBytes(long memoryBytes) {
+      this.memoryBytes = memoryBytes;
+    }
+
+    public int getMaxPids() {
+      return maxPids;
+    }
+
+    public void setMaxPids(int maxPids) {
+      this.maxPids = maxPids;
     }
   }
 

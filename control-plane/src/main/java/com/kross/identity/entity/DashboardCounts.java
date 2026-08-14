@@ -11,8 +11,6 @@ import lombok.Setter;
 @AllArgsConstructor
 public class DashboardCounts {
   private int activeMembers;
-  private int activeProjects;
-  private int activeRuns;
-  private int pendingApprovals;
-  private int activeConnectors;
+  private int runningAgents;
+  private int stoppedAgents;
 }

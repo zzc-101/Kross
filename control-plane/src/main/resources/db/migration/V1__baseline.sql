@@ -1,4 +1,4 @@
--- Kross control-plane baseline. Experimental branch: no Node migration compatibility.
+-- Persistent per-user Agent workspace. No Run-sandbox compatibility.
 
 CREATE TABLE users (
   id text PRIMARY KEY,
@@ -31,220 +31,56 @@ CREATE TABLE organization_memberships (
   UNIQUE (organization_id, id)
 );
 
-CREATE TABLE projects (
+CREATE TABLE agents (
   id text PRIMARY KEY,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  kind text NOT NULL CHECK (kind IN ('general','repository')),
-  name text NOT NULL,
-  description text,
-  status text NOT NULL DEFAULT 'active',
-  repository_binding jsonb,
-  default_model_profile_id text,
-  default_permission_policy jsonb NOT NULL,
-  default_task_type text NOT NULL,
-  created_by text NOT NULL REFERENCES users(id),
+  user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status text NOT NULL DEFAULT 'stopped'
+    CHECK (status IN ('stopped','starting','running','stopping','error')),
+  volume_name text NOT NULL,
+  container_name text NOT NULL,
+  container_id text,
+  last_error text,
+  last_active_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, id),
-  CHECK ((kind = 'repository') = (repository_binding IS NOT NULL))
+  UNIQUE (organization_id, user_id),
+  UNIQUE (organization_id, id)
 );
 
-CREATE TABLE tasks (
+CREATE TABLE agent_messages (
   id text PRIMARY KEY,
   organization_id text NOT NULL,
-  project_id text NOT NULL,
-  type text NOT NULL,
-  title text NOT NULL,
-  objective text NOT NULL,
-  constraints jsonb NOT NULL DEFAULT '[]',
-  acceptance_criteria jsonb NOT NULL DEFAULT '[]',
-  status text NOT NULL DEFAULT 'open',
-  latest_run_id text,
-  created_by text NOT NULL REFERENCES users(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  completed_at timestamptz,
-  cancelled_at timestamptz,
-  archived_at timestamptz,
-  UNIQUE (organization_id, id),
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE
-);
-
-CREATE TABLE sources (
-  id text PRIMARY KEY,
-  organization_id text NOT NULL,
-  project_id text NOT NULL,
-  task_id text,
-  kind text NOT NULL,
-  scope text NOT NULL CHECK (scope IN ('project','task')),
-  status text NOT NULL,
-  display_name text NOT NULL,
-  mime_type text,
-  size_bytes bigint CHECK (size_bytes >= 0),
-  sha256 text,
-  blob_key text,
-  external_locator text,
-  origin jsonb NOT NULL,
-  previous_source_id text,
-  metadata jsonb NOT NULL DEFAULT '{}',
-  created_by text NOT NULL REFERENCES users(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, id),
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, task_id) REFERENCES tasks(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, previous_source_id) REFERENCES sources(organization_id, id),
-  CHECK ((scope = 'task') = (task_id IS NOT NULL))
-);
-
-CREATE TABLE task_sources (
-  organization_id text NOT NULL,
-  task_id text NOT NULL,
-  source_id text NOT NULL,
-  PRIMARY KEY (organization_id, task_id, source_id),
-  FOREIGN KEY (organization_id, task_id) REFERENCES tasks(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, source_id) REFERENCES sources(organization_id, id) ON DELETE RESTRICT
-);
-
-CREATE TABLE runs (
-  id text PRIMARY KEY,
-  organization_id text NOT NULL,
-  project_id text NOT NULL,
-  task_id text NOT NULL,
-  attempt integer NOT NULL CHECK (attempt > 0),
-  status text NOT NULL,
-  mode text NOT NULL CHECK (mode IN ('auto','plan')),
-  execution_profile text NOT NULL CHECK (execution_profile = 'work'),
-  model_snapshot jsonb NOT NULL,
-  permission_policy jsonb NOT NULL,
-  resource_limits jsonb NOT NULL,
-  selected_source_ids jsonb NOT NULL DEFAULT '[]',
-  usage jsonb NOT NULL,
-  queued_at timestamptz NOT NULL,
-  started_at timestamptz,
-  finished_at timestamptz,
-  failure_code text,
-  failure_summary text,
-  checkpoint_key text,
-  execution_workspace_id text,
-  worker_generation integer CHECK (worker_generation > 0),
-  created_by text NOT NULL REFERENCES users(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, id),
-  UNIQUE (organization_id, task_id, attempt),
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, task_id) REFERENCES tasks(organization_id, id) ON DELETE CASCADE
-);
-
-CREATE UNIQUE INDEX runs_one_active_per_task
-  ON runs (organization_id, task_id)
-  WHERE status IN ('queued','provisioning','running','waiting_for_approval','cancelling');
-
-ALTER TABLE tasks ADD CONSTRAINT tasks_latest_run_fk
-  FOREIGN KEY (organization_id, latest_run_id) REFERENCES runs(organization_id, id);
-
-CREATE TABLE task_messages (
-  id text PRIMARY KEY,
-  organization_id text NOT NULL,
-  project_id text NOT NULL,
-  task_id text NOT NULL,
-  run_id text,
+  agent_id text NOT NULL,
   role text NOT NULL CHECK (role IN ('user','agent','system')),
-  content jsonb NOT NULL,
+  content text NOT NULL,
+  status text NOT NULL DEFAULT 'done'
+    CHECK (status IN ('queued','processing','done','failed')),
+  error_summary text,
   created_by text REFERENCES users(id),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (organization_id, id),
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, task_id) REFERENCES tasks(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, run_id) REFERENCES runs(organization_id, id) ON DELETE CASCADE
+  FOREIGN KEY (organization_id, agent_id) REFERENCES agents(organization_id, id) ON DELETE CASCADE
 );
+CREATE INDEX agent_messages_timeline
+  ON agent_messages (organization_id, agent_id, created_at ASC, id ASC);
+CREATE INDEX agent_messages_jobs
+  ON agent_messages (agent_id, created_at ASC)
+  WHERE status = 'queued' AND role = 'user';
 
-CREATE TABLE run_events (
-  event_id bigserial PRIMARY KEY,
-  public_event_id text NOT NULL UNIQUE,
+CREATE TABLE agent_tokens (
+  token_hash text PRIMARY KEY CHECK (token_hash ~ '^[0-9a-f]{64}$'),
   organization_id text NOT NULL,
-  project_id text NOT NULL,
-  task_id text NOT NULL,
-  run_id text NOT NULL,
-  generation integer NOT NULL CHECK (generation > 0),
-  seq bigint NOT NULL CHECK (seq > 0),
-  type text NOT NULL,
-  occurred_at timestamptz NOT NULL,
-  payload jsonb NOT NULL,
+  agent_id text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (run_id, generation, seq),
-  UNIQUE (organization_id, event_id),
-  FOREIGN KEY (organization_id, run_id) REFERENCES runs(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, task_id) REFERENCES tasks(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE
+  UNIQUE (organization_id, agent_id, token_hash),
+  FOREIGN KEY (organization_id, agent_id) REFERENCES agents(organization_id, id) ON DELETE CASCADE
 );
-CREATE INDEX run_events_replay ON run_events (organization_id, event_id);
-
-CREATE TABLE approvals (
-  id text PRIMARY KEY,
-  organization_id text NOT NULL,
-  project_id text NOT NULL,
-  task_id text NOT NULL,
-  run_id text NOT NULL,
-  kind text NOT NULL,
-  scope text NOT NULL,
-  status text NOT NULL DEFAULT 'pending',
-  risk_level text NOT NULL,
-  action_preview text NOT NULL,
-  target jsonb NOT NULL,
-  request_hash text NOT NULL,
-  requested_at timestamptz NOT NULL,
-  expires_at timestamptz,
-  decided_by text REFERENCES users(id),
-  decision_reason text,
-  decided_at timestamptz,
-  decision_idempotency_key text,
-  decision_delivered_generation integer CHECK (decision_delivered_generation > 0),
-  decision_delivered_at timestamptz,
-  consumed_at timestamptz,
-  consumption_idempotency_key text,
-  UNIQUE (organization_id, id),
-  UNIQUE (organization_id, decision_idempotency_key),
-  UNIQUE (organization_id, consumption_idempotency_key),
-  FOREIGN KEY (organization_id, run_id) REFERENCES runs(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, task_id) REFERENCES tasks(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE,
-  CHECK ((status IN ('approved','rejected')) = (decided_at IS NOT NULL)),
-  CHECK ((decision_delivered_at IS NULL) = (decision_delivered_generation IS NULL)),
-  CHECK ((consumed_at IS NULL) = (consumption_idempotency_key IS NULL))
-);
-
-CREATE TABLE artifacts (
-  id text PRIMARY KEY,
-  organization_id text NOT NULL,
-  project_id text NOT NULL,
-  task_id text NOT NULL,
-  run_id text NOT NULL,
-  kind text NOT NULL,
-  status text NOT NULL,
-  display_name text NOT NULL,
-  file_name text NOT NULL,
-  mime_type text NOT NULL,
-  size_bytes bigint,
-  sha256 text,
-  blob_key text,
-  previous_artifact_id text,
-  metadata jsonb NOT NULL DEFAULT '{}',
-  generation integer CHECK (generation > 0),
-  reserve_idempotency_key text,
-  upload_blob_key text,
-  ready_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, id),
-  FOREIGN KEY (organization_id, run_id) REFERENCES runs(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, task_id) REFERENCES tasks(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, previous_artifact_id) REFERENCES artifacts(organization_id, id)
-);
-
-CREATE UNIQUE INDEX artifacts_reserve_idempotency
-  ON artifacts (organization_id, run_id, reserve_idempotency_key)
-  WHERE reserve_idempotency_key IS NOT NULL;
+CREATE INDEX agent_tokens_active
+  ON agent_tokens (agent_id, expires_at)
+  WHERE revoked_at IS NULL;
 
 CREATE TABLE audit_events (
   id bigserial PRIMARY KEY,
@@ -271,44 +107,6 @@ CREATE TABLE idempotency_keys (
   expires_at timestamptz NOT NULL,
   PRIMARY KEY (organization_id, scope, idempotency_key)
 );
-
-CREATE TABLE run_leases (
-  run_id text PRIMARY KEY,
-  organization_id text NOT NULL,
-  status text NOT NULL DEFAULT 'available' CHECK (status IN ('available','leased','released','completed')),
-  available_at timestamptz NOT NULL DEFAULT now(),
-  lease_id text,
-  lease_owner text,
-  lease_expires_at timestamptz,
-  generation integer NOT NULL DEFAULT 0 CHECK (generation >= 0),
-  attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, run_id),
-  UNIQUE (lease_id),
-  FOREIGN KEY (organization_id, run_id) REFERENCES runs(organization_id, id) ON DELETE CASCADE,
-  CHECK ((status = 'leased') = (lease_id IS NOT NULL AND lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL))
-);
-CREATE INDEX run_leases_claimable ON run_leases (available_at, run_id)
-  WHERE status IN ('available','released');
-
-CREATE TABLE worker_run_tokens (
-  token_hash text PRIMARY KEY CHECK (token_hash ~ '^[0-9a-f]{64}$'),
-  organization_id text NOT NULL,
-  run_id text NOT NULL,
-  generation integer NOT NULL CHECK (generation > 0),
-  lease_id text NOT NULL,
-  expires_at timestamptz NOT NULL,
-  revoked_at timestamptz,
-  worker_session_id text,
-  worker_id text,
-  registered_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, run_id, generation, lease_id, worker_session_id),
-  FOREIGN KEY (organization_id, run_id) REFERENCES runs(organization_id, id) ON DELETE CASCADE
-);
-CREATE INDEX worker_run_tokens_active
-  ON worker_run_tokens (organization_id, run_id, generation, lease_id, expires_at)
-  WHERE revoked_at IS NULL;
 
 CREATE TABLE credential_handles (
   id text PRIMARY KEY,
@@ -348,70 +146,3 @@ CREATE INDEX credential_handles_tenant_created
   ON credential_handles (organization_id, created_at DESC, id DESC);
 CREATE INDEX model_profiles_tenant_created
   ON model_profiles (organization_id, created_at DESC, id DESC);
-
-CREATE TABLE connector_definitions (
-  id text PRIMARY KEY,
-  name text NOT NULL,
-  transport text NOT NULL CHECK (transport = 'streamable_http'),
-  endpoint_url text NOT NULL CHECK (endpoint_url ~ '^https://'),
-  allowed_tools jsonb NOT NULL DEFAULT '[]',
-  required_scopes jsonb NOT NULL DEFAULT '[]',
-  risk_policy jsonb NOT NULL DEFAULT '{}',
-  status text NOT NULL DEFAULT 'unavailable' CHECK (status IN ('available','unavailable')),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE connector_installations (
-  id text PRIMARY KEY,
-  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  project_id text,
-  connector_definition_id text NOT NULL REFERENCES connector_definitions(id),
-  display_name text NOT NULL,
-  credential_handle text,
-  granted_scopes jsonb NOT NULL DEFAULT '[]',
-  status text NOT NULL CHECK (status IN ('pending','available','unavailable','revoked')),
-  last_error_code text,
-  installed_by text NOT NULL REFERENCES users(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, id),
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE,
-  CHECK (credential_handle IS NULL OR credential_handle ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{2,255}$')
-);
-
-CREATE TABLE schedules (
-  id text PRIMARY KEY,
-  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  project_id text NOT NULL,
-  task_id text NOT NULL,
-  cron_expression text NOT NULL,
-  timezone text NOT NULL,
-  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','deleted')),
-  concurrency_policy text NOT NULL DEFAULT 'skip' CHECK (concurrency_policy = 'skip'),
-  external_action_policy text NOT NULL DEFAULT 'draft_only' CHECK (external_action_policy = 'draft_only'),
-  selected_source_ids jsonb NOT NULL DEFAULT '[]',
-  next_run_at timestamptz NOT NULL,
-  created_by text NOT NULL REFERENCES users(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, id),
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, task_id) REFERENCES tasks(organization_id, id) ON DELETE CASCADE
-);
-CREATE INDEX schedules_due ON schedules (next_run_at, id) WHERE status = 'active';
-
-CREATE TABLE schedule_occurrences (
-  id text PRIMARY KEY,
-  organization_id text NOT NULL,
-  schedule_id text NOT NULL,
-  scheduled_for timestamptz NOT NULL,
-  status text NOT NULL CHECK (status IN ('triggered','skipped_active_run','skipped_no_model','failed')),
-  run_id text,
-  idempotency_key text NOT NULL,
-  detail jsonb NOT NULL DEFAULT '{}',
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, schedule_id, scheduled_for),
-  UNIQUE (organization_id, idempotency_key),
-  FOREIGN KEY (organization_id, schedule_id) REFERENCES schedules(organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, run_id) REFERENCES runs(organization_id, id) ON DELETE SET NULL
-);

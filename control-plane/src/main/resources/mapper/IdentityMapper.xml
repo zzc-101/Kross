@@ -88,10 +88,7 @@
   <select id="dashboardCounts" resultType="com.kross.identity.entity.DashboardCounts">
     SELECT
       (SELECT count(*)::integer FROM organization_memberships WHERE organization_id = #{organizationId} AND status = 'active') AS active_members,
-      (SELECT count(*)::integer FROM projects WHERE organization_id = #{organizationId} AND status = 'active') AS active_projects,
-      (SELECT count(*)::integer FROM runs WHERE organization_id = #{organizationId}
-         AND status IN ('queued','provisioning','running','waiting_for_approval','cancelling')) AS active_runs,
-      (SELECT count(*)::integer FROM approvals WHERE organization_id = #{organizationId} AND status = 'pending') AS pending_approvals,
-      (SELECT count(*)::integer FROM connector_installations WHERE organization_id = #{organizationId} AND status = 'available') AS active_connectors
+      (SELECT count(*)::integer FROM agents WHERE organization_id = #{organizationId} AND status = 'running') AS running_agents,
+      (SELECT count(*)::integer FROM agents WHERE organization_id = #{organizationId} AND status = 'stopped') AS stopped_agents
   </select>
 </mapper>

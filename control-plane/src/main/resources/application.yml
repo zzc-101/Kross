@@ -37,14 +37,18 @@ kross:
   orchestrator-manager-id: ${KROSS_ORCHESTRATOR_MANAGER_ID:kross-saas}
   control-plane-container: ${KROSS_CONTROL_PLANE_CONTAINER:}
   object-store-container: ${KROSS_S3_CONTAINER:}
+  agent-network: ${KROSS_AGENT_NETWORK:}
   api:
     prefix: ${KROSS_API_PREFIX:/api/v2}
   scheduler:
-    poll-ms: ${KROSS_SCHEDULER_POLL_MS:1000}
-    lease-duration-ms: ${KROSS_LEASE_DURATION_MS:30000}
-    token-ttl-ms: ${KROSS_TOKEN_TTL_MS:30000}
-    retry-delay-ms: ${KROSS_RETRY_DELAY_MS:5000}
-    heartbeat-interval-ms: ${KROSS_HEARTBEAT_INTERVAL_MS:10000}
+    poll-ms: ${KROSS_SCHEDULER_POLL_MS:5000}
+  agent:
+    idle-ms: ${KROSS_AGENT_IDLE_MS:900000}
+    token-ttl-ms: ${KROSS_AGENT_TOKEN_TTL_MS:43200000}
+    heartbeat-interval-ms: ${KROSS_AGENT_HEARTBEAT_INTERVAL_MS:10000}
+    cpu-millis: ${KROSS_AGENT_CPU_MILLIS:2000}
+    memory-bytes: ${KROSS_AGENT_MEMORY_BYTES:1073741824}
+    max-pids: ${KROSS_AGENT_MAX_PIDS:512}
   s3:
     endpoint: ${KROSS_S3_ENDPOINT:http://127.0.0.1:9000}
     public-endpoint: ${KROSS_S3_PUBLIC_ENDPOINT:http://127.0.0.1:9000}

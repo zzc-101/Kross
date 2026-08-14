@@ -53,9 +53,7 @@ public final class IdentityViews {
   public static DashboardCountsView counts(DashboardCounts row) {
     return new DashboardCountsView(
         row.getActiveMembers(),
-        row.getActiveProjects(),
-        row.getActiveRuns(),
-        row.getPendingApprovals(),
-        row.getActiveConnectors());
+        row.getRunningAgents(),
+        row.getStoppedAgents());
   }
 }

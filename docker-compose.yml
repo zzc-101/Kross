@@ -11,7 +11,7 @@ services:
       timeout: 3s
       retries: 20
     volumes:
-      - kross-postgres-v2:/var/lib/postgresql/data
+      - kross-postgres-v3:/var/lib/postgresql/data
     networks: [kross-control]
     restart: unless-stopped
 
@@ -56,6 +56,7 @@ services:
       KROSS_WORKER_IMAGE: kross-worker:local
       KROSS_ORCHESTRATOR_MANAGER_ID: ${KROSS_ORCHESTRATOR_MANAGER_ID:-kross-saas}
       KROSS_CONTROL_PLANE_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-server-1
+      KROSS_AGENT_NETWORK: ${COMPOSE_PROJECT_NAME:-agent}_kross-control
       KROSS_S3_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-minio-1
       KROSS_S3_ENDPOINT: http://minio:9000
       KROSS_S3_PUBLIC_ENDPOINT: ${KROSS_S3_PUBLIC_ENDPOINT:-http://127.0.0.1:9000}
@@ -110,7 +111,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  kross-postgres-v2:
+  kross-postgres-v3:
   kross-minio-v2:
 
 networks:

@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kross.agent.AgentMapper">
+  <select id="findByUser" resultType="com.kross.agent.entity.Agent">
+    SELECT * FROM agents WHERE organization_id = #{organizationId} AND user_id = #{userId}
+  </select>
+
+  <select id="findById" resultType="com.kross.agent.entity.Agent">
+    SELECT * FROM agents WHERE organization_id = #{organizationId} AND id = #{id}
+  </select>
+
+  <select id="findByIdOnly" resultType="com.kross.agent.entity.Agent">
+    SELECT * FROM agents WHERE id = #{id}
+  </select>
+
+  <select id="listIdleRunning" resultType="com.kross.agent.entity.Agent">
+    SELECT * FROM agents a
+    WHERE a.status = 'running'
+      AND a.last_active_at &lt; #{idleBefore}
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_messages m
+        WHERE m.agent_id = a.id AND m.status = 'processing'
+      )
+    ORDER BY a.last_active_at ASC
+  </select>
+
+  <insert id="insert">
+    INSERT INTO agents
+      (id, organization_id, user_id, status, volume_name, container_name, container_id, last_error, last_active_at)
+    VALUES
+      (#{id}, #{organizationId}, #{userId}, #{status}, #{volumeName}, #{containerName}, #{containerId},
+       #{lastError}, #{lastActiveAt})
+  </insert>
+
+  <update id="updateRuntime">
+    UPDATE agents
+    SET status = #{status},
+        container_id = #{containerId},
+        last_error = #{lastError},
+        last_active_at = #{lastActiveAt},
+        updated_at = now()
+    WHERE id = #{id}
+  </update>
+
+  <update id="touch">
+    UPDATE agents SET last_active_at = now(), updated_at = now() WHERE id = #{id}
+  </update>
+
+  <insert id="insertConversation">
+    INSERT INTO agent_conversations
+      (id, organization_id, agent_id, title, archived_at, last_message_at)
+    VALUES
+      (#{id}, #{organizationId}, #{agentId}, #{title}, #{archivedAt}, #{lastMessageAt})
+  </insert>
+
+  <select id="listConversations" resultType="com.kross.agent.entity.AgentConversation">
+    SELECT * FROM agent_conversations
+    WHERE organization_id = #{organizationId}
+      AND agent_id = #{agentId}
+      AND archived_at IS NULL
+    ORDER BY last_message_at DESC, created_at DESC, id DESC
+  </select>
+
+  <select id="findConversation" resultType="com.kross.agent.entity.AgentConversation">
+    SELECT * FROM agent_conversations
+    WHERE organization_id = #{organizationId} AND id = #{id}
+  </select>
+
+  <update id="updateConversation">
+    UPDATE agent_conversations
+    SET title = #{title},
+        archived_at = #{archivedAt},
+        last_message_at = #{lastMessageAt},
+        updated_at = now()
+    WHERE id = #{id}
+  </update>
+
+  <update id="touchConversation">
+    UPDATE agent_conversations
+    SET last_message_at = now(), updated_at = now()
+    WHERE id = #{id}
+  </update>
+
+  <insert id="insertMessage">
+    INSERT INTO agent_messages
+      (id, organization_id, agent_id, conversation_id, role, content, status, error_summary, created_by)
+    VALUES
+      (#{id}, #{organizationId}, #{agentId}, #{conversationId}, #{role}, #{content}, #{status}, #{errorSummary}, #{createdBy})
+  </insert>
+
+  <select id="listMessages" resultType="com.kross.agent.entity.AgentMessage">
+    SELECT * FROM (
+      SELECT * FROM agent_messages
+      WHERE organization_id = #{organizationId} AND conversation_id = #{conversationId}
+      ORDER BY created_at DESC, id DESC
+      LIMIT #{limit}
+    ) recent
+    ORDER BY created_at ASC, id ASC
+  </select>
+
+  <select id="listHistory" resultType="com.kross.agent.entity.AgentMessage">
+    SELECT * FROM (
+      SELECT * FROM agent_messages
+      WHERE conversation_id = #{conversationId}
+        AND id &lt;&gt; #{excludeId}
+        AND status IN ('done', 'failed')
+      ORDER BY created_at DESC, id DESC
+      LIMIT #{limit}
+    ) recent
+    ORDER BY created_at ASC, id ASC
+  </select>
+
+  <select id="findMessage" resultType="com.kross.agent.entity.AgentMessage">
+    SELECT * FROM agent_messages
+    WHERE organization_id = #{organizationId} AND id = #{id}
+  </select>
+
+  <select id="claimJob" resultType="com.kross.agent.entity.AgentMessage">
+    WITH next_job AS (
+      SELECT id FROM agent_messages
+      WHERE agent_id = #{agentId} AND role = 'user' AND status = 'queued'
+      ORDER BY created_at ASC, id ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    UPDATE agent_messages m
+    SET status = 'processing'
+    FROM next_job
+    WHERE m.id = next_job.id
+    RETURNING m.*
+  </select>
+
+  <update id="completeMessage">
+    UPDATE agent_messages
+    SET status = #{status}, error_summary = #{errorSummary}
+    WHERE id = #{id}
+  </update>
+
+  <insert id="insertToken">
+    INSERT INTO agent_tokens (token_hash, organization_id, agent_id, expires_at)
+    VALUES (#{tokenHash}, #{organizationId}, #{agentId}, #{expiresAt})
+  </insert>
+
+  <update id="revokeTokens">
+    UPDATE agent_tokens SET revoked_at = now()
+    WHERE agent_id = #{agentId} AND revoked_at IS NULL
+  </update>
+
+  <select id="authenticateToken" resultType="com.kross.agent.entity.AgentSession">
+    SELECT token_hash, organization_id, agent_id, expires_at
+    FROM agent_tokens
+    WHERE token_hash = #{tokenHash} AND revoked_at IS NULL AND expires_at &gt; now()
+  </select>
+
+  <select id="hasProcessing" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1 FROM agent_messages WHERE agent_id = #{agentId} AND status = 'processing'
+    )
+  </select>
+
+  <select id="findUsableModel" resultType="com.kross.agent.entity.AgentModel">
+    SELECT mp.provider, mp.model, ch.secret_ciphertext, mp.configuration
+    FROM model_profiles mp
+    JOIN credential_handles ch
+      ON ch.organization_id = mp.organization_id AND ch.id = mp.credential_handle_id
+    WHERE mp.organization_id = #{organizationId}
+      AND mp.status = 'active'
+      AND ch.status = 'active'
+      AND ch.secret_ciphertext IS NOT NULL
+    ORDER BY mp.created_at ASC
+    LIMIT 1
+  </select>
+</mapper>

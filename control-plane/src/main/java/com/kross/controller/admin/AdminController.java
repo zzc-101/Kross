@@ -1,14 +1,13 @@
 package com.kross.controller.admin;
 
 import com.kross.api.ApiHeaders;
-import com.kross.api.ItemList;
 import com.kross.api.PageResponse;
 import com.kross.api.Res;
 import com.kross.catalog.AdminService;
 import com.kross.catalog.dto.AuditEventView;
-import com.kross.catalog.dto.ConnectorView;
 import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
+import com.kross.catalog.dto.UpdateModelRequest;
 import com.kross.identity.dto.BootstrapRequest;
 import com.kross.identity.dto.BootstrapResponse;
 import com.kross.identity.dto.DashboardResponse;
@@ -96,12 +95,6 @@ public class AdminController {
     return Res.ok(admin.updatePolicy(organizationId, request));
   }
 
-  @GetMapping("/connectors")
-  public Res<ItemList<ConnectorView>> connectors(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
-    return Res.ok(admin.listConnectors(organizationId));
-  }
-
   @GetMapping("/audit-logs")
   public Res<PageResponse<AuditEventView>> auditLogs(
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
@@ -126,5 +119,13 @@ public class AdminController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestBody CreateModelRequest request) {
     return Res.ok(admin.createModel(organizationId, request));
+  }
+
+  @PatchMapping("/models/{modelId}")
+  public Res<ModelProfileView> updateModel(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String modelId,
+      @RequestBody UpdateModelRequest request) {
+    return Res.ok(admin.updateModel(organizationId, modelId, request));
   }
 }

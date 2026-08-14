@@ -1,20 +1,17 @@
 package com.kross.catalog;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.api.ApiException;
-import com.kross.api.ItemList;
 import com.kross.api.PageResponse;
 import com.kross.catalog.dto.AuditEventView;
 import com.kross.catalog.dto.CatalogViews;
-import com.kross.catalog.dto.ConnectorView;
 import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
+import com.kross.catalog.dto.UpdateModelRequest;
 import com.kross.catalog.entity.AuditEvent;
 import com.kross.catalog.entity.CredentialHandle;
 import com.kross.catalog.entity.ModelProfile;
 import com.kross.config.KrossProperties;
-import com.kross.execution.ExecutionMapper;
 import com.kross.identity.Identity;
 import com.kross.identity.IdentityMapper;
 import com.kross.identity.MembershipRole;
@@ -53,7 +50,6 @@ public class AdminService {
   private final OrganizationAccess access;
   private final IdentityMapper identities;
   private final CatalogMapper catalog;
-  private final ExecutionMapper execution;
   private final CredentialVault vault;
   private final ObjectMapper mapper;
 
@@ -75,7 +71,7 @@ public class AdminService {
     identities.insertOrganization(organizationId, slug, name, timezone, Policies.defaultApprovalPolicy());
     String membershipId = UUID.randomUUID().toString();
     identities.insertMembership(membershipId, organizationId, identity.userId(), "owner", "active");
-    execution.insertAudit(
+    catalog.insertAudit(
         organizationId,
         identity.userId(),
         "organization.bootstrap",
@@ -114,7 +110,7 @@ public class AdminService {
     } catch (DuplicateKeyException error) {
       throw ApiException.conflict("membership_exists", "User already belongs to this organization");
     }
-    execution.insertAudit(
+    catalog.insertAudit(
         context.organizationId(),
         context.userId(),
         "membership.invite",
@@ -247,9 +243,20 @@ public class AdminService {
         .orElseThrow();
   }
 
-  public ItemList<ConnectorView> listConnectors(String organizationId) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.CONNECTOR_MANAGE);
-    return new ItemList<>(catalog.listConnectors(context.organizationId()).stream().map(CatalogViews::connector).toList());
+  @Transactional
+  public ModelProfileView updateModel(String organizationId, String modelId, UpdateModelRequest request) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.MODEL_PROFILE_MANAGE);
+    ModelProfile row = catalog.findModel(context.organizationId(), modelId)
+        .orElseThrow(() -> ApiException.notFound("Model"));
+    String status = Optional.ofNullable(request.status()).orElse("").trim();
+    if (!List.of("active", "disabled").contains(status)) {
+      throw ApiException.invalidRequest("status must be active or disabled");
+    }
+    row.setStatus(status);
+    catalog.updateModel(row);
+    return catalog.findModel(context.organizationId(), modelId)
+        .map(CatalogViews::model)
+        .orElseThrow();
   }
 
   public PageResponse<AuditEventView> listAudit(

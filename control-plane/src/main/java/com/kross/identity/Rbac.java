@@ -8,21 +8,11 @@ public final class Rbac {
   private static final Set<OrganizationAction> VIEWER = EnumSet.of(
       OrganizationAction.ORGANIZATION_READ,
       OrganizationAction.MEMBERSHIP_READ,
-      OrganizationAction.PROJECT_READ,
-      OrganizationAction.SOURCE_READ,
-      OrganizationAction.TASK_READ,
-      OrganizationAction.RUN_READ,
-      OrganizationAction.APPROVAL_READ,
-      OrganizationAction.ARTIFACT_READ,
-      OrganizationAction.SCHEDULE_READ);
+      OrganizationAction.AGENT_READ);
 
   private static final Set<OrganizationAction> MEMBER = with(
       VIEWER,
-      OrganizationAction.PROJECT_CREATE,
-      OrganizationAction.SOURCE_CREATE,
-      OrganizationAction.TASK_CREATE,
-      OrganizationAction.RUN_CREATE,
-      OrganizationAction.APPROVAL_DECIDE);
+      OrganizationAction.AGENT_CHAT);
 
   private static final Set<OrganizationAction> ADMIN = with(
       MEMBER,
@@ -31,16 +21,7 @@ public final class Rbac {
       OrganizationAction.MEMBERSHIP_REMOVE,
       OrganizationAction.CREDENTIAL_MANAGE,
       OrganizationAction.MODEL_PROFILE_MANAGE,
-      OrganizationAction.CONNECTOR_MANAGE,
-      OrganizationAction.PROJECT_UPDATE,
-      OrganizationAction.PROJECT_DELETE,
-      OrganizationAction.SOURCE_DELETE,
-      OrganizationAction.TASK_UPDATE,
-      OrganizationAction.TASK_CANCEL,
-      OrganizationAction.TASK_ARCHIVE,
-      OrganizationAction.RUN_CANCEL,
-      OrganizationAction.ARTIFACT_DELETE,
-      OrganizationAction.SCHEDULE_MANAGE,
+      OrganizationAction.AGENT_MANAGE,
       OrganizationAction.AUDIT_READ);
 
   private Rbac() {}
@@ -68,24 +49,9 @@ public final class Rbac {
         && (target == MembershipRole.MEMBER || target == MembershipRole.VIEWER);
   }
 
-  public static boolean canDecideHighRisk(
-      MembershipRole role, String scope, boolean allowAdminOrg, boolean allowMember) {
-    if (role == MembershipRole.OWNER) {
-      return true;
-    }
-    if (role == MembershipRole.ADMIN) {
-      return "run".equals(scope) || allowAdminOrg;
-    }
-    if (role == MembershipRole.MEMBER) {
-      return "run".equals(scope) && allowMember;
-    }
-    return false;
-  }
-
-  @SafeVarargs
   private static Set<OrganizationAction> with(Set<OrganizationAction> base, OrganizationAction... extra) {
     EnumSet<OrganizationAction> copy = EnumSet.copyOf(base);
-    copy.addAll(Set.of(extra));
-    return copy;
+    copy.addAll(java.util.List.of(extra));
+    return Set.copyOf(copy);
   }
 }

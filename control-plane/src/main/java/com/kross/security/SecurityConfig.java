@@ -23,7 +23,7 @@ public class SecurityConfig {
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/health").permitAll()
-            .requestMatchers("/internal/v2/workers/**").permitAll()
+            .requestMatchers("/internal/v2/agents/**").permitAll()
             .requestMatchers(apiPattern).authenticated()
             .anyRequest().denyAll())
         .addFilterBefore(identityFilter, UsernamePasswordAuthenticationFilter.class)
