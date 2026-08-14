@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import {
-  approvalPolicySchema, auditLogSchema, bootstrapResultSchema, bootstrapSchema, connectorPageSchema, dashboardSchema,
+  approvalPolicySchema, auditLogSchema, bootstrapResultSchema, bootstrapSchema, dashboardSchema,
   memberSchema, modelSchema, page,
-  type ApprovalPolicy, type AuditLog, type Bootstrap, type Connector, type Dashboard,
+  type ApprovalPolicy, type AuditLog, type Bootstrap,
   type Member, type ModelConfig
 } from './contracts';
 
@@ -11,6 +11,12 @@ export class AdminApiError extends Error {
 }
 
 type RequestOptions = { method?: string; body?: unknown; organization?: boolean };
+
+const envelopeSchema = z.object({
+  code: z.number(),
+  message: z.string(),
+  data: z.unknown().optional()
+});
 
 export class AdminApiClient {
   private organizationId?: string;
@@ -32,9 +38,9 @@ export class AdminApiClient {
   createModel(input: { name: string; provider: string; model: string; apiKey: string; baseUrl?: string }) {
     return this.request('/api/v2/admin/models', modelSchema, { method: 'POST', body: input });
   }
-  updateModel(modelId: string, input: Partial<Pick<ModelConfig, 'name' | 'provider' | 'model' | 'status'>>) { return this.request(`/api/v2/admin/models/${encodeURIComponent(modelId)}`, modelSchema, { method: 'PATCH', body: input }); }
-  deleteModel(modelId: string) { return this.request(`/api/v2/admin/models/${encodeURIComponent(modelId)}`, z.object({ id: z.string().min(1), removed: z.literal(true) }).strict(), { method: 'DELETE' }); }
-  async connectors() { try { return (await this.request('/api/v2/admin/connectors', connectorPageSchema)).items; } catch (error) { if (error instanceof AdminApiError && error.status === 404) return []; throw error; } }
+  updateModel(modelId: string, input: Partial<Pick<ModelConfig, 'name' | 'provider' | 'model' | 'status'>>) {
+    return this.request(`/api/v2/admin/models/${encodeURIComponent(modelId)}`, modelSchema, { method: 'PATCH', body: input });
+  }
   approvalPolicy() { return this.request('/api/v2/admin/approval-policy', approvalPolicySchema); }
   updateApprovalPolicy(input: ApprovalPolicy) { return this.request('/api/v2/admin/approval-policy', approvalPolicySchema, { method: 'PATCH', body: input }); }
   auditLogs() { return this.request('/api/v2/admin/audit-logs', page(auditLogSchema)).then(x => x.items); }
@@ -50,10 +56,14 @@ export class AdminApiClient {
     });
     const json: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {
-      const error = z.object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }).strict() }).strict().safeParse(json);
+      const error = z.object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }) }).safeParse(json);
       throw new AdminApiError(response.status, error.success ? error.data.error.code ?? 'HTTP_ERROR' : 'HTTP_ERROR', error.success ? error.data.error.message ?? `请求失败 (${response.status})` : `请求失败 (${response.status})`);
     }
-    const parsed = schema.safeParse(json);
+    const envelope = envelopeSchema.safeParse(json);
+    if (!envelope.success || envelope.data.code !== 0) {
+      throw new AdminApiError(502, 'INVALID_RESPONSE', '服务端返回的数据不符合管理端协议');
+    }
+    const parsed = schema.safeParse(envelope.data.data);
     if (!parsed.success) throw new AdminApiError(502, 'INVALID_RESPONSE', '服务端返回的数据不符合管理端协议');
     return parsed.data;
   }

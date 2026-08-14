@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  Activity, AlertTriangle, Bot, CheckCircle2, ChevronDown, CircleDollarSign, Cpu,
-  LayoutDashboard, Menu, Plus, Plug, RefreshCw, ScrollText, ShieldCheck, Users, X, XCircle
+  Activity, AlertTriangle, Bot, CheckCircle2, ChevronDown, Cpu,
+  LayoutDashboard, Menu, Plus, RefreshCw, ScrollText, ShieldCheck, Users, X, XCircle
 } from 'lucide-react';
 import { AdminApiClient, AdminApiError } from './apiClient';
-import type { ApprovalPolicy, AuditLog, Bootstrap, Connector, Dashboard, Member, ModelConfig } from './contracts';
+import type { ApprovalPolicy, AuditLog, Bootstrap, Dashboard, Member, ModelConfig } from './contracts';
 
-type Page = 'dashboard' | 'members' | 'models' | 'connectors' | 'policy' | 'audit';
+type Page = 'dashboard' | 'members' | 'models' | 'policy' | 'audit';
 const navigation: Array<{ id: Page; label: string; icon: typeof LayoutDashboard }> = [
   { id: 'dashboard', label: '概览', icon: LayoutDashboard },
   { id: 'members', label: '成员与角色', icon: Users },
   { id: 'models', label: '模型配置', icon: Cpu },
-  { id: 'connectors', label: '连接器', icon: Plug },
   { id: 'policy', label: '审批策略', icon: ShieldCheck },
   { id: 'audit', label: '审计日志', icon: ScrollText }
 ];
@@ -56,7 +55,6 @@ export function App({ devUserId, onChangeIdentity }: { devUserId: string; onChan
         {page === 'dashboard' && <DashboardPage api={api} />}
         {page === 'members' && <MembersPage api={api} />}
         {page === 'models' && <ModelsPage api={api} />}
-        {page === 'connectors' && <ConnectorsPage api={api} />}
         {page === 'policy' && <PolicyPage api={api} />}
         {page === 'audit' && <AuditPage api={api} />}
       </div>
@@ -74,8 +72,8 @@ function useResource<T>(loader: () => Promise<T>, dependencies: unknown[] = []) 
 function DashboardPage({ api }: { api: AdminApiClient }) {
   const state = useResource(() => api.dashboard(), [api]);
   return <PageFrame title="组织概览" subtitle="组织运行状况、风险与资源使用情况" action={<RefreshButton onClick={state.reload} />}><Resource state={state}>{d => <>
-    <div className="metrics"><Metric label="活跃成员" value={d.counts.activeMembers} icon={<Users />} tone="blue" /><Metric label="活跃项目" value={d.counts.activeProjects} icon={<LayoutDashboard />} tone="violet" /><Metric label="活跃运行" value={d.counts.activeRuns} icon={<Activity />} tone="green" /><Metric label="待审批" value={d.counts.pendingApprovals} icon={<ShieldCheck />} tone="amber" /></div>
-    <div className="dashboard-grid"><section className="card"><CardTitle title="组织资源" subtitle="控制面当前可用资源" /><div className="health-list"><Health label="可用连接器" value={d.counts.activeConnectors} ok={d.counts.activeConnectors > 0} /><Health label="审批积压" value={d.counts.pendingApprovals} ok={d.counts.pendingApprovals < 5} /><Health label="运行中任务" value={d.counts.activeRuns} ok={true} /></div></section><section className="card callout"><Bot /><div><h3>Work Agent 控制面</h3><p>集中配置模型、访问能力与风险边界。所有管理操作都会进入审计日志。</p></div></section></div>
+    <div className="metrics"><Metric label="活跃成员" value={d.counts.activeMembers} icon={<Users />} tone="blue" /><Metric label="运行中 Agent" value={d.counts.runningAgents} icon={<Activity />} tone="green" /><Metric label="已休眠 Agent" value={d.counts.stoppedAgents} icon={<LayoutDashboard />} tone="violet" /></div>
+    <div className="dashboard-grid"><section className="card"><CardTitle title="工作区" subtitle="每人一个长期 Agent，容器可睡，磁盘留下" /><div className="health-list"><Health label="运行中" value={d.counts.runningAgents} ok={true} /><Health label="已休眠" value={d.counts.stoppedAgents} ok={true} /><Health label="活跃成员" value={d.counts.activeMembers} ok={d.counts.activeMembers > 0} /></div></section><section className="card callout"><Bot /><div><h3>Kross 控制面</h3><p>给组织成员配备长期 Agent 工作区。在这里配置模型密钥、成员权限和审计。</p></div></section></div>
   </>}</Resource></PageFrame>;
 }
 
@@ -98,7 +96,7 @@ function ModelsPage({ api }: { api: AdminApiClient }) {
   const state = useResource(() => api.models(), [api]); const [showForm, setShowForm] = useState(false);
   return <PageFrame title="模型配置" subtitle="录入供应商、模型 ID 和 API Key。密钥只写不读，界面不会回显明文。" action={<button className="button" onClick={() => setShowForm(true)}><Plus />添加模型</button>}>
     {showForm && <ModelForm api={api} close={() => setShowForm(false)} done={state.reload} />}
-    <Resource state={state} empty="尚未配置模型。请先添加一个带 API Key 的模型，工作台才能执行任务。">{models => <div className="card-grid">{models.map(m => <article className="card model-card" key={m.id}><div className="card-icon"><Cpu /></div><div className="grow"><div className="title-line"><h3>{m.name}</h3><Badge tone={m.status === 'active' ? 'green' : 'neutral'}>{m.status === 'active' ? '已启用' : '已停用'}</Badge></div><p>{m.provider} · {m.model}</p><small>{m.credentialHandleId ? '已关联凭证' : '尚未关联凭证'} · 更新于 {formatDate(m.updatedAt)}</small></div><label className="switch"><input type="checkbox" checked={m.status === 'active'} onChange={() => api.updateModel(m.id, { status: m.status === 'active' ? 'disabled' : 'active' }).then(state.reload)} /><span /></label></article>)}</div>}</Resource>
+    <Resource state={state} empty="尚未配置模型。请先添加一个带 API Key 的模型，工作区才能对话。">{models => <div className="card-grid">{models.map(m => <article className="card model-card" key={m.id}><div className="card-icon"><Cpu /></div><div className="grow"><div className="title-line"><h3>{m.name}</h3><Badge tone={m.status === 'active' ? 'green' : 'neutral'}>{m.status === 'active' ? '已启用' : '已停用'}</Badge></div><p>{m.provider} · {m.model}</p><small>{m.credentialHandleId ? '已关联凭证' : '尚未关联凭证'} · 更新于 {formatDate(m.updatedAt)}</small></div><label className="switch"><input type="checkbox" checked={m.status === 'active'} onChange={() => api.updateModel(m.id, { status: m.status === 'active' ? 'disabled' : 'active' }).then(state.reload)} /><span /></label></article>)}</div>}</Resource>
   </PageFrame>;
 }
 
@@ -131,12 +129,6 @@ function ModelForm({ api, close, done }: { api: AdminApiClient; close: () => voi
     {error && <span className="form-error">{error}</span>}
   </form>;
 }
-
-function ConnectorsPage({ api }: { api: AdminApiClient }) {
-  const state = useResource(() => api.connectors(), [api]);
-  return <PageFrame title="连接器" subtitle="监控外部数据源的授权范围与连接状态" action={<RefreshButton onClick={state.reload} />}><Resource state={state} empty="尚未安装连接器。">{items => <div className="card-grid">{items.map(c => <ConnectorCard key={c.id} connector={c} />)}</div>}</Resource></PageFrame>;
-}
-function ConnectorCard({ connector: c }: { connector: Connector }) { const ok = c.status === 'available'; return <article className="card connector-card"><div className="connector-logo"><Plug /></div><div className="grow"><div className="title-line"><h3>{c.display_name}</h3><Badge tone={ok ? 'green' : 'amber'}>{ok ? '运行正常' : '不可用'}</Badge></div><p>{c.connector_name} · {c.granted_scopes.length ? c.granted_scopes.join('、') : '未授予访问范围'}</p><small>{c.last_error_code ? `错误：${c.last_error_code}` : `更新于 ${formatDate(c.updated_at)}`}</small></div></article>; }
 
 function PolicyPage({ api }: { api: AdminApiClient }) {
   const state = useResource(() => api.approvalPolicy(), [api]); const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false);
