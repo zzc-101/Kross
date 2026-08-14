@@ -202,8 +202,6 @@ Kross is a TypeScript and Java monorepo:
 
 - `packages/core`: Agent Runtime, Harness completion gate, context governance, sessions, tools, permissions, Skills, MCP, and model adapters.
 - `packages/protocol`: browser-safe Zod wire protocol for commands, events, replay, and session snapshots.
-- `packages/work-domain`: browser-safe Work domain model.
-- `packages/work-runtime`: Worker-side Work runtime.
 - `apps/tui`: Ink-based interactive terminal interface.
 - `apps/web`: responsive React, Vite, and Radix/shadcn user workbench, served by a dedicated Nginx container that proxies control-plane APIs.
 - `apps/admin-web`: organization admin console.

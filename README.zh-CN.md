@@ -207,8 +207,6 @@ flowchart TB
 
 - `packages/core`：Agent runtime、Harness 完成门、上下文治理、会话、工具、权限、Skills、MCP 与模型适配。
 - `packages/protocol`：浏览器安全的 Zod 线协议，定义命令、事件、回放和会话快照。
-- `packages/work-domain`：浏览器安全的 Work 领域模型。
-- `packages/work-runtime`：Worker 侧 Work 运行时。
 - `apps/tui`：基于 Ink 的交互式终端界面。
 - `apps/web`：基于 React、Vite 和 Radix/shadcn 的用户工作台，由独立 Nginx 容器托管并反代控制面 API。
 - `apps/admin-web`：组织管理端。

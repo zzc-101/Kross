@@ -23,8 +23,6 @@ Web、管理端和 Worker 也分别从 `@kross/web`、`@kross/admin-web` 与
 |---|---|
 | `packages/core` | Runtime、上下文、工具、会话、权限、Skills、MCP 与模型适配 |
 | `packages/protocol` | Cloud 命令、事件与快照的 Zod 线协议 |
-| `packages/work-domain` | 浏览器安全的 Work 领域模型 |
-| `packages/work-runtime` | Worker 侧 Work 运行时 |
 | `apps/tui` | Ink 终端交互和本地宿主 |
 | `apps/web` | 普通用户工作台 |
 | `apps/admin-web` | 组织管理端 |

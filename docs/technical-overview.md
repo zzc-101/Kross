@@ -1,8 +1,8 @@
 # Kross 技术概览
 
 Kross 是本地优先的 TypeScript 编程 Agent。Core 提供与界面无关的运行时，TUI
-和 `kross exec` Headless Host 直接在本机消费 Core；Cloud Worker 在容器内消费
-同一个 Core，Web 通过 Gateway 与 Worker 通信。
+和 `kross exec` Headless Host 直接在本机消费 Core；Cloud 为每位成员配备一个
+带持久卷的长期 Agent，Worker 在该容器内消费同一个 Core。
 
 本文只描述当前实现和长期架构边界。安装、配置与命令用法分别见
 [快速上手](getting-started.md)、[配置参考](configuration.md)和
@@ -25,14 +25,12 @@ flowchart TB
 |---|---|
 | `packages/core` | Runtime、上下文、会话、工具、权限、Skills、MCP、模型与验证 |
 | `packages/protocol` | Cloud 命令、事件、回放与快照的 Zod 线协议 |
-| `packages/work-domain` | 浏览器安全的 Work 领域模型 |
-| `packages/work-runtime` | Worker 侧 Work 运行时 |
 | `apps/tui` | Ink 终端交互、Headless NDJSON 与本地 Runtime 宿主 |
 | `apps/web` | 普通用户工作台 |
 | `apps/admin-web` | 组织管理端 |
-| `apps/worker` | 工作区容器内的 headless Runtime 宿主 |
+| `apps/worker` | 个人 Agent 容器内的常驻 Runtime 宿主 |
 | `apps/eval` | Harness Eval Runner |
-| `control-plane` | Java Spring Boot 控制面 |
+| `control-plane` | Java Spring Boot 控制面（身份、模型、Agent 生命周期） |
 
 Core 不依赖任何界面或 Cloud 包。Protocol 不依赖 Core，并且只包含浏览器安全的
 schema 与类型。产品包之间不得通过穿越目录的相对路径耦合。
@@ -209,8 +207,8 @@ Protocol schema 是 Web、Gateway 与 Worker 的共享边界，同时导出版�
 Schema 供非 TypeScript 客户端消费。版本、错误和回放语义见
 [Cloud Protocol](cloud-protocol.md)。
 
-每个工作区使用独立 Worker、Docker volume 和 bridge 网络。Web 静态文件由独立
-Nginx 容器提供，Gateway 不包含前端产物，因此前后端可以分别构建和发布。
+每个成员使用独立 Agent 容器和 Docker volume。Web 静态文件由独立
+Nginx 容器提供。
 
 ## 当前限制
 
