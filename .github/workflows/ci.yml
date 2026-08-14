@@ -28,21 +28,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
           registry-url: https://registry.npmjs.org
 
       - working-directory: frontend
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - working-directory: frontend
-        run: npm run typecheck
+        run: pnpm typecheck
       - working-directory: frontend
-        run: npm test
+        run: pnpm test
       - working-directory: frontend
-        run: npm run build
+        run: pnpm build
 
   worker:
     name: Worker (${{ matrix.os }}, Node ${{ matrix.node }})
@@ -63,21 +67,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
-          cache-dependency-path: worker/package-lock.json
+          cache: pnpm
+          cache-dependency-path: worker/pnpm-lock.yaml
           registry-url: https://registry.npmjs.org
 
       - working-directory: worker
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - working-directory: worker
-        run: npm run typecheck
+        run: pnpm typecheck
       - working-directory: worker
-        run: npm run api:check
+        run: pnpm api:check
       - working-directory: worker
-        run: npm test
+        run: pnpm test
 
   backend:
     name: Java backend

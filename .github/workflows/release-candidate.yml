@@ -30,19 +30,23 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
       - uses: actions/setup-node@v6
         with:
           node-version: 22.19.0
-          cache: npm
+          cache: pnpm
           cache-dependency-path: |
-            frontend/package-lock.json
-            worker/package-lock.json
+            frontend/pnpm-lock.yaml
+            worker/pnpm-lock.yaml
           registry-url: https://registry.npmjs.org
 
       - working-directory: frontend
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - working-directory: worker
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Validate release contract
         run: node scripts/check-version-consistency.mjs --tag "$RELEASE_TAG" --release
@@ -50,12 +54,12 @@ jobs:
       - name: Verify source
         run: |
           node scripts/check-doc-links.mjs
-          npm run typecheck --prefix frontend
-          npm run typecheck --prefix worker
-          npm test --prefix worker
-          npm test --prefix frontend
-          npm run api:check --prefix worker
-          npm run build --prefix frontend
+          pnpm --dir frontend typecheck
+          pnpm --dir worker typecheck
+          pnpm --dir worker test
+          pnpm --dir frontend test
+          pnpm --dir worker api:check
+          pnpm --dir frontend build
 
       - name: Resolve image tags
         run: |

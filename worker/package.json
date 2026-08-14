@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.14.0",
   "scripts": {
     "dev": "tsx src/main.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -27,5 +28,9 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"],
+    "ignoredBuiltDependencies": ["@google/genai", "protobufjs"]
   }
 }

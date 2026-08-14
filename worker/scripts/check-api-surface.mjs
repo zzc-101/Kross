@@ -104,7 +104,7 @@ if (update) {
   if (failures.length > 0) {
     printFailures(failures);
     console.error(
-      '确认边界变化后运行 npm run api:update，并在 CHANGELOG 中说明。'
+      '确认边界变化后运行 pnpm api:update，并在 CHANGELOG 中说明。'
     );
     process.exitCode = 1;
   } else {

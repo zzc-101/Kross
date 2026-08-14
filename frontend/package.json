@@ -3,15 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "web",
-    "admin-web"
-  ],
+  "packageManager": "pnpm@10.14.0",
   "scripts": {
-    "dev": "npm run dev -w web",
-    "dev:admin": "npm run dev -w admin-web",
-    "build": "npm run build -w web && npm run build -w admin-web",
-    "typecheck": "npm run typecheck -w web && npm run typecheck -w admin-web",
+    "dev": "pnpm --filter web dev",
+    "dev:admin": "pnpm --filter admin-web dev",
+    "build": "pnpm --filter web build && pnpm --filter admin-web build",
+    "typecheck": "pnpm --filter web typecheck && pnpm --filter admin-web typecheck",
     "test": "vitest run"
   },
   "devDependencies": {
@@ -20,5 +17,8 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
   }
 }

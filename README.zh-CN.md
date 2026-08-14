@@ -158,15 +158,15 @@ flowchart TB
 ## 开发与验证
 
 ```bash
-cd frontend && npm ci && npm run dev
-cd frontend && npm run dev:admin
-cd worker && npm ci && npm run dev
+cd frontend && pnpm install && pnpm dev
+cd frontend && pnpm dev:admin
+cd worker && pnpm install && pnpm dev
 cd backend && ./mvnw -DskipTests compile
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
 ```
 
-根目录没有 npm 项目。前端在 `frontend/` 安装依赖，Worker 在 `worker/` 安装依赖，Java 后端不用 npm。完整栈用 `./scripts/start-cloud.sh`。
+根目录没有 Node 项目。前端在 `frontend/` 用 pnpm 安装依赖，Worker 在 `worker/` 安装依赖，Java 后端不用 pnpm。完整栈用 `./scripts/start-cloud.sh`。
 
 当前主要待补能力包括 MCP 交互式 OAuth、跨会话语义记忆、嵌套目录级 Project Instructions，以及 Cloud Agent 在真实 Docker、移动端和公网反向代理环境中的持续端到端验收。
 

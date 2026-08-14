@@ -311,13 +311,13 @@ JSON 字段、错误与回放语义，详见 [Cloud Protocol](cloud-protocol.md)
 修改 Core 顶层导出时先选择 public 或 experimental barrel，然后运行：
 
 ```bash
-cd worker && npm run api:check
+cd worker && pnpm api:check
 ```
 
 只有确认边界变化、补齐测试和 `CHANGELOG.md` 后，才运行：
 
 ```bash
-cd worker && npm run api:update
+cd worker && pnpm api:update
 ```
 
 CI 会使用 TypeScript Checker 读取包含 type-only 在内的真实导出，并检查分类快照、

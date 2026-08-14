@@ -15,8 +15,8 @@
 <!-- 列出实际运行的命令和结果。 -->
 
 ```text
-cd frontend && npm run typecheck && npm test && npm run build
-cd worker && npm run typecheck && npm test && npm run api:check
+cd frontend && pnpm typecheck && pnpm test && pnpm build
+cd worker && pnpm typecheck && pnpm test && pnpm api:check
 cd backend && ./mvnw -B -DskipTests compile
 node scripts/check-doc-links.mjs
 ```

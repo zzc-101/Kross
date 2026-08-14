@@ -117,6 +117,6 @@ Worker 容器重启后，原先的后台进程不会自动重连。
 该仓库的 TypeScript build 会刷新源码旁的 ignored JavaScript 产物。开发中如果测试表现与 TypeScript 源码不一致，先执行：
 
 ```bash
-cd frontend && npm run build && npm test
-cd worker && npm test
+cd frontend && pnpm build && pnpm test
+cd worker && pnpm test
 ```

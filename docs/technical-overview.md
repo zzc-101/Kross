@@ -30,7 +30,7 @@ Worker 只在容器运行时用 WebSocket 连控制面。
 
 Core 顶层只由 `src/api/public.ts` 和 `src/api/experimental.ts` 组成；内部模块不
 允许通过新的 `export *` 泄漏。`worker/core/api-surface.json` 保存包含类型导出
-的稳定快照，`npm run api:check`（在 `worker/` 下）阻止未经分类的增删。
+的稳定快照，`pnpm api:check`（在 `worker/` 下）阻止未经分类的增删。
 
 ## Runtime 组合
 

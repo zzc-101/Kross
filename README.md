@@ -158,15 +158,15 @@ Most detailed documentation is currently in Chinese. English documentation contr
 ## Development and Verification
 
 ```bash
-cd frontend && npm ci && npm run dev
-cd frontend && npm run dev:admin
-cd worker && npm ci && npm run dev
+cd frontend && pnpm install && pnpm dev
+cd frontend && pnpm dev:admin
+cd worker && pnpm install && pnpm dev
 cd backend && ./mvnw -DskipTests compile
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
 ```
 
-There is no root npm project. Install dependencies in `frontend/` and `worker/` separately. The Java backend does not use npm. Start the full Cloud stack with `./scripts/start-cloud.sh`.
+There is no root Node project. Install dependencies with pnpm in `frontend/` and `worker/` separately. The Java backend does not use pnpm. Start the full Cloud stack with `./scripts/start-cloud.sh`.
 
 Current gaps include MCP interactive OAuth, cross-session semantic memory, nested directory-level Project Instructions, and continued end-to-end validation of Cloud Agent deployments on real Docker, mobile, and public reverse-proxy environments.
 

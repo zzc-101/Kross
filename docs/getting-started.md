@@ -7,7 +7,7 @@
 需要：
 
 - Docker Engine 与 Docker Compose v2
-- Node.js `>= 22.19` 与 npm（仅在从源码开发 Web / Worker 时需要）
+- Node.js `>= 22.19` 与 pnpm `10.14`（仅在从源码开发 Web / Worker 时需要）
 - 可用的模型凭证
 
 确认 Docker：

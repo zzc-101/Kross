@@ -94,8 +94,8 @@ checkpoint。
 ## 发布门禁
 
 ```bash
-cd frontend && npm ci && npm run typecheck && npm test
-cd ../worker && npm ci && npm run typecheck && npm test
+cd frontend && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
+cd ../worker && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
 cd ../backend && ./mvnw -B test
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs

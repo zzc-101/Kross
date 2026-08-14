@@ -6,18 +6,18 @@ const args = parseArgs(process.argv.slice(2));
 const failures = [];
 
 const manifests = [
-  { path: 'frontend/package.json', lockfile: 'frontend/package-lock.json', lockPath: '' },
-  { path: 'frontend/web/package.json', lockfile: 'frontend/package-lock.json', lockPath: 'web' },
+  { path: 'frontend/package.json', lockfile: 'frontend/pnpm-lock.yaml', importer: '.' },
+  { path: 'frontend/web/package.json', lockfile: 'frontend/pnpm-lock.yaml', importer: 'web' },
   {
     path: 'frontend/admin-web/package.json',
-    lockfile: 'frontend/package-lock.json',
-    lockPath: 'admin-web'
+    lockfile: 'frontend/pnpm-lock.yaml',
+    importer: 'admin-web'
   },
-  { path: 'worker/package.json', lockfile: 'worker/package-lock.json', lockPath: '' }
+  { path: 'worker/package.json', lockfile: 'worker/pnpm-lock.yaml', importer: '.' }
 ].map((entry) => ({
   ...entry,
   manifest: readJson(entry.path),
-  lock: readJson(entry.lockfile)
+  lockText: readText(entry.lockfile)
 }));
 
 const versions = new Set(manifests.map((entry) => entry.manifest.version));
@@ -29,6 +29,19 @@ if (versions.size !== 1 || !isSemver([...versions][0])) {
   );
 }
 const appVersion = [...versions][0];
+
+const packageManagers = new Set(
+  manifests
+    .filter((entry) => entry.path === 'frontend/package.json' || entry.path === 'worker/package.json')
+    .map((entry) => entry.manifest.packageManager)
+);
+if (packageManagers.size !== 1 || ![...packageManagers][0]?.startsWith('pnpm@')) {
+  failures.push(
+    `frontend 与 worker 的 packageManager 必须同为 pnpm@x.y.z，当前为 ${
+      [...packageManagers].join(', ') || '缺失'
+    }`
+  );
+}
 
 const nodeVersion = readText('.nvmrc').trim().replace(/^v/u, '');
 const frontendEngines = String(manifests[0]?.manifest.engines?.node ?? '').match(
@@ -55,20 +68,13 @@ if (mcpVersion !== appVersion) {
 }
 
 for (const entry of manifests) {
-  const lockEntry = entry.lock.packages?.[entry.lockPath];
-  if (!lockEntry) {
-    failures.push(`${entry.lockfile} 缺少 ${entry.lockPath || '根'} 条目`);
+  if (!/^lockfileVersion:\s*['"]?9\./mu.test(entry.lockText)) {
+    failures.push(`${entry.lockfile} 必须是 pnpm lockfile v9`);
     continue;
   }
-  if (lockEntry.name !== undefined && lockEntry.name !== entry.manifest.name) {
-    failures.push(
-      `${entry.lockfile} 的 ${entry.lockPath || '根'} 名称为 ${lockEntry.name}，应为 ${entry.manifest.name}`
-    );
-  }
-  if (lockEntry.version !== entry.manifest.version) {
-    failures.push(
-      `${entry.lockfile} 的 ${entry.lockPath || '根'} 版本为 ${lockEntry.version}，应为 ${entry.manifest.version}`
-    );
+  const importers = listPnpmImporters(entry.lockText);
+  if (!importers.has(entry.importer)) {
+    failures.push(`${entry.lockfile} 缺少 importer “${entry.importer}”`);
   }
 }
 
@@ -124,6 +130,28 @@ function parseArgs(values) {
     throw new Error(`未知参数：${value}`);
   }
   return parsed;
+}
+
+function listPnpmImporters(lockText) {
+  const importers = new Set();
+  let inImporters = false;
+  for (const line of lockText.split(/\r?\n/u)) {
+    if (line === 'importers:') {
+      inImporters = true;
+      continue;
+    }
+    if (!inImporters) {
+      continue;
+    }
+    if (line.length > 0 && !/^\s/u.test(line)) {
+      break;
+    }
+    const match = line.match(/^  (\S+):$/u);
+    if (match) {
+      importers.add(match[1]);
+    }
+  }
+  return importers;
 }
 
 function readJson(path) {

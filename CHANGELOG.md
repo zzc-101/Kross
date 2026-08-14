@@ -9,9 +9,10 @@
 - 本分支改为 Cloud-only：移除 Ink TUI、`kross` CLI、`kross exec` Headless
   Host、Harness Eval workspace，以及对应的 npm 打包、Headless 文档和过时
   路线图提案。本地终端产品仍保留在 `main`。仓库改为 frontend / backend / worker
-  三块：根目录不再是 npm 项目；Core 并入 `worker/core`；Java 后端不需要 npm。
+  三块：根目录不再是 Node 项目；Core 并入 `worker/core`；Java 后端不需要 Node 包管理器。
 - 删除本分支已不再适用的文档：TUI 命令手册、本地 `~/.kross` 数据兼容说明、
   npm SDK 发布决策，以及已落地的持久工作区实施计划。
+- `frontend/` 与 `worker/` 从 npm 迁到 pnpm；两套独立 lockfile，互不共享 workspace。
 
 ### Added
 

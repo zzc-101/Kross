@@ -12,7 +12,7 @@
 
 Kross 使用一个应用版本：
 
-- `frontend/package.json`、`frontend/web`、`frontend/admin-web`、`worker/package.json` 和各自 lockfile 必须同版本。
+- `frontend/package.json`、`frontend/web`、`frontend/admin-web`、`worker/package.json` 必须同版本，并各自提交 pnpm lockfile。
 - MCP 客户端默认版本必须与应用版本一致。
 - Web、控制面、Worker 镜像应使用同一应用标签。
 - Protocol、checkpoint 和持久化 schema 有独立版本，不能因为应用版本变化而
@@ -36,7 +36,7 @@ Node.js 最低版本和 `CHANGELOG.md` 基本结构。
 
 1. 更新 `frontend/package.json`、`frontend/web`、`frontend/admin-web` 和
    `worker/package.json` 的 `version`。
-2. 分别在 `frontend/` 和 `worker/` 运行 `npm install --package-lock-only`
+2. 分别在 `frontend/` 和 `worker/` 运行 `pnpm install --lockfile-only`
    更新 lockfile。
 3. 把 `CHANGELOG.md` 的 `Unreleased` 内容归档到
    `## [x.y.z] - YYYY-MM-DD`，并补充版本比较链接。
@@ -45,12 +45,13 @@ Node.js 最低版本和 `CHANGELOG.md` 基本结构。
 在创建标签前执行：
 
 ```bash
-cd frontend && npm ci && npm run typecheck && npm test
-cd ../worker && npm ci && npm run typecheck && npm test
+cd frontend && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
+cd ../worker && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
 cd ../backend && ./mvnw -B test
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
-npm audit --omit=dev
+pnpm --dir frontend audit --prod
+pnpm --dir worker audit --prod
 node scripts/check-version-consistency.mjs --tag "v0.1.0" --release
 git diff --check
 git status --short

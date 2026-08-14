@@ -21,8 +21,9 @@
 | 其他 Linux、macOS、Windows 版本 | `>= 22.19.0` | 社区支持 |
 
 `frontend/package.json` 与 `worker/package.json` 的 `engines.node` 和仓库
-`.nvmrc` 共同定义最低 Node.js 版本。两套 npm lockfile 是依赖安装的权威来源，
-贡献者应分别在 `frontend/` 和 `worker/` 使用 `npm ci` 验证干净安装。
+`.nvmrc` 共同定义最低 Node.js 版本。两套 pnpm lockfile 是依赖安装的权威来源，
+贡献者应分别在 `frontend/` 和 `worker/` 使用 `pnpm install --frozen-lockfile`
+验证干净安装。
 依赖中的原生模块可能限制极少见 CPU 架构或操作系统版本；项目只对 CI 实际运行的
 组合做出保证。
 
