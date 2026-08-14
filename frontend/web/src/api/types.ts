@@ -1,4 +1,3 @@
-export type AgentStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 export type MessageStatus = 'queued' | 'processing' | 'done' | 'failed';
 
 export interface Membership {
@@ -14,13 +13,11 @@ export interface Me {
   memberships: Membership[];
 }
 
-export interface Agent {
+export interface AgentModel {
   id: string;
-  organizationId: string;
-  userId: string;
-  status: AgentStatus;
-  lastActiveAt: string;
-  createdAt: string;
+  name: string;
+  provider: string;
+  model: string;
 }
 
 export interface Conversation {
@@ -40,7 +37,14 @@ export type MessagePart =
       name: string;
       input?: unknown;
       result?: string;
-      status?: 'running' | 'done' | 'failed';
+      status?: 'running' | 'approval-required' | 'done' | 'failed';
+      approval?: {
+        id: string;
+        risk: string;
+        reason?: string;
+        inputPreview?: string;
+        approved?: boolean;
+      };
     };
 
 export interface AgentMessage {

@@ -16,7 +16,7 @@ describe('worker layer boundaries', () => {
   });
 });
 
-function expectSources(root, forbidden) {
+function expectSources(root: string, forbidden: string[]): void {
   for (const file of collectSourceFiles(root)) {
     const source = readFileSync(file, 'utf8');
     for (const token of forbidden) {
@@ -25,11 +25,12 @@ function expectSources(root, forbidden) {
   }
 }
 
-function collectSourceFiles(root) {
+function collectSourceFiles(root: string): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const path = join(root, entry.name);
     if (entry.isDirectory()) return collectSourceFiles(path);
     if (!statSync(path).isFile()) return [];
+    if (entry.name === 'layerBoundaries.test.ts') return [];
     return ['.ts', '.tsx'].includes(extname(entry.name)) ? [path] : [];
   });
 }

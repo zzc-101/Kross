@@ -19,6 +19,7 @@ public class AgentScheduler {
       return;
     }
     try {
+      agents.reconcileRuntimeAgents();
       agents.sleepIdleAgents();
     } catch (RuntimeException error) {
       log.warn("Agent idle scheduler failed: {}", error.getMessage());

@@ -1,20 +1,16 @@
 package com.kross.agent.dto;
 
-import com.kross.agent.entity.Agent;
 import com.kross.agent.entity.AgentConversation;
 import com.kross.agent.entity.AgentMessage;
+import com.kross.agent.entity.AgentModel;
 
 public final class AgentViews {
   private AgentViews() {}
 
-  public static AgentView agent(Agent row) {
-    return new AgentView(
-        row.getId(),
-        row.getOrganizationId(),
-        row.getUserId(),
-        row.getStatus(),
-        row.getLastActiveAt(),
-        row.getCreatedAt());
+  public static AgentModelView model(AgentModel row) {
+    return row == null
+        ? null
+        : new AgentModelView(row.getId(), row.getName(), row.getProvider(), row.getModel());
   }
 
   public static ConversationView conversation(AgentConversation row) {

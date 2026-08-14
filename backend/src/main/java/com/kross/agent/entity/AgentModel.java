@@ -11,6 +11,8 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AgentModel {
+  private String id;
+  private String name;
   private String provider;
   private String model;
   private String secretCiphertext;

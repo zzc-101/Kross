@@ -9,7 +9,6 @@ import {
   Folder,
   FolderPlus,
   MessagesSquare,
-  Moon,
   NotebookPen,
   PanelLeft,
   Paperclip,
@@ -19,14 +18,12 @@ import {
   UserRound
 } from 'lucide-react';
 
-import { agentStatusLabel } from '../assistant/AgentRuntimeProvider';
-import type { Agent, Conversation, Membership } from '../api/types';
+import type { Conversation, Membership } from '../api/types';
 
 export function Sidebar({
   conversations,
   activeId,
   open,
-  agent,
   memberships,
   organizationId,
   devUserId,
@@ -36,14 +33,12 @@ export function Sidebar({
   onArchive,
   onRename,
   onSelectOrganization,
-  onSleep,
   onChangeIdentity,
   onShowWorkspace
 }: {
   conversations: Conversation[];
   activeId?: string;
   open: boolean;
-  agent?: Agent;
   memberships: Membership[];
   organizationId: string;
   devUserId: string;
@@ -53,7 +48,6 @@ export function Sidebar({
   onArchive(id: string): void;
   onRename(id: string, title: string): void;
   onSelectOrganization(id: string): void;
-  onSleep(): void;
   onChangeIdentity(): void;
   onShowWorkspace(): void;
 }) {
@@ -61,7 +55,6 @@ export function Sidebar({
   const [editingId, setEditingId] = useState<string>();
   const [draft, setDraft] = useState('');
   const [accountOpen, setAccountOpen] = useState(false);
-  const live = agent?.status === 'running' || agent?.status === 'starting';
   const visibleConversations = useMemo(
     () => conversations.filter((item) => item.title !== '新对话' || item.id === activeId),
     [activeId, conversations]
@@ -99,14 +92,12 @@ export function Sidebar({
             {accountOpen && (
               <div className="account-popover">
                 <div className="account-title"><UserRound size={16} /><strong>{devUserId}</strong></div>
-                <span className={live ? 'status-line live' : 'status-line'}>{agentStatusLabel(agent)}</span>
                 <label>
                   <span>组织</span>
                   <select value={organizationId} onChange={(event) => onSelectOrganization(event.target.value)}>
                     {memberships.map((item) => <option key={item.id} value={item.organizationId}>{item.organizationId} · {item.role}</option>)}
                   </select>
                 </label>
-                <button type="button" onClick={onSleep} disabled={!live}><Moon size={15} /> 让 Agent 休眠</button>
                 <button type="button" onClick={onChangeIdentity}>切换开发身份</button>
               </div>
             )}

@@ -23,5 +23,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=production-deps /app/node_modules /app/node_modules
 COPY --from=build /app/build/worker.mjs /app/dist/worker.mjs
-USER node
+COPY docker/worker-entrypoint.sh /usr/local/bin/kross-worker-entrypoint
+RUN chmod +x /usr/local/bin/kross-worker-entrypoint
+ENTRYPOINT ["/usr/local/bin/kross-worker-entrypoint"]
 CMD ["node", "/app/dist/worker.mjs"]

@@ -4,7 +4,7 @@ import type {
   ReasoningMessagePartComponent,
   ToolCallMessagePartComponent
 } from '@assistant-ui/react';
-import { CheckCircle2, ChevronDown, CircleAlert, FileText, LoaderCircle, Wrench } from 'lucide-react';
+import { CheckCircle2, ChevronDown, CircleAlert, FileText, LoaderCircle, ShieldAlert, Wrench } from 'lucide-react';
 import { useState } from 'react';
 
 import { CopyButton, MarkdownText } from './MarkdownText';
@@ -35,19 +35,38 @@ function printable(value: unknown) {
   }
 }
 
-export const ToolFallback: ToolCallMessagePartComponent = ({ toolName, args, argsText, result, status, isError }) => {
+export const ToolFallback: ToolCallMessagePartComponent = ({
+  toolName,
+  args,
+  argsText,
+  result,
+  status,
+  isError,
+  approval,
+  respondToApproval
+}) => {
   const [open, setOpen] = useState(false);
   const running = status?.type === 'running';
+  const awaitingApproval = approval && approval.approved === undefined && !approval.resolution;
   const body = result === undefined ? (argsText || printable(args)) : printable(result);
 
   return (
     <section className={`tool-part${isError ? ' failed' : ''}`} data-open={open || undefined}>
       <button type="button" className="part-trigger" onClick={() => setOpen((value) => !value)}>
-        {isError ? <CircleAlert /> : running ? <LoaderCircle className="spin" /> : <Wrench />}
+        {isError ? <CircleAlert /> : awaitingApproval ? <ShieldAlert /> : running ? <LoaderCircle className="spin" /> : <Wrench />}
         <span>{toolName || '工具调用'}</span>
-        <small>{isError ? '失败' : running ? '运行中' : '已完成'}</small>
+        <small>{isError ? '失败' : awaitingApproval ? '等待审批' : running ? '运行中' : '已完成'}</small>
         <ChevronDown className="part-chevron" />
       </button>
+      {awaitingApproval && (
+        <div className="approval-panel">
+          <div><strong>需要确认高风险操作</strong><span>{approval.reason || '该命令需要你的确认后才能继续。'}</span></div>
+          <div className="approval-actions">
+            <button type="button" className="approval-reject" onClick={() => respondToApproval({ approved: false })}>拒绝</button>
+            <button type="button" className="approval-allow" onClick={() => respondToApproval({ approved: true })}>允许一次</button>
+          </div>
+        </div>
+      )}
       {open && body && <div className="tool-content"><CopyButton value={body} /><pre>{body}</pre></div>}
     </section>
   );

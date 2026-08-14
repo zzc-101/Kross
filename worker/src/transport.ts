@@ -17,10 +17,11 @@ export interface AgentControlTransport {
     userMessageId: string;
     agentMessageId?: string;
     content: string;
-    status: 'done' | 'failed';
+    status: 'processing' | 'done' | 'failed';
     errorSummary?: string;
     parts?: unknown[];
   }): Promise<void>;
+  waitForApproval(approvalId: string): Promise<{ approved: boolean; reason?: string }>;
   sleep(): Promise<void>;
   mintModelEnvironment(): Promise<Record<string, string | undefined>>;
   close(): void;
@@ -65,6 +66,9 @@ type SocketMessage = {
   agentMessageId?: unknown;
   content?: unknown;
   history?: unknown;
+  approvalId?: unknown;
+  approved?: unknown;
+  reason?: unknown;
 };
 
 export class WsAgentControlTransport implements AgentControlTransport {
@@ -76,6 +80,8 @@ export class WsAgentControlTransport implements AgentControlTransport {
   private readonly pending = new Map<string, Deferred<SocketMessage>[]>();
   private readonly jobs: Job[] = [];
   private readonly jobWaiters: Array<(job: Job | undefined) => void> = [];
+  private readonly approvalWaiters = new Map<string, Deferred<{ approved: boolean; reason?: string }>>();
+  private readonly approvalQueue = new Map<string, { approved: boolean; reason?: string }>();
 
   constructor(private readonly options: WsAgentControlTransportOptions) {
     const url = new URL(options.controlPlaneUrl);
@@ -141,7 +147,7 @@ export class WsAgentControlTransport implements AgentControlTransport {
     userMessageId: string;
     agentMessageId?: string;
     content: string;
-    status: 'done' | 'failed';
+    status: 'processing' | 'done' | 'failed';
     errorSummary?: string;
     parts?: unknown[];
   }): Promise<void> {
@@ -153,6 +159,17 @@ export class WsAgentControlTransport implements AgentControlTransport {
       ...(input.agentMessageId ? { agentMessageId: input.agentMessageId } : {}),
       ...(input.errorSummary ? { errorSummary: input.errorSummary } : {}),
       ...(input.parts ? { parts: input.parts } : {})
+    });
+  }
+
+  async waitForApproval(approvalId: string): Promise<{ approved: boolean; reason?: string }> {
+    const queued = this.approvalQueue.get(approvalId);
+    if (queued) {
+      this.approvalQueue.delete(approvalId);
+      return queued;
+    }
+    return new Promise((resolve, reject) => {
+      this.approvalWaiters.set(approvalId, { resolve, reject });
     });
   }
 
@@ -253,6 +270,22 @@ export class WsAgentControlTransport implements AgentControlTransport {
       else this.jobs.push(job);
       return;
     }
+    if (type === 'agent.approval') {
+      const approvalId = typeof parsed.approvalId === 'string' ? parsed.approvalId : '';
+      if (!approvalId || typeof parsed.approved !== 'boolean') return;
+      const decision = {
+        approved: parsed.approved,
+        ...(typeof parsed.reason === 'string' && parsed.reason.trim() ? { reason: parsed.reason } : {})
+      };
+      const waiter = this.approvalWaiters.get(approvalId);
+      if (waiter) {
+        this.approvalWaiters.delete(approvalId);
+        waiter.resolve(decision);
+      } else {
+        this.approvalQueue.set(approvalId, decision);
+      }
+      return;
+    }
     const waiters = this.pending.get(type);
     const waiter = waiters?.shift();
     if (waiter) waiter.resolve(parsed);
@@ -307,6 +340,9 @@ export class WsAgentControlTransport implements AgentControlTransport {
       for (const waiter of waiters) waiter.reject(error);
     }
     this.pending.clear();
+    for (const waiter of this.approvalWaiters.values()) waiter.reject(error);
+    this.approvalWaiters.clear();
+    this.approvalQueue.clear();
   }
 
   private flushJobWaiters(): void {

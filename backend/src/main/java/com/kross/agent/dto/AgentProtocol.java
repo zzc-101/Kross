@@ -81,6 +81,16 @@ public final class AgentProtocol {
 
   public record SleepRequest(String type, String agentId) {}
 
+  public record ApprovalDecision(
+      String type,
+      String approvalId,
+      boolean approved,
+      String reason) {
+    public ApprovalDecision(String approvalId, boolean approved, String reason) {
+      this("agent.approval", approvalId, approved, reason);
+    }
+  }
+
   public record ModelEnvironment(String type, Map<String, String> env) {
     public ModelEnvironment(Map<String, String> env) {
       this("agent.model_environment", env);

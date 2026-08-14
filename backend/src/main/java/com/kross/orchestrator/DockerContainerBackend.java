@@ -74,6 +74,7 @@ public class DockerContainerBackend implements ContainerBackend {
         .withNanoCPUs(request.resourceLimits().cpuMillis() * 1_000_000L)
         .withPidsLimit((long) request.resourceLimits().maxPids())
         .withCapDrop(Capability.ALL)
+        .withCapAdd(Capability.CHOWN, Capability.SETUID, Capability.SETGID)
         .withSecurityOpts(List.of("no-new-privileges:true"))
         .withOomKillDisable(false)
         .withInit(true)
@@ -82,7 +83,6 @@ public class DockerContainerBackend implements ContainerBackend {
     properties.getAgentNetwork().ifPresent(host::withNetworkMode);
     String containerId = docker.createContainerCmd(properties.getWorkerImage())
         .withName(names.containerName)
-        .withUser("1000:1000")
         .withEnv(
             "KROSS_AGENT_ID=" + request.agentId(),
             "KROSS_AGENT_TOKEN=" + request.agentToken(),

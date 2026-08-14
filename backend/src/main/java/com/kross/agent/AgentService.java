@@ -3,12 +3,14 @@ package com.kross.agent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.agent.dto.AgentProtocol;
-import com.kross.agent.dto.AgentView;
+import com.kross.agent.dto.AgentMessageView;
+import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AgentViews;
 import com.kross.agent.dto.AppendAgentMessageRequest;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
 import com.kross.agent.dto.PatchConversationRequest;
+import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.entity.Agent;
 import com.kross.agent.entity.AgentConversation;
 import com.kross.agent.entity.AgentMessage;
@@ -62,9 +64,9 @@ public class AgentService {
   private final AgentSocketHub sockets;
   private final ObjectMapper mapper;
 
-  public AgentView getMine(String organizationId) {
+  public AgentModelView currentModel(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
-    return AgentViews.agent(ensure(context));
+    return agents.findUsableModel(context.organizationId()).map(AgentViews::model).orElse(null);
   }
 
   public List<ConversationView> listConversations(String organizationId) {
@@ -155,12 +157,21 @@ public class AgentService {
         .toList();
   }
 
-  public AgentView sleepMine(String organizationId) {
+  public void resolveApproval(
+      String organizationId,
+      String conversationId,
+      String approvalId,
+      ResolveToolApprovalRequest request) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
     Agent agent = ensure(context);
-    sleep(agent);
-    return AgentViews.agent(
-        agents.findById(context.organizationId(), agent.getId()).orElse(agent));
+    requireConversation(context, agent, conversationId);
+    if (approvalId == null || approvalId.isBlank()) {
+      throw ApiException.invalidRequest("approvalId is required");
+    }
+    sockets.send(agent.getId(), new AgentProtocol.ApprovalDecision(
+        approvalId,
+        request.approved(),
+        Optional.ofNullable(request.reason()).map(String::trim).filter(value -> !value.isEmpty()).orElse(null)));
   }
 
   public void sleepIdleAgents() {
@@ -170,6 +181,32 @@ public class AgentService {
         sleep(agent);
       } catch (RuntimeException ignored) {
         // best-effort idle stop; next tick retries
+      }
+    }
+  }
+
+  @Transactional
+  public void reconcileRuntimeAgents() {
+    for (Agent agent : agents.listRuntimeAgents()) {
+      Optional<ContainerBackend.BackendInspection> inspection = containers.inspect(agent.getId());
+      if (inspection.filter(state -> "running".equals(state.state())).isPresent()) {
+        BackendHandle handle = inspection.get().handle();
+        if (!"running".equals(agent.getStatus())
+            || !handle.containerId().equals(agent.getContainerId())) {
+          agent.setStatus("running");
+          agent.setContainerId(handle.containerId());
+          agent.setLastError(null);
+          agents.updateRuntime(agent);
+        }
+        continue;
+      }
+      agents.requeueInterruptedMessages(agent.getId());
+      agent.setStatus("stopped");
+      agent.setContainerId(null);
+      agent.setLastError("Agent worker exited unexpectedly");
+      agents.updateRuntime(agent);
+      if (agents.hasQueued(agent.getId())) {
+        wake(agent);
       }
     }
   }
@@ -221,7 +258,9 @@ public class AgentService {
           : agents.listHistory(conversationId, row.getId(), HISTORY_LIMIT).stream()
               .map(item -> new AgentProtocol.HistoryTurn(item.getRole(), item.getContent()))
               .toList();
-      AgentMessage reply = insertPlaceholder(session, row);
+      AgentMessage reply = agents.findReplyTo(session.getOrganizationId(), row.getId())
+          .filter(existing -> session.getAgentId().equals(existing.getAgentId()))
+          .orElseGet(() -> insertPlaceholder(session, row));
       emitUpsert(row);
       emitUpsert(reply);
       return new AgentProtocol.Job(
@@ -235,8 +274,8 @@ public class AgentService {
     String userMessageId = Optional.ofNullable(request.userMessageId()).filter(value -> !value.isBlank())
         .orElseThrow(() -> ApiException.invalidRequest("userMessageId is required"));
     String status = Optional.ofNullable(request.status()).orElse("done");
-    if (!List.of("done", "failed").contains(status)) {
-      throw ApiException.invalidRequest("status must be done or failed");
+    if (!List.of("processing", "done", "failed").contains(status)) {
+      throw ApiException.invalidRequest("status must be processing, done, or failed");
     }
     JsonNode parts = MessageParts.copyOrEmpty(mapper, request.parts());
     String content = Optional.ofNullable(request.content()).orElse("").trim();
@@ -271,6 +310,9 @@ public class AgentService {
     agents.touch(session.getAgentId());
     emitUpsert(agents.findMessage(session.getOrganizationId(), userMessageId).orElse(userMessage));
     emitUpsert(agents.findMessage(session.getOrganizationId(), reply.getId()).orElse(reply));
+    if ("processing".equals(status)) {
+      return;
+    }
     String agentId = session.getAgentId();
     afterCommit(() -> {
       sockets.markIdle(agentId);

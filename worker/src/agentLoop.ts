@@ -1,7 +1,7 @@
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { AgentResult } from '@kross/core';
+import type { AgentResult, AgentRunStreamEvent } from '@kross/core';
 
 import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFactory';
 import { createPersonalAgentProfile } from './runtime/workExecutionProfile';
@@ -26,7 +26,14 @@ type MessagePart =
       name: string;
       input?: unknown;
       result?: string;
-      status: 'running' | 'done' | 'failed';
+      status: 'running' | 'approval-required' | 'done' | 'failed';
+      approval?: {
+        id: string;
+        risk: string;
+        reason?: string;
+        inputPreview?: string;
+        approved?: boolean;
+      };
     };
 
 export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
@@ -106,39 +113,75 @@ async function runTurn(
   };
 
   let text = '';
-  let result: AgentResult | undefined;
-  for await (const event of host.runtime.runStreaming({ input, requestedMode: 'auto' })) {
-    if (event.type === 'text-delta' && typeof event.text === 'string' && event.text) {
-      text += event.text;
-      appendText(parts, event.text);
-      await emit({ type: 'text-delta', text: event.text });
-    } else if (event.type === 'thinking-delta' && typeof (event as { text?: string }).text === 'string') {
-      const thinking = (event as { text: string }).text;
-      appendReasoning(parts, thinking);
-      await emit({ type: 'thinking-delta', text: thinking });
-    } else if (event.type === 'tool-call') {
-      const call = event as { id: string; name: string; input?: unknown };
-      upsertTool(parts, call.id, call.name, call.input, 'running');
-      await emit({
-        type: 'tool-call',
-        id: call.id,
-        name: call.name,
-        input: clipJson(call.input)
-      });
-    } else if (event.type === 'tool-result') {
-      const tool = event as { id: string; name: string; content: string; ok?: boolean };
-      const ok = tool.ok !== false;
-      completeTool(parts, tool.id, tool.name, clipText(tool.content), ok);
-      await emit({
-        type: 'tool-result',
-        id: tool.id,
-        name: tool.name,
-        content: clipText(tool.content),
-        ok
-      });
-    } else if (event.type === 'result' && event.result) {
-      result = event.result;
+  const consume = async (stream: AsyncIterable<AgentRunStreamEvent>): Promise<AgentResult | undefined> => {
+    let streamResult: AgentResult | undefined;
+    for await (const event of stream) {
+      if (event.type === 'text-delta' && typeof event.text === 'string' && event.text) {
+        text += event.text;
+        appendText(parts, event.text);
+        await emit({ type: 'text-delta', text: event.text });
+      } else if (event.type === 'thinking-delta' && typeof (event as { text?: string }).text === 'string') {
+        const thinking = (event as { text: string }).text;
+        appendReasoning(parts, thinking);
+        await emit({ type: 'thinking-delta', text: thinking });
+      } else if (event.type === 'tool-call') {
+        const call = event;
+        upsertTool(parts, call.id, call.name, call.input, 'running');
+        await emit({
+          type: 'tool-call',
+          id: call.id,
+          name: call.name,
+          input: clipJson(call.input)
+        });
+      } else if (event.type === 'tool-result') {
+        const tool = event;
+        const ok = tool.ok !== false;
+        completeTool(parts, tool.id, tool.name, clipText(tool.content), ok);
+        await emit({
+          type: 'tool-result',
+          id: tool.id,
+          name: tool.name,
+          content: clipText(tool.content),
+          ok
+        });
+      } else if (event.type === 'result' && event.result) {
+        streamResult = event.result;
+      }
     }
+    return streamResult;
+  };
+
+  let result = await consume(host.runtime.runStreaming({ input, requestedMode: 'auto' }));
+  while (result?.status === 'approval-required') {
+    const pending = result.pendingApproval;
+    if (!pending) {
+      return {
+        content: text.trim(),
+        status: 'failed',
+        errorSummary: 'Agent requested approval without approval details',
+        parts
+      };
+    }
+    markToolApproval(parts, pending.toolCallId, {
+      id: result.runId,
+      risk: pending.risk,
+      reason: pending.reason,
+      inputPreview: pending.inputPreview
+    });
+    await transport.postReply({
+      userMessageId: job.id,
+      agentMessageId: job.agentMessageId,
+      content: text.trim(),
+      status: 'processing',
+      parts
+    });
+    const decision = await transport.waitForApproval(result.runId);
+    markApprovalResolved(parts, pending.toolCallId, decision.approved);
+    result = await consume(host.runtime.resolveToolApprovalStreaming({
+      runId: result.runId,
+      approved: decision.approved,
+      ...(decision.reason ? { reason: decision.reason } : {})
+    }));
   }
 
   if (!result) {
@@ -148,12 +191,6 @@ async function runTurn(
       errorSummary: text.trim() ? undefined : 'Agent finished without a result',
       parts
     };
-  }
-  if (result.status === 'approval-required') {
-    const preview = result.pendingApproval?.inputPreview || result.pendingApproval?.toolName || result.summary;
-    const content = `This turn needs approval before it can continue: ${preview}`;
-    appendText(parts, content.startsWith(text) ? content.slice(text.length) : `\n${content}`);
-    return { content, status: 'done', parts };
   }
   if (result.status === 'completed' || result.status === 'cancelled') {
     return { content: (result.summary || text).trim(), status: 'done', parts };
@@ -209,6 +246,24 @@ function upsertTool(
     return;
   }
   parts.push({ type: 'tool', id, name, input: clipJson(input), status });
+}
+
+function markToolApproval(
+  parts: MessagePart[],
+  toolCallId: string,
+  approval: { id: string; risk: string; reason?: string; inputPreview?: string }
+): void {
+  const existing = parts.find((part) => part.type === 'tool' && part.id === toolCallId);
+  if (!existing || existing.type !== 'tool') return;
+  existing.status = 'approval-required';
+  existing.approval = approval;
+}
+
+function markApprovalResolved(parts: MessagePart[], toolCallId: string, approved: boolean): void {
+  const existing = parts.find((part) => part.type === 'tool' && part.id === toolCallId);
+  if (!existing || existing.type !== 'tool' || !existing.approval) return;
+  existing.approval.approved = approved;
+  existing.status = 'running';
 }
 
 function completeTool(parts: MessagePart[], id: string, name: string, result: string, ok: boolean): void {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { AgentApiClient, ApiError } from '../api/client';
-import type { Agent, Conversation, Membership } from '../api/types';
+import type { AgentModel, Conversation, Membership } from '../api/types';
 import { AgentRuntimeProvider } from '../assistant/AgentRuntimeProvider';
 import { Thread } from '../assistant/Thread';
 import { useConversationRoute } from '../lib/conversationRoute';
@@ -24,15 +24,14 @@ export function WorkspacePage({
   onChangeIdentity(): void;
 }) {
   const { conversationId, setConversationId } = useConversationRoute();
-  const [agent, setAgent] = useState<Agent>();
+  const [model, setModel] = useState<AgentModel | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [error, setError] = useState<string>();
   const [workspaceHint, setWorkspaceHint] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const refresh = useCallback(async () => {
-    const [nextAgent, items] = await Promise.all([api.getAgent(), api.listConversations()]);
-    setAgent(nextAgent);
+  const refreshConversations = useCallback(async () => {
+    const items = await api.listConversations();
     setConversations(items);
     return items;
   }, [api]);
@@ -41,8 +40,9 @@ export function WorkspacePage({
     let cancelled = false;
     void (async () => {
       try {
-        const items = await refresh();
+        const [nextModel, items] = await Promise.all([api.getCurrentModel(), refreshConversations()]);
         if (cancelled) return;
+        setModel(nextModel);
         const requested = new URLSearchParams(window.location.search).get('c') ?? conversationId;
         const selected = items.find((item) => item.id === requested) ?? items[0];
         if (selected) setConversationId(selected.id);
@@ -53,21 +53,18 @@ export function WorkspacePage({
     return () => {
       cancelled = true;
     };
-  }, [organizationId, refresh, setConversationId]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void api.getAgent().then(setAgent).catch(() => undefined);
-    }, 4_000);
-    return () => window.clearInterval(timer);
-  }, [api]);
+  }, [api, organizationId, refreshConversations, setConversationId]);
 
   const onCreateConversation = useCallback(async () => {
     const created = await api.createConversation();
-    await refresh();
+    await refreshConversations();
     setConversationId(created.id);
     return created.id;
-  }, [api, refresh, setConversationId]);
+  }, [api, refreshConversations, setConversationId]);
+
+  const onConversationsChange = useCallback(async () => {
+    await refreshConversations();
+  }, [refreshConversations]);
 
   return (
     <div className="shell">
@@ -76,7 +73,7 @@ export function WorkspacePage({
         api={api}
         conversations={conversations}
         conversationId={conversationId}
-        onConversationsChange={async () => { await refresh(); }}
+        onConversationsChange={onConversationsChange}
         onSelectConversation={setConversationId}
         onCreateConversation={onCreateConversation}
       >
@@ -85,7 +82,6 @@ export function WorkspacePage({
             conversations={conversations}
             activeId={conversationId}
             open={sidebarOpen}
-            agent={agent}
             memberships={memberships}
             organizationId={organizationId}
             devUserId={devUserId}
@@ -93,11 +89,10 @@ export function WorkspacePage({
             onNew={() => { void onCreateConversation(); setSidebarOpen(false); }}
             onSelect={setConversationId}
             onSelectOrganization={onSelectOrganization}
-            onSleep={() => void api.sleep().then(setAgent).catch((cause) => setError(cause instanceof Error ? cause.message : '休眠失败'))}
             onChangeIdentity={onChangeIdentity}
             onArchive={(id) => {
               void api.patchConversation(id, { archived: true }).then(async () => {
-                const items = await refresh();
+                const items = await refreshConversations();
                 if (id === conversationId) {
                   const next = items.find((item) => item.id !== id);
                   if (next) setConversationId(next.id);
@@ -106,13 +101,13 @@ export function WorkspacePage({
               });
             }}
             onRename={(id, title) => {
-              void api.patchConversation(id, { title }).then(() => refresh());
+              void api.patchConversation(id, { title }).then(() => refreshConversations());
             }}
             onShowWorkspace={() => setWorkspaceHint(true)}
           />
           <main className="stage">
             <TopBar onOpenSidebar={() => setSidebarOpen(true)} onNew={() => void onCreateConversation()} />
-            <Thread />
+            <Thread model={model} />
           </main>
         </div>
       </AgentRuntimeProvider>

@@ -22,8 +22,8 @@ export function applyChannelEvent(messages: AgentMessage[], event: ChannelEvent)
   const messageId = event.messageId;
   if (!messageId) return messages;
   const index = messages.findIndex((item) => item.id === messageId);
-  const current = index >= 0
-    ? messages[index]
+  const current: AgentMessage = index >= 0
+    ? messages[index]!
     : {
         id: messageId,
         conversationId: event.conversationId,

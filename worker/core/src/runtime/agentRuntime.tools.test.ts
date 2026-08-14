@@ -350,7 +350,7 @@ describe('AgentRuntime tool loops and approvals', () => {
               {
                 id: 'verify-gated',
                 name: 'Bash',
-                input: { command: 'npm test' }
+                input: { command: 'sudo npm test' }
               }
             ]
           };

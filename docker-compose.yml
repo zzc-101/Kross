@@ -21,8 +21,14 @@ services:
     environment:
       MINIO_ROOT_USER: ${KROSS_S3_ACCESS_KEY:-kross}
       MINIO_ROOT_PASSWORD: ${KROSS_S3_SECRET_KEY:?请设置 KROSS_S3_SECRET_KEY}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${KROSS_S3_CORS_ALLOW_ORIGIN:-http://localhost:8787,http://localhost:8788}
     ports:
       - "${KROSS_S3_PORT:-9000}:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     volumes:
       - kross-minio-v2:/data
     networks:
@@ -67,14 +73,14 @@ services:
       postgres:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
       worker-image:
         condition: service_completed_successfully
     expose: ["8787"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8787/health"]
       interval: 5s
       timeout: 3s
       retries: 20

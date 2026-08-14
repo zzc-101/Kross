@@ -65,7 +65,7 @@ describe('permissionModes', () => {
     });
   });
 
-  it('classifier allows read/write and asks for bash', async () => {
+  it('classifier allows read/write and routine bash commands', async () => {
     const gateway = new ToolGateway({
       approvalPolicy: createApprovalPolicy('classifier')
     });
@@ -103,10 +103,10 @@ describe('permissionModes', () => {
     ).resolves.toMatchObject({ status: 'completed' });
     await expect(
       gateway.call({ runId: 'r', name: 'Bash', input: { command: 'ls' } })
-    ).rejects.toBeInstanceOf(ToolPermissionError);
+    ).resolves.toMatchObject({ status: 'completed' });
   });
 
-  it('classifier denies dangerous bash commands', async () => {
+  it('classifier asks before dangerous bash commands', async () => {
     const gateway = new ToolGateway({
       approvalPolicy: createApprovalPolicy('classifier')
     });
@@ -126,7 +126,8 @@ describe('permissionModes', () => {
       })
     ).rejects.toMatchObject({
       name: 'ToolPermissionError',
-      reason: expect.stringContaining('dangerous')
+      action: 'ask',
+      reason: expect.stringContaining('high-risk')
     });
   });
 

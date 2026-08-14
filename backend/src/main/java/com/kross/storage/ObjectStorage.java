@@ -22,6 +22,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutBucketCorsRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -60,16 +61,23 @@ public class ObjectStorage {
     } catch (software.amazon.awssdk.services.s3.model.S3Exception error) {
       client.createBucket(CreateBucketRequest.builder().bucket(properties.getBucket()).build());
     }
-    client.putBucketCors(PutBucketCorsRequest.builder()
-        .bucket(properties.getBucket())
-        .corsConfiguration(cors -> cors.corsRules(CORSRule.builder()
-            .allowedHeaders("*")
-            .allowedMethods("GET", "PUT", "HEAD")
-            .allowedOrigins("*")
-            .exposeHeaders("ETag", "x-amz-checksum-sha256")
-            .maxAgeSeconds(3600)
-            .build()))
-        .build());
+    try {
+      client.putBucketCors(PutBucketCorsRequest.builder()
+          .bucket(properties.getBucket())
+          .corsConfiguration(cors -> cors.corsRules(CORSRule.builder()
+              .allowedHeaders("*")
+              .allowedMethods("GET", "PUT", "HEAD")
+              .allowedOrigins("*")
+              .exposeHeaders("ETag", "x-amz-checksum-sha256")
+              .maxAgeSeconds(3600)
+              .build()))
+          .build());
+    } catch (S3Exception error) {
+      // MinIO Community Edition uses cluster-wide CORS and returns 501 for PutBucketCors.
+      if (error.statusCode() != 501) {
+        throw error;
+      }
+    }
   }
 
   public SignedUrl presignPut(String key, Audience audience, String mimeType, Instant expiresAt) {

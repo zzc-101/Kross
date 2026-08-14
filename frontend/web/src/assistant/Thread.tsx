@@ -17,14 +17,17 @@ import {
   Code2,
   Copy,
   Lightbulb,
+  LoaderCircle,
   Mic,
   PencilLine,
   Plus
 } from 'lucide-react';
 
 import { messagePartComponents } from './MessageParts';
+import type { AgentModel } from '../api/types';
+import { ModelBadge, modelLabel } from '../workspace/ModelBadge';
 
-export function Thread() {
+export function Thread({ model }: { model?: AgentModel | null }) {
   return (
     <ThreadPrimitive.Root className="thread">
       <ThreadPrimitive.Viewport className="thread-viewport" autoScroll>
@@ -32,7 +35,7 @@ export function Thread() {
           <div className="landing">
             <div className="landing-content">
               <div className="landing-greeting"><h1>How can I help you today?</h1></div>
-              <Composer landing />
+              <Composer model={model} landing />
             </div>
             <Footer />
           </div>
@@ -41,12 +44,15 @@ export function Thread() {
         <ThreadPrimitive.If empty={false}>
           <div className="message-list">
             <ThreadPrimitive.Messages components={{ Message: ConversationMessage }} />
+            <ThreadPrimitive.If running>
+              <AssistantLoading />
+            </ThreadPrimitive.If>
           </div>
           <ThreadPrimitive.ViewportFooter className="thread-viewport-footer">
             <ThreadPrimitive.ScrollToBottom className="scroll-to-bottom" aria-label="滚动到底部">
               <ArrowDown />
             </ThreadPrimitive.ScrollToBottom>
-            <div className="composer-docked"><Composer /><Footer /></div>
+            <div className="composer-docked"><Composer model={model} /><Footer /></div>
           </ThreadPrimitive.ViewportFooter>
         </ThreadPrimitive.If>
       </ThreadPrimitive.Viewport>
@@ -54,7 +60,17 @@ export function Thread() {
   );
 }
 
-function Composer({ landing = false }: { landing?: boolean }) {
+function AssistantLoading() {
+  return (
+    <div className="assistant-loading" role="status" aria-live="polite" aria-label="助手正在处理">
+      <LoaderCircle className="spin" />
+      <span>正在处理</span>
+      <span className="assistant-loading-dots" aria-hidden="true"><i /><i /><i /></span>
+    </div>
+  );
+}
+
+function Composer({ model, landing = false }: { model?: AgentModel | null; landing?: boolean }) {
   return (
     <div className="composer-wrap">
       <ComposerPrimitive.Root className="composer">
@@ -69,8 +85,8 @@ function Composer({ landing = false }: { landing?: boolean }) {
           <div className="composer-tools">
             <button type="button" aria-label="添加附件（即将支持）" title="等待 Kross 附件协议支持" disabled><Plus /></button>
             <button type="button" className="composer-model" aria-label="当前模型">
-              <img src="/openai.svg" alt="" />
-              <span>GPT-5.5</span>
+              <ModelBadge model={model} />
+              <span>{modelLabel(model)}</span>
               <ChevronDown />
             </button>
           </div>
@@ -126,7 +142,6 @@ function ConversationMessage() {
       </MessagePrimitive.If>
       <MessagePrimitive.If assistant>
         <div className="bubble-row assistant">
-          <span className="model-mark small"><img src="/openai.svg" alt="" /></span>
           <div className="assistant-message-stack">
             <div className="bubble-body"><MessagePrimitive.Content components={messagePartComponents} /></div>
             <MessageError />

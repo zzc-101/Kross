@@ -9,7 +9,9 @@ import {
 
 import { applyChannelEvent } from '../api/channelEvents';
 import { AgentApiClient } from '../api/client';
-import type { Agent, AgentMessage, Conversation, MessagePart } from '../api/types';
+import type { AgentMessage, Conversation, MessagePart } from '../api/types';
+
+type AssistantMessagePart = Exclude<ThreadMessageLike['content'], string>[number];
 
 function toThreadMessage(message: AgentMessage): ThreadMessageLike {
   const role = message.role === 'agent' ? 'assistant' : message.role;
@@ -34,7 +36,7 @@ function toThreadMessage(message: AgentMessage): ThreadMessageLike {
   };
 }
 
-function toAssistantPart(part: MessagePart): ThreadMessageLike['content'][number] {
+function toAssistantPart(part: MessagePart): AssistantMessagePart {
   if (part.type === 'reasoning') {
     return { type: 'reasoning', text: part.text };
   }
@@ -47,12 +49,17 @@ function toAssistantPart(part: MessagePart): ThreadMessageLike['content'][number
       argsText: typeof part.input === 'string' ? part.input : JSON.stringify(part.input ?? {}, null, 2),
       result: part.result,
       isError: part.status === 'failed',
+      approval: part.approval ? {
+        id: part.approval.id,
+        approved: part.approval.approved,
+        reason: part.approval.reason
+      } : undefined,
       status: part.status === 'running'
         ? { type: 'running' }
         : part.status === 'failed'
           ? { type: 'incomplete', reason: 'error' }
           : { type: 'complete' }
-    } as ThreadMessageLike['content'][number];
+    } as AssistantMessagePart;
   }
   return { type: 'text', text: part.text };
 }
@@ -79,7 +86,7 @@ export function AgentRuntimeProvider({
 
   const refreshMessages = useCallback(async (id: string) => {
     const items = await api.listMessages(id);
-    setMessages(items);
+    setMessages((current) => reconcileMessageSnapshot(current, items));
     setIsRunning(items.some((item) => item.status === 'queued' || item.status === 'processing'));
   }, [api]);
 
@@ -167,6 +174,10 @@ export function AgentRuntimeProvider({
     convertMessage: toThreadMessage,
     onNew,
     onCancel: async () => undefined,
+    onRespondToToolApproval: async ({ approvalId, approved, reason }) => {
+      if (!conversationId) throw new Error('No conversation selected');
+      await api.resolveApproval(conversationId, approvalId, { approved, reason });
+    },
     unstable_capabilities: { copy: true },
     adapters: { threadList: threadListAdapter }
   });
@@ -174,16 +185,28 @@ export function AgentRuntimeProvider({
   return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
 }
 
-export function agentStatusLabel(agent?: Agent): string {
-  switch (agent?.status) {
-    case 'running':
-    case 'starting':
-      return '运行中';
-    case 'stopping':
-      return '正在休眠';
-    case 'error':
-      return '异常';
-    default:
-      return '已休眠';
+export function reconcileMessageSnapshot(current: AgentMessage[], incoming: AgentMessage[]): AgentMessage[] {
+  const currentById = new Map(current.map((message) => [message.id, message]));
+  return incoming.map((message) => {
+    const streamed = currentById.get(message.id);
+    if (
+      message.status === 'processing'
+      && streamed?.status === 'processing'
+      && messageRichness(streamed) > messageRichness(message)
+    ) {
+      return {
+        ...message,
+        content: streamed.content,
+        parts: streamed.parts
+      };
+    }
+    return message;
+  });
+}
+
+function messageRichness(message: AgentMessage): number {
+  if (message.parts?.length) {
+    return JSON.stringify(message.parts).length;
   }
+  return message.content.length;
 }

@@ -111,17 +111,21 @@ function classifyToolCall(context: ToolApprovalPolicyContext): ToolApprovalDecis
     return { action: 'allow', reason: 'classifier: read-like tool' };
   }
 
-  if (name === 'Bash' || tool.risk === 'execute') {
+  if (name === 'Bash') {
     const command = extractCommand(input);
     if (command && isDangerousBash(command)) {
       return {
-        action: 'deny',
-        reason: 'classifier: blocked dangerous shell command'
+        action: 'ask',
+        reason: 'classifier: high-risk shell command needs confirmation'
       };
     }
+    return { action: 'allow', reason: 'classifier: routine shell command' };
+  }
+
+  if (tool.risk === 'execute') {
     return {
       action: 'ask',
-      reason: 'classifier: shell command needs confirmation'
+      reason: 'classifier: unfamiliar executable tool needs confirmation'
     };
   }
 

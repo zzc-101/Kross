@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { Agent, AgentMessage, Conversation, Me, MessagePart } from './types';
+import type { AgentMessage, AgentModel, Conversation, Me, MessagePart } from './types';
 import type { ChannelEvent } from './channelEvents';
 
 export class ApiError extends Error {
@@ -27,13 +27,11 @@ const meSchema: z.ZodType<Me> = z.object({
   }))
 });
 
-const agentSchema: z.ZodType<Agent> = z.object({
+const agentModelSchema: z.ZodType<AgentModel> = z.object({
   id,
-  organizationId: id,
-  userId: id,
-  status: z.enum(['stopped', 'starting', 'running', 'stopping', 'error']),
-  lastActiveAt: instant,
-  createdAt: instant
+  name: id,
+  provider: id,
+  model: id
 });
 
 const conversationSchema: z.ZodType<Conversation> = z.object({
@@ -53,7 +51,14 @@ const partSchema: z.ZodType<MessagePart> = z.union([
     name: z.string(),
     input: z.unknown().optional(),
     result: z.string().optional(),
-    status: z.enum(['running', 'done', 'failed']).optional()
+    status: z.enum(['running', 'approval-required', 'done', 'failed']).optional(),
+    approval: z.object({
+      id,
+      risk: z.string(),
+      reason: z.string().optional(),
+      inputPreview: z.string().optional(),
+      approved: z.boolean().optional()
+    }).optional()
   })
 ]);
 
@@ -108,8 +113,8 @@ export class AgentApiClient {
     return this.me();
   }
 
-  getAgent(): Promise<Agent> {
-    return this.request('/api/v2/agent', agentSchema);
+  getCurrentModel(): Promise<AgentModel | null> {
+    return this.request('/api/v2/agent/model', agentModelSchema.nullable());
   }
 
   listConversations(): Promise<Conversation[]> {
@@ -147,6 +152,18 @@ export class AgentApiClient {
     );
   }
 
+  resolveApproval(
+    conversationId: string,
+    approvalId: string,
+    input: { approved: boolean; reason?: string }
+  ): Promise<void> {
+    return this.request(
+      `/api/v2/agent/conversations/${encodeURIComponent(conversationId)}/approvals/${encodeURIComponent(approvalId)}`,
+      z.null(),
+      { method: 'POST', body: input }
+    ).then(() => undefined);
+  }
+
   async subscribeConversationEvents(
     conversationId: string,
     onEvent: (event: ChannelEvent) => void,
@@ -179,10 +196,6 @@ export class AgentApiClient {
         if (event) onEvent(event);
       }
     }
-  }
-
-  sleep(): Promise<Agent> {
-    return this.request('/api/v2/agent/sleep', agentSchema, { method: 'POST' });
   }
 
   private async request<T>(path: string, schema: z.ZodType<T>, init: {

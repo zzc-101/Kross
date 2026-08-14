@@ -38,6 +38,12 @@
     ORDER BY a.last_active_at ASC
   </select>
 
+  <select id="listRuntimeAgents" resultType="com.kross.agent.entity.Agent">
+    SELECT * FROM agents
+    WHERE status IN ('starting', 'running')
+    ORDER BY updated_at ASC, id ASC
+  </select>
+
   <insert id="insert">
     INSERT INTO agents
       (id, organization_id, user_id, status, volume_name, container_name, container_id, last_error, last_active_at)
@@ -190,7 +196,7 @@
   </select>
 
   <select id="findUsableModel" resultType="com.kross.agent.entity.AgentModel">
-    SELECT mp.provider, mp.model, ch.secret_ciphertext, mp.configuration
+    SELECT mp.id, mp.name, mp.provider, mp.model, ch.secret_ciphertext, mp.configuration
     FROM model_profiles mp
     JOIN credential_handles ch
       ON ch.organization_id = mp.organization_id AND ch.id = mp.credential_handle_id
@@ -201,4 +207,16 @@
     ORDER BY mp.created_at ASC
     LIMIT 1
   </select>
+
+  <select id="hasQueued" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1 FROM agent_messages WHERE agent_id = #{agentId} AND role = 'user' AND status = 'queued'
+    )
+  </select>
+
+  <update id="requeueInterruptedMessages">
+    UPDATE agent_messages
+    SET status = 'queued', error_summary = NULL
+    WHERE agent_id = #{agentId} AND role = 'user' AND status = 'processing'
+  </update>
 </mapper>

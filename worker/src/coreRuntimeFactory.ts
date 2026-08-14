@@ -1,11 +1,22 @@
-import { createAgentHost, type AgentExecutionProfile, type AgentResult } from '@kross/core';
+import {
+  createAgentHost,
+  type AgentExecutionProfile,
+  type AgentResult,
+  type AgentRunStreamEvent
+} from '@kross/core';
 
 export interface AgentRuntimeHandle {
-  runStreaming(input: { input: string; requestedMode: 'auto'; signal?: AbortSignal }): AsyncIterable<{
-    type: string;
-    text?: string;
-    result?: AgentResult;
-  }>;
+  runStreaming(input: {
+    input: string;
+    requestedMode: 'auto';
+    signal?: AbortSignal;
+  }): AsyncIterable<AgentRunStreamEvent>;
+  resolveToolApprovalStreaming(input: {
+    runId: string;
+    approved: boolean;
+    reason?: string;
+    signal?: AbortSignal;
+  }): AsyncIterable<AgentRunStreamEvent>;
 }
 
 export interface AgentHostHandle {
@@ -23,8 +34,10 @@ export async function createPersistentAgentHost(input: {
     env: input.env,
     executionProfile: input.executionProfile
   });
+  const runtime = host.createRuntime();
+  runtime.setPermissionMode('classifier');
   return {
-    runtime: host.createRuntime() as unknown as AgentRuntimeHandle,
+    runtime: runtime as unknown as AgentRuntimeHandle,
     close: () => host.close()
   };
 }

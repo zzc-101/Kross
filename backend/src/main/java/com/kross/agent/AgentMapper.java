@@ -23,6 +23,8 @@ public interface AgentMapper {
 
   List<Agent> listIdleRunning(@Param("idleBefore") Instant idleBefore);
 
+  List<Agent> listRuntimeAgents();
+
   void insert(Agent row);
 
   int updateRuntime(Agent row);
@@ -81,4 +83,8 @@ public interface AgentMapper {
   Optional<AgentModel> findUsableModel(@Param("organizationId") String organizationId);
 
   boolean hasProcessing(@Param("agentId") String agentId);
+
+  boolean hasQueued(@Param("agentId") String agentId);
+
+  int requeueInterruptedMessages(@Param("agentId") String agentId);
 }

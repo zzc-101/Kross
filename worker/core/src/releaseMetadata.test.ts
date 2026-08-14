@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 const root = resolve(import.meta.dirname, '../../..');
 const script = join(root, 'scripts', 'release-metadata.mjs');
 const packageVersion = JSON.parse(
-  readFileSync(join(root, 'package.json'), 'utf8')
+  readFileSync(join(root, 'worker', 'package.json'), 'utf8')
 ).version as string;
 let temporary = '';
 

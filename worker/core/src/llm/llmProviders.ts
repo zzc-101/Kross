@@ -101,7 +101,7 @@ export const LLM_PROVIDER_DEFINITIONS: Record<
     modelEnv: ['XAI_MODEL', 'AGENT_LLM_MODEL'],
     baseUrlEnv: 'XAI_BASE_URL',
     exampleModel: 'grok-4.5',
-    recommendedModels: ['grok-4.5', 'grok-4.3', 'grok-code-fast-1'],
+    recommendedModels: ['grok-4.5', 'grok-4.3', 'grok-build-0.1'],
     supportsNative: true
   }
 };

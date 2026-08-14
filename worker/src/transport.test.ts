@@ -54,6 +54,26 @@ describe('WsAgentControlTransport', () => {
     });
   });
 
+  it('delivers a pushed approval decision to the pending run', async () => {
+    const sockets: FakeSocket[] = [];
+    const transport = new WsAgentControlTransport({
+      agentId: 'agent1',
+      agentToken: 'short-token',
+      controlPlaneUrl: 'http://control.example.test',
+      webSocket: fakeWebSocket(sockets) as unknown as typeof WebSocket
+    });
+    const registered = transport.register();
+    await Promise.resolve();
+    sockets[0]?.open();
+    sockets[0]?.emit({ type: 'agent.registered', heartbeatIntervalMs: 10_000, idleMs: 900_000 });
+    await registered;
+
+    const decision = transport.waitForApproval('run-1');
+    sockets[0]?.emit({ type: 'agent.approval', approvalId: 'run-1', approved: true });
+
+    await expect(decision).resolves.toEqual({ approved: true });
+  });
+
   it('rejects a missing agent token', () => {
     expect(() => new WsAgentControlTransport({
       agentId: 'agent1',
