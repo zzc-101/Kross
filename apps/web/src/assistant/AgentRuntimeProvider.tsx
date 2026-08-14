@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
@@ -7,21 +7,54 @@ import {
   type ThreadMessageLike
 } from '@assistant-ui/react';
 
+import { applyChannelEvent } from '../api/channelEvents';
 import { AgentApiClient } from '../api/client';
-import type { Agent, AgentMessage, Conversation } from '../api/types';
-
-const POLL_MS = 1_200;
+import type { Agent, AgentMessage, Conversation, MessagePart } from '../api/types';
 
 function toThreadMessage(message: AgentMessage): ThreadMessageLike {
   const role = message.role === 'agent' ? 'assistant' : message.role;
-  const text = message.status === 'failed'
-    ? (message.errorSummary || message.content || '这一轮失败了')
-    : message.content;
+  const parts = message.parts && message.parts.length > 0
+    ? message.parts
+    : (message.content ? [{ type: 'text' as const, text: message.content }] : []);
+  const content = message.status === 'failed' && parts.length === 0
+    ? [{ type: 'text' as const, text: message.errorSummary || '这一轮失败了' }]
+    : parts.map(toAssistantPart);
   return {
     id: message.id,
     role,
-    content: [{ type: 'text', text: text || (message.status === 'processing' ? '正在思考…' : '') }]
+    createdAt: new Date(message.createdAt),
+    ...(role === 'assistant' ? {
+      status: message.status === 'failed'
+        ? { type: 'incomplete' as const, reason: 'error' as const, error: message.errorSummary || '消息处理失败' }
+        : message.status === 'queued' || message.status === 'processing'
+          ? { type: 'running' as const }
+          : { type: 'complete' as const, reason: 'stop' as const }
+    } : {}),
+    content
   };
+}
+
+function toAssistantPart(part: MessagePart): ThreadMessageLike['content'][number] {
+  if (part.type === 'reasoning') {
+    return { type: 'reasoning', text: part.text };
+  }
+  if (part.type === 'tool') {
+    return {
+      type: 'tool-call',
+      toolCallId: part.id,
+      toolName: part.name,
+      args: part.input && typeof part.input === 'object' ? part.input as Record<string, unknown> : { value: part.input },
+      argsText: typeof part.input === 'string' ? part.input : JSON.stringify(part.input ?? {}, null, 2),
+      result: part.result,
+      isError: part.status === 'failed',
+      status: part.status === 'running'
+        ? { type: 'running' }
+        : part.status === 'failed'
+          ? { type: 'incomplete', reason: 'error' }
+          : { type: 'complete' }
+    } as ThreadMessageLike['content'][number];
+  }
+  return { type: 'text', text: part.text };
 }
 
 export function AgentRuntimeProvider({
@@ -43,40 +76,45 @@ export function AgentRuntimeProvider({
 }) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const pollRef = useRef<number | undefined>(undefined);
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current !== undefined) {
-      window.clearInterval(pollRef.current);
-      pollRef.current = undefined;
-    }
-  }, []);
 
   const refreshMessages = useCallback(async (id: string) => {
     const items = await api.listMessages(id);
     setMessages(items);
-    const pending = items.some((item) => item.status === 'queued' || item.status === 'processing');
-    setIsRunning(pending);
-    return pending;
+    setIsRunning(items.some((item) => item.status === 'queued' || item.status === 'processing'));
   }, [api]);
 
   useEffect(() => {
-    stopPolling();
     if (!conversationId) {
       setMessages([]);
       setIsRunning(false);
       return;
     }
-    void refreshMessages(conversationId).then((pending) => {
-      if (!pending) return;
-      pollRef.current = window.setInterval(() => {
-        void refreshMessages(conversationId).then((still) => {
-          if (!still) stopPolling();
-        });
-      }, POLL_MS);
-    });
-    return stopPolling;
-  }, [conversationId, refreshMessages, stopPolling]);
+    const abort = new AbortController();
+    const connect = async () => {
+      while (!abort.signal.aborted) {
+        try {
+          await refreshMessages(conversationId);
+          if (abort.signal.aborted) return;
+          await api.subscribeConversationEvents(conversationId, (event) => {
+            setMessages((current) => {
+              const next = applyChannelEvent(current, event);
+              setIsRunning(next.some((item) => item.status === 'queued' || item.status === 'processing'));
+              return next;
+            });
+            if (event.type === 'message.upsert') {
+              void onConversationsChange();
+            }
+          }, abort.signal);
+        } catch {
+          if (abort.signal.aborted) return;
+        }
+        if (abort.signal.aborted) return;
+        await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+      }
+    };
+    void connect();
+    return () => abort.abort();
+  }, [api, conversationId, onConversationsChange, refreshMessages]);
 
   const onNew = useCallback(async (message: AppendMessage) => {
     if (!conversationId) throw new Error('No conversation selected');
@@ -85,23 +123,15 @@ export function AgentRuntimeProvider({
       throw new Error('Only text messages are supported');
     }
     setIsRunning(true);
-    await api.appendMessage(conversationId, textPart.text.trim());
+    const created = await api.appendMessage(conversationId, textPart.text.trim());
+    setMessages((current) => applyChannelEvent(current, {
+      type: 'message.upsert',
+      conversationId,
+      messageId: created.id,
+      data: { message: created }
+    }));
     await onConversationsChange();
-    const pending = await refreshMessages(conversationId);
-    if (pending) {
-      stopPolling();
-      pollRef.current = window.setInterval(() => {
-        void refreshMessages(conversationId).then((still) => {
-          if (!still) {
-            stopPolling();
-            void onConversationsChange();
-          }
-        });
-      }, POLL_MS);
-    } else {
-      setIsRunning(false);
-    }
-  }, [api, conversationId, onConversationsChange, refreshMessages, stopPolling]);
+  }, [api, conversationId, onConversationsChange]);
 
   const threadListAdapter = useMemo<ExternalStoreThreadListAdapter>(() => ({
     threadId: conversationId,
@@ -137,6 +167,7 @@ export function AgentRuntimeProvider({
     convertMessage: toThreadMessage,
     onNew,
     onCancel: async () => undefined,
+    unstable_capabilities: { copy: true },
     adapters: { threadList: threadListAdapter }
   });
 

@@ -179,8 +179,8 @@ Trace Replay 与运行恢复是两条不同路径。`/trace replay <runId>` 只�
 可关联的工具终态必须有对应 start。缺失、乱序和未知事件返回稳定错误码，供
 TUI、Cloud 检查面板和确定性 Eval 共用。
 
-Cloud 会话和工作区状态保存在对应 Docker volume 中，Gateway 只保存工作区注册与
-控制面数据。生命周期、备份边界和容器恢复见
+Cloud 会话权威记录保存在控制面 PostgreSQL；Worker 卷保存 `/work` 工作区文件。
+生命周期、备份边界和容器恢复见
 [Cloud Agent 部署与运维](cloud-agent-deployment.md)。各 JSON/JSONL/SQLite
 格式的版本与升级约束见[数据格式与备份](data-compatibility.md)。
 
@@ -188,24 +188,26 @@ Cloud 会话和工作区状态保存在对应 Docker volume 中，Gateway 只保
 
 ```mermaid
 sequenceDiagram
-    participant B as Web/PWA
-    participant G as Gateway
-    participant W as Workspace Worker
+    participant B as Web
+    participant CP as Control Plane
+    participant W as Agent Worker
     participant R as Agent Runtime
 
-    B->>G: POST /api/commands
-    G->>W: Internal WebSocket command
-    W->>R: Run or resume session
-    R-->>W: Streaming events
-    W-->>G: Sequenced events
-    G-->>B: SSE /api/events
+    B->>CP: POST /api/v2/agent/conversations/{id}/messages
+    CP->>W: 必要时唤醒容器
+    W->>CP: WebSocket /internal/v2/agents/ws
+    CP-->>W: agent.job
+    W->>R: runStreaming
+    R-->>W: text-delta / thinking-delta / tool-call / tool-result
+    W-->>CP: agent.events
+    CP-->>B: SSE /api/v2/agent/conversations/{id}/events
+    W-->>CP: agent.message 完整 parts 快照
 ```
 
-浏览器上行使用 HTTP POST，下行使用 SSE；Gateway 与 Worker 的内部连接使用
-WebSocket。客户端通过 `requestId` 保证命令幂等，通过事件 `seq` 恢复和去重。
-Protocol schema 是 Web、Gateway 与 Worker 的共享边界，同时导出版本化 JSON
-Schema 供非 TypeScript 客户端消费。版本、错误和回放语义见
-[Cloud Protocol](cloud-protocol.md)。
+浏览器上行使用 HTTP POST，下行使用 SSE；控制面把通用 `parts` 存在 PostgreSQL，
+直播事件只在内存扇出，不把每个 token 写入数据库。Worker 只在容器运行时与控制面
+保持 WebSocket：空闲时由控制面推送任务，生成过程立即推送 delta。浏览器不直连
+Worker。版本、错误和回放语义见 [Cloud Protocol](cloud-protocol.md)。
 
 每个成员使用独立 Agent 容器和 Docker volume。Web 静态文件由独立
 Nginx 容器提供。

@@ -1,6 +1,20 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.kross.agent.AgentMapper">
+  <resultMap id="AgentMessageMap" type="com.kross.agent.entity.AgentMessage">
+    <id column="id" property="id"/>
+    <result column="organization_id" property="organizationId"/>
+    <result column="agent_id" property="agentId"/>
+    <result column="conversation_id" property="conversationId"/>
+    <result column="reply_to" property="replyTo"/>
+    <result column="role" property="role"/>
+    <result column="content" property="content"/>
+    <result column="parts" property="parts" typeHandler="com.kross.support.JsonbTypeHandler"/>
+    <result column="status" property="status"/>
+    <result column="error_summary" property="errorSummary"/>
+    <result column="created_by" property="createdBy"/>
+    <result column="created_at" property="createdAt"/>
+  </resultMap>
   <select id="findByUser" resultType="com.kross.agent.entity.Agent">
     SELECT * FROM agents WHERE organization_id = #{organizationId} AND user_id = #{userId}
   </select>
@@ -83,12 +97,13 @@
 
   <insert id="insertMessage">
     INSERT INTO agent_messages
-      (id, organization_id, agent_id, conversation_id, role, content, status, error_summary, created_by)
+      (id, organization_id, agent_id, conversation_id, reply_to, role, content, parts, status, error_summary, created_by)
     VALUES
-      (#{id}, #{organizationId}, #{agentId}, #{conversationId}, #{role}, #{content}, #{status}, #{errorSummary}, #{createdBy})
+      (#{id}, #{organizationId}, #{agentId}, #{conversationId}, #{replyTo}, #{role}, #{content},
+       #{parts, typeHandler=com.kross.support.JsonbTypeHandler}, #{status}, #{errorSummary}, #{createdBy})
   </insert>
 
-  <select id="listMessages" resultType="com.kross.agent.entity.AgentMessage">
+  <select id="listMessages" resultMap="AgentMessageMap">
     SELECT * FROM (
       SELECT * FROM agent_messages
       WHERE organization_id = #{organizationId} AND conversation_id = #{conversationId}
@@ -98,7 +113,7 @@
     ORDER BY created_at ASC, id ASC
   </select>
 
-  <select id="listHistory" resultType="com.kross.agent.entity.AgentMessage">
+  <select id="listHistory" resultMap="AgentMessageMap">
     SELECT * FROM (
       SELECT * FROM agent_messages
       WHERE conversation_id = #{conversationId}
@@ -110,12 +125,19 @@
     ORDER BY created_at ASC, id ASC
   </select>
 
-  <select id="findMessage" resultType="com.kross.agent.entity.AgentMessage">
+  <select id="findMessage" resultMap="AgentMessageMap">
     SELECT * FROM agent_messages
     WHERE organization_id = #{organizationId} AND id = #{id}
   </select>
 
-  <select id="claimJob" resultType="com.kross.agent.entity.AgentMessage">
+  <select id="findReplyTo" resultMap="AgentMessageMap">
+    SELECT * FROM agent_messages
+    WHERE organization_id = #{organizationId} AND reply_to = #{replyTo} AND role = 'agent'
+    ORDER BY created_at ASC, id ASC
+    LIMIT 1
+  </select>
+
+  <select id="claimJob" resultMap="AgentMessageMap">
     WITH next_job AS (
       SELECT id FROM agent_messages
       WHERE agent_id = #{agentId} AND role = 'user' AND status = 'queued'
@@ -133,6 +155,15 @@
   <update id="completeMessage">
     UPDATE agent_messages
     SET status = #{status}, error_summary = #{errorSummary}
+    WHERE id = #{id}
+  </update>
+
+  <update id="updateMessageBody">
+    UPDATE agent_messages
+    SET status = #{status},
+        content = #{content},
+        parts = #{parts, typeHandler=com.kross.support.JsonbTypeHandler},
+        error_summary = #{errorSummary}
     WHERE id = #{id}
   </update>
 

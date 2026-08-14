@@ -37,16 +37,59 @@ public final class AgentProtocol {
   public record HistoryTurn(String role, String content) {}
 
   public record Job(
-      String id, String conversationId, String content, List<HistoryTurn> history, Instant createdAt) {}
+      String type,
+      String id,
+      String conversationId,
+      String agentMessageId,
+      String content,
+      List<HistoryTurn> history,
+      Instant createdAt) {
+    public Job(
+        String id,
+        String conversationId,
+        String agentMessageId,
+        String content,
+        List<HistoryTurn> history,
+        Instant createdAt) {
+      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt);
+    }
+  }
 
   public record ReplyRequest(
       String type,
       String userMessageId,
+      String agentMessageId,
       String content,
       String status,
-      String errorSummary) {}
+      String errorSummary,
+      com.fasterxml.jackson.databind.JsonNode parts) {}
+
+  public record StreamEventsRequest(
+      String type,
+      String userMessageId,
+      String agentMessageId,
+      List<StreamEvent> events) {}
+
+  public record StreamEvent(
+      String type,
+      String text,
+      String id,
+      String name,
+      Object input,
+      String content,
+      Boolean ok) {}
 
   public record SleepRequest(String type, String agentId) {}
 
-  public record ModelEnvironment(Map<String, String> env) {}
+  public record ModelEnvironment(String type, Map<String, String> env) {
+    public ModelEnvironment(Map<String, String> env) {
+      this("agent.model_environment", env);
+    }
+  }
+
+  public record SocketError(String type, String code, String message) {
+    public static SocketError of(String code, String message) {
+      return new SocketError("agent.error", code, message);
+    }
+  }
 }

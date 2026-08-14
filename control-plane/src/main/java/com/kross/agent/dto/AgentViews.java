@@ -32,6 +32,7 @@ public final class AgentViews {
         row.getConversationId(),
         row.getRole(),
         row.getContent(),
+        row.getParts(),
         row.getStatus(),
         row.getErrorSummary(),
         row.getCreatedAt());

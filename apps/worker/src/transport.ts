@@ -4,178 +4,342 @@ export interface AgentControlTransport {
   claimJob(): Promise<{
     id: string;
     conversationId: string;
+    agentMessageId: string;
     content: string;
     history: Array<{ role: string; content: string }>;
   } | undefined>;
+  postEvents(input: {
+    userMessageId: string;
+    agentMessageId: string;
+    events: AgentStreamEvent[];
+  }): Promise<void>;
   postReply(input: {
     userMessageId: string;
+    agentMessageId?: string;
     content: string;
     status: 'done' | 'failed';
     errorSummary?: string;
+    parts?: unknown[];
   }): Promise<void>;
   sleep(): Promise<void>;
   mintModelEnvironment(): Promise<Record<string, string | undefined>>;
+  close(): void;
 }
 
-export interface FetchAgentControlTransportOptions {
+export type AgentStreamEvent = {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  content?: string;
+  ok?: boolean;
+};
+
+export interface WsAgentControlTransportOptions {
   agentId: string;
   agentToken: string;
   controlPlaneUrl: string;
-  fetch?: typeof globalThis.fetch;
+  webSocket?: typeof WebSocket;
   timeoutMs?: number;
 }
 
-export class FetchAgentControlTransport implements AgentControlTransport {
-  private readonly fetch: typeof globalThis.fetch;
-  private readonly timeoutMs: number;
+type Job = {
+  id: string;
+  conversationId: string;
+  agentMessageId: string;
+  content: string;
+  history: Array<{ role: string; content: string }>;
+};
 
-  constructor(private readonly options: FetchAgentControlTransportOptions) {
+type SocketMessage = {
+  type?: unknown;
+  code?: unknown;
+  message?: unknown;
+  heartbeatIntervalMs?: unknown;
+  idleMs?: unknown;
+  shouldSleep?: unknown;
+  env?: unknown;
+  id?: unknown;
+  conversationId?: unknown;
+  agentMessageId?: unknown;
+  content?: unknown;
+  history?: unknown;
+};
+
+export class WsAgentControlTransport implements AgentControlTransport {
+  private readonly webSocket: typeof WebSocket;
+  private readonly timeoutMs: number;
+  private socket?: WebSocket;
+  private closed = false;
+  private opening?: Promise<void>;
+  private readonly pending = new Map<string, Deferred<SocketMessage>[]>();
+  private readonly jobs: Job[] = [];
+  private readonly jobWaiters: Array<(job: Job | undefined) => void> = [];
+
+  constructor(private readonly options: WsAgentControlTransportOptions) {
     const url = new URL(options.controlPlaneUrl);
     if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Control plane URL must use HTTP(S)');
     if (!options.agentToken.trim()) throw new Error('Agent token is required');
-    this.fetch = options.fetch ?? globalThis.fetch;
+    this.webSocket = options.webSocket ?? WebSocket;
     this.timeoutMs = options.timeoutMs ?? 15_000;
   }
 
   async register(): Promise<{ heartbeatIntervalMs: number; idleMs: number }> {
-    const body = await this.request('/internal/v2/agents/register', {
-      type: 'agent.register',
-      agentId: this.options.agentId
-    });
-    return {
-      heartbeatIntervalMs: numberField(body, 'heartbeatIntervalMs'),
-      idleMs: numberField(body, 'idleMs')
-    };
+    const registered = this.waitFor('agent.registered');
+    try {
+      await this.ensureConnected();
+      const body = await registered;
+      return {
+        heartbeatIntervalMs: numberField(body, 'heartbeatIntervalMs'),
+        idleMs: numberField(body, 'idleMs')
+      };
+    } catch (error) {
+      this.close();
+      await registered.catch(() => undefined);
+      throw error;
+    }
   }
 
   async heartbeat(): Promise<{ shouldSleep: boolean; heartbeatIntervalMs: number }> {
-    const body = await this.request('/internal/v2/agents/heartbeat', {
+    await this.ensureConnected();
+    const body = await this.request('agent.heartbeat_ack', {
       type: 'agent.heartbeat',
       agentId: this.options.agentId
     });
     return {
-      shouldSleep: Boolean((body as { shouldSleep?: unknown }).shouldSleep),
+      shouldSleep: Boolean(body.shouldSleep),
       heartbeatIntervalMs: numberField(body, 'heartbeatIntervalMs')
     };
   }
 
-  async claimJob(): Promise<{
-    id: string;
-    conversationId: string;
-    content: string;
-    history: Array<{ role: string; content: string }>;
-  } | undefined> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error('Control plane request timed out')), this.timeoutMs);
-    try {
-      const response = await this.fetch(new URL('/internal/v2/agents/jobs', this.options.controlPlaneUrl), {
-        headers: {
-          authorization: `Bearer ${this.options.agentToken}`,
-          accept: 'application/json'
-        },
-        signal: controller.signal
-      });
-      if (response.status === 204) return undefined;
-      if (!response.ok) {
-        throw new Error(`Control plane /internal/v2/agents/jobs failed (${response.status}): ${(await response.text()).slice(0, 500)}`);
-      }
-      const parsed = await response.json() as {
-        id?: unknown;
-        conversationId?: unknown;
-        content?: unknown;
-        history?: unknown;
-      };
-      if (typeof parsed.id !== 'string' || typeof parsed.content !== 'string') {
-        throw new Error('Control plane returned an invalid job');
-      }
-      return {
-        id: parsed.id,
-        conversationId: typeof parsed.conversationId === 'string' ? parsed.conversationId : '',
-        content: parsed.content,
-        history: parseHistory(parsed.history)
-      };
-    } finally {
-      clearTimeout(timeout);
-    }
+  async claimJob(): Promise<Job | undefined> {
+    if (this.closed) return undefined;
+    await this.ensureConnected();
+    const queued = this.jobs.shift();
+    if (queued) return queued;
+    return new Promise((resolve) => {
+      this.jobWaiters.push(resolve);
+    });
+  }
+
+  async postEvents(input: {
+    userMessageId: string;
+    agentMessageId: string;
+    events: AgentStreamEvent[];
+  }): Promise<void> {
+    if (input.events.length === 0) return;
+    this.send({
+      type: 'agent.events',
+      userMessageId: input.userMessageId,
+      agentMessageId: input.agentMessageId,
+      events: input.events
+    });
   }
 
   async postReply(input: {
     userMessageId: string;
+    agentMessageId?: string;
     content: string;
     status: 'done' | 'failed';
     errorSummary?: string;
+    parts?: unknown[];
   }): Promise<void> {
-    await this.request('/internal/v2/agents/messages', {
+    this.send({
       type: 'agent.message',
       userMessageId: input.userMessageId,
       content: input.content,
       status: input.status,
-      ...(input.errorSummary ? { errorSummary: input.errorSummary } : {})
-    }, true);
+      ...(input.agentMessageId ? { agentMessageId: input.agentMessageId } : {}),
+      ...(input.errorSummary ? { errorSummary: input.errorSummary } : {}),
+      ...(input.parts ? { parts: input.parts } : {})
+    });
   }
 
   async sleep(): Promise<void> {
-    await this.request('/internal/v2/agents/sleep', {
+    this.send({
       type: 'agent.sleep',
       agentId: this.options.agentId
-    }, true);
+    });
+    this.close();
   }
 
   async mintModelEnvironment(): Promise<Record<string, string | undefined>> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error('Control plane request timed out')), this.timeoutMs);
+    await this.ensureConnected();
+    const body = await this.request('agent.model_environment', { type: 'agent.model_environment' });
+    if (!body.env || typeof body.env !== 'object' || Array.isArray(body.env)) {
+      throw new Error('Control plane returned an invalid model environment');
+    }
+    const env: Record<string, string | undefined> = {};
+    for (const [key, value] of Object.entries(body.env as Record<string, unknown>)) {
+      if (typeof value === 'string' && value.length > 0) env[key] = value;
+    }
+    if (!env.AGENT_LLM_PROVIDER) throw new Error('Control plane returned a model environment without AGENT_LLM_PROVIDER');
+    return env;
+  }
+
+  close(): void {
+    this.closed = true;
+    this.flushJobWaiters();
+    this.rejectAll(new Error('Agent control websocket closed'));
+    const socket = this.socket;
+    this.socket = undefined;
+    this.opening = undefined;
+    if (socket && socket.readyState === this.webSocket.OPEN) socket.close();
+  }
+
+  private async ensureConnected(): Promise<void> {
+    if (this.closed) throw new Error('Agent control websocket is closed');
+    if (this.socket && this.socket.readyState === this.webSocket.OPEN) return;
+    if (this.opening) {
+      await this.opening;
+      return;
+    }
+    this.opening = this.connect();
     try {
-      const response = await this.fetch(new URL('/internal/v2/agents/model-environment', this.options.controlPlaneUrl), {
-        headers: {
-          authorization: `Bearer ${this.options.agentToken}`,
-          accept: 'application/json'
-        },
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        throw new Error(`Control plane model environment failed (${response.status}): ${(await response.text()).slice(0, 500)}`);
-      }
-      const parsed = await response.json() as { env?: unknown };
-      if (!parsed.env || typeof parsed.env !== 'object' || Array.isArray(parsed.env)) {
-        throw new Error('Control plane returned an invalid model environment');
-      }
-      const env: Record<string, string | undefined> = {};
-      for (const [key, value] of Object.entries(parsed.env as Record<string, unknown>)) {
-        if (typeof value === 'string' && value.length > 0) env[key] = value;
-      }
-      if (!env.AGENT_LLM_PROVIDER) throw new Error('Control plane returned a model environment without AGENT_LLM_PROVIDER');
-      return env;
+      await this.opening;
     } finally {
-      clearTimeout(timeout);
+      this.opening = undefined;
     }
   }
 
-  private async request(path: string, body: Record<string, unknown>, allowEmpty = false): Promise<unknown> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error('Control plane request timed out')), this.timeoutMs);
-    try {
-      const response = await this.fetch(new URL(path, this.options.controlPlaneUrl), {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${this.options.agentToken}`,
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        const detail = (await response.text()).slice(0, 500);
-        throw new Error(`Control plane ${path} failed (${response.status}): ${detail || response.statusText}`);
+  private async connect(): Promise<void> {
+    const socket = new this.webSocket(socketUrl(this.options.controlPlaneUrl, this.options.agentToken));
+    this.socket = socket;
+    socket.addEventListener('message', (event) => this.onMessage(String((event as MessageEvent).data)));
+    socket.addEventListener('close', () => {
+      if (this.socket === socket) {
+        this.socket = undefined;
+        this.flushJobWaiters();
+        this.rejectAll(new Error('Agent control websocket closed'));
       }
-      if (allowEmpty && response.status === 204) return undefined;
-      return await response.json();
-    } catch (error) {
-      if (controller.signal.aborted) throw new Error(`Control plane ${path} timed out`, { cause: error });
-      throw error;
-    } finally {
-      clearTimeout(timeout);
+    });
+    socket.addEventListener('error', () => {
+      if (this.socket === socket) {
+        this.rejectAll(new Error('Agent control websocket error'));
+      }
+    });
+    if (socket.readyState === this.webSocket.OPEN) return;
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Control plane websocket timed out')), this.timeoutMs);
+      socket.addEventListener('open', () => {
+        clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+      socket.addEventListener('error', () => {
+        clearTimeout(timeout);
+        reject(new Error('Control plane websocket error'));
+      }, { once: true });
+    });
+  }
+
+  private onMessage(raw: string): void {
+    let parsed: SocketMessage;
+    try {
+      parsed = JSON.parse(raw) as SocketMessage;
+    } catch {
+      return;
+    }
+    const type = typeof parsed.type === 'string' ? parsed.type : '';
+    if (type === 'agent.error') {
+      const detail = typeof parsed.message === 'string' ? parsed.message : 'Agent websocket request failed';
+      this.rejectAll(new Error(detail));
+      return;
+    }
+    if (type === 'agent.job') {
+      const job = parseJob(parsed);
+      const waiter = this.jobWaiters.shift();
+      if (waiter) waiter(job);
+      else this.jobs.push(job);
+      return;
+    }
+    const waiters = this.pending.get(type);
+    const waiter = waiters?.shift();
+    if (waiter) waiter.resolve(parsed);
+  }
+
+  private async request(responseType: string, body: Record<string, unknown>): Promise<SocketMessage> {
+    const wait = this.waitFor(responseType);
+    this.send(body);
+    return wait;
+  }
+
+  private waitFor(type: string): Promise<SocketMessage> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.removePending(type, deferred);
+        reject(new Error(`Control plane ${type} timed out`));
+      }, this.timeoutMs);
+      const deferred: Deferred<SocketMessage> = {
+        resolve: (value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        }
+      };
+      const waiters = this.pending.get(type) ?? [];
+      waiters.push(deferred);
+      this.pending.set(type, waiters);
+    });
+  }
+
+  private send(body: Record<string, unknown>): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== this.webSocket.OPEN) {
+      throw new Error('Agent control websocket is not connected');
+    }
+    socket.send(JSON.stringify(body));
+  }
+
+  private removePending(type: string, deferred: Deferred<SocketMessage>): void {
+    const waiters = this.pending.get(type);
+    if (!waiters) return;
+    const next = waiters.filter((item) => item !== deferred);
+    if (next.length === 0) this.pending.delete(type);
+    else this.pending.set(type, next);
+  }
+
+  private rejectAll(error: Error): void {
+    for (const waiters of this.pending.values()) {
+      for (const waiter of waiters) waiter.reject(error);
+    }
+    this.pending.clear();
+  }
+
+  private flushJobWaiters(): void {
+    while (this.jobWaiters.length > 0) {
+      const waiter = this.jobWaiters.shift();
+      waiter?.(undefined);
     }
   }
+}
+
+type Deferred<T> = {
+  resolve(value: T): void;
+  reject(error: Error): void;
+};
+
+function socketUrl(controlPlaneUrl: string, token: string): string {
+  const url = new URL('/internal/v2/agents/ws', controlPlaneUrl);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.searchParams.set('token', token);
+  return url.toString();
+}
+
+function parseJob(value: SocketMessage): Job {
+  if (typeof value.id !== 'string' || typeof value.content !== 'string' || typeof value.agentMessageId !== 'string') {
+    throw new Error('Control plane returned an invalid job');
+  }
+  return {
+    id: value.id,
+    conversationId: typeof value.conversationId === 'string' ? value.conversationId : '',
+    agentMessageId: value.agentMessageId,
+    content: value.content,
+    history: parseHistory(value.history)
+  };
 }
 
 function parseHistory(value: unknown): Array<{ role: string; content: string }> {
@@ -192,8 +356,8 @@ function parseHistory(value: unknown): Array<{ role: string; content: string }> 
   return turns;
 }
 
-function numberField(body: unknown, key: string): number {
-  const value = body && typeof body === 'object' ? (body as Record<string, unknown>)[key] : undefined;
+function numberField(body: SocketMessage, key: 'heartbeatIntervalMs' | 'idleMs'): number {
+  const value = body[key];
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`Control plane response omitted ${key}`);
   }

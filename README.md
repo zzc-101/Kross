@@ -28,7 +28,7 @@ Kross is more than a chat interface that forwards prompts to a model. It provide
 - **Managed background processes**: starts, polls, writes to, and terminates long-running commands with per-session isolation.
 - **Controlled tool scheduling**: independent read-only calls may run concurrently, while writes, execution, Process, and MCP calls remain ordered. Polling without progress automatically backs off.
 - **Transparent inspection**: `/context`, `/trace`, and `/diff` expose context usage, execution traces, and code changes.
-- **Mobile and unreliable-network support**: the Cloud Agent receives events over SSE, submits commands over HTTP, queues offline commands, replays ordered events, sends Web Push approval notifications, and supports PWA installation.
+- **Mobile and unreliable-network support**: the Cloud Agent submits messages over HTTP and receives live events over SSE. Workers keep a WebSocket to the control plane only while their container is running.
 - **Cloud workspace management**: repository cloning, session recovery, real Git Diff, branch Push, Pull Requests, resource limits, and idle reaping.
 - **Native multi-model profiles**: save, name, and switch between multiple OpenAI, Anthropic, OpenRouter, DeepSeek, and xAI configurations without discarding previously configured models.
 
@@ -187,7 +187,7 @@ flowchart TB
     U["User"] --> T["Ink TUI"]
     U --> W["Web / PWA"]
     T --> R["Agent Runtime"]
-    W --> S["Cloud Gateway"]
+    W --> S["Java Control Plane"]
     S --> D["Per-workspace Docker Worker"]
     D --> R
     R --> C["Context / Sessions / Checkpoints"]

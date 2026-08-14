@@ -10,9 +10,11 @@ import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.api.ApiHeaders;
 import com.kross.api.ItemList;
 import com.kross.api.Res;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequiredArgsConstructor
@@ -73,6 +76,17 @@ public class AgentController {
       @PathVariable String conversationId,
       @RequestParam Optional<Integer> limit) {
     return Res.ok(new ItemList<>(agents.listMessages(organizationId, conversationId, limit)));
+  }
+
+  @GetMapping(path = "/conversations/{conversationId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+  public SseEmitter events(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String conversationId,
+      HttpServletResponse response) {
+    response.setHeader("Cache-Control", "no-cache, no-transform");
+    response.setHeader("X-Accel-Buffering", "no");
+    response.setHeader("Connection", "keep-alive");
+    return agents.subscribe(organizationId, conversationId);
   }
 
   @PostMapping("/sleep")

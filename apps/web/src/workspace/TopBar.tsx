@@ -1,61 +1,14 @@
-import { Menu, Moon } from 'lucide-react';
+import { Copy, Menu, MessageCircleDashed, Plus } from 'lucide-react';
 
-import { agentStatusLabel } from '../assistant/AgentRuntimeProvider';
-import type { Agent, Membership } from '../api/types';
-
-export function TopBar({
-  agent,
-  memberships,
-  organizationId,
-  devUserId,
-  onOpenSidebar,
-  onSelectOrganization,
-  onSleep,
-  onChangeIdentity
-}: {
-  agent?: Agent;
-  memberships: Membership[];
-  organizationId: string;
-  devUserId: string;
-  onOpenSidebar(): void;
-  onSelectOrganization(id: string): void;
-  onSleep(): void;
-  onChangeIdentity(): void;
-}) {
-  const live = agent?.status === 'running' || agent?.status === 'starting';
+export function TopBar({ onOpenSidebar, onNew }: { onOpenSidebar(): void; onNew(): void }) {
   return (
-    <header className="topbar">
-      <div className="brand">
-        <button type="button" className="menu-btn" aria-label="打开会话列表" onClick={onOpenSidebar}>
-          <Menu size={18} />
-        </button>
-        <span>K</span>
-        <div>
-          <strong>Kross</strong>
-          <small>长期 Agent 工作区</small>
-        </div>
-      </div>
-      <div className="top-actions">
-        <span className={`agent-pill ${live ? 'live' : 'idle'}`}>
-          <i />
-          {agentStatusLabel(agent)}
-        </span>
-        <select
-          aria-label="切换组织"
-          value={organizationId}
-          onChange={(event) => onSelectOrganization(event.target.value)}
-        >
-          {memberships.map((item) => (
-            <option key={item.id} value={item.organizationId}>
-              {item.organizationId} · {item.role}
-            </option>
-          ))}
-        </select>
-        <button type="button" className="ghost" onClick={onSleep} disabled={!live}>
-          <Moon size={14} /> 休眠
-        </button>
-        <button type="button" className="ghost" onClick={onChangeIdentity}>{devUserId}</button>
-      </div>
+    <header className="libre-topbar">
+      <button type="button" className="mobile-menu" aria-label="打开侧边栏" onClick={onOpenSidebar}><Menu /></button>
+      <button type="button" className="model-selector" aria-label="选择模型"><img src="/openai.svg" alt="" /><strong>gpt-5.5</strong></button>
+      <button type="button" className="header-icon" aria-label="复制当前对话链接" onClick={() => void navigator.clipboard?.writeText(location.href)}><Copy /></button>
+      <button type="button" className="header-icon" aria-label="新对话" onClick={onNew}><Plus /></button>
+      <span className="header-spacer" />
+      <button type="button" className="header-icon temporary-chat" aria-label="临时对话"><MessageCircleDashed /></button>
     </header>
   );
 }

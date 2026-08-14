@@ -1,6 +1,7 @@
 package com.kross.agent;
 
-import com.kross.agent.dto.AgentMessageView;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.agent.dto.AgentProtocol;
 import com.kross.agent.dto.AgentView;
 import com.kross.agent.dto.AgentViews;
@@ -15,6 +16,10 @@ import com.kross.agent.entity.AgentModel;
 import com.kross.agent.entity.AgentSession;
 import com.kross.api.ApiException;
 import com.kross.catalog.CredentialVault;
+import com.kross.channel.AgentSocketHub;
+import com.kross.channel.ChannelEvent;
+import com.kross.channel.ChannelEventBus;
+import com.kross.channel.MessageParts;
 import com.kross.config.KrossProperties;
 import com.kross.identity.OrganizationAccess;
 import com.kross.identity.OrganizationAction;
@@ -25,13 +30,18 @@ import com.kross.orchestrator.ContainerBackend.BackendHandle;
 import com.kross.orchestrator.ContainerBackend.ResourceLimits;
 import com.kross.support.Tokens;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Service
 @RequiredArgsConstructor
@@ -48,6 +58,9 @@ public class AgentService {
   private final ContainerBackend containers;
   private final CredentialVault vault;
   private final KrossProperties properties;
+  private final ChannelEventBus channelEvents;
+  private final AgentSocketHub sockets;
+  private final ObjectMapper mapper;
 
   public AgentView getMine(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
@@ -114,8 +127,10 @@ public class AgentService {
     row.setConversationId(conversation.getId());
     row.setRole("user");
     row.setContent(content);
+    row.setParts(MessageParts.empty(mapper));
     row.setStatus("queued");
     row.setCreatedBy(context.userId());
+    row.setCreatedAt(Instant.now());
     agents.insertMessage(row);
     if (DEFAULT_TITLE.equals(conversation.getTitle())) {
       conversation.setTitle(clipTitle(content));
@@ -124,6 +139,8 @@ public class AgentService {
     agents.touchConversation(conversation.getId());
     agents.touch(agent.getId());
     wake(agent);
+    emitUpsert(row);
+    afterCommit(() -> offerJobToWorker(agent.getId()));
     return AgentViews.message(row);
   }
 
@@ -204,8 +221,11 @@ public class AgentService {
           : agents.listHistory(conversationId, row.getId(), HISTORY_LIMIT).stream()
               .map(item -> new AgentProtocol.HistoryTurn(item.getRole(), item.getContent()))
               .toList();
+      AgentMessage reply = insertPlaceholder(session, row);
+      emitUpsert(row);
+      emitUpsert(reply);
       return new AgentProtocol.Job(
-          row.getId(), conversationId, row.getContent(), history, row.getCreatedAt());
+          row.getId(), conversationId, reply.getId(), row.getContent(), history, row.getCreatedAt());
     });
   }
 
@@ -218,27 +238,105 @@ public class AgentService {
     if (!List.of("done", "failed").contains(status)) {
       throw ApiException.invalidRequest("status must be done or failed");
     }
+    JsonNode parts = MessageParts.copyOrEmpty(mapper, request.parts());
     String content = Optional.ofNullable(request.content()).orElse("").trim();
+    if (content.isEmpty()) {
+      content = MessageParts.textSnapshot(parts);
+    }
     AgentMessage userMessage = agents.findMessage(session.getOrganizationId(), userMessageId)
         .filter(row -> session.getAgentId().equals(row.getAgentId()))
         .orElseThrow(() -> ApiException.notFound("Message"));
     String conversationId = Optional.ofNullable(userMessage.getConversationId())
         .orElseThrow(() -> ApiException.invalidRequest("Message is missing a conversation"));
-    AgentMessage reply = new AgentMessage();
-    reply.setId(UUID.randomUUID().toString());
-    reply.setOrganizationId(session.getOrganizationId());
-    reply.setAgentId(session.getAgentId());
-    reply.setConversationId(conversationId);
-    reply.setRole("agent");
-    reply.setContent(content.isEmpty() && "failed".equals(status)
+    String body = content.isEmpty() && "failed".equals(status)
         ? Optional.ofNullable(request.errorSummary()).orElse("Agent turn failed")
-        : content);
+        : content;
+    AgentMessage reply = Optional.ofNullable(request.agentMessageId())
+        .filter(value -> !value.isBlank())
+        .flatMap(id -> agents.findMessage(session.getOrganizationId(), id))
+        .or(() -> agents.findReplyTo(session.getOrganizationId(), userMessageId))
+        .filter(row -> session.getAgentId().equals(row.getAgentId()))
+        .orElseGet(() -> {
+          AgentMessage created = placeholder(session, userMessage, UUID.randomUUID().toString());
+          agents.insertMessage(created);
+          return created;
+        });
+    reply.setContent(body);
+    reply.setParts(parts);
     reply.setStatus(status);
     reply.setErrorSummary(request.errorSummary());
-    agents.insertMessage(reply);
+    agents.updateMessageBody(reply);
     agents.completeMessage(userMessageId, status, request.errorSummary());
     agents.touchConversation(conversationId);
     agents.touch(session.getAgentId());
+    emitUpsert(agents.findMessage(session.getOrganizationId(), userMessageId).orElse(userMessage));
+    emitUpsert(agents.findMessage(session.getOrganizationId(), reply.getId()).orElse(reply));
+    String agentId = session.getAgentId();
+    afterCommit(() -> {
+      sockets.markIdle(agentId);
+      offerJobToWorker(agentId);
+    });
+  }
+
+  public void ingestEvents(String token, AgentProtocol.StreamEventsRequest request) {
+    AgentSession session = authenticate(token);
+    String agentMessageId = Optional.ofNullable(request.agentMessageId()).filter(value -> !value.isBlank())
+        .orElseThrow(() -> ApiException.invalidRequest("agentMessageId is required"));
+    AgentMessage reply = agents.findMessage(session.getOrganizationId(), agentMessageId)
+        .filter(row -> session.getAgentId().equals(row.getAgentId()))
+        .orElseThrow(() -> ApiException.notFound("Message"));
+    String conversationId = Optional.ofNullable(reply.getConversationId()).orElse("");
+    List<AgentProtocol.StreamEvent> events = Optional.ofNullable(request.events()).orElse(List.of());
+    for (AgentProtocol.StreamEvent event : events) {
+      if (event == null || event.type() == null || event.type().isBlank()) {
+        continue;
+      }
+      Map<String, Object> data = new LinkedHashMap<>();
+      if (event.text() != null) {
+        data.put("text", event.text());
+      }
+      if (event.id() != null) {
+        data.put("id", event.id());
+      }
+      if (event.name() != null) {
+        data.put("name", event.name());
+      }
+      if (event.input() != null) {
+        data.put("input", event.input());
+      }
+      if (event.content() != null) {
+        data.put("content", event.content());
+      }
+      if (event.ok() != null) {
+        data.put("ok", event.ok());
+      }
+      emit(ChannelEvent.of(event.type(), conversationId, reply.getId(), data));
+    }
+    agents.touch(session.getAgentId());
+  }
+
+  public SseEmitter subscribe(String organizationId, String conversationId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+    Agent agent = ensure(context);
+    requireConversation(context, agent, conversationId);
+    return channelEvents.subscribe(conversationId);
+  }
+
+  public void offerJobToWorker(String agentId) {
+    sockets.offerJob(agentId);
+  }
+
+  public AgentSession requireAgentSession(String token) {
+    return authenticate(token);
+  }
+
+  @Transactional
+  public Optional<AgentProtocol.Job> claimIfIdle(String token) {
+    AgentSession session = authenticate(token);
+    if (agents.hasProcessing(session.getAgentId())) {
+      return Optional.empty();
+    }
+    return claimJob(token);
   }
 
   public void sleepFromWorker(String token, AgentProtocol.SleepRequest request) {
@@ -393,5 +491,49 @@ public class AgentService {
 
   private Agent requireAgent(String agentId) {
     return agents.findByIdOnly(agentId).orElseThrow(() -> ApiException.notFound("Agent"));
+  }
+
+  private AgentMessage insertPlaceholder(AgentSession session, AgentMessage userMessage) {
+    AgentMessage reply = placeholder(session, userMessage, UUID.randomUUID().toString());
+    agents.insertMessage(reply);
+    return reply;
+  }
+
+  private AgentMessage placeholder(AgentSession session, AgentMessage userMessage, String id) {
+    AgentMessage reply = new AgentMessage();
+    reply.setId(id);
+    reply.setOrganizationId(session.getOrganizationId());
+    reply.setAgentId(session.getAgentId());
+    reply.setConversationId(userMessage.getConversationId());
+    reply.setReplyTo(userMessage.getId());
+    reply.setRole("agent");
+    reply.setContent("");
+    reply.setParts(MessageParts.empty(mapper));
+    reply.setStatus("processing");
+    reply.setCreatedAt(Instant.now());
+    return reply;
+  }
+
+  private void emitUpsert(AgentMessage row) {
+    Map<String, Object> data = new LinkedHashMap<>();
+    data.put("message", AgentViews.message(row));
+    emit(ChannelEvent.of("message.upsert", row.getConversationId(), row.getId(), data));
+  }
+
+  private void emit(ChannelEvent event) {
+    afterCommit(() -> channelEvents.publish(event));
+  }
+
+  private void afterCommit(Runnable action) {
+    if (TransactionSynchronizationManager.isActualTransactionActive()) {
+      TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+        @Override
+        public void afterCommit() {
+          action.run();
+        }
+      });
+      return;
+    }
+    action.run();
   }
 }

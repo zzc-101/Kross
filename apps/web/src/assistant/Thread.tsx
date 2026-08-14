@@ -1,62 +1,136 @@
 import {
+  ActionBarPrimitive,
+  AuiIf,
   ComposerPrimitive,
+  ErrorPrimitive,
   MessagePrimitive,
-  ThreadPrimitive
+  ThreadPrimitive,
+  unstable_useComposerInput
 } from '@assistant-ui/react';
-import { ArrowUp } from 'lucide-react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import {
+  ArrowDown,
+  ArrowUp,
+  BarChart3,
+  Check,
+  ChevronDown,
+  CloudSun,
+  Code2,
+  Copy,
+  Lightbulb,
+  Mic,
+  PencilLine,
+  Plus
+} from 'lucide-react';
+
+import { messagePartComponents } from './MessageParts';
 
 export function Thread() {
   return (
     <ThreadPrimitive.Root className="thread">
       <ThreadPrimitive.Viewport className="thread-viewport" autoScroll>
-        <ThreadPrimitive.Empty>
-          <div className="thread-empty">
-            <div className="mark">K</div>
-            <h1>今天想做什么？</h1>
-            <p>这是你的长期工作区。文件、技能和记忆会留在这块盘上，新对话只换一张桌子。</p>
+        <ThreadPrimitive.If empty>
+          <div className="landing">
+            <div className="landing-content">
+              <div className="landing-greeting"><h1>How can I help you today?</h1></div>
+              <Composer landing />
+            </div>
+            <Footer />
           </div>
-        </ThreadPrimitive.Empty>
-        <ThreadPrimitive.Messages components={{ Message: Bubble }} />
-        <ThreadPrimitive.If running>
-          <div className="typing"><i /><i /><i /><span>Agent 正在工作区里处理…</span></div>
+        </ThreadPrimitive.If>
+
+        <ThreadPrimitive.If empty={false}>
+          <div className="message-list">
+            <ThreadPrimitive.Messages components={{ Message: ConversationMessage }} />
+          </div>
+          <ThreadPrimitive.ViewportFooter className="thread-viewport-footer">
+            <ThreadPrimitive.ScrollToBottom className="scroll-to-bottom" aria-label="滚动到底部">
+              <ArrowDown />
+            </ThreadPrimitive.ScrollToBottom>
+            <div className="composer-docked"><Composer /><Footer /></div>
+          </ThreadPrimitive.ViewportFooter>
         </ThreadPrimitive.If>
       </ThreadPrimitive.Viewport>
-      <div className="composer-shell">
-        <ComposerPrimitive.Root className="composer">
-          <ComposerPrimitive.Input
-            className="composer-input"
-            placeholder="发给你的 Agent…"
-            rows={1}
-            autoFocus
-          />
-          <ComposerPrimitive.Send className="composer-send" aria-label="发送">
-            <ArrowUp size={18} />
-          </ComposerPrimitive.Send>
-        </ComposerPrimitive.Root>
-        <small>消息会唤醒你的工作区。空闲后容器会休眠，磁盘留下。</small>
-      </div>
     </ThreadPrimitive.Root>
   );
 }
 
-function Bubble() {
+function Composer({ landing = false }: { landing?: boolean }) {
+  return (
+    <div className="composer-wrap">
+      <ComposerPrimitive.Root className="composer">
+        <ComposerPrimitive.Input
+          className="composer-input"
+          placeholder="Send a message... (@ to mention, / for commands)"
+          rows={1}
+          autoFocus
+          aria-label="消息内容"
+        />
+        <div className="composer-toolbar">
+          <div className="composer-tools">
+            <button type="button" aria-label="添加附件（即将支持）" title="等待 Kross 附件协议支持" disabled><Plus /></button>
+            <button type="button" className="composer-model" aria-label="当前模型">
+              <img src="/openai.svg" alt="" />
+              <span>GPT-5.5</span>
+              <ChevronDown />
+            </button>
+          </div>
+          <div className="composer-tools right">
+            <button type="button" aria-label="语音输入（即将支持）" title="等待语音协议支持" disabled><Mic /></button>
+            <ComposerPrimitive.Send className="composer-send" aria-label="发送"><ArrowUp /></ComposerPrimitive.Send>
+          </div>
+        </div>
+      </ComposerPrimitive.Root>
+      {landing && <QuickActions />}
+    </div>
+  );
+}
+
+const quickActions = [
+  { label: 'Weather', prompt: 'Check the weather and help me plan around it.', icon: CloudSun },
+  { label: 'Code', prompt: 'Help me write and review some code.', icon: Code2 },
+  { label: 'Write', prompt: 'Help me draft and improve a piece of writing.', icon: PencilLine },
+  { label: 'Analyze', prompt: 'Analyze this problem and give me a clear breakdown.', icon: BarChart3 },
+  { label: 'Brainstorm', prompt: 'Brainstorm practical ideas with me.', icon: Lightbulb }
+];
+
+function QuickActions() {
+  const composer = unstable_useComposerInput();
+  return (
+    <div className="quick-actions" aria-label="快捷能力">
+      {quickActions.map(({ label, prompt, icon: Icon }) => (
+        <button type="button" key={label} onClick={() => composer.setText(prompt)}>
+          <Icon /><span>{label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="libre-footer">
+      <span>Kross Agent – Every AI for Everyone.</span><i />
+      <button type="button">隐私政策</button><button type="button">服务政策</button>
+    </footer>
+  );
+}
+
+function ConversationMessage() {
   return (
     <MessagePrimitive.Root className="bubble">
       <MessagePrimitive.If user>
         <div className="bubble-row user">
-          <div className="bubble-meta">你</div>
-          <div className="bubble-body">
-            <MessageText />
-          </div>
+          <div className="bubble-body"><MessagePrimitive.Content components={messagePartComponents} /></div>
+          <MessageActions />
         </div>
       </MessagePrimitive.If>
       <MessagePrimitive.If assistant>
         <div className="bubble-row assistant">
-          <div className="bubble-meta">Agent</div>
-          <div className="bubble-body">
-            <MessageText />
+          <span className="model-mark small"><img src="/openai.svg" alt="" /></span>
+          <div className="assistant-message-stack">
+            <div className="bubble-body"><MessagePrimitive.Content components={messagePartComponents} /></div>
+            <MessageError />
+            <MessageActions />
           </div>
         </div>
       </MessagePrimitive.If>
@@ -64,12 +138,23 @@ function Bubble() {
   );
 }
 
-function MessageText() {
+function MessageActions() {
   return (
-    <MessagePrimitive.Content
-      components={{
-        Text: ({ text }) => <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
-      }}
-    />
+    <ActionBarPrimitive.Root className="message-actions" hideWhenRunning autohide="not-last">
+      <ActionBarPrimitive.Copy className="message-action" aria-label="复制消息" copiedDuration={2_000}>
+        <AuiIf condition={(state) => state.message.isCopied}><Check /></AuiIf>
+        <AuiIf condition={(state) => !state.message.isCopied}><Copy /></AuiIf>
+      </ActionBarPrimitive.Copy>
+    </ActionBarPrimitive.Root>
+  );
+}
+
+function MessageError() {
+  return (
+    <MessagePrimitive.Error>
+      <ErrorPrimitive.Root className="message-error" role="alert">
+        <ErrorPrimitive.Message />
+      </ErrorPrimitive.Root>
+    </MessagePrimitive.Error>
   );
 }

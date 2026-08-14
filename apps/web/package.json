@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.14",
+    "@assistant-ui/react-markdown": "^0.14.10",
     "@kross/protocol": "0.1.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.26.0",

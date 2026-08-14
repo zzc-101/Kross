@@ -1,35 +1,61 @@
-import { describe, expect, it, vi } from 'vitest';
-import { FetchAgentControlTransport } from './transport';
+import { describe, expect, it } from 'vitest';
+import { WsAgentControlTransport } from './transport';
 
-describe('FetchAgentControlTransport', () => {
-  it('registers with the agent token and no durable credential', async () => {
-    const fetch = vi.fn(async () => json({ heartbeatIntervalMs: 10_000, idleMs: 900_000 }));
-    const transport = new FetchAgentControlTransport({
+describe('WsAgentControlTransport', () => {
+  it('registers over websocket with the agent token', async () => {
+    const sockets: FakeSocket[] = [];
+    const transport = new WsAgentControlTransport({
       agentId: 'agent1',
       agentToken: 'short-token',
       controlPlaneUrl: 'https://control.example.test',
-      fetch: fetch as unknown as typeof globalThis.fetch
+      webSocket: fakeWebSocket(sockets) as unknown as typeof WebSocket
     });
-    await expect(transport.register()).resolves.toEqual({ heartbeatIntervalMs: 10_000, idleMs: 900_000 });
-    const [url, init] = fetch.mock.calls[0] as [URL, RequestInit];
-    expect(url.pathname).toBe('/internal/v2/agents/register');
-    expect(new Headers(init.headers).get('authorization')).toBe('Bearer short-token');
-    expect(JSON.parse(String(init.body))).toMatchObject({ type: 'agent.register', agentId: 'agent1' });
+    const registered = transport.register();
+    await Promise.resolve();
+    expect(sockets[0]?.url).toContain('/internal/v2/agents/ws');
+    expect(sockets[0]?.url).toContain('token=short-token');
+    expect(sockets[0]?.url.startsWith('wss://')).toBe(true);
+    sockets[0]?.open();
+    sockets[0]?.emit({
+      type: 'agent.registered',
+      heartbeatIntervalMs: 10_000,
+      idleMs: 900_000,
+      agentId: 'agent1'
+    });
+    await expect(registered).resolves.toEqual({ heartbeatIntervalMs: 10_000, idleMs: 900_000 });
   });
 
-  it('treats an empty job poll as idle', async () => {
-    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
-    const transport = new FetchAgentControlTransport({
+  it('waits for a pushed job instead of polling', async () => {
+    const sockets: FakeSocket[] = [];
+    const transport = new WsAgentControlTransport({
       agentId: 'agent1',
       agentToken: 'short-token',
-      controlPlaneUrl: 'https://control.example.test',
-      fetch: fetch as unknown as typeof globalThis.fetch
+      controlPlaneUrl: 'http://control.example.test',
+      webSocket: fakeWebSocket(sockets) as unknown as typeof WebSocket
     });
-    await expect(transport.claimJob()).resolves.toBeUndefined();
+    const registered = transport.register();
+    await Promise.resolve();
+    sockets[0]?.open();
+    sockets[0]?.emit({ type: 'agent.registered', heartbeatIntervalMs: 10_000, idleMs: 900_000 });
+    await registered;
+    const claimed = transport.claimJob();
+    sockets[0]?.emit({
+      type: 'agent.job',
+      id: 'user-1',
+      conversationId: 'conv-1',
+      agentMessageId: 'agent-1',
+      content: 'hello',
+      history: []
+    });
+    await expect(claimed).resolves.toMatchObject({
+      id: 'user-1',
+      agentMessageId: 'agent-1',
+      content: 'hello'
+    });
   });
 
   it('rejects a missing agent token', () => {
-    expect(() => new FetchAgentControlTransport({
+    expect(() => new WsAgentControlTransport({
       agentId: 'agent1',
       agentToken: '  ',
       controlPlaneUrl: 'https://control.example.test'
@@ -37,6 +63,56 @@ describe('FetchAgentControlTransport', () => {
   });
 });
 
-function json(body: unknown): Response {
-  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+class FakeSocket {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+  readyState = FakeSocket.CONNECTING;
+  readonly sent: string[] = [];
+  private readonly listeners = new Map<string, Set<(event: { data?: string }) => void>>();
+
+  constructor(readonly url: string) {}
+
+  addEventListener(type: string, listener: (event: { data?: string }) => void): void {
+    const bucket = this.listeners.get(type) ?? new Set();
+    bucket.add(listener);
+    this.listeners.set(type, bucket);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.readyState = FakeSocket.CLOSED;
+    this.emitEvent('close');
+  }
+
+  open(): void {
+    this.readyState = FakeSocket.OPEN;
+    this.emitEvent('open');
+  }
+
+  emit(payload: unknown): void {
+    this.emitEvent('message', { data: JSON.stringify(payload) });
+  }
+
+  private emitEvent(type: string, event: { data?: string } = {}): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+}
+
+function fakeWebSocket(sockets: FakeSocket[]): typeof FakeSocket {
+  return class extends FakeSocket {
+    static override readonly CONNECTING = 0;
+    static override readonly OPEN = 1;
+    static override readonly CLOSING = 2;
+    static override readonly CLOSED = 3;
+
+    constructor(url: string) {
+      super(url);
+      sockets.push(this);
+    }
+  };
 }

@@ -138,6 +138,19 @@ export type AgentRunStreamEvent =
       text: string;
     }
   | {
+      type: 'tool-call';
+      id: string;
+      name: string;
+      input?: unknown;
+    }
+  | {
+      type: 'tool-result';
+      id: string;
+      name: string;
+      content: string;
+      ok?: boolean;
+    }
+  | {
       type: 'result';
       result: AgentResult;
     };

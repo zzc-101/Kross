@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { runAgentLoop } from './agentLoop';
-import { FetchAgentControlTransport } from './transport';
+import { WsAgentControlTransport } from './transport';
 
 export interface WorkerMainConfig {
   agentId: string;
@@ -22,7 +22,7 @@ export function parseWorkerMainConfig(env: Record<string, string | undefined>): 
 
 export async function runWorkerMain(env: Record<string, string | undefined> = process.env): Promise<number> {
   const config = parseWorkerMainConfig(env);
-  const transport = new FetchAgentControlTransport({
+  const transport = new WsAgentControlTransport({
     agentId: config.agentId,
     agentToken: config.agentToken,
     controlPlaneUrl: config.controlPlaneUrl
@@ -30,6 +30,7 @@ export async function runWorkerMain(env: Record<string, string | undefined> = pr
   let stopping = false;
   const onStop = () => {
     stopping = true;
+    transport.close();
   };
   process.once('SIGTERM', onStop);
   process.once('SIGINT', onStop);

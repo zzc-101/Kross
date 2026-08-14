@@ -6,6 +6,10 @@
 
 ### Added
 
+- Cloud 对话渠道网关：Web 入站走 HTTP，出站走 SSE；消息以通用 `parts` 落库，
+  直播文本、思考过程和工具调用经控制面内存扇出，回合结束再写完整快照。
+- Worker 与控制面改为 WebSocket：容器运行期间保持长连接，任务由控制面推送，
+  流式事件不再合并等待。
 - TUI 原生多模型档案：`models.profiles` 是唯一模型配置源，快捷向导可持续新增
   OpenAI/Anthropic 兼容模型，导入与公益模型也保存为档案，设置面板可在档案间
   即时切换；开发期旧顶层 `llm` 单模型结构已直接移除。
@@ -79,6 +83,11 @@
 - Gateway 轻量管理面板：显示全局模型配置来源和当前 Worker 状态，支持不中断容器
   的模型 Client 热更新；Web 模型选择器区分 Gateway 与工作区私有模型，私有密钥
   仅以 `0600` 保存于 Worker 卷。
+
+### Changed
+
+- 移除 Worker 内部 HTTP `/internal/v2/agents/*`；登记、心跳、领任务、直播和回写
+  只走 `/internal/v2/agents/ws`。
 
 ### Fixed
 

@@ -71,16 +71,6 @@ export function WorkspacePage({
 
   return (
     <div className="shell">
-      <TopBar
-        agent={agent}
-        memberships={memberships}
-        organizationId={organizationId}
-        devUserId={devUserId}
-        onOpenSidebar={() => setSidebarOpen(true)}
-        onSelectOrganization={onSelectOrganization}
-        onSleep={() => void api.sleep().then(setAgent).catch((cause) => setError(cause instanceof Error ? cause.message : '休眠失败'))}
-        onChangeIdentity={onChangeIdentity}
-      />
       {error && <div className="error-banner" role="alert">{error}</div>}
       <AgentRuntimeProvider
         api={api}
@@ -95,9 +85,16 @@ export function WorkspacePage({
             conversations={conversations}
             activeId={conversationId}
             open={sidebarOpen}
+            agent={agent}
+            memberships={memberships}
+            organizationId={organizationId}
+            devUserId={devUserId}
             onClose={() => setSidebarOpen(false)}
             onNew={() => { void onCreateConversation(); setSidebarOpen(false); }}
             onSelect={setConversationId}
+            onSelectOrganization={onSelectOrganization}
+            onSleep={() => void api.sleep().then(setAgent).catch((cause) => setError(cause instanceof Error ? cause.message : '休眠失败'))}
+            onChangeIdentity={onChangeIdentity}
             onArchive={(id) => {
               void api.patchConversation(id, { archived: true }).then(async () => {
                 const items = await refresh();
@@ -114,6 +111,7 @@ export function WorkspacePage({
             onShowWorkspace={() => setWorkspaceHint(true)}
           />
           <main className="stage">
+            <TopBar onOpenSidebar={() => setSidebarOpen(true)} onNew={() => void onCreateConversation()} />
             <Thread />
           </main>
         </div>

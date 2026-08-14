@@ -28,7 +28,7 @@ Kross 不只是一个把提示词转发给模型的聊天界面。它围绕真�
 - **可管理后台进程**：启动、轮询、输入和终止长时间运行的命令，并按会话隔离进程。
 - **受控工具调度**：独立只读调用可并发执行，写入、执行、Process 和 MCP 调用保持有序；无进展轮询会自动退避。
 - **透明可调试**：通过 `/context`、`/trace` 和 `/diff` 查看上下文、执行轨迹与代码变更。
-- **弱网与移动端支持**：Cloud Agent 使用 SSE 接收事件、HTTP 提交命令，支持断线排队、按序回放、Web Push 审批通知和 PWA 安装。
+- **弱网与移动端支持**：Cloud Agent 使用 HTTP 提交消息、SSE 接收直播事件；Worker 仅在容器运行时与控制面保持 WebSocket。
 - **云端工作区管理**：支持仓库克隆、会话恢复、真实 Git Diff、分支 Push、Pull Request、资源限额与空闲回收。
 - **原生多模型档案**：可同时保存、命名并切换多个 OpenAI、Anthropic、OpenRouter、DeepSeek 和 xAI 配置，新增模型不会覆盖并丢失已有配置。
 
@@ -192,7 +192,7 @@ flowchart TB
     U["User"] --> T["Ink TUI"]
     U --> W["Web / PWA"]
     T --> R["Agent Runtime"]
-    W --> S["Cloud Gateway"]
+    W --> S["Java Control Plane"]
     S --> D["Per-workspace Docker Worker"]
     D --> R
     R --> C["Context / Sessions / Checkpoints"]

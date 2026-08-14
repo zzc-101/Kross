@@ -8,7 +8,7 @@
 
 **Goal:** 把 Cloud 从「每次任务起一个一次性沙箱」改成「每人一个带持久卷的长期 Agent」。
 
-**Architecture:** 人是租户边界。Docker volume 长期保存 `/work`，容器按需启停。控制面管生命周期和对话；Worker 常驻循环拉消息，用 Core 在 `/work` 里执行。
+**Architecture:** 人是租户边界。Docker volume 长期保存 `/work`，容器按需启停。控制面管生命周期、对话和渠道扇出；Worker 只在容器运行时与控制面保持 WebSocket，用 Core 在 `/work` 里执行。
 
 **Tech Stack:** Java 21 Spring Boot 控制面、PostgreSQL、Docker SDK、`apps/worker` + `@kross/core`。
 
@@ -49,8 +49,8 @@ Kross Cloud 不再是「来一个任务起一个容器、跑完销毁」的工�
 用户发一条消息
   -> 写入 agent_messages (queued)
   -> 若容器未运行：签发 Token，recreate+start，挂同一块卷
-  -> Worker 常驻循环拉消息，用 Core 在 /work 里执行
-  -> 回复写入 agent_messages
+  -> Worker 连上控制面 WebSocket 后被推送任务，用 Core 在 /work 里执行
+  -> 直播事件经内存扇出到浏览器 SSE；回合结束把 parts 快照写入 agent_messages
 
 闲置超过阈值且没有 processing 消息
   -> 控制面 stop 容器
@@ -78,20 +78,26 @@ P0 先约定目录，P1 再注入 Core。
 |---|---|---|
 | GET | `/me` | 身份 |
 | GET | `/agent` | 自己的 Agent（没有则创建记录，不立刻起容器） |
-| POST | `/agent/messages` | 追加用户消息；必要时唤醒容器 |
-| GET | `/agent/messages` | 对话历史 |
+| GET | `/agent/conversations` | 对话列表 |
+| POST | `/agent/conversations` | 新建对话 |
+| POST | `/agent/conversations/{id}/messages` | 追加用户消息；必要时唤醒容器 |
+| GET | `/agent/conversations/{id}/messages` | 对话历史 |
+| GET | `/agent/conversations/{id}/events` | 对话 SSE（文本 / 思考 / 工具直播） |
 | POST | `/agent/sleep` | 立即休眠 |
 
-内部 Worker（原始 JSON）：
+内部 Worker（原始 JSON，WebSocket `/internal/v2/agents/ws`）：
 
-| 方法 | 路径 | 作用 |
+| 方向 | 类型 | 作用 |
 |---|---|---|
-| POST | `/internal/v2/agents/register` | 容器启动后登记 |
-| POST | `/internal/v2/agents/heartbeat` | 汇报存活；`shouldSleep` 时 Worker 退出 |
-| GET | `/internal/v2/agents/jobs` | 领取一条 queued 用户消息 |
-| POST | `/internal/v2/agents/messages` | 回写 Agent 回复并完成用户消息 |
-| POST | `/internal/v2/agents/sleep` | Worker 请求休眠 |
-| GET | `/internal/v2/agents/model-environment` | 短时下发模型环境变量 |
+| 控制面 → Worker | `agent.registered` | 握手鉴权后登记，下发心跳间隔 |
+| 控制面 → Worker | `agent.job` | 空闲时推送一条 queued 用户消息 |
+| 控制面 → Worker | `agent.heartbeat_ack` | 是否应休眠 |
+| 控制面 → Worker | `agent.model_environment` | 短时下发模型环境变量 |
+| Worker → 控制面 | `agent.heartbeat` | 汇报存活 |
+| Worker → 控制面 | `agent.events` | 推送 text-delta / thinking-delta / tool-call / tool-result |
+| Worker → 控制面 | `agent.message` | 回写完整 parts 快照并完成用户消息 |
+| Worker → 控制面 | `agent.sleep` | Worker 请求休眠 |
+| Worker → 控制面 | `agent.model_environment` | 索取模型环境变量 |
 
 ## P0 文件地图
 
@@ -101,7 +107,7 @@ P0 先约定目录，P1 再注入 Core。
 - `com.kross.agent.AgentScheduler`
 - `com.kross.agent.dto.AgentProtocol`
 - `com.kross.controller.AgentController`
-- `com.kross.agent.InternalAgentController`
+- `com.kross.channel.AgentWebSocketHandler` / `AgentSocketHub`
 - `com.kross.support.Tokens`
 - `apps/worker` 常驻循环（`main.ts` / `transport.ts` / `agentLoop.ts`）
 
@@ -115,7 +121,7 @@ P0 先约定目录，P1 再注入 Core。
 ## 本阶段明确不做
 
 - 一人多个 Agent、按任务再套沙箱、K8s
-- 旧数据迁移、SSE 回放
+- 旧数据迁移、SSE 事件落库（直播只走内存扇出，回合结束写快照）
 - 对外副作用审批、Connector、定时任务
 - 用户工作台 / 管理端 UI（本轮不改；后续重构或替换开源 UI）
 

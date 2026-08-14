@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-import type { Agent, AgentMessage, Conversation, Me } from './types';
+import type { Agent, AgentMessage, Conversation, Me, MessagePart } from './types';
+import type { ChannelEvent } from './channelEvents';
 
 export class ApiError extends Error {
   constructor(
@@ -43,11 +44,25 @@ const conversationSchema: z.ZodType<Conversation> = z.object({
   createdAt: instant
 });
 
+const partSchema: z.ZodType<MessagePart> = z.union([
+  z.object({ type: z.literal('text'), text: z.string() }),
+  z.object({ type: z.literal('reasoning'), text: z.string() }),
+  z.object({
+    type: z.literal('tool'),
+    id: z.string(),
+    name: z.string(),
+    input: z.unknown().optional(),
+    result: z.string().optional(),
+    status: z.enum(['running', 'done', 'failed']).optional()
+  })
+]);
+
 const messageSchema: z.ZodType<AgentMessage> = z.object({
   id,
   conversationId: id,
   role: z.enum(['user', 'agent', 'system']),
   content: z.string(),
+  parts: z.array(partSchema).optional(),
   status: z.enum(['queued', 'processing', 'done', 'failed']),
   errorSummary: z.string().optional(),
   createdAt: instant
@@ -132,6 +147,40 @@ export class AgentApiClient {
     );
   }
 
+  async subscribeConversationEvents(
+    conversationId: string,
+    onEvent: (event: ChannelEvent) => void,
+    signal: AbortSignal
+  ): Promise<void> {
+    const headers = new Headers({ accept: 'text/event-stream' });
+    if (this.options.devUserId) headers.set('x-kross-user-id', this.options.devUserId);
+    if (this.organizationId) headers.set('x-kross-organization-id', this.organizationId);
+    const response = await this.fetcher(
+      new URL(
+        `/api/v2/agent/conversations/${encodeURIComponent(conversationId)}/events`,
+        this.options.baseUrl ?? location.origin
+      ),
+      { headers, credentials: 'include', signal }
+    );
+    if (!response.ok || !response.body) {
+      throw new ApiError(response.status, 'SSE_ERROR', `无法订阅对话事件 (${response.status})`);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (!signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split('\n\n');
+      buffer = chunks.pop() ?? '';
+      for (const chunk of chunks) {
+        const event = parseSseChunk(chunk);
+        if (event) onEvent(event);
+      }
+    }
+  }
+
   sleep(): Promise<Agent> {
     return this.request('/api/v2/agent/sleep', agentSchema, { method: 'POST' });
   }
@@ -173,5 +222,20 @@ export class AgentApiClient {
       throw new ApiError(502, 'INVALID_RESPONSE', '服务端返回的数据不符合协议');
     }
     return parsed.data;
+  }
+}
+
+function parseSseChunk(chunk: string): ChannelEvent | undefined {
+  const dataLines: string[] = [];
+  for (const line of chunk.split('\n')) {
+    if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+  }
+  if (dataLines.length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(dataLines.join('\n')) as ChannelEvent;
+    if (!parsed || typeof parsed.type !== 'string') return undefined;
+    return parsed;
+  } catch {
+    return undefined;
   }
 }

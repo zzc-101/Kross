@@ -56,12 +56,17 @@ public interface AgentMapper {
   Optional<AgentMessage> findMessage(
       @Param("organizationId") String organizationId, @Param("id") String id);
 
+  Optional<AgentMessage> findReplyTo(
+      @Param("organizationId") String organizationId, @Param("replyTo") String replyTo);
+
   Optional<AgentMessage> claimJob(@Param("agentId") String agentId);
 
   int completeMessage(
       @Param("id") String id,
       @Param("status") String status,
       @Param("errorSummary") String errorSummary);
+
+  int updateMessageBody(AgentMessage row);
 
   void insertToken(
       @Param("tokenHash") String tokenHash,

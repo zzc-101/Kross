@@ -391,6 +391,14 @@ export async function* runStreamingToolLoop(
         iteration,
         count: toolCalls.length
       };
+      for (const call of toolCalls) {
+        yield {
+          type: 'tool-call',
+          id: call.id,
+          name: call.name,
+          input: call.input
+        };
+      }
 
       await deps.record(params.runId, 'llm.tool_calls.received', {
         count: toolCalls.length,
@@ -424,6 +432,13 @@ export async function* runStreamingToolLoop(
             content: toolMessage.content,
             iteration
           });
+          yield {
+            type: 'tool-result',
+            id: toolMessage.toolCallId,
+            name: toolMessage.name,
+            content: toolMessage.content,
+            ok: true
+          };
         }
       }
       deps.onToolMessagesAppended?.(params.runId);

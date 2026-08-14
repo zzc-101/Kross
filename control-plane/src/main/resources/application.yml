@@ -9,6 +9,9 @@ spring:
   threads:
     virtual:
       enabled: true
+  mvc:
+    async:
+      request-timeout: -1
   jackson:
     default-property-inclusion: non_null
     serialization:
