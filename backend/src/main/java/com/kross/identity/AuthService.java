@@ -139,6 +139,7 @@ public class AuthService {
           platformRole,
           null,
           null,
+          null,
           null);
     } catch (DuplicateKeyException error) {
       throw ApiException.conflict("username_taken", "This username is already registered");

@@ -27,6 +27,17 @@ public final class AuthSessions {
     session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
   }
 
+  public static void refresh(HttpServletRequest request, Identity identity) {
+    HttpSession session = Optional.ofNullable(request.getSession(false)).orElseGet(() -> request.getSession(true));
+    session.setAttribute(IDENTITY_ATTR, identity);
+    UsernamePasswordAuthenticationToken authentication =
+        new UsernamePasswordAuthenticationToken(identity, null, List.of());
+    SecurityContext context = SecurityContextHolder.createEmptyContext();
+    context.setAuthentication(authentication);
+    SecurityContextHolder.setContext(context);
+    session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+  }
+
   public static void clear(HttpServletRequest request) {
     SecurityContextHolder.clearContext();
     Optional.ofNullable(request.getSession(false)).ifPresent(HttpSession::invalidate);

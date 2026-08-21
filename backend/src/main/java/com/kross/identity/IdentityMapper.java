@@ -26,14 +26,25 @@ public interface IdentityMapper {
       @Param("platformRole") String platformRole,
       @Param("email") String email,
       @Param("ssoIssuer") String ssoIssuer,
-      @Param("ssoSubject") String ssoSubject);
+      @Param("ssoSubject") String ssoSubject,
+      @Param("avatarUrl") String avatarUrl);
 
   void bindSso(
       @Param("id") String id,
       @Param("email") String email,
       @Param("ssoIssuer") String ssoIssuer,
       @Param("ssoSubject") String ssoSubject,
-      @Param("displayName") String displayName);
+      @Param("displayName") String displayName,
+      @Param("avatarUrl") String avatarUrl);
+
+  void updateProfile(
+      @Param("id") String id,
+      @Param("displayName") String displayName,
+      @Param("setAvatar") boolean setAvatar,
+      @Param("avatarUrl") String avatarUrl,
+      @Param("gender") String gender,
+      @Param("setPhone") boolean setPhone,
+      @Param("phone") String phone);
 
   Optional<User> findUserByUsername(@Param("username") String username);
 

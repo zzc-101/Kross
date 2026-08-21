@@ -126,14 +126,14 @@ export function App() {
       api={api}
       memberships={memberships}
       organizationId={organizationId}
-      displayName={me.user.displayName}
-      username={me.user.username}
+      user={me.user}
       onSelectOrganization={(id) => {
         api.selectOrganization(id);
         localStorage.setItem(ORG_KEY, id);
         setOrganizationId(id);
       }}
       onLogout={() => void logout()}
+      onUserUpdated={(user) => setMe((current) => current ? { ...current, user } : current)}
     />
   );
 }

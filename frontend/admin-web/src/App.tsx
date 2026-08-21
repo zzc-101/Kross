@@ -115,7 +115,12 @@ export function App() {
     <aside className={sidebarOpen ? 'sidebar open' : 'sidebar'}>
       <div className="brand"><span className="brand-mark"><Bot /></span><div><strong>Kross</strong><small>管理中心</small></div><button className="icon mobile-close" onClick={() => setSidebarOpen(false)}><X /></button></div>
       <nav>{pages.map(item => <button key={item.id} className={page === item.id ? 'nav-item active' : 'nav-item'} onClick={() => { setPage(item.id); setSidebarOpen(false); }}><item.icon />{item.label}</button>)}</nav>
-      <div className="sidebar-foot"><span className="avatar">{session.user.displayName.slice(0, 1).toUpperCase()}</span><div><strong>{session.user.displayName}</strong><small>{session.user.username} · {roleLabel}</small></div><button className="button secondary" type="button" onClick={() => void logout()}>退出</button></div>
+      <div className="sidebar-foot">
+        <PersonAvatar name={session.user.displayName} src={session.user.avatarUrl} />
+        <div><strong>{session.user.displayName}</strong><small>{session.user.username} · {roleLabel}</small></div>
+        <button className="button secondary" type="button" onClick={() => void logout()}>退出</button>
+      </div>
+      <ProfileEditor api={api} session={session} onSaved={applyMe} />
     </aside>
     <main>
       <header className="topbar"><button className="icon mobile-menu" onClick={() => setSidebarOpen(true)}><Menu /></button>
@@ -156,7 +161,7 @@ function MembersPage({ api }: { api: AdminApiClient }) {
   const change = async (member: Member, field: 'role' | 'status', value: string) => { setBusy(member.id); try { await api.updateMember(member.id, { [field]: value }); state.reload(); } finally { setBusy(''); } };
   return <PageFrame title="成员与角色" subtitle="登记本组织成员。新用户可直接开账号并加入；已有账号只需填写用户名。" action={<button className="button" onClick={() => setShowForm(true)}><Plus />登记成员</button>}>
     {showForm && <InviteForm api={api} close={() => setShowForm(false)} done={state.reload} />}
-    <Resource state={state} empty="组织中还没有成员。">{members => <div className="card table-wrap"><table><thead><tr><th>成员</th><th>角色</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{members.map(m => <tr key={m.id}><td><div className="person"><span className="avatar">{m.displayName[0]}</span><div><strong>{m.displayName}</strong><small>{m.username}</small></div></div></td><td><select disabled={busy === m.id} value={m.role} onChange={e => change(m, 'role', e.target.value)}><option value="admin">组织管理员</option><option value="member">成员</option></select></td><td><select disabled={busy === m.id} value={m.status} onChange={e => change(m, 'status', e.target.value)}><option value="active">正常</option><option value="disabled">已停用</option></select></td><td>{formatDate(m.updatedAt)}</td></tr>)}</tbody></table></div>}</Resource>
+    <Resource state={state} empty="组织中还没有成员。">{members => <div className="card table-wrap"><table><thead><tr><th>成员</th><th>角色</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{members.map(m => <tr key={m.id}><td><div className="person"><PersonAvatar name={m.displayName} src={m.avatarUrl} /><div><strong>{m.displayName}</strong><small>{m.username}</small></div></div></td><td><select disabled={busy === m.id} value={m.role} onChange={e => change(m, 'role', e.target.value)}><option value="admin">组织管理员</option><option value="member">成员</option></select></td><td><select disabled={busy === m.id} value={m.status} onChange={e => change(m, 'status', e.target.value)}><option value="active">正常</option><option value="disabled">已停用</option></select></td><td>{formatDate(m.updatedAt)}</td></tr>)}</tbody></table></div>}</Resource>
   </PageFrame>;
 }
 
@@ -176,7 +181,7 @@ function InviteForm({ api, close, done }: { api: AdminApiClient; close: () => vo
   };
   return <form className="card inline-form" onSubmit={submit}>
     <label>用户名<input required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} placeholder="新用户或已有账号" /></label>
-    <label>显示名称<input value={form.displayName} onChange={e => setForm({ ...form, displayName: e.target.value })} /></label>
+    <label>昵称<input value={form.displayName} onChange={e => setForm({ ...form, displayName: e.target.value })} /></label>
     <label>初始密码<input type="password" minLength={8} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="新用户必填" /></label>
     <label>角色<select value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Member['role'] })}><option value="member">成员</option><option value="admin">组织管理员</option></select></label>
     <button className="button" type="submit">登记并加入</button>
@@ -229,7 +234,7 @@ function OrganizationsPage({ api, currentUsername, onChanged }: { api: AdminApiC
       <label>组织名称<input required value={form.name} onChange={e => updateName(e.target.value)} placeholder="例如：产品一部" /></label>
       <label>组织标识<input required minLength={2} value={form.slug} onChange={e => setForm({ ...form, slug: e.target.value })} placeholder="product-one" /></label>
       <label>组织管理员用户名<input required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" value={form.adminUsername} onChange={e => setForm({ ...form, adminUsername: e.target.value })} /></label>
-      <label>显示名称<input value={form.adminDisplayName} onChange={e => setForm({ ...form, adminDisplayName: e.target.value })} placeholder="新账号时使用" /></label>
+      <label>昵称<input value={form.adminDisplayName} onChange={e => setForm({ ...form, adminDisplayName: e.target.value })} placeholder="新账号时使用" /></label>
       <label>初始密码<input type="password" minLength={8} value={form.adminPassword} onChange={e => setForm({ ...form, adminPassword: e.target.value })} placeholder="已有账号可留空" /></label>
       <button className="button">创建组织</button>
       {error && <span className="form-error">{error}</span>}
@@ -240,7 +245,7 @@ function OrganizationsPage({ api, currentUsername, onChanged }: { api: AdminApiC
     </td></tr>)}</tbody></table></div>}</Resource>
     {assign.organizationId && <form className="card inline-form" onSubmit={assignAdmin}>
       <label>管理员用户名<input required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" value={assign.username} onChange={e => setAssign({ ...assign, username: e.target.value })} /></label>
-      <label>显示名称<input value={assign.displayName} onChange={e => setAssign({ ...assign, displayName: e.target.value })} /></label>
+      <label>昵称<input value={assign.displayName} onChange={e => setAssign({ ...assign, displayName: e.target.value })} /></label>
       <label>初始密码<input type="password" minLength={8} value={assign.password} onChange={e => setAssign({ ...assign, password: e.target.value })} placeholder="已有账号可留空" /></label>
       <button className="button">指定为组织管理员</button>
       <button className="button secondary" type="button" onClick={() => setAssign({ organizationId: '', username: '', password: '', displayName: '' })}>取消</button>
@@ -321,12 +326,12 @@ function PlatformPage({ api }: { api: AdminApiClient }) {
     </section>}</Resource>
     <form className="card inline-form" onSubmit={create}>
       <label>用户名<input required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} /></label>
-      <label>显示名称<input value={form.displayName} onChange={e => setForm({ ...form, displayName: e.target.value })} /></label>
+      <label>昵称<input value={form.displayName} onChange={e => setForm({ ...form, displayName: e.target.value })} /></label>
       <label>初始密码<input required type="password" minLength={8} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></label>
       <button className="button">创建账号</button>
       {error && <span className="form-error">{error}</span>}
     </form>
-    <Resource state={users} empty="还没有账号。">{items => <div className="card table-wrap"><table><thead><tr><th>用户</th><th>角色</th><th>状态</th><th>创建时间</th></tr></thead><tbody>{(items as UserAccount[]).map(user => <tr key={user.userId}><td><div className="person"><span className="avatar">{user.displayName[0]}</span><div><strong>{user.displayName}</strong><small>{user.username}</small></div></div></td><td>{user.platformRole === 'super_admin' ? '超级管理员' : '用户'}</td><td>{user.status}</td><td>{formatDate(user.createdAt)}</td></tr>)}</tbody></table></div>}</Resource>
+    <Resource state={users} empty="还没有账号。">{items => <div className="card table-wrap"><table><thead><tr><th>用户</th><th>角色</th><th>状态</th><th>创建时间</th></tr></thead><tbody>{(items as UserAccount[]).map(user => <tr key={user.userId}><td><div className="person"><PersonAvatar name={user.displayName} src={user.avatarUrl} /><div><strong>{user.displayName}</strong><small>{user.username}</small></div></div></td><td>{user.platformRole === 'super_admin' ? '超级管理员' : '用户'}</td><td>{user.status}</td><td>{formatDate(user.createdAt)}</td></tr>)}</tbody></table></div>}</Resource>
   </PageFrame>;
 }
 
@@ -414,7 +419,7 @@ function AuthGate({ mode, canRegister, ssoEnabled, ssoDisplayName, error, busy, 
       else void onLogin(username, password);
     }}>
       <label>用户名<input name="username" required autoFocus pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" autoComplete="username" /></label>
-      {register && <label>显示名称（可选）<input name="displayName" autoComplete="nickname" /></label>}
+      {register && <label>昵称（可选）<input name="displayName" autoComplete="nickname" /></label>}
       <label>密码<input name="password" type="password" required minLength={8} autoComplete={register ? 'new-password' : 'current-password'} /></label>
       {error && <span className="form-error">{error}</span>}
       <button className="button wide" disabled={busy}>{busy ? '请稍候…' : register ? '注册并进入' : '登录'}</button>
@@ -439,5 +444,38 @@ function workbenchUrl() {
   if (url.port === '8788') url.port = '8787';
   return url.origin;
 }
+function PersonAvatar({ name, src }: { name: string; src?: string }) {
+  const letter = (name.trim()[0] || '?').toUpperCase();
+  return <span className="avatar">{src ? <img src={src} alt="" /> : letter}</span>;
+}
+
+function ProfileEditor({ api, session, onSaved }: { api: AdminApiClient; session: Session; onSaved(next: Session): void }) {
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const data = new FormData(e.currentTarget);
+    setBusy(true); setError('');
+    try {
+      onSaved(await api.updateProfile({
+        displayName: String(data.get('displayName') ?? '').trim(),
+        avatarUrl: String(data.get('avatarUrl') ?? '').trim(),
+        gender: String(data.get('gender') ?? 'unspecified'),
+        phone: String(data.get('phone') ?? '').trim()
+      }));
+    } catch (x) { setError(messageOf(x)); }
+    finally { setBusy(false); }
+  };
+  return <form className="profile-editor" onSubmit={submit}>
+    <strong>我的资料</strong>
+    <label>昵称<input name="displayName" defaultValue={session.user.displayName} maxLength={64} required /></label>
+    <label>头像 URL<input name="avatarUrl" defaultValue={session.user.avatarUrl ?? ''} placeholder="https://" /></label>
+    <label>性别<select name="gender" defaultValue={session.user.gender ?? 'unspecified'}><option value="unspecified">未说明</option><option value="male">男</option><option value="female">女</option><option value="other">其他</option></select></label>
+    <label>手机号<input name="phone" defaultValue={session.user.phone ?? ''} inputMode="tel" /></label>
+    <button className="button secondary" disabled={busy} type="submit">{busy ? '保存中…' : '保存'}</button>
+    {error && <span className="form-error">{error}</span>}
+  </form>;
+}
+
 function formatDate(value?: string) { return value ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'; }
 function messageOf(error: unknown) { return error instanceof AdminApiError || error instanceof Error ? error.message : '发生未知错误'; }

@@ -35,6 +35,9 @@ export class AdminApiClient {
     return this.request('/api/v2/auth/logout', z.unknown().optional(), { method: 'POST', organization: false }).then(() => undefined);
   }
   me() { return this.request('/api/v2/me', sessionSchema, { organization: false }); }
+  updateProfile(input: { displayName?: string; avatarUrl?: string; gender?: string; phone?: string }) {
+    return this.request('/api/v2/me', sessionSchema, { method: 'PATCH', body: input, organization: false });
+  }
   createOrganization(input: {
     name: string; slug: string; defaultTimezone: string;
     adminUsername: string; adminPassword?: string; adminDisplayName?: string;

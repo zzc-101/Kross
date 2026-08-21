@@ -7,6 +7,7 @@ public record MemberView(
     String userId,
     String username,
     String displayName,
+    String avatarUrl,
     String role,
     String status,
     Instant createdAt,

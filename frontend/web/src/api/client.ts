@@ -16,13 +16,20 @@ export class ApiError extends Error {
 const id = z.string().min(1);
 const instant = z.string().min(1);
 
+const meUserSchema = z.object({
+  userId: id,
+  username: z.string().min(1),
+  displayName: z.string().min(1),
+  platformRole: z.enum(['super_admin', 'user']),
+  status: z.string().min(1).optional(),
+  email: z.string().min(1).optional(),
+  avatarUrl: z.string().min(1).optional(),
+  gender: z.enum(['unspecified', 'male', 'female', 'other']).optional(),
+  phone: z.string().min(1).optional()
+});
+
 const meSchema: z.ZodType<Me> = z.object({
-  user: z.object({
-    userId: id,
-    username: z.string().min(1),
-    displayName: z.string().min(1),
-    platformRole: z.enum(['super_admin', 'user'])
-  }),
+  user: meUserSchema,
   memberships: z.array(z.object({
     id,
     organizationId: id,
@@ -139,6 +146,10 @@ export class AgentApiClient {
 
   me(): Promise<Me> {
     return this.request('/api/v2/me', meSchema, { organization: false });
+  }
+
+  updateProfile(input: { displayName?: string; avatarUrl?: string; gender?: string; phone?: string }): Promise<Me> {
+    return this.request('/api/v2/me', meSchema, { method: 'PATCH', organization: false, body: input });
   }
 
   getCurrentModel(): Promise<AgentModel | null> {

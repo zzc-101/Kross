@@ -10,13 +10,20 @@ export interface Membership {
   status: string;
 }
 
+export interface MeUser {
+  userId: string;
+  username: string;
+  displayName: string;
+  platformRole: 'super_admin' | 'user';
+  status?: string;
+  email?: string;
+  avatarUrl?: string;
+  gender?: 'unspecified' | 'male' | 'female' | 'other';
+  phone?: string;
+}
+
 export interface Me {
-  user: {
-    userId: string;
-    username: string;
-    displayName: string;
-    platformRole: 'super_admin' | 'user';
-  };
+  user: MeUser;
   memberships: Membership[];
   canAccessAdmin: boolean;
 }

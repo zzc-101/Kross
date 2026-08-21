@@ -1,5 +1,6 @@
 package com.kross.identity.dto;
 
+import com.kross.identity.Identity;
 import com.kross.identity.entity.DashboardCounts;
 import com.kross.identity.entity.Member;
 import com.kross.identity.entity.Membership;
@@ -41,6 +42,7 @@ public final class IdentityViews {
         row.getUserId(),
         row.getUsername(),
         row.getDisplayName(),
+        row.getAvatarUrl(),
         row.getRole(),
         row.getStatus(),
         row.getCreatedAt(),
@@ -52,9 +54,27 @@ public final class IdentityViews {
         row.getId(),
         row.getUsername(),
         row.getDisplayName(),
+        row.getAvatarUrl(),
         row.getPlatformRole(),
         row.getStatus(),
         row.getCreatedAt());
+  }
+
+  public static UserProfileView profile(User row) {
+    return new UserProfileView(
+        row.getId(),
+        row.getUsername(),
+        row.getDisplayName(),
+        row.getPlatformRole(),
+        row.getStatus(),
+        row.getEmail(),
+        row.getAvatarUrl(),
+        Optional.ofNullable(row.getGender()).filter(value -> !value.isBlank()).orElse("unspecified"),
+        row.getPhone());
+  }
+
+  public static Identity identity(UserProfileView user) {
+    return new Identity(user.userId(), user.username(), user.displayName(), user.platformRole());
   }
 
   public static OrganizationView organization(Organization organization) {

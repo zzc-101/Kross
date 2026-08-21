@@ -58,7 +58,7 @@ export function AuthScreen({
             </label>
             {register && (
               <label>
-                <span>显示名称（可选）</span>
+                <span>昵称（可选）</span>
                 <input name="displayName" autoComplete="nickname" />
               </label>
             )}

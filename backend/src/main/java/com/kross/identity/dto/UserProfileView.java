@@ -1,12 +1,12 @@
 package com.kross.identity.dto;
 
-import java.time.Instant;
-
-public record UserAccountView(
+public record UserProfileView(
     String userId,
     String username,
     String displayName,
-    String avatarUrl,
     String platformRole,
     String status,
-    Instant createdAt) {}
+    String email,
+    String avatarUrl,
+    String gender,
+    String phone) {}

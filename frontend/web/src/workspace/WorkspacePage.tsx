@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { AgentApiClient, ApiError } from '../api/client';
-import type { AgentModel, Conversation, Membership } from '../api/types';
+import type { AgentModel, Conversation, MeUser, Membership } from '../api/types';
 import { AgentRuntimeProvider } from '../assistant/AgentRuntimeProvider';
 import { Thread } from '../assistant/Thread';
 import { useConversationRoute } from '../lib/conversationRoute';
@@ -12,18 +12,18 @@ export function WorkspacePage({
   api,
   memberships,
   organizationId,
-  displayName,
-  username,
+  user,
   onSelectOrganization,
-  onLogout
+  onLogout,
+  onUserUpdated
 }: {
   api: AgentApiClient;
   memberships: Membership[];
   organizationId: string;
-  displayName: string;
-  username: string;
+  user: MeUser;
   onSelectOrganization(id: string): void;
   onLogout(): void;
+  onUserUpdated(user: MeUser): void;
 }) {
   const { conversationId, setConversationId } = useConversationRoute();
   const [model, setModel] = useState<AgentModel | null>(null);
@@ -86,8 +86,15 @@ export function WorkspacePage({
             open={sidebarOpen}
             memberships={memberships}
             organizationId={organizationId}
-            displayName={displayName}
-            username={username}
+            displayName={user.displayName}
+            username={user.username}
+            avatarUrl={user.avatarUrl}
+            gender={user.gender}
+            phone={user.phone}
+            onSaveProfile={async (input) => {
+              const next = await api.updateProfile(input);
+              onUserUpdated(next.user);
+            }}
             onClose={() => setSidebarOpen(false)}
             onNew={() => { void onCreateConversation(); setSidebarOpen(false); }}
             onSelect={setConversationId}

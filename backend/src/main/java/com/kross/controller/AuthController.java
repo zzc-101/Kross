@@ -6,6 +6,7 @@ import com.kross.api.Res;
 import com.kross.identity.AuthService;
 import com.kross.identity.SsoService;
 import com.kross.identity.dto.AuthConfigView;
+import com.kross.identity.dto.IdentityViews;
 import com.kross.identity.dto.LoginRequest;
 import com.kross.identity.dto.MeResponse;
 import com.kross.identity.dto.MembershipView;
@@ -45,7 +46,7 @@ public class AuthController {
   @ResponseStatus(HttpStatus.CREATED)
   public Res<MeResponse> register(@RequestBody RegisterRequest request, HttpServletRequest http) {
     MeResponse me = auth.register(request);
-    AuthSessions.establish(http, me.user());
+    AuthSessions.establish(http, IdentityViews.identity(me.user()));
     wakeWorkspace(me);
     return Res.ok(me);
   }
@@ -53,7 +54,7 @@ public class AuthController {
   @PostMapping("/login")
   public Res<MeResponse> login(@RequestBody LoginRequest request, HttpServletRequest http) {
     MeResponse me = auth.login(request);
-    AuthSessions.establish(http, me.user());
+    AuthSessions.establish(http, IdentityViews.identity(me.user()));
     wakeWorkspace(me);
     return Res.ok(me);
   }

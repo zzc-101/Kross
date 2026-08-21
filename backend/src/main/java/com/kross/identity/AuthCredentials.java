@@ -2,6 +2,7 @@ package com.kross.identity;
 
 import com.kross.api.ApiException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 public final class AuthCredentials {
@@ -9,6 +10,9 @@ public final class AuthCredentials {
   private static final int MIN_PASSWORD = 8;
   private static final int MAX_PASSWORD = 128;
   private static final int MAX_DISPLAY_NAME = 64;
+
+  private static final Pattern PHONE = Pattern.compile("^\\+?[0-9]{6,15}$");
+  private static final int MAX_AVATAR_URL = 2048;
 
   private AuthCredentials() {}
 
@@ -46,6 +50,43 @@ public final class AuthCredentials {
       return Optional.empty();
     }
     return Optional.of(email);
+  }
+
+  public static Optional<String> optionalPhone(String raw) {
+    String phone = Optional.ofNullable(raw).map(String::trim).map(value -> value.replaceAll("\\s+", "")).orElse("");
+    if (phone.isEmpty()) {
+      return Optional.empty();
+    }
+    if (!PHONE.matcher(phone).matches()) {
+      throw ApiException.invalidRequest("Phone must be 6-15 digits, optionally starting with +");
+    }
+    return Optional.of(phone);
+  }
+
+  public static Optional<String> optionalAvatarUrl(String raw, boolean requiredIfPresent) {
+    String url = Optional.ofNullable(raw).map(String::trim).orElse("");
+    if (url.isEmpty()) {
+      return Optional.empty();
+    }
+    boolean http = url.startsWith("https://") || url.startsWith("http://");
+    if (!http || url.length() > MAX_AVATAR_URL) {
+      if (!requiredIfPresent) {
+        return Optional.empty();
+      }
+      throw ApiException.invalidRequest("Avatar URL must be an http(s) URL");
+    }
+    return Optional.of(url);
+  }
+
+  public static Optional<String> optionalGender(String raw) {
+    String gender = Optional.ofNullable(raw).map(String::trim).map(String::toLowerCase).orElse("");
+    if (gender.isEmpty()) {
+      return Optional.empty();
+    }
+    if (!Set.of("unspecified", "male", "female", "other").contains(gender)) {
+      throw ApiException.invalidRequest("Gender is invalid");
+    }
+    return Optional.of(gender);
   }
 
   public static String usernameFromClaims(String preferredUsername, String email, String subject) {

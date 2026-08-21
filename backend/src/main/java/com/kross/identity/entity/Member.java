@@ -15,6 +15,7 @@ public class Member {
   private String userId;
   private String username;
   private String displayName;
+  private String avatarUrl;
   private String role;
   private String status;
   private Instant createdAt;

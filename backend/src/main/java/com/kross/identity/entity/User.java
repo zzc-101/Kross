@@ -18,5 +18,8 @@ public class User {
   private String email;
   private String ssoIssuer;
   private String ssoSubject;
+  private String avatarUrl;
+  private String gender;
+  private String phone;
   private Instant createdAt;
 }

@@ -8,8 +8,8 @@
   </insert>
 
   <insert id="insertUser">
-    INSERT INTO users (id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject)
-    VALUES (#{id}, #{username}, #{displayName}, #{passwordHash}, #{platformRole}, 'active', #{email}, #{ssoIssuer}, #{ssoSubject})
+    INSERT INTO users (id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject, avatar_url)
+    VALUES (#{id}, #{username}, #{displayName}, #{passwordHash}, #{platformRole}, 'active', #{email}, #{ssoIssuer}, #{ssoSubject}, #{avatarUrl})
   </insert>
 
   <update id="bindSso">
@@ -17,27 +17,41 @@
     SET email = COALESCE(#{email}, email),
         sso_issuer = #{ssoIssuer},
         sso_subject = #{ssoSubject},
-        display_name = COALESCE(#{displayName}, display_name)
+        display_name = COALESCE(#{displayName}, display_name),
+        avatar_url = COALESCE(avatar_url, #{avatarUrl})
+    WHERE id = #{id}
+  </update>
+
+  <update id="updateProfile">
+    UPDATE users
+    SET display_name = COALESCE(#{displayName}, display_name),
+        avatar_url = CASE WHEN #{setAvatar} THEN #{avatarUrl} ELSE avatar_url END,
+        gender = COALESCE(#{gender}, gender),
+        phone = CASE WHEN #{setPhone} THEN #{phone} ELSE phone END
     WHERE id = #{id}
   </update>
 
   <select id="findUserByUsername" resultType="com.kross.identity.entity.User">
-    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject, created_at
+    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject,
+           avatar_url, gender, phone, created_at
     FROM users WHERE lower(username) = #{username}
   </select>
 
   <select id="findUserByEmail" resultType="com.kross.identity.entity.User">
-    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject, created_at
+    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject,
+           avatar_url, gender, phone, created_at
     FROM users WHERE email IS NOT NULL AND lower(email) = #{email}
   </select>
 
   <select id="findUserBySso" resultType="com.kross.identity.entity.User">
-    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject, created_at
+    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject,
+           avatar_url, gender, phone, created_at
     FROM users WHERE sso_issuer = #{issuer} AND sso_subject = #{subject}
   </select>
 
   <select id="findUserById" resultType="com.kross.identity.entity.User">
-    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject, created_at
+    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject,
+           avatar_url, gender, phone, created_at
     FROM users WHERE id = #{id}
   </select>
 
@@ -74,7 +88,7 @@
   </update>
 
   <select id="listUsers" resultType="com.kross.identity.entity.User">
-    SELECT id, username, display_name, platform_role, status, created_at
+    SELECT id, username, display_name, platform_role, status, email, avatar_url, gender, phone, created_at
     FROM users
     ORDER BY created_at ASC, id ASC
     LIMIT #{limit} OFFSET #{offset}
@@ -129,7 +143,7 @@
   </insert>
 
   <select id="listMembers" resultType="com.kross.identity.entity.Member">
-    SELECT m.id, m.user_id, u.username, u.display_name, m.role, m.status, m.created_at, m.updated_at,
+    SELECT m.id, m.user_id, u.username, u.display_name, u.avatar_url, m.role, m.status, m.created_at, m.updated_at,
            count(*) OVER()::integer AS total
     FROM organization_memberships m
     JOIN users u ON u.id = m.user_id
@@ -140,7 +154,7 @@
   </select>
 
   <select id="findMember" resultType="com.kross.identity.entity.Member">
-    SELECT m.id, m.user_id, u.username, u.display_name, m.role, m.status, m.created_at, m.updated_at, 1 AS total
+    SELECT m.id, m.user_id, u.username, u.display_name, u.avatar_url, m.role, m.status, m.created_at, m.updated_at, 1 AS total
     FROM organization_memberships m
     JOIN users u ON u.id = m.user_id
     WHERE m.organization_id = #{organizationId} AND m.id = #{id}

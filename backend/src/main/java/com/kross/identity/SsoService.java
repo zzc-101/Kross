@@ -146,13 +146,14 @@ public class SsoService {
     if (displayName.length() > 64) {
       displayName = displayName.substring(0, 64);
     }
+    String avatarUrl = AuthCredentials.optionalAvatarUrl(stringClaim(claims, "picture"), false).orElse(null);
     Optional<User> bound = identities.findUserBySso(issuer, subject);
     if (bound.isPresent()) {
       return requireActive(bound.get());
     }
     Optional<User> byEmail = email.flatMap(identities::findUserByEmail);
     if (byEmail.isPresent()) {
-      return bindExisting(byEmail.get(), email.orElse(null), issuer, subject, displayName);
+      return bindExisting(byEmail.get(), email.orElse(null), issuer, subject, displayName, avatarUrl);
     }
     String derived = AuthCredentials.usernameFromClaims(
         stringClaim(claims, "preferred_username"),
@@ -160,7 +161,7 @@ public class SsoService {
         subject);
     Optional<User> byUsername = identities.findUserByUsername(derived).filter(user -> canLink(user, email));
     if (byUsername.isPresent()) {
-      return bindExisting(byUsername.get(), email.orElse(null), issuer, subject, displayName);
+      return bindExisting(byUsername.get(), email.orElse(null), issuer, subject, displayName, avatarUrl);
     }
     String username = uniqueUsername(derived);
     try {
@@ -172,7 +173,8 @@ public class SsoService {
           "user",
           email.orElse(null),
           issuer,
-          subject);
+          subject,
+          avatarUrl);
     } catch (DuplicateKeyException error) {
       throw ApiException.conflict("username_taken", "This username is already registered");
     }
@@ -180,9 +182,9 @@ public class SsoService {
         .orElseThrow(() -> ApiException.conflict("user_create_failed", "Failed to create user"));
   }
 
-  private User bindExisting(User user, String email, String issuer, String subject, String displayName) {
+  private User bindExisting(User user, String email, String issuer, String subject, String displayName, String avatarUrl) {
     User active = requireActive(user);
-    identities.bindSso(active.getId(), email, issuer, subject, AuthCredentials.requireDisplayName(displayName));
+    identities.bindSso(active.getId(), email, issuer, subject, AuthCredentials.requireDisplayName(displayName), avatarUrl);
     return identities.findUserById(active.getId()).orElse(active);
   }
 

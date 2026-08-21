@@ -10,13 +10,22 @@ export const membershipSchema = z.object({
   status: z.enum(['active', 'invited', 'disabled']), createdAt: date, updatedAt: date
 }).strict();
 
+export const genderSchema = z.enum(['unspecified', 'male', 'female', 'other']);
+
+export const userProfileSchema = z.object({
+  userId: id,
+  username: z.string().min(1),
+  displayName: z.string().min(1),
+  platformRole: z.enum(['super_admin', 'user']),
+  status: z.string().min(1).optional(),
+  email: z.string().min(1).optional(),
+  avatarUrl: z.string().min(1).optional(),
+  gender: genderSchema.optional(),
+  phone: z.string().min(1).optional()
+}).strict();
+
 export const sessionSchema = z.object({
-  user: z.object({
-    userId: id,
-    username: z.string().min(1),
-    displayName: z.string().min(1),
-    platformRole: z.enum(['super_admin', 'user'])
-  }).strict(),
+  user: userProfileSchema,
   memberships: z.array(membershipSchema),
   canAccessAdmin: z.boolean()
 }).strict();
@@ -55,6 +64,7 @@ export const userAccountSchema = z.object({
   userId: id,
   username: z.string().min(1),
   displayName: z.string().min(1),
+  avatarUrl: z.string().min(1).optional(),
   platformRole: z.enum(['super_admin', 'user']),
   status: z.string().min(1),
   createdAt: date
@@ -68,6 +78,7 @@ export const dashboardSchema = z.object({ counts: z.object({
 
 export const memberSchema = z.object({
   id, userId: id, username: z.string().min(1), displayName: z.string().min(1),
+  avatarUrl: z.string().min(1).optional(),
   role: z.enum(['admin', 'member']),
   status: z.enum(['active', 'invited', 'disabled']), createdAt: date, updatedAt: date
 }).strict();
@@ -98,6 +109,7 @@ export const page = <T extends z.ZodTypeAny>(item: T) => z.object({
 }).strict();
 
 export type Session = z.infer<typeof sessionSchema>;
+export type UserProfile = z.infer<typeof userProfileSchema>;
 export type AuthConfig = z.infer<typeof authConfigSchema>;
 export type PlatformSettings = z.infer<typeof platformSchema>;
 export type PlatformSso = z.infer<typeof platformSsoSchema>;
