@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { runAgentLoop } from './agentLoop';
+import { createWorkerLogger } from './logger';
 import { WsAgentControlTransport } from './transport';
 
 export interface WorkerMainConfig {
@@ -58,7 +59,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     process.exitCode = await runWorkerMain();
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    createWorkerLogger({ agentId: process.env.KROSS_AGENT_ID }).error(
+      error instanceof Error ? error.message : String(error)
+    );
     process.exitCode = 1;
   }
 }

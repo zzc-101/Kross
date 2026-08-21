@@ -5,6 +5,7 @@ import type { AgentResult } from '../core/src/domain';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
 import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFactory';
+import { createWorkerLogger } from './logger';
 import { createPersonalAgentProfile } from './runtime/workExecutionProfile';
 import type { AgentControlTransport, AgentStreamEvent } from './transport';
 
@@ -39,7 +40,12 @@ type MessagePart =
 
 export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   await ensureWorkspaceLayout(options.workspaceRoot);
+  const log = createWorkerLogger({
+    agentId: options.processEnv.KROSS_AGENT_ID,
+    nodeId: options.processEnv.KROSS_NODE_ID
+  });
   const registered = await options.transport.register();
+  log.info('Worker registered', { idleMs: registered.idleMs });
   const minted = await options.transport.mintModelEnvironment();
   const host: AgentHostHandle = await createPersistentAgentHost({
     workspaceRoot: options.workspaceRoot,
@@ -53,6 +59,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
       const heartbeat = await options.transport.heartbeat();
       if (heartbeat.shouldSleep) {
         sleeping = true;
+        log.info('Worker sleeping due to idle timeout');
         await options.transport.sleep();
         return;
       }
@@ -66,6 +73,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
         break;
       }
       try {
+        log.info('Claimed conversation job', { conversationId: job.conversationId });
         const reply = await runTurn(host, options.transport, job, formatTurnInput(job.content, job.history));
         await options.transport.postReply({
           userMessageId: job.id,
@@ -75,8 +83,13 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
           parts: reply.parts,
           ...(reply.errorSummary ? { errorSummary: reply.errorSummary } : {})
         });
+        log.info('Finished conversation job', {
+          conversationId: job.conversationId,
+          status: reply.status
+        });
       } catch (error) {
         const summary = error instanceof Error ? error.message : String(error);
+        log.warn('Agent turn failed', { conversationId: job.conversationId, error: summary });
         await options.transport.postReply({
           userMessageId: job.id,
           agentMessageId: job.agentMessageId,
