@@ -88,6 +88,18 @@ public class CredentialVault {
     }
   }
 
+  public String encryptText(String plaintext) {
+    String trimmed = Optional.ofNullable(plaintext).orElse("").trim();
+    if (trimmed.length() < 8) {
+      throw ApiException.invalidRequest("Client secret must be at least 8 characters");
+    }
+    return encrypt(trimmed, Optional.empty());
+  }
+
+  public String decryptText(String ciphertext) {
+    return decrypt(ciphertext).apiKey();
+  }
+
   public java.util.Map<String, String> modelEnvironment(String provider, String model, Secret secret) {
     ProviderEnv mapping = ProviderEnv.of(provider);
     java.util.LinkedHashMap<String, String> env = new java.util.LinkedHashMap<>();

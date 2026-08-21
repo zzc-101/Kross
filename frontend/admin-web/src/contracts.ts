@@ -24,11 +24,23 @@ export const sessionSchema = z.object({
 export const authConfigSchema = z.object({
   registrationEnabled: z.boolean(),
   bootstrapRequired: z.boolean(),
-  organizationExists: z.boolean()
+  organizationExists: z.boolean(),
+  ssoEnabled: z.boolean(),
+  ssoDisplayName: z.string().min(1).optional()
 }).strict();
 
 export const platformSchema = z.object({
   registrationEnabled: z.boolean()
+}).strict();
+
+export const platformSsoSchema = z.object({
+  enabled: z.boolean(),
+  displayName: z.string().min(1).optional(),
+  issuer: z.string().min(1).optional(),
+  clientId: z.string().min(1).optional(),
+  clientSecretConfigured: z.boolean(),
+  redirectUri: z.string().min(1),
+  additionalRedirectUris: z.array(z.string().min(1))
 }).strict();
 
 export const platformOrganizationSchema = z.object({
@@ -88,6 +100,7 @@ export const page = <T extends z.ZodTypeAny>(item: T) => z.object({
 export type Session = z.infer<typeof sessionSchema>;
 export type AuthConfig = z.infer<typeof authConfigSchema>;
 export type PlatformSettings = z.infer<typeof platformSchema>;
+export type PlatformSso = z.infer<typeof platformSsoSchema>;
 export type PlatformOrganization = z.infer<typeof platformOrganizationSchema>;
 export type UserAccount = z.infer<typeof userAccountSchema>;
 export type Dashboard = z.infer<typeof dashboardSchema>;

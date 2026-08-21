@@ -15,5 +15,8 @@ public class User {
   private String passwordHash;
   private String platformRole;
   private String status;
+  private String email;
+  private String ssoIssuer;
+  private String ssoSubject;
   private Instant createdAt;
 }

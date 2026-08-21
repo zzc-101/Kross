@@ -35,8 +35,52 @@ Orchestrator 与 PostgreSQL。用户端默认入口为 `http://localhost:8787`�
 ./scripts/start-cloud.sh --stop
 ```
 
-当前默认 `KROSS_DEV_IDENTITY=1` 仅用于本机开发。任何共享或公网环境都必须关闭，
-并接入生产 OIDC/Session 身份实现。
+默认走账号密码登录（`KROSS_DEV_IDENTITY=0`）。`KROSS_DEV_IDENTITY=1` 仅用于本机
+冒烟脚本跳过登录，任何共享或公网环境都必须保持关闭。
+
+## 身份与 SSO
+
+Kross 不做身份提供商。默认是平台账号密码；企业有自己的 SSO 时，由超级管理员在
+管理中心接入 OIDC，Kross 只验证 IdP 签发的身份。
+
+三种角色：
+
+1. **超级管理员**（`users.platform_role = super_admin`）：管整站，包括注册开关、
+   组织生命周期和平台 SSO。第一个注册的用户自动成为超管。默认不必是组织成员，
+   也不能查看该组织对话。
+2. **组织管理员**（`membership.role = admin`）：管本组织成员、模型和策略。
+3. **普通用户**（`membership.role = member`）：只用工作台。
+
+空实例第一次注册始终允许。之后是否开放自助注册由超管决定，默认关闭。
+
+### 接入企业 OIDC
+
+在管理中心「平台设置 → 企业 SSO」填写显示名称、Issuer URL、Client ID 和 Client
+Secret。保存并启用时，控制面会请求
+`{issuer}/.well-known/openid-configuration`，确认能发现授权和换票地址。把页面
+展示的回调地址登记到 IdP，例如：
+
+```text
+https://你的域名/api/v2/auth/sso/callback
+```
+
+本机工作台 `:8787` 和管理端 `:8788` 是两个 Origin，需要在 IdP 中同时登记两条
+回调。生产环境应在同一 TLS 域名后反向代理两个入口。
+
+登录流：
+
+1. 浏览器访问 `GET /api/v2/auth/sso/start`，控制面带 `state` / `nonce` / PKCE
+   跳转到企业 IdP。
+2. IdP 回到 `GET /api/v2/auth/sso/callback`。控制面换票并校验 `id_token`
+   （签名、issuer、audience、nonce、过期）。
+3. 用 `issuer + sub` 绑定已有用户；没有则按 `preferred_username` 或邮箱本地部分
+   JIT 创建平台用户（`platform_role=user`，不自动加入组织）。
+4. 写入现有 `KROSS_SESSION` Cookie，后续与密码登录同一套会话。
+
+启用 SSO 后，普通用户只能走企业账号；超级管理员仍可用密码应急，避免 IdP 故障
+锁死整站。JIT 用户进入工作台前，仍需组织管理员用其用户名登记到本组织。Client
+Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`，接口
+不会回显明文。
 
 ## 配置
 
@@ -45,11 +89,9 @@ Orchestrator 与 PostgreSQL。用户端默认入口为 `http://localhost:8787`�
 | `KROSS_PORT` | Web 对宿主机暴露的端口，默认 `8787` |
 | `KROSS_ADMIN_PORT` | 管理端对宿主机暴露的端口，默认 `8788` |
 | `KROSS_POSTGRES_PASSWORD` | 本地 PostgreSQL 密码；脚本可自动生成 |
-| `KROSS_ORCHESTRATOR_SERVICE_TOKEN` | Server 与 Orchestrator 的内部服务令牌，至少 32 字节 |
-| `KROSS_BLOB_SIGNING_SECRET` | Source/Artifact 短期 URL 的 HMAC 密钥，至少 32 字节 |
-| `KROSS_BLOB_ROOT` | 本地 BlobStore 路径；生产应替换成对象存储 Adapter |
+| `KROSS_CREDENTIAL_MASTER_KEY` | 加密模型 API Key 与 SSO Client Secret 的主密钥，至少 32 字符 |
 | `KROSS_PUBLIC_BASE_URL` | Worker/浏览器可访问的签名 Blob URL 基地址 |
-| `KROSS_DEV_IDENTITY` | `1` 启用开发身份；生产必须为 `0` |
+| `KROSS_DEV_IDENTITY` | `1` 启用开发身份跳过登录；默认 `0`，生产必须为 `0` |
 | `KROSS_ORCHESTRATOR_MANAGER_ID` | Docker 资源归属标签，多实例必须唯一 |
 | `KROSS_WORKER_IMAGE` | Worker 镜像，Compose 默认 `kross-worker:local` |
 | `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | Worker 默认模型配置 |

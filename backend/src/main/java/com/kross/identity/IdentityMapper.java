@@ -6,6 +6,7 @@ import com.kross.identity.entity.Member;
 import com.kross.identity.entity.Membership;
 import com.kross.identity.entity.Organization;
 import com.kross.identity.entity.OrganizationListRow;
+import com.kross.identity.entity.PlatformSettings;
 import com.kross.identity.entity.User;
 import java.util.List;
 import java.util.Optional;
@@ -22,9 +23,23 @@ public interface IdentityMapper {
       @Param("username") String username,
       @Param("displayName") String displayName,
       @Param("passwordHash") String passwordHash,
-      @Param("platformRole") String platformRole);
+      @Param("platformRole") String platformRole,
+      @Param("email") String email,
+      @Param("ssoIssuer") String ssoIssuer,
+      @Param("ssoSubject") String ssoSubject);
+
+  void bindSso(
+      @Param("id") String id,
+      @Param("email") String email,
+      @Param("ssoIssuer") String ssoIssuer,
+      @Param("ssoSubject") String ssoSubject,
+      @Param("displayName") String displayName);
 
   Optional<User> findUserByUsername(@Param("username") String username);
+
+  Optional<User> findUserByEmail(@Param("email") String email);
+
+  Optional<User> findUserBySso(@Param("issuer") String issuer, @Param("subject") String subject);
 
   Optional<User> findUserById(@Param("id") String id);
 
@@ -32,7 +47,18 @@ public interface IdentityMapper {
 
   boolean isRegistrationEnabled();
 
+  boolean isSsoEnabled();
+
+  Optional<PlatformSettings> findPlatformSettings();
+
   void setRegistrationEnabled(@Param("enabled") boolean enabled);
+
+  void updateSsoSettings(
+      @Param("enabled") boolean enabled,
+      @Param("displayName") String displayName,
+      @Param("issuer") String issuer,
+      @Param("clientId") String clientId,
+      @Param("clientSecretCipher") String clientSecretCipher);
 
   List<User> listUsers(@Param("limit") int limit, @Param("offset") int offset);
 

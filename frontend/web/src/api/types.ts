@@ -25,6 +25,8 @@ export interface AuthConfig {
   registrationEnabled: boolean;
   bootstrapRequired: boolean;
   organizationExists: boolean;
+  ssoEnabled: boolean;
+  ssoDisplayName?: string;
 }
 
 export interface AgentModel {

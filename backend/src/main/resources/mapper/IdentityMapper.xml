@@ -8,17 +8,36 @@
   </insert>
 
   <insert id="insertUser">
-    INSERT INTO users (id, username, display_name, password_hash, platform_role, status)
-    VALUES (#{id}, #{username}, #{displayName}, #{passwordHash}, #{platformRole}, 'active')
+    INSERT INTO users (id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject)
+    VALUES (#{id}, #{username}, #{displayName}, #{passwordHash}, #{platformRole}, 'active', #{email}, #{ssoIssuer}, #{ssoSubject})
   </insert>
 
+  <update id="bindSso">
+    UPDATE users
+    SET email = COALESCE(#{email}, email),
+        sso_issuer = #{ssoIssuer},
+        sso_subject = #{ssoSubject},
+        display_name = COALESCE(#{displayName}, display_name)
+    WHERE id = #{id}
+  </update>
+
   <select id="findUserByUsername" resultType="com.kross.identity.entity.User">
-    SELECT id, username, display_name, password_hash, platform_role, status, created_at
+    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject, created_at
     FROM users WHERE lower(username) = #{username}
   </select>
 
+  <select id="findUserByEmail" resultType="com.kross.identity.entity.User">
+    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject, created_at
+    FROM users WHERE email IS NOT NULL AND lower(email) = #{email}
+  </select>
+
+  <select id="findUserBySso" resultType="com.kross.identity.entity.User">
+    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject, created_at
+    FROM users WHERE sso_issuer = #{issuer} AND sso_subject = #{subject}
+  </select>
+
   <select id="findUserById" resultType="com.kross.identity.entity.User">
-    SELECT id, username, display_name, password_hash, platform_role, status, created_at
+    SELECT id, username, display_name, password_hash, platform_role, status, email, sso_issuer, sso_subject, created_at
     FROM users WHERE id = #{id}
   </select>
 
@@ -30,8 +49,28 @@
     SELECT registration_enabled FROM platform_settings WHERE id = 'default'
   </select>
 
+  <select id="isSsoEnabled" resultType="boolean">
+    SELECT sso_enabled FROM platform_settings WHERE id = 'default'
+  </select>
+
+  <select id="findPlatformSettings" resultType="com.kross.identity.entity.PlatformSettings">
+    SELECT registration_enabled, sso_enabled, sso_display_name, sso_issuer, sso_client_id, sso_client_secret_cipher
+    FROM platform_settings WHERE id = 'default'
+  </select>
+
   <update id="setRegistrationEnabled">
     UPDATE platform_settings SET registration_enabled = #{enabled}, updated_at = now() WHERE id = 'default'
+  </update>
+
+  <update id="updateSsoSettings">
+    UPDATE platform_settings
+    SET sso_enabled = #{enabled},
+        sso_display_name = #{displayName},
+        sso_issuer = #{issuer},
+        sso_client_id = #{clientId},
+        sso_client_secret_cipher = COALESCE(#{clientSecretCipher}, sso_client_secret_cipher),
+        updated_at = now()
+    WHERE id = 'default'
   </update>
 
   <select id="listUsers" resultType="com.kross.identity.entity.User">

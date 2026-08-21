@@ -35,4 +35,50 @@ public final class AuthCredentials {
     }
     return name;
   }
+
+  public static Optional<String> optionalEmail(String raw) {
+    String email = Optional.ofNullable(raw).map(String::trim).map(String::toLowerCase).orElse("");
+    if (email.isEmpty()) {
+      return Optional.empty();
+    }
+    int at = email.indexOf('@');
+    if (at < 1 || at != email.lastIndexOf('@') || at == email.length() - 1 || email.length() > 254) {
+      return Optional.empty();
+    }
+    return Optional.of(email);
+  }
+
+  public static String usernameFromClaims(String preferredUsername, String email, String subject) {
+    return tryUsername(preferredUsername)
+        .or(() -> tryUsername(Optional.ofNullable(email).map(value -> value.split("@")[0]).orElse("")))
+        .orElseGet(() -> fallbackUsername(subject));
+  }
+
+  public static Optional<String> tryUsername(String raw) {
+    String username = Optional.ofNullable(raw).map(String::trim).map(String::toLowerCase)
+        .map(value -> value.replaceAll("[^a-z0-9_-]", ""))
+        .orElse("");
+    if (username.isEmpty()) {
+      return Optional.empty();
+    }
+    if (!Character.isLetter(username.charAt(0))) {
+      username = "u" + username;
+    }
+    if (username.length() > 32) {
+      username = username.substring(0, 32);
+    }
+    if (!USERNAME.matcher(username).matches()) {
+      return Optional.empty();
+    }
+    return Optional.of(username);
+  }
+
+  private static String fallbackUsername(String subject) {
+    String compact = Optional.ofNullable(subject).orElse("user").replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+    if (compact.length() < 2) {
+      compact = "user" + Integer.toHexString(Math.abs(Optional.ofNullable(subject).orElse("x").hashCode()));
+    }
+    String username = "u" + compact;
+    return username.length() <= 32 ? username : username.substring(0, 32);
+  }
 }

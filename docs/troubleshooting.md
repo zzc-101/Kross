@@ -22,6 +22,19 @@ docker compose version
 ./scripts/start-cloud.sh --stop
 ```
 
+## 登录页看不到密码，或普通用户密码登录失败
+
+超级管理员在管理中心启用了企业 SSO 后，普通用户只能走「使用企业账号登录」。
+超级管理员仍可展开「管理员应急登录」。若 IdP 回调失败，地址栏会带 `sso_error`。
+
+常见原因：
+
+- IdP 未登记当前 Origin 的回调地址（本机 `8787` 与 `8788` 要各登记一条）；
+- Issuer 与 discovery 文档中的 `issuer` 不一致；
+- Client Secret 未保存或主密钥 `KROSS_CREDENTIAL_MASTER_KEY` 已更换导致无法解密。
+
+接入步骤见 [Cloud Agent 部署与运维](cloud-agent-deployment.md#身份与-sso)。
+
 ## 能打开工作台，但没有真实模型回复
 
 在管理控制台确认已配置可用模型。开发环境也可以用环境变量注入：

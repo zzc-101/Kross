@@ -11,6 +11,7 @@ import com.kross.identity.dto.PlatformSettingsView;
 import com.kross.identity.dto.RegisterRequest;
 import com.kross.identity.dto.UpdatePlatformRequest;
 import com.kross.identity.dto.UserAccountView;
+import com.kross.identity.entity.PlatformSettings;
 import com.kross.identity.entity.User;
 import java.util.List;
 import java.util.Optional;
@@ -32,15 +33,26 @@ public class AuthService {
   private final PasswordEncoder passwords;
 
   public AuthConfigView config() {
+    PlatformSettings settings = identities.findPlatformSettings().orElse(null);
+    boolean ssoEnabled = Optional.ofNullable(settings).map(PlatformSettings::getSsoEnabled).orElse(false);
+    String ssoName = Optional.ofNullable(settings)
+        .map(PlatformSettings::getSsoDisplayName)
+        .filter(value -> !value.isBlank())
+        .orElse("企业账号");
     return new AuthConfigView(
         identities.isRegistrationEnabled(),
         identities.countUsers() == 0,
-        identities.countOrganizations() > 0);
+        identities.countOrganizations() > 0,
+        ssoEnabled,
+        ssoEnabled ? ssoName : null);
   }
 
   @Transactional
   public MeResponse register(RegisterRequest request) {
     boolean bootstrap = identities.countUsers() == 0;
+    if (!bootstrap && identities.isSsoEnabled()) {
+      throw new ApiException("sso_required", "Sign in with SSO", 403);
+    }
     if (!bootstrap && !identities.isRegistrationEnabled()) {
       throw new ApiException("registration_disabled", "Self-service registration is disabled", 403);
     }
@@ -62,6 +74,9 @@ public class AuthService {
         .orElseThrow(AuthService::invalidCredentials);
     if (!"active".equals(Optional.ofNullable(user.getStatus()).orElse(""))) {
       throw new ApiException("account_disabled", "This account is disabled", 403);
+    }
+    if (identities.isSsoEnabled() && !"super_admin".equals(user.getPlatformRole())) {
+      throw new ApiException("sso_required", "Sign in with SSO", 403);
     }
     String hash = Optional.ofNullable(user.getPasswordHash()).filter(value -> !value.isBlank())
         .orElseThrow(AuthService::invalidCredentials);
@@ -121,7 +136,10 @@ public class AuthService {
           username,
           displayName,
           passwords.encode(password),
-          platformRole);
+          platformRole,
+          null,
+          null,
+          null);
     } catch (DuplicateKeyException error) {
       throw ApiException.conflict("username_taken", "This username is already registered");
     }
@@ -150,6 +168,14 @@ public class AuthService {
     if (!access.currentIdentity().superAdmin()) {
       throw new ApiException("permission_denied", "Super admin required", 403);
     }
+  }
+
+  public Identity identityOf(User user) {
+    return toIdentity(user);
+  }
+
+  public MeResponse current() {
+    return identityService.me();
   }
 
   private static Identity toIdentity(User user) {

@@ -9,6 +9,8 @@ import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
 import com.kross.catalog.dto.UpdateModelRequest;
 import com.kross.identity.AuthService;
+import com.kross.identity.PlatformService;
+import com.kross.identity.SsoService;
 import com.kross.identity.dto.AssignOrgAdminRequest;
 import com.kross.identity.dto.CreateOrganizationRequest;
 import com.kross.identity.dto.CreateUserRequest;
@@ -19,12 +21,14 @@ import com.kross.identity.dto.MemberView;
 import com.kross.identity.dto.OrganizationPolicyView;
 import com.kross.identity.dto.PlatformOrganizationView;
 import com.kross.identity.dto.PlatformSettingsView;
+import com.kross.identity.dto.PlatformSsoView;
 import com.kross.identity.dto.UpdateMemberRequest;
 import com.kross.identity.dto.UpdateOrganizationRequest;
 import com.kross.identity.dto.UpdatePlatformRequest;
 import com.kross.identity.dto.UpdatePolicyRequest;
+import com.kross.identity.dto.UpdateSsoRequest;
 import com.kross.identity.dto.UserAccountView;
-import com.kross.identity.PlatformService;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -47,6 +51,7 @@ public class AdminController {
   private final AdminService admin;
   private final AuthService auth;
   private final PlatformService platform;
+  private final SsoService sso;
 
   @GetMapping("/platform")
   public Res<PlatformSettingsView> platform() {
@@ -56,6 +61,16 @@ public class AdminController {
   @PatchMapping("/platform")
   public Res<PlatformSettingsView> updatePlatform(@RequestBody UpdatePlatformRequest request) {
     return Res.ok(auth.updatePlatform(request));
+  }
+
+  @GetMapping("/platform/sso")
+  public Res<PlatformSsoView> sso(HttpServletRequest request) {
+    return Res.ok(sso.view(request));
+  }
+
+  @PatchMapping("/platform/sso")
+  public Res<PlatformSsoView> updateSso(@RequestBody UpdateSsoRequest body, HttpServletRequest request) {
+    return Res.ok(sso.update(body, request));
   }
 
   @GetMapping("/platform/organizations")

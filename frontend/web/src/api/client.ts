@@ -38,7 +38,9 @@ const meSchema: z.ZodType<Me> = z.object({
 const authConfigSchema: z.ZodType<AuthConfig> = z.object({
   registrationEnabled: z.boolean(),
   bootstrapRequired: z.boolean(),
-  organizationExists: z.boolean()
+  organizationExists: z.boolean(),
+  ssoEnabled: z.boolean(),
+  ssoDisplayName: z.string().min(1).optional()
 });
 
 const agentModelSchema: z.ZodType<AgentModel> = z.object({

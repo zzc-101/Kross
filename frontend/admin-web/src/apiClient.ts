@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import {
   approvalPolicySchema, auditLogSchema, authConfigSchema, dashboardSchema, memberSchema, modelSchema,
-  page, platformOrganizationSchema, platformSchema, sessionSchema, userAccountSchema,
-  type ApprovalPolicy, type Member, type ModelConfig, type PlatformSettings, type Session, type UserAccount
+  page, platformOrganizationSchema, platformSchema, platformSsoSchema, sessionSchema, userAccountSchema,
+  type ApprovalPolicy, type Member, type ModelConfig, type PlatformSettings, type PlatformSso, type Session, type UserAccount
 } from './contracts';
 
 export class AdminApiError extends Error {
@@ -79,6 +79,10 @@ export class AdminApiClient {
   users() { return this.request('/api/v2/admin/users', page(userAccountSchema), { organization: false }).then(x => x.items); }
   createUser(input: { username: string; password: string; displayName?: string }) {
     return this.request('/api/v2/admin/users', userAccountSchema, { method: 'POST', body: input, organization: false });
+  }
+  sso() { return this.request('/api/v2/admin/platform/sso', platformSsoSchema, { organization: false }); }
+  updateSso(input: Partial<PlatformSso> & { clientSecret?: string }) {
+    return this.request('/api/v2/admin/platform/sso', platformSsoSchema, { method: 'PATCH', body: input, organization: false });
   }
 
   private async request<T>(path: string, schema: z.ZodType<T>, options: RequestOptions = {}): Promise<T> {

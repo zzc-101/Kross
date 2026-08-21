@@ -42,6 +42,11 @@ export function App() {
         if (cancelled) return;
         setConfig(nextConfig);
         if (nextConfig.bootstrapRequired) setMode('register');
+        const ssoError = new URLSearchParams(location.search).get('sso_error');
+        if (ssoError) {
+          setError(ssoError);
+          history.replaceState(null, '', location.pathname);
+        }
         try {
           applyMe(await api.me());
         } catch (cause) {
@@ -64,7 +69,7 @@ export function App() {
     };
   }, [api]);
 
-  const canRegister = Boolean(config?.registrationEnabled || config?.bootstrapRequired);
+  const canRegister = Boolean((config?.registrationEnabled && !config?.ssoEnabled) || config?.bootstrapRequired);
 
   const runAuth = async (action: () => Promise<Me>) => {
     setBusy(true);
@@ -95,6 +100,8 @@ export function App() {
       <AuthScreen
         mode={canRegister && mode === 'register' ? 'register' : 'login'}
         canRegister={canRegister}
+        ssoEnabled={config?.ssoEnabled}
+        ssoDisplayName={config?.ssoDisplayName}
         error={error}
         busy={busy}
         onLogin={(username, password) => runAuth(() => api.login({ username, password }))}

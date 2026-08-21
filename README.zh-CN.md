@@ -39,7 +39,7 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次运行时，启动�
 ./scripts/start-cloud.sh
 ```
 
-打开 `http://localhost:8787` 进入用户工作台，或打开 `http://localhost:8788` 进入管理中心。第一个注册的用户会成为平台超级管理员，可以创建组织、指定组织管理员，并控制是否开放自助注册。组织管理员负责本组织入职。普通成员只使用工作台。常用管理命令：
+打开 `http://localhost:8787` 进入用户工作台，或打开 `http://localhost:8788` 进入管理中心。第一个注册的用户会成为平台超级管理员，可以创建组织、指定组织管理员、控制自助注册，并接入企业 OIDC SSO（Kross 只做验证方）。组织管理员负责本组织入职。普通成员只使用工作台。常用管理命令：
 
 ```bash
 ./scripts/start-cloud.sh --no-build

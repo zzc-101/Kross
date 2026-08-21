@@ -40,6 +40,7 @@ public class SecurityConfig {
             .requestMatchers("/health").permitAll()
             .requestMatchers("/internal/v2/agents/**").permitAll()
             .requestMatchers(HttpMethod.GET, api + "/auth/config").permitAll()
+            .requestMatchers(HttpMethod.GET, api + "/auth/sso/start", api + "/auth/sso/callback").permitAll()
             .requestMatchers(HttpMethod.POST, api + "/auth/register", api + "/auth/login", api + "/auth/logout")
             .permitAll()
             .requestMatchers(api + "/**").authenticated()

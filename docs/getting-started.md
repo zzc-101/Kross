@@ -29,7 +29,11 @@ docker compose version
 控制面和 Worker 镜像。启动后打开：
 
 - 用户工作台：`http://localhost:8787`
-- 组织管理控制台：`http://localhost:8788`
+- 管理中心：`http://localhost:8788`
+
+空实例第一次注册的用户会成为平台超级管理员。超管创建组织并指定组织管理员后，
+组织管理员再为本组织登记成员。普通用户只使用工作台。企业 SSO 在管理中心「平台
+设置」接入，Kross 只做 OIDC 验证方，不自己签发身份。
 
 常用命令：
 
@@ -39,8 +43,9 @@ docker compose version
 ./scripts/start-cloud.sh --stop
 ```
 
-本地开发使用显式开发身份流；公网部署必须换成生产 OIDC 或会话认证。配置、安全
-边界和验收清单见 [Cloud Agent 部署与运维](cloud-agent-deployment.md)。
+默认使用账号密码和 `KROSS_SESSION`。`KROSS_DEV_IDENTITY=1` 仅供本机冒烟跳过登录，
+公网必须关闭。配置、安全边界和验收清单见
+[Cloud Agent 部署与运维](cloud-agent-deployment.md)。
 
 ## 3. 配置模型
 

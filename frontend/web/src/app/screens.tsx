@@ -3,6 +3,8 @@ import { FormEvent } from 'react';
 export function AuthScreen({
   mode,
   canRegister,
+  ssoEnabled,
+  ssoDisplayName,
   error,
   busy,
   onLogin,
@@ -11,6 +13,8 @@ export function AuthScreen({
 }: {
   mode: 'login' | 'register';
   canRegister: boolean;
+  ssoEnabled?: boolean;
+  ssoDisplayName?: string;
   error?: string;
   busy: boolean;
   onLogin(username: string, password: string): Promise<void>;
@@ -18,6 +22,7 @@ export function AuthScreen({
   onToggle(): void;
 }) {
   const register = mode === 'register';
+  const ssoLabel = ssoDisplayName || '企业账号';
   return (
     <main className="gate">
       <form
@@ -37,26 +42,38 @@ export function AuthScreen({
         <p>
           {register
             ? '第一个注册的用户会成为超级管理员，之后是否开放注册由超级管理员决定。'
-            : '使用用户名和密码进入你的 Agent 工作区。'}
+            : ssoEnabled
+              ? `使用${ssoLabel}登录。超级管理员仍可用密码应急。`
+              : '使用用户名和密码进入你的 Agent 工作区。'}
         </p>
         {error && <p className="gate-error">{error}</p>}
-        <label>
-          <span>用户名</span>
-          <input name="username" required autoComplete="username" autoFocus pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" />
-        </label>
-        {register && (
-          <label>
-            <span>显示名称（可选）</span>
-            <input name="displayName" autoComplete="nickname" />
-          </label>
+        {!register && ssoEnabled && (
+          <a className="primary" href="/api/v2/auth/sso/start">使用{ssoLabel}登录</a>
         )}
-        <label>
-          <span>密码</span>
-          <input name="password" type="password" required minLength={8} autoComplete={register ? 'new-password' : 'current-password'} />
-        </label>
-        <button className="primary" type="submit" disabled={busy}>
-          {busy ? '请稍候…' : register ? '注册并进入' : '登录'}
-        </button>
+        {(register || !ssoEnabled) && (
+          <>
+            <label>
+              <span>用户名</span>
+              <input name="username" required autoComplete="username" autoFocus pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" />
+            </label>
+            {register && (
+              <label>
+                <span>显示名称（可选）</span>
+                <input name="displayName" autoComplete="nickname" />
+              </label>
+            )}
+            <label>
+              <span>密码</span>
+              <input name="password" type="password" required minLength={8} autoComplete={register ? 'new-password' : 'current-password'} />
+            </label>
+            <button className="primary" type="submit" disabled={busy}>
+              {busy ? '请稍候…' : register ? '注册并进入' : '登录'}
+            </button>
+          </>
+        )}
+        {!register && ssoEnabled && (
+          <EmergencyLogin busy={busy} onLogin={onLogin} />
+        )}
         {canRegister && (
           <p className="gate-switch">
             {register ? '已有账号？' : '还没有账号？'}
@@ -67,6 +84,29 @@ export function AuthScreen({
         )}
       </form>
     </main>
+  );
+}
+
+function EmergencyLogin({
+  busy,
+  onLogin
+}: {
+  busy: boolean;
+  onLogin(username: string, password: string): Promise<void>;
+}) {
+  return (
+    <details className="gate-emergency">
+      <summary>管理员应急登录</summary>
+      <label>
+        <span>用户名</span>
+        <input name="username" required autoComplete="username" pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" />
+      </label>
+      <label>
+        <span>密码</span>
+        <input name="password" type="password" required minLength={8} autoComplete="current-password" />
+      </label>
+      <button className="primary" type="submit" disabled={busy}>{busy ? '请稍候…' : '应急登录'}</button>
+    </details>
   );
 }
 

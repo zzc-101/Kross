@@ -21,12 +21,13 @@ flowchart TB
 |---|---|
 | `frontend/web` | 普通用户工作台 |
 | `frontend/admin-web` | 组织管理端 |
-| `backend` | Java Spring Boot 控制面（身份、模型、Agent 生命周期） |
+| `backend` | Java Spring Boot 控制面（账号密码 / OIDC SSO、模型、Agent 生命周期） |
 | `worker` | 个人 Agent 容器内的常驻 Runtime 宿主 |
 | `worker/core` | Runtime、上下文、会话、工具、权限、Skills、MCP、模型与验证 |
 
 Core 不依赖 Web 或 Java 后端。浏览器不引用 Core。前后端通过 HTTP/SSE 交换消息；
-Worker 只在容器运行时用 WebSocket 连控制面。
+Worker 只在容器运行时用 WebSocket 连控制面。浏览器身份由控制面 `KROSS_SESSION`
+会话维持；企业 SSO 时控制面作为 OIDC 验证方，不把登录交给 Spring `oauth2Login`。
 
 Core 顶层只由 `src/api/public.ts` 和 `src/api/experimental.ts` 组成；内部模块不
 允许通过新的 `export *` 泄漏。`worker/core/api-surface.json` 保存包含类型导出

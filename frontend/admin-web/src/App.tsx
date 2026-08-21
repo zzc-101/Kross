@@ -55,6 +55,11 @@ export function App() {
         if (!active) return;
         setConfig(nextConfig);
         if (nextConfig.bootstrapRequired) setMode('register');
+        const ssoError = new URLSearchParams(location.search).get('sso_error');
+        if (ssoError) {
+          setError(ssoError);
+          history.replaceState(null, '', location.pathname);
+        }
         try {
           applyMe(await api.me());
         } catch (e) {
@@ -72,7 +77,7 @@ export function App() {
   }, [api]);
   useEffect(() => { if (organizationId) api.selectOrganization(organizationId); }, [api, organizationId]);
 
-  const canRegister = Boolean(config?.registrationEnabled || config?.bootstrapRequired);
+  const canRegister = Boolean((config?.registrationEnabled && !config?.ssoEnabled) || config?.bootstrapRequired);
   const runAuth = async (action: () => Promise<Session>) => {
     setBusy(true); setError('');
     try { applyMe(await action()); } catch (e) { setError(messageOf(e)); } finally { setBusy(false); }
@@ -85,7 +90,8 @@ export function App() {
 
   if (loading) return <Centered><Spinner /><h2>正在进入管理中心</h2><p>正在验证身份与组织权限…</p></Centered>;
   if (!session) {
-    return <AuthGate mode={canRegister && mode === 'register' ? 'register' : 'login'} canRegister={canRegister} error={error} busy={busy}
+    return <AuthGate mode={canRegister && mode === 'register' ? 'register' : 'login'} canRegister={canRegister}
+      ssoEnabled={Boolean(config?.ssoEnabled)} ssoDisplayName={config?.ssoDisplayName} error={error} busy={busy}
       onLogin={(username, password) => runAuth(() => api.login({ username, password }))}
       onRegister={(username, password, displayName) => runAuth(() => api.register({ username, password, displayName }))}
       onToggle={() => { setError(''); setMode(current => current === 'login' ? 'register' : 'login'); }} />;
@@ -244,12 +250,52 @@ function OrganizationsPage({ api, currentUsername, onChanged }: { api: AdminApiC
 
 function PlatformPage({ api }: { api: AdminApiClient }) {
   const settings = useResource(() => api.platform(), [api]);
+  const sso = useResource(() => api.sso(), [api]);
   const users = useResource(() => api.users(), [api]);
   const [form, setForm] = useState({ username: '', password: '', displayName: '' });
+  const [ssoForm, setSsoForm] = useState({ displayName: '', issuer: '', clientId: '', clientSecret: '' });
   const [error, setError] = useState('');
+  const [ssoError, setSsoError] = useState('');
+  useEffect(() => {
+    if (!sso.data) return;
+    setSsoForm(current => ({
+      displayName: sso.data?.displayName ?? current.displayName,
+      issuer: sso.data?.issuer ?? current.issuer,
+      clientId: sso.data?.clientId ?? current.clientId,
+      clientSecret: current.clientSecret
+    }));
+  }, [sso.data]);
   const toggle = async (registrationEnabled: boolean) => {
     const next = await api.updatePlatform({ registrationEnabled });
     settings.setData(next);
+  };
+  const saveSso = async (e: FormEvent) => {
+    e.preventDefault(); setSsoError('');
+    try {
+      const next = await api.updateSso({
+        enabled: sso.data?.enabled ?? false,
+        displayName: ssoForm.displayName,
+        issuer: ssoForm.issuer,
+        clientId: ssoForm.clientId,
+        ...(ssoForm.clientSecret ? { clientSecret: ssoForm.clientSecret } : {})
+      });
+      sso.setData(next);
+      setSsoForm(current => ({ ...current, clientSecret: '' }));
+    } catch (x) { setSsoError(messageOf(x)); }
+  };
+  const toggleSso = async (enabled: boolean) => {
+    setSsoError('');
+    try {
+      const next = await api.updateSso({
+        enabled,
+        displayName: ssoForm.displayName,
+        issuer: ssoForm.issuer,
+        clientId: ssoForm.clientId,
+        ...(ssoForm.clientSecret ? { clientSecret: ssoForm.clientSecret } : {})
+      });
+      sso.setData(next);
+      setSsoForm(current => ({ ...current, clientSecret: '' }));
+    } catch (x) { setSsoError(messageOf(x)); }
   };
   const create = async (e: FormEvent) => {
     e.preventDefault(); setError('');
@@ -259,8 +305,20 @@ function PlatformPage({ api }: { api: AdminApiClient }) {
       users.reload();
     } catch (x) { setError(messageOf(x)); }
   };
-  return <PageFrame title="平台设置" subtitle="超级管理员控制自助注册，并在关闭注册时直接创建账号。">
-    <Resource state={settings}>{p => <section className="card policy-card"><CardTitle title="自助注册" subtitle="关闭后，新用户只能由组织管理员在本组织入职，或由超级管理员创建账号。" /><PolicyRow title="允许注册" description="第一个用户始终可以注册并成为超级管理员。之后是否开放注册由超级管理员决定。"><label className="switch"><input type="checkbox" checked={p.registrationEnabled} onChange={e => void toggle(e.target.checked)} /><span /></label></PolicyRow></section>}</Resource>
+  return <PageFrame title="平台设置" subtitle="超级管理员控制自助注册、企业 SSO，并在关闭注册时直接创建账号。">
+    <Resource state={settings}>{p => <section className="card policy-card"><CardTitle title="自助注册" subtitle="关闭后，新用户只能由组织管理员在本组织入职，或由超级管理员创建账号。" /><PolicyRow title="允许注册" description="第一个用户始终可以注册并成为超级管理员。SSO 启用后普通用户不能再用密码注册。"><label className="switch"><input type="checkbox" checked={p.registrationEnabled} onChange={e => void toggle(e.target.checked)} /><span /></label></PolicyRow></section>}</Resource>
+    <Resource state={sso}>{config => <section className="card policy-card"><CardTitle title="企业 SSO" subtitle="Kross 只验证企业 IdP 签发的身份，不自己充当身份提供商。把下面的回调地址填回 IdP。" />
+      <PolicyRow title="启用 OIDC" description="开启后普通用户只能走 SSO，超级管理员仍可用密码应急。"><label className="switch"><input type="checkbox" checked={config.enabled} onChange={e => void toggleSso(e.target.checked)} /><span /></label></PolicyRow>
+      <div className="policy-row"><div><strong>回调地址</strong><p>{config.redirectUri}</p>{config.additionalRedirectUris.map(uri => <p key={uri}>{uri}</p>)}</div></div>
+      <form className="inline-form" onSubmit={saveSso}>
+        <label>登录按钮名称<input value={ssoForm.displayName} onChange={e => setSsoForm({ ...ssoForm, displayName: e.target.value })} placeholder="企业账号" /></label>
+        <label>Issuer URL<input required={config.enabled} value={ssoForm.issuer} onChange={e => setSsoForm({ ...ssoForm, issuer: e.target.value })} placeholder="https://login.example.com/realms/corp" /></label>
+        <label>Client ID<input required={config.enabled} value={ssoForm.clientId} onChange={e => setSsoForm({ ...ssoForm, clientId: e.target.value })} /></label>
+        <label>Client Secret<input type="password" autoComplete="off" minLength={8} value={ssoForm.clientSecret} onChange={e => setSsoForm({ ...ssoForm, clientSecret: e.target.value })} placeholder={config.clientSecretConfigured ? '已保存，留空表示不改' : '至少 8 位'} /></label>
+        <button className="button">保存 SSO</button>
+        {ssoError && <span className="form-error">{ssoError}</span>}
+      </form>
+    </section>}</Resource>
     <form className="card inline-form" onSubmit={create}>
       <label>用户名<input required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} /></label>
       <label>显示名称<input value={form.displayName} onChange={e => setForm({ ...form, displayName: e.target.value })} /></label>
@@ -333,17 +391,20 @@ function Badge({ children, tone }: { children: ReactNode; tone: string }) { retu
 function RefreshButton({ onClick }: { onClick: () => void }) { return <button className="button secondary" onClick={onClick}><RefreshCw />刷新</button>; }
 function Spinner() { return <RefreshCw className="spinner" />; }
 function Centered({ children }: { children: ReactNode }) { return <main className="centered">{children}</main>; }
-function AuthGate({ mode, canRegister, error, busy, onLogin, onRegister, onToggle }: {
-  mode: 'login' | 'register'; canRegister: boolean; error?: string; busy: boolean;
+function AuthGate({ mode, canRegister, ssoEnabled, ssoDisplayName, error, busy, onLogin, onRegister, onToggle }: {
+  mode: 'login' | 'register'; canRegister: boolean; ssoEnabled?: boolean; ssoDisplayName?: string; error?: string; busy: boolean;
   onLogin(username: string, password: string): Promise<void>;
   onRegister(username: string, password: string, displayName: string): Promise<void>;
   onToggle(): void;
 }) {
   const register = mode === 'register';
-  return <main className="setup"><section className="setup-intro"><span className="brand-mark"><Bot /></span><h1>{register ? '创建管理员账号' : '登录管理中心'}</h1><p>{register ? '第一个注册的用户会成为超级管理员，之后是否开放注册由超级管理员决定。' : '使用用户名和密码管理组织、模型和成员。'}</p></section><section className="card setup-card">
-    <small>{register ? '首次设置' : '账号登录'}</small>
+  const ssoLabel = ssoDisplayName || '企业账号';
+  return <main className="setup"><section className="setup-intro"><span className="brand-mark"><Bot /></span><h1>{register ? '创建管理员账号' : '登录管理中心'}</h1><p>{register ? '第一个注册的用户会成为超级管理员，之后是否开放注册由超级管理员决定。' : ssoEnabled ? `使用${ssoLabel}登录。超级管理员仍可用密码应急。` : '使用用户名和密码管理组织、模型和成员。'}</p></section><section className="card setup-card">
+    <small>{register ? '首次设置' : ssoEnabled ? '企业登录' : '账号登录'}</small>
     <h2>{register ? '注册' : '登录'}</h2>
-    <form onSubmit={e => {
+    {error && <span className="form-error">{error}</span>}
+    {!register && ssoEnabled && <a className="button wide" href="/api/v2/auth/sso/start">使用{ssoLabel}登录</a>}
+    {(register || !ssoEnabled) && <form onSubmit={e => {
       e.preventDefault();
       const data = new FormData(e.currentTarget);
       const username = String(data.get('username') ?? '').trim();
@@ -357,7 +418,19 @@ function AuthGate({ mode, canRegister, error, busy, onLogin, onRegister, onToggl
       <label>密码<input name="password" type="password" required minLength={8} autoComplete={register ? 'new-password' : 'current-password'} /></label>
       {error && <span className="form-error">{error}</span>}
       <button className="button wide" disabled={busy}>{busy ? '请稍候…' : register ? '注册并进入' : '登录'}</button>
-    </form>
+    </form>}
+    {!register && ssoEnabled && <form onSubmit={e => {
+      e.preventDefault();
+      const data = new FormData(e.currentTarget);
+      void onLogin(String(data.get('username') ?? '').trim(), String(data.get('password') ?? ''));
+    }}>
+      <details>
+        <summary>管理员应急登录</summary>
+        <label>用户名<input name="username" required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" autoComplete="username" /></label>
+        <label>密码<input name="password" type="password" required minLength={8} autoComplete="current-password" /></label>
+        <button className="button wide" disabled={busy}>{busy ? '请稍候…' : '应急登录'}</button>
+      </details>
+    </form>}
     {canRegister && <p className="setup-switch">{register ? '已有账号？' : '还没有账号？'}<button type="button" className="gate-link" onClick={onToggle}>{register ? '去登录' : '注册'}</button></p>}
   </section></main>;
 }

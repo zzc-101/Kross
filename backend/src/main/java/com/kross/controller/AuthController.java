@@ -1,15 +1,22 @@
 package com.kross.controller;
 
 import com.kross.agent.AgentService;
+import com.kross.api.ApiException;
 import com.kross.api.Res;
 import com.kross.identity.AuthService;
+import com.kross.identity.SsoService;
 import com.kross.identity.dto.AuthConfigView;
 import com.kross.identity.dto.LoginRequest;
 import com.kross.identity.dto.MeResponse;
 import com.kross.identity.dto.MembershipView;
 import com.kross.identity.dto.RegisterRequest;
+import com.kross.identity.entity.User;
 import com.kross.security.AuthSessions;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -17,6 +24,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/auth")
 public class AuthController {
   private final AuthService auth;
+  private final SsoService sso;
   private final AgentService agents;
 
   @GetMapping("/config")
@@ -47,6 +56,36 @@ public class AuthController {
     AuthSessions.establish(http, me.user());
     wakeWorkspace(me);
     return Res.ok(me);
+  }
+
+  @GetMapping("/sso/start")
+  public void ssoStart(HttpServletRequest http, HttpServletResponse response) throws IOException {
+    response.sendRedirect(sso.start(http));
+  }
+
+  @GetMapping("/sso/callback")
+  public void ssoCallback(
+      HttpServletRequest http,
+      HttpServletResponse response,
+      @RequestParam Optional<String> code,
+      @RequestParam Optional<String> state,
+      @RequestParam Optional<String> error,
+      @RequestParam Optional<String> error_description) throws IOException {
+    try {
+      if (error.filter(value -> !value.isBlank()).isPresent()) {
+        throw new ApiException(
+            "sso_denied",
+            error_description.filter(value -> !value.isBlank()).orElse("SSO login was cancelled"),
+            401);
+      }
+      User user = sso.complete(http, code.orElse(null), state.orElse(null));
+      AuthSessions.establish(http, auth.identityOf(user));
+      MeResponse me = auth.current();
+      wakeWorkspace(me);
+      response.sendRedirect("/");
+    } catch (ApiException failed) {
+      response.sendRedirect("/?sso_error=" + URLEncoder.encode(failed.getMessage(), StandardCharsets.UTF_8));
+    }
   }
 
   @PostMapping("/logout")

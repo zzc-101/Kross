@@ -39,7 +39,7 @@ Cloud Agent requires Docker Engine and Docker Compose. On first run, the startup
 ./scripts/start-cloud.sh
 ```
 
-Open `http://localhost:8787` for the user workbench or `http://localhost:8788` for the administration console. The first registered user becomes the platform super admin, who can create organizations, assign organization admins, and turn self-service registration on or off. Organization admins onboard members for their own organization. Regular members use the workbench only.
+Open `http://localhost:8787` for the user workbench or `http://localhost:8788` for the administration console. The first registered user becomes the platform super admin, who can create organizations, assign organization admins, turn self-service registration on or off, and connect an enterprise OIDC IdP (Kross verifies identity and does not issue it). Organization admins onboard members for their own organization. Regular members use the workbench only.
 
 ```bash
 ./scripts/start-cloud.sh --no-build

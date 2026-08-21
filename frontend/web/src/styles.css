@@ -206,7 +206,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .gate p { color: #666; font-size: 13px; line-height: 1.6; }
 .gate label { display: grid; gap: 6px; margin: 16px 0 0; text-align: left; color: #555; font-size: 12px; }
 .gate input { border: 1px solid #d5d5d5; border-radius: 9px; background: #fff; padding: 10px; color: #202020; }
-.gate .primary { width: 100%; margin-top: 18px; }
+.gate .primary { width: 100%; margin-top: 18px; display: inline-block; text-align: center; text-decoration: none; box-sizing: border-box; }
+.gate-emergency { margin-top: 16px; text-align: left; color: #666; font-size: 13px; }
+.gate-emergency summary { cursor: pointer; }
 .gate-error { color: #9d3c30 !important; }
 .gate-switch { margin-top: 16px; color: #666; font-size: 13px; }
 .gate-link { border: 0; background: transparent; color: #202020; text-decoration: underline; padding: 0 4px; }

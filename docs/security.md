@@ -14,6 +14,20 @@ Kross 会把以下内容提供给模型，应该视为受信任的本地输入�
 
 仓库规则、Skills、MCP server 和工具输出都可能影响模型决策。只加载你信任的内容。
 
+## 平台身份
+
+控制面用 HttpOnly `KROSS_SESSION` Cookie 维持登录，不把用户身份交给浏览器伪造。
+默认是平台账号密码；企业 SSO 由超级管理员在管理中心接入 OIDC，Kross 只验证企业
+IdP 签发的 `id_token`，不充当身份提供商。
+
+- 启用 SSO 后，普通用户只能走企业账号；超级管理员保留密码作为应急入口。
+- JIT 创建的账号不会自动加入组织，也不能被提成超管。
+- SSO Client Secret 与模型 API Key 一样，用 `KROSS_CREDENTIAL_MASTER_KEY` 加密存储。
+- `KROSS_DEV_IDENTITY` 允许用请求头冒充用户，只用于本机冒烟，生产必须关闭。
+
+角色隔离是行级逻辑隔离：超管管平台，组织管理员管本组织，普通成员只用工作台。
+详细接入步骤见 [Cloud Agent 部署与运维](cloud-agent-deployment.md#身份与-sso)。
+
 ## 权限模式
 
 | 模式 | 行为 | 建议 |
