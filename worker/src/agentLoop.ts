@@ -1,7 +1,8 @@
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { AgentResult, AgentRunStreamEvent } from '@kross/core';
+import type { AgentResult } from '../core/src/domain';
+import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
 import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFactory';
 import { createPersonalAgentProfile } from './runtime/workExecutionProfile';

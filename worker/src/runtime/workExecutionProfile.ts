@@ -1,7 +1,5 @@
-import type {
-  AgentCompletionAssessment,
-  AgentExecutionProfile
-} from '@kross/core';
+import type { AgentCompletionAssessment } from '../../core/src/runtime/agentExecutionProfile';
+import type { AgentExecutionProfile } from '../../core/src/runtime/agentExecutionProfile';
 
 export function createPersonalAgentProfile(): AgentExecutionProfile {
   return {

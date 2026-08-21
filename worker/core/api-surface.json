@@ -38,6 +38,7 @@
     "CreateBuiltinToolsOptions",
     "HybridSessionStore",
     "HybridSessionStoreOptions",
+    "InMemoryTraceStore",
     "JsonlTraceStore",
     "LLM_CALL_METRICS_VERSION",
     "LLM_CAPABILITIES_VERSION",

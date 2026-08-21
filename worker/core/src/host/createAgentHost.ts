@@ -30,8 +30,8 @@ import {
 import { TodoStore } from '../todo';
 import { createBuiltinTools } from '../tools/builtin';
 import { ToolGateway } from '../tools/toolGateway';
+import { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 import { ObservableTraceStore } from '../trace/observableTraceStore';
-import { SessionTraceStore } from '../trace/sessionTraceStore';
 import {
   collectAllowedWorkspaceRoots,
   loadProjectRegistry,
@@ -386,10 +386,7 @@ function createLocalTooling(
   runSubagent: NonNullable<AgentRuntimeOptions['runSubagent']>;
   closeTraceStore: () => void;
 } {
-  const innerTraceStore = new SessionTraceStore({
-    workspacePath: cwd,
-    krossHome: resolveKrossHome(options)
-  });
+  const innerTraceStore = new InMemoryTraceStore();
   const traceStore = new ObservableTraceStore(innerTraceStore);
   const toolGateway = new ToolGateway({
     traceStore,

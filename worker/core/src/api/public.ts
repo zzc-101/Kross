@@ -189,6 +189,7 @@ export {
   SessionTraceStore,
   type SessionTraceStoreOptions
 } from '../trace/sessionTraceStore';
+export { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 
 export {
   MutationCoordinator,

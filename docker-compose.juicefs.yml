@@ -7,6 +7,7 @@
 #
 # Docker Desktop (macOS/Windows) cannot rshared-bind /Users. Use /var/lib/kross/jfs
 # (Linux VM path) and make the VM root rshared before mounting FUSE.
+# Native Linux Docker is usually already shared; the helper no-ops in that case.
 
 services:
   postgres:
@@ -18,15 +19,9 @@ services:
     privileged: true
     pid: host
     restart: "no"
-    command:
-      - nsenter
-      - -t
-      - "1"
-      - -m
-      - --
-      - sh
-      - -c
-      - mkdir -p /var/lib/kross/jfs /var/cache/kross-jfs; mount --make-rshared / || true
+    volumes:
+      - ./docker/ensure-host-rshared.sh:/ensure-host-rshared.sh:ro
+    command: ["/bin/sh", "/ensure-host-rshared.sh"]
 
   juicefs:
     image: juicedata/mount:ce-v1.4.1

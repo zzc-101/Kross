@@ -1,9 +1,7 @@
-import {
-  createAgentHost,
-  type AgentExecutionProfile,
-  type AgentResult,
-  type AgentRunStreamEvent
-} from '@kross/core';
+import { createAgentHost } from '../core/src/host/createAgentHost';
+import type { AgentResult } from '../core/src/domain';
+import type { AgentExecutionProfile } from '../core/src/runtime/agentExecutionProfile';
+import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
 export interface AgentRuntimeHandle {
   runStreaming(input: {

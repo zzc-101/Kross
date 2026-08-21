@@ -7,7 +7,6 @@ import {
 } from './agentRuntime';
 import { InMemoryContextManager, type SessionContext } from '../context/sessionContext';
 import type { LlmMessage } from '../llm/types';
-import type { TraceEvent } from '../domain';
 import type {
   LlmClient,
   LlmRequest,
@@ -15,9 +14,10 @@ import type {
   LlmStreamChunk
 } from '../llm/types';
 import { ToolGateway } from '../tools/toolGateway';
-import type { TraceStore } from '../trace/traceStore';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { z } from 'zod';
+
+export { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 
 /** Adapt complete()-style fakes for run() which now drains the streaming tool loop. */
 export async function* streamFromComplete(
@@ -39,32 +39,6 @@ export function getStoredConversation(
   sessionContext: SessionContext
 ): LlmMessage[] {
   return sessionContext.getCommittedDialog();
-}
-
-export class InMemoryTraceStore implements TraceStore {
-  readonly events: TraceEvent[] = [];
-
-  async append(event: TraceEvent): Promise<void> {
-    this.events.push(event);
-  }
-
-  async readRun(runId: string): Promise<TraceEvent[]> {
-    return this.events.filter((event) => event.runId === runId);
-  }
-
-  async listRunIds(): Promise<string[]> {
-    const seen = new Set<string>();
-    const ids: string[] = [];
-    for (let index = this.events.length - 1; index >= 0; index -= 1) {
-      const runId = this.events[index]?.runId;
-      if (!runId || seen.has(runId)) {
-        continue;
-      }
-      seen.add(runId);
-      ids.push(runId);
-    }
-    return ids;
-  }
 }
 
 export class FakeLlmClient implements LlmClient {

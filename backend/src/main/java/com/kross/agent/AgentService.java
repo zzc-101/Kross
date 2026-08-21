@@ -219,6 +219,7 @@ public class AgentService {
     AgentSession session = authenticate(token);
     assertAgent(session, Optional.ofNullable(request.agentId()));
     Agent agent = requireAgent(session.getAgentId());
+    agents.requeueInterruptedMessages(agent.getId());
     agent.setStatus("running");
     agent.setLastError(null);
     agent.setLastActiveAt(Instant.now());

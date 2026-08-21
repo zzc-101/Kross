@@ -216,8 +216,20 @@
   </select>
 
   <update id="requeueInterruptedMessages">
+    WITH failed_replies AS (
+      UPDATE agent_messages
+      SET status = 'failed',
+          error_summary = 'Worker interrupted'
+      WHERE agent_id = #{agentId}
+        AND role = 'agent'
+        AND status = 'processing'
+      RETURNING id
+    )
     UPDATE agent_messages
-    SET status = 'queued', error_summary = NULL
-    WHERE agent_id = #{agentId} AND role = 'user' AND status = 'processing'
+    SET status = 'queued',
+        error_summary = NULL
+    WHERE agent_id = #{agentId}
+      AND role = 'user'
+      AND status = 'processing'
   </update>
 </mapper>
