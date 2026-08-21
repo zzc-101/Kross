@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,17 +19,20 @@ import (
 )
 
 func main() {
-	log.SetFlags(0)
 	cfg, err := loadConfig()
 	if err != nil {
-		log.Fatal(err)
+		initLogger("")
+		slog.Error("kross-node failed to start", "error", err.Error())
+		os.Exit(1)
 	}
 	if cfg.nodeID == "" {
 		cfg.nodeID = randomID()
 	}
+	initLogger(cfg.nodeID)
 	runtime, err := newDockerRuntime(cfg)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("docker is unreachable", "error", err.Error())
+		os.Exit(1)
 	}
 	defer runtime.cli.Close()
 
@@ -37,7 +40,7 @@ func main() {
 	defer stop()
 	for ctx.Err() == nil {
 		if err := runSession(ctx, cfg, runtime); err != nil && ctx.Err() == nil {
-			log.Printf("kross-node disconnected: %v", err)
+			slog.Warn("kross-node disconnected", "error", err.Error())
 		}
 		select {
 		case <-ctx.Done():
@@ -52,7 +55,7 @@ func runSession(ctx context.Context, cfg config, runtime *dockerRuntime) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("connecting kross-node %s to %s", cfg.nodeID, wsURL)
+	slog.Info("connecting kross-node", "url", wsURL)
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+cfg.nodeToken)
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
@@ -129,7 +132,7 @@ func handleCommand(ctx context.Context, runtime *dockerRuntime, data []byte) *re
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(data, &head); err != nil {
-		log.Printf("invalid node command: %v", err)
+		slog.Warn("invalid node command", "error", err.Error())
 		return nil
 	}
 	switch head.Type {
@@ -138,11 +141,14 @@ func handleCommand(ctx context.Context, runtime *dockerRuntime, data []byte) *re
 		if err := json.Unmarshal(data, &cmd); err != nil {
 			return ptr(resultFail("", "invalid start command"))
 		}
+		slog.Info("starting agent workspace", "agentId", cmd.AgentID)
 		handle, err := runtime.start(ctx, cmd)
 		if err != nil {
+			slog.Warn("failed to start agent workspace", "agentId", cmd.AgentID, "error", err.Error())
 			out := resultFail(cmd.RequestID, err.Error())
 			return &out
 		}
+		slog.Info("agent workspace started", "agentId", cmd.AgentID, "containerId", handle.containerID)
 		out := resultOK(cmd.RequestID, handle.containerID, handle.containerName, handle.volumeName, "running")
 		return &out
 	case "node.stop":
@@ -150,7 +156,9 @@ func handleCommand(ctx context.Context, runtime *dockerRuntime, data []byte) *re
 		if err := json.Unmarshal(data, &cmd); err != nil {
 			return ptr(resultFail("", "invalid stop command"))
 		}
+		slog.Info("stopping agent workspace", "agentId", cmd.AgentID)
 		if err := runtime.stop(ctx, cmd.AgentID); err != nil {
+			slog.Warn("failed to stop agent workspace", "agentId", cmd.AgentID, "error", err.Error())
 			out := resultFail(cmd.RequestID, err.Error())
 			return &out
 		}

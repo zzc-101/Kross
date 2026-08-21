@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/docker/docker/api/types"
@@ -95,7 +95,7 @@ func (d *dockerRuntime) recycleWorkersLocked(ctx context.Context) {
 	if err != nil || len(listed) == 0 {
 		return
 	}
-	log.Printf("JuiceFS remounted; recycling %d local worker(s)", len(listed))
+	slog.Warn("JuiceFS remounted; recycling local workers", "count", len(listed))
 	for _, item := range listed {
 		_ = d.cli.ContainerRemove(ctx, item.ID, container.RemoveOptions{Force: true})
 	}
