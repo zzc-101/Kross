@@ -84,6 +84,13 @@ jobs:
             --tag "kross-server:$SHORT_SHA" \
             --tag kross-server:local .
 
+      - name: Build versioned Node image
+        run: |
+          docker build --file docker/node.Dockerfile \
+            --tag "kross-node:$VERSION" \
+            --tag "kross-node:$SHORT_SHA" \
+            --tag kross-node:local .
+
       - name: Build versioned Web image
         run: |
           docker build --file docker/web.Dockerfile \
@@ -97,7 +104,7 @@ jobs:
       - name: Record container image metadata
         run: |
           mkdir -p release
-          for component in web server worker; do
+          for component in web server worker node; do
             printf '%s ' "$component" >> release/container-images.txt
             docker image inspect \
               "kross-$component:$VERSION" \

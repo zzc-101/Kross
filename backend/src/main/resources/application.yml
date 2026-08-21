@@ -48,6 +48,10 @@ kross:
   control-plane-container: ${KROSS_CONTROL_PLANE_CONTAINER:}
   object-store-container: ${KROSS_S3_CONTAINER:}
   agent-network: ${KROSS_AGENT_NETWORK:}
+  worker-runtime: ${KROSS_WORKER_RUNTIME:local}
+  worker-storage: ${KROSS_WORKER_STORAGE:local}
+  juicefs-mount: ${KROSS_JUICEFS_MOUNT:}
+  node-token: ${KROSS_NODE_TOKEN:}
   api:
     prefix: ${KROSS_API_PREFIX:/api/v2}
   scheduler:

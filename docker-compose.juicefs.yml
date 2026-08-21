@@ -1,0 +1,22 @@
+# 可选：集群工作区走 JuiceFS（宿主机需先挂载）。
+# docker compose -f docker-compose.yml -f docker-compose.juicefs.yml up -d
+#
+# 宿主机示例：
+#   juicefs format --storage minio --bucket http://127.0.0.1:9000/kross-jfs \
+#     --access-key kross --secret-key "$KROSS_S3_SECRET_KEY" \
+#     postgres://kross:...@127.0.0.1:5432/kross kross-work
+#   sudo mkdir -p /var/lib/kross/jfs
+#   sudo juicefs mount kross-work /var/lib/kross/jfs --cache-dir /var/cache/kross-jfs
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  server:
+    environment:
+      KROSS_WORKER_STORAGE: juicefs
+      KROSS_JUICEFS_MOUNT: ${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}:${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}:rshared

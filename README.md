@@ -123,6 +123,7 @@ This branch is a frontend / backend / worker layout:
 - `frontend/web`: user workbench (React / Vite), served by Nginx and proxied to the Java backend.
 - `frontend/admin-web`: organization admin console, served at `/admin/` from the same Nginx.
 - `backend`: Java Spring Boot control plane (identity, work, approvals, worker WebSocket, Docker lifecycle).
+- `node`: Go process for multi-host workers; it dials the control plane and starts Worker containers locally. Single-host Compose does not run it.
 - `worker`: Node executor; Agent Runtime lives in `worker/core`.
 - `docs`: user guides, technical architecture, Harness documentation, and release notes.
 

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kross.fleet.WorkerNodeMapper">
+  <select id="findById" resultType="com.kross.fleet.WorkerNode">
+    SELECT * FROM worker_nodes WHERE id = #{id}
+  </select>
+
+  <select id="listOnlineSince" resultType="com.kross.fleet.WorkerNode">
+    SELECT * FROM worker_nodes
+    WHERE status = 'online'
+      AND last_seen_at IS NOT NULL
+      AND last_seen_at &gt;= #{since}
+    ORDER BY running_agents ASC, id ASC
+  </select>
+
+  <insert id="upsert">
+    INSERT INTO worker_nodes
+      (id, hostname, status, running_agents, juicefs_ok, last_seen_at, created_at, updated_at)
+    VALUES
+      (#{id}, #{hostname}, #{status}, #{runningAgents}, #{juicefsOk}, #{lastSeenAt}, now(), now())
+    ON CONFLICT (id) DO UPDATE SET
+      hostname = EXCLUDED.hostname,
+      status = EXCLUDED.status,
+      running_agents = EXCLUDED.running_agents,
+      juicefs_ok = EXCLUDED.juicefs_ok,
+      last_seen_at = EXCLUDED.last_seen_at,
+      updated_at = now()
+  </insert>
+
+  <update id="markOffline">
+    UPDATE worker_nodes
+    SET status = 'offline', updated_at = now()
+    WHERE id = #{id}
+  </update>
+
+  <update id="markStaleOffline">
+    UPDATE worker_nodes
+    SET status = 'offline', updated_at = now()
+    WHERE status = 'online'
+      AND (last_seen_at IS NULL OR last_seen_at &lt; #{since})
+  </update>
+</mapper>

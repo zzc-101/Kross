@@ -123,6 +123,7 @@ flowchart TB
 - `frontend/web`：用户工作台（React / Vite），由 Nginx 提供并反代到 Java 后端。
 - `frontend/admin-web`：组织管理控制台，由同一 Nginx 挂在 `/admin/`。
 - `backend`：Java Spring Boot 控制面（身份、工作、审批、Worker WebSocket、Docker 生命周期）。
+- `node`：多机时的 Go 节点进程，出站连控制面并在本机起 Worker；单机 Compose 不跑它。
 - `worker`：Node 执行器；Agent Runtime 在 `worker/core`。
 - `docs`：用户指南、技术架构、Harness 文档和发布说明。
 

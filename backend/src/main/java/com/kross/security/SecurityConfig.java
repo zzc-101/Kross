@@ -38,7 +38,7 @@ public class SecurityConfig {
         }))
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/health").permitAll()
-            .requestMatchers("/internal/v2/agents/**").permitAll()
+            .requestMatchers("/internal/v2/agents/**", "/internal/v2/nodes/**").permitAll()
             .requestMatchers(HttpMethod.GET, api + "/auth/config").permitAll()
             .requestMatchers(HttpMethod.GET, api + "/auth/sso/start", api + "/auth/sso/callback").permitAll()
             .requestMatchers(HttpMethod.POST, api + "/auth/register", api + "/auth/login", api + "/auth/logout")

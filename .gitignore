@@ -3,6 +3,8 @@ runs/
 dist/
 build/
 backend/target/
+node/kross-node
+node/kross-node.exe
 coverage/
 .DS_Store
 __pycache__/

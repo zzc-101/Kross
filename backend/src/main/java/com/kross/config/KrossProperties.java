@@ -15,6 +15,10 @@ public class KrossProperties {
   private String controlPlaneContainer = "";
   private String objectStoreContainer = "";
   private String agentNetwork = "";
+  private String workerRuntime = "local";
+  private String workerStorage = "local";
+  private String juicefsMount = "";
+  private String nodeToken = "";
   private final Api api = new Api();
   private final Scheduler scheduler = new Scheduler();
   private final Agent agent = new Agent();
@@ -94,6 +98,38 @@ public class KrossProperties {
 
   public void setAgentNetwork(String agentNetwork) {
     this.agentNetwork = agentNetwork;
+  }
+
+  public String getWorkerStorage() {
+    return workerStorage;
+  }
+
+  public void setWorkerStorage(String workerStorage) {
+    this.workerStorage = Optional.ofNullable(workerStorage).filter(value -> !value.isBlank()).orElse("local");
+  }
+
+  public String getJuicefsMount() {
+    return juicefsMount;
+  }
+
+  public void setJuicefsMount(String juicefsMount) {
+    this.juicefsMount = Optional.ofNullable(juicefsMount).orElse("");
+  }
+
+  public String getWorkerRuntime() {
+    return workerRuntime;
+  }
+
+  public void setWorkerRuntime(String workerRuntime) {
+    this.workerRuntime = Optional.ofNullable(workerRuntime).filter(value -> !value.isBlank()).orElse("local");
+  }
+
+  public String getNodeToken() {
+    return nodeToken;
+  }
+
+  public void setNodeToken(String nodeToken) {
+    this.nodeToken = Optional.ofNullable(nodeToken).orElse("");
   }
 
   public Api getApi() {

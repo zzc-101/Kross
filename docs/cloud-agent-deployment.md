@@ -92,10 +92,83 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 | `KROSS_DEV_IDENTITY` | `1` 启用开发身份跳过登录；默认 `0`，生产必须为 `0` |
 | `KROSS_ORCHESTRATOR_MANAGER_ID` | Docker 资源归属标签，多实例必须唯一 |
 | `KROSS_WORKER_IMAGE` | Worker 镜像，Compose 默认 `kross-worker:local` |
+| `KROSS_WORKER_STORAGE` | 工作区存储：`local`（默认，本机 Docker volume）或 `juicefs` |
+| `KROSS_JUICEFS_MOUNT` | `juicefs` 模式下宿主机挂载点，默认 `/var/lib/kross/jfs` |
+| `KROSS_WORKER_RUNTIME` | 运行时：`local`（默认，控制面本机 Docker）或 `cluster`（由 `kross-node` 跨机起容器） |
+| `KROSS_NODE_TOKEN` | `cluster` 模式下节点加入令牌，控制面与 `kross-node` 必须一致 |
+| `KROSS_CONTROL_PLANE_URL` | 仅 `kross-node`：控制面可达地址，例如 `http://10.0.0.10:8787` |
+| `KROSS_NODE_ID` | 仅 `kross-node`：节点稳定 ID，默认用容器 hostname |
 | `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | Worker 默认模型配置 |
 
 Provider 密钥不应进入 RunSpec、事件、审计、容器标签或 URL。生产实现应由短期
 credential broker 或 connector proxy 按 Run 授权。
+
+## 工作区存储：单机与集群
+
+默认 `KROSS_WORKER_STORAGE=local`：每人一块本机 Docker volume，挂到容器 `/work`。
+单机 Compose 不需要 JuiceFS。
+
+集群把 `/work` 放到 JuiceFS 上，对象数据仍在 MinIO（建议单独 bucket `kross-jfs`，
+与现有产物 bucket `kross` 分开）。元数据可用已有 Postgres。控制面只认宿主机挂载点
+`KROSS_JUICEFS_MOUNT`（默认 `/var/lib/kross/jfs`），每个 Agent 使用其下
+`agents/{agentId}`。Agent 工具仍读写 `/work`，与本地盘用法相同。
+
+宿主机先 format / mount，再叠加 Compose：
+
+```bash
+juicefs format \
+  --storage minio \
+  --bucket http://127.0.0.1:9000/kross-jfs \
+  --access-key kross \
+  --secret-key "$KROSS_S3_SECRET_KEY" \
+  "postgres://kross:${KROSS_POSTGRES_PASSWORD}@127.0.0.1:5432/kross?sslmode=disable" \
+  kross-work
+sudo mkdir -p /var/lib/kross/jfs /var/cache/kross-jfs
+sudo juicefs mount kross-work /var/lib/kross/jfs --cache-dir /var/cache/kross-jfs
+docker compose -f docker-compose.yml -f docker-compose.juicefs.yml up -d
+```
+
+节点故障时，在另一台机器挂上同一套 JuiceFS 即可继续同一工作区。未 close 的缓冲
+仍可能丢失。叠加文件会把 Postgres `5432` 映射到宿主机，供本机 `juicefs mount`
+写元数据，请只在内网使用。
+
+多机调度把起容器从控制面挪到各 Worker 机上的独立服务 `kross-node`
+（目录 `node/`，Go 静态二进制，镜像 `kross-node:local`）。节点出站连
+`KROSS_CONTROL_PLANE_URL/internal/v2/nodes/ws`，控制面按心跳选负载低的节点；
+JuiceFS 可漂，不必粘滞，但会优先回到上次那台以利用缓存。单机 Compose 保持
+`KROSS_WORKER_RUNTIME=local`，不要跑 `kross-node`。
+
+集群启用：
+
+```bash
+# 控制面（JuiceFS + 调度）
+docker compose -f docker-compose.yml -f docker-compose.juicefs.yml -f docker-compose.cluster.yml up -d
+
+# 构建节点镜像（在仓库里打一次，再拷到各 Worker 机）
+docker build -f docker/node.Dockerfile -t kross-node:local .
+```
+
+`KROSS_PUBLIC_BASE_URL` 必须改成节点和 Worker 容器都能访问的地址，不要用
+`http://kross-server:8787`。Nginx 已反代 `/internal/` 给节点和 Worker WebSocket。
+
+每台 Worker 机需要：Docker、已 load 的 `kross-node:local` 与 `kross-worker:local`、
+已挂载同一套 JuiceFS，然后：
+
+```bash
+docker run -d --name kross-node --restart unless-stopped \
+  -e KROSS_CONTROL_PLANE_URL=http://控制面主机:8787 \
+  -e KROSS_NODE_TOKEN="$KROSS_NODE_TOKEN" \
+  -e KROSS_NODE_ID=node-1 \
+  -e KROSS_WORKER_STORAGE=juicefs \
+  -e KROSS_JUICEFS_MOUNT=/var/lib/kross/jfs \
+  -e KROSS_WORKER_IMAGE=kross-worker:local \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/lib/kross/jfs:/var/lib/kross/jfs:rshared \
+  kross-node:local
+```
+
+`KROSS_CONTROL_PLANE_URL` 只给 `kross-node` 用。加入令牌目前走环境变量，超管 UI
+尚未接入。
 
 ## Run 隔离与内部认证
 

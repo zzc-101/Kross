@@ -46,6 +46,7 @@ docker compose version
 默认使用账号密码和 `KROSS_SESSION`。`KROSS_DEV_IDENTITY=1` 仅供本机冒烟跳过登录，
 公网必须关闭。配置、安全边界和验收清单见
 [Cloud Agent 部署与运维](cloud-agent-deployment.md)。
+单机 Compose 默认即可；JuiceFS 与多机 `kross-node` 见该文档「工作区存储：单机与集群」。
 
 ## 3. 配置模型
 

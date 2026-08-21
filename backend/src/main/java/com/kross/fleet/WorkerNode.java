@@ -1,4 +1,4 @@
-package com.kross.agent.entity;
+package com.kross.fleet;
 
 import java.time.Instant;
 import lombok.AllArgsConstructor;
@@ -10,17 +10,13 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class Agent {
+public class WorkerNode {
   private String id;
-  private String organizationId;
-  private String userId;
+  private String hostname;
   private String status;
-  private String volumeName;
-  private String containerName;
-  private String containerId;
-  private String nodeId;
-  private String lastError;
-  private Instant lastActiveAt;
+  private int runningAgents;
+  private boolean juicefsOk;
+  private Instant lastSeenAt;
   private Instant createdAt;
   private Instant updatedAt;
 }

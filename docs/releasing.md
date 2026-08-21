@@ -74,8 +74,8 @@ git push origin v0.1.0
 输入一个已经存在的标签重新验证。Workflow 会：
 
 1. checkout 指定标签并验证 tag、package version 和 changelog；
-2. 分别在 frontend、worker、backend 跑检查；
-3. 使用应用版本和 12 位 commit SHA 分别标记 Web、Server、Worker 本地镜像；
+2. 分别在 frontend、worker、backend、node 跑检查；
+3. 使用应用版本和 12 位 commit SHA 分别标记 Web、Server、Worker、Node 本地镜像；
 4. 运行 Cloud 容器 smoke；
 5. 上传保留 14 天的候选 artifact，其中包含容器镜像元数据、
    `release-metadata.json` 和 `SHA256SUMS`。

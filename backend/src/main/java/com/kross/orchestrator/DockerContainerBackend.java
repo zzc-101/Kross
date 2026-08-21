@@ -3,23 +3,31 @@ package com.kross.orchestrator;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.InspectContainerResponse;
 import com.github.dockerjava.api.exception.NotFoundException;
+import com.github.dockerjava.api.model.AccessMode;
 import com.github.dockerjava.api.model.Bind;
+import com.github.dockerjava.api.model.BindPropagation;
 import com.github.dockerjava.api.model.Capability;
 import com.github.dockerjava.api.model.HostConfig;
 import com.github.dockerjava.api.model.RestartPolicy;
+import com.github.dockerjava.api.model.SELContext;
 import com.github.dockerjava.api.model.Volume;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.kross.config.KrossProperties;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(name = "kross.worker-runtime", havingValue = "local", matchIfMissing = true)
 public class DockerContainerBackend implements ContainerBackend {
   static final String LABEL_PREFIX = "dev.kross.agent";
   static final String AGENT_LABEL = LABEL_PREFIX + ".id";
@@ -42,6 +50,15 @@ public class DockerContainerBackend implements ContainerBackend {
 
   @Override
   public void ensureVolume(String agentId) {
+    if (storage() == WorkerStorageMode.JUICEFS) {
+      Path directory = WorkspacePaths.agentDirectory(properties, agentId);
+      try {
+        Files.createDirectories(directory);
+      } catch (IOException error) {
+        throw new IllegalStateException("Failed to create JuiceFS workspace " + directory, error);
+      }
+      return;
+    }
     String volumeName = names(agentId).volumeName;
     try {
       docker.inspectVolumeCmd(volumeName).exec();
@@ -68,7 +85,7 @@ public class DockerContainerBackend implements ContainerBackend {
     labels.put(AGENT_LABEL, request.agentId());
     labels.put(MANAGER_LABEL, properties.getOrchestratorManagerId());
     HostConfig host = HostConfig.newHostConfig()
-        .withBinds(new Bind(names.volumeName, new Volume("/work")))
+        .withBinds(workBind(request.agentId()))
         .withMemory(request.resourceLimits().memoryBytes())
         .withMemorySwap(request.resourceLimits().memoryBytes())
         .withNanoCPUs(request.resourceLimits().cpuMillis() * 1_000_000L)
@@ -95,7 +112,7 @@ public class DockerContainerBackend implements ContainerBackend {
         .exec()
         .getId();
     docker.startContainerCmd(containerId).exec();
-    return new BackendHandle(request.agentId(), containerId, names.containerName, names.volumeName);
+    return new BackendHandle(request.agentId(), containerId, names.containerName, names.volumeName, "");
   }
 
   @Override
@@ -116,7 +133,7 @@ public class DockerContainerBackend implements ContainerBackend {
       String status = Optional.ofNullable(state.getState().getStatus()).orElse("");
       String mapped = running ? "running" : "created".equals(status) ? "created" : "exited";
       return new BackendInspection(
-          new BackendHandle(agentId, state.getId(), names.containerName, names.volumeName),
+          new BackendHandle(agentId, state.getId(), names.containerName, names.volumeName, ""),
           mapped,
           running ? Optional.empty() : Optional.ofNullable(state.getState().getExitCode()));
     });
@@ -126,10 +143,26 @@ public class DockerContainerBackend implements ContainerBackend {
   public boolean health() {
     try {
       docker.pingCmd().exec();
+      if (storage() == WorkerStorageMode.JUICEFS) {
+        return Files.isDirectory(WorkspacePaths.requireMount(properties));
+      }
       return true;
     } catch (RuntimeException error) {
       return false;
     }
+  }
+
+  private Bind workBind(String agentId) {
+    Volume work = new Volume("/work");
+    if (storage() == WorkerStorageMode.JUICEFS) {
+      String hostPath = WorkspacePaths.agentDirectory(properties, agentId).toString();
+      return new Bind(hostPath, work, AccessMode.rw, SELContext.none, false, BindPropagation.RSHARED);
+    }
+    return new Bind(names(agentId).volumeName, work);
+  }
+
+  private WorkerStorageMode storage() {
+    return WorkerStorageMode.from(properties.getWorkerStorage());
   }
 
   private Optional<InspectContainerResponse> inspectContainer(String name) {

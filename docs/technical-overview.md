@@ -14,6 +14,8 @@ flowchart TB
     WEB["frontend/web"] --> BACKEND["backend"]
     ADMIN["frontend/admin-web"] --> BACKEND
     BACKEND --> WORKER["worker"]
+    BACKEND --> NODE["node"]
+    NODE --> WORKER
     WORKER --> CORE["worker/core"]
 ```
 
@@ -22,6 +24,7 @@ flowchart TB
 | `frontend/web` | 普通用户工作台 |
 | `frontend/admin-web` | 组织管理端（部署时挂在 `/admin/`） |
 | `backend` | Java Spring Boot 控制面（账号密码 / OIDC SSO、模型、Agent 生命周期） |
+| `node` | 多机时的 Go 节点进程：出站连控制面，在本机 Docker 起 Worker |
 | `worker` | 个人 Agent 容器内的常驻 Runtime 宿主 |
 | `worker/core` | Runtime、上下文、会话、工具、权限、Skills、MCP、模型与验证 |
 

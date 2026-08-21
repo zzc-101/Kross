@@ -198,6 +198,7 @@ public class AgentService {
             || !handle.containerId().equals(agent.getContainerId())) {
           agent.setStatus("running");
           agent.setContainerId(handle.containerId());
+          Optional.ofNullable(handle.nodeId()).filter(value -> !value.isBlank()).ifPresent(agent::setNodeId);
           agent.setLastError(null);
           agents.updateRuntime(agent);
         }
@@ -512,6 +513,8 @@ public class AgentService {
     if (inspection.filter(state -> "running".equals(state.state())).isPresent()) {
       agent.setStatus("running");
       agent.setContainerId(inspection.get().handle().containerId());
+      Optional.ofNullable(inspection.get().handle().nodeId()).filter(value -> !value.isBlank())
+          .ifPresent(agent::setNodeId);
       agent.setLastError(null);
       agents.updateRuntime(agent);
       return;
@@ -529,6 +532,7 @@ public class AgentService {
           new ResourceLimits(settings.getCpuMillis(), settings.getMemoryBytes(), settings.getMaxPids())));
       agent.setStatus("running");
       agent.setContainerId(handle.containerId());
+      agent.setNodeId(Optional.ofNullable(handle.nodeId()).filter(value -> !value.isBlank()).orElse(agent.getNodeId()));
       agent.setLastActiveAt(Instant.now());
       agents.updateRuntime(agent);
     } catch (RuntimeException error) {

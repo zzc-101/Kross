@@ -56,6 +56,7 @@
     UPDATE agents
     SET status = #{status},
         container_id = #{containerId},
+        node_id = #{nodeId},
         last_error = #{lastError},
         last_active_at = #{lastActiveAt},
         updated_at = now()

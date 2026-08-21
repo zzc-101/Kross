@@ -25,7 +25,8 @@ public interface ContainerBackend {
       String agentId,
       String containerId,
       String containerName,
-      String volumeName) {}
+      String volumeName,
+      String nodeId) {}
 
   record BackendInspection(
       BackendHandle handle,
