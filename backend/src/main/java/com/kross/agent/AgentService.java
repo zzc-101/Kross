@@ -42,9 +42,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Slf4j
@@ -66,6 +68,7 @@ public class AgentService {
   private final ChannelEventBus channelEvents;
   private final AgentSocketHub sockets;
   private final ObjectMapper mapper;
+  private final PlatformTransactionManager transactionManager;
 
   public AgentModelView currentModel(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
@@ -198,31 +201,47 @@ public class AgentService {
     }
   }
 
-  @Transactional
   public void reconcileRuntimeAgents() {
     for (Agent agent : agents.listRuntimeAgents()) {
+      RequestLogContext.bindAgent(agent);
       Optional<ContainerBackend.BackendInspection> inspection = containers.inspect(agent.getId());
       if (inspection.filter(state -> "running".equals(state.state())).isPresent()) {
         BackendHandle handle = inspection.get().handle();
-        if (!"running".equals(agent.getStatus())
-            || !handle.containerId().equals(agent.getContainerId())) {
-          agent.setStatus("running");
-          agent.setContainerId(handle.containerId());
-          Optional.ofNullable(handle.nodeId()).filter(value -> !value.isBlank()).ifPresent(agent::setNodeId);
-          agent.setLastError(null);
-          agents.updateRuntime(agent);
-        }
+        tx().executeWithoutResult(status -> markRunning(agent, handle));
         continue;
       }
-      agents.requeueInterruptedMessages(agent.getId());
-      agent.setStatus("stopped");
-      agent.setContainerId(null);
-      agent.setLastError("Agent worker exited unexpectedly");
-      agents.updateRuntime(agent);
-      if (agents.hasQueued(agent.getId())) {
+      boolean shouldWake = Boolean.TRUE.equals(tx().execute(status -> {
+        agents.requeueInterruptedMessages(agent.getId());
+        agent.setStatus("stopped");
+        agent.setContainerId(null);
+        agent.setLastError("Agent worker exited unexpectedly");
+        agents.updateRuntime(agent);
+        return agents.hasQueued(agent.getId());
+      }));
+      if (!shouldWake) {
+        continue;
+      }
+      try {
         wake(agent);
+      } catch (RuntimeException error) {
+        log.warn("Failed to wake agent after interrupt: {}", error.getMessage());
       }
     }
+  }
+
+  private void markRunning(Agent agent, BackendHandle handle) {
+    if (!"running".equals(agent.getStatus())
+        || !handle.containerId().equals(agent.getContainerId())) {
+      agent.setStatus("running");
+      agent.setContainerId(handle.containerId());
+      Optional.ofNullable(handle.nodeId()).filter(value -> !value.isBlank()).ifPresent(agent::setNodeId);
+      agent.setLastError(null);
+      agents.updateRuntime(agent);
+    }
+  }
+
+  private TransactionTemplate tx() {
+    return new TransactionTemplate(transactionManager);
   }
 
   public AgentProtocol.Registered register(String token, AgentProtocol.RegisterRequest request) {

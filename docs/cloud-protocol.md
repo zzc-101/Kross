@@ -17,12 +17,18 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 
 路径：`ws://<backend>/internal/v2/agents/ws?token=...`
 
+该路径不经过公网 Nginx。Worker 应连控制面（Compose 别名 `kross-server` 或集群
+内部口），不要连浏览器入口 `:8787`。
+
 握手后控制面推送 `agent.job`。生成过程立即推 `agent.events`，结束时用
 `agent.message` 提交完整 `parts`。另有心跳、模型环境和休眠帧。
 
 ## 集群节点
 
-路径：`ws://<public-base>/internal/v2/nodes/ws`，`Authorization: Bearer <KROSS_NODE_TOKEN>`。
+路径：`ws://<control-plane>/internal/v2/nodes/ws`，`Authorization: Bearer <KROSS_NODE_TOKEN>`。
+
+同 Compose 用 `http://kross-server:8787`；跨机用内部口（默认 `:8788`），不要走
+公网 Nginx。
 
 节点上报 `node.hello` / `node.heartbeat`；控制面下发 `node.start` / `node.stop` /
 `node.inspect`，节点用 `node.result` 回答。单机 Compose 不使用该通道。

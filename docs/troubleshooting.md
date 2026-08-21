@@ -67,11 +67,13 @@ Nginx 必须关闭 buffering，并且控制面 `spring.mvc.async.request-timeout
 
 - 控制面必须是 `KROSS_WORKER_RUNTIME=cluster` 且 `KROSS_WORKER_STORAGE=juicefs`。
 - `KROSS_NODE_TOKEN` 在控制面与 `kross-node` 上一致。
-- `KROSS_PUBLIC_BASE_URL` / `KROSS_CONTROL_PLANE_URL` 必须是节点和 Worker 容器
-  都能访问的地址，不要用 `http://kross-server:8787`。
+- `KROSS_PUBLIC_BASE_URL` 必须是 **Worker 容器**能访问的控制面内部口（集群默认
+  宿主机 `8788`），不要用浏览器入口 `8787`。
+- 同 Compose 里的 `kross-node` 应连 `http://kross-server:8787`；额外机器上的
+  `KROSS_CONTROL_PLANE_URL` 用内部口，例如 `http://10.0.0.10:8788`。
 - 节点机能访问 `.../internal/v2/nodes/ws`，本机已挂载同一套 JuiceFS。
-- `kross-node` 日志若反复 connection refused，先查控制面 Nginx `/internal/` 反代
-  和防火墙。
+- `kross-node` 日志若反复 connection refused，先查控制面 `8788` 是否发布、防火墙
+  是否只对内网开放。公网 Nginx 对 `/internal/` 会返回 404，这是预期行为。
 
 ## MCP server 没有加载
 

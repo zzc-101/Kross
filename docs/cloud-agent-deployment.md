@@ -7,15 +7,17 @@
 
 | 组件 | 职责 |
 |---|---|
-| `web` | 同源 Nginx：工作台 `/`，管理中心 `/admin/`，`/api/` 与 `/internal/` 反代控制面 |
+| `web` | 同源 Nginx：工作台 `/`，管理中心 `/admin/`，`/api/` 反代控制面。不反代 `/internal/` |
 | `server` | Java 控制面：账号 / SSO、组织模型、对话、Agent 生命周期 |
 | `postgres` | 控制面权威数据（用户、组织、对话 `parts`、Agent 运行时状态） |
 | `minio` | 对象存储：产物 bucket 默认 `kross`；集群 JuiceFS 底仓建议另用 `kross-jfs` |
 | `worker` | 按人拉起的持久容器，在 `/work` 跑 Agent Runtime |
 | `kross-node` | 仅集群：各 Worker 机上的 Go 进程，出站连控制面并在本机 Docker 起容器 |
 
-浏览器只访问 Web。单机 Compose 把 Docker Socket 挂到控制面，由控制面本机起
-Worker。集群模式下控制面只调度，Socket 应只给各机 `kross-node`。
+浏览器只访问 Web。公网 Nginx 只反代 `/api/` 与静态页，不暴露 `/internal/`。
+单机 Compose 把 Docker Socket 挂到控制面，由控制面本机起 Worker。集群模式下
+控制面只调度，Socket 应只给各机 `kross-node`；Worker 与节点连控制面内部口
+（默认宿主机 `8788`），不要走浏览器入口。
 
 ## 本地启动
 
@@ -94,10 +96,11 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 
 | 变量 | 用途 |
 |---|---|
-| `KROSS_PORT` | Web 对宿主机暴露的端口，默认 `8787` |
+| `KROSS_PORT` | Web 对宿主机暴露的端口，默认 `8787`（仅浏览器；不含 Worker/节点通道） |
+| `KROSS_INTERNAL_PORT` | 集群时控制面内部口映射到宿主机，默认 `8788`；不要对公网开放 |
 | `KROSS_POSTGRES_PASSWORD` | 本地 PostgreSQL 密码；脚本可自动生成 |
 | `KROSS_CREDENTIAL_MASTER_KEY` | 加密模型 API Key 与 SSO Client Secret，至少 32 字符 |
-| `KROSS_PUBLIC_BASE_URL` | Worker 与节点必须能访问的控制面地址；集群不要用 `http://kross-server:8787` |
+| `KROSS_PUBLIC_BASE_URL` | Worker 用来连控制面的地址。单机用 `http://kross-server:8787`；集群用内部口，例如 `http://10.0.0.10:8788` |
 | `KROSS_DEV_IDENTITY` | `1` 跳过登录；默认 `0`，生产必须为 `0` |
 | `KROSS_ORCHESTRATOR_MANAGER_ID` | Docker 资源归属标签，多实例必须唯一 |
 | `KROSS_WORKER_IMAGE` | Worker 镜像，Compose 默认 `kross-worker:local` |
@@ -105,7 +108,7 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 | `KROSS_JUICEFS_MOUNT` | `juicefs` 模式下宿主机挂载点，默认 `/var/lib/kross/jfs` |
 | `KROSS_WORKER_RUNTIME` | `local`（默认，控制面本机 Docker）或 `cluster`（`kross-node` 跨机起容器） |
 | `KROSS_NODE_TOKEN` | `cluster` 节点加入令牌，控制面与 `kross-node` 必须一致 |
-| `KROSS_CONTROL_PLANE_URL` | 仅 `kross-node`：控制面可达地址，例如 `http://10.0.0.10:8787` |
+| `KROSS_CONTROL_PLANE_URL` | 仅 `kross-node`：控制面可达地址。同 Compose 默认 `http://kross-server:8787`；额外机器用 `http://10.0.0.10:8788` |
 | `KROSS_NODE_ID` | 仅 `kross-node`：节点稳定 ID，默认用容器 hostname |
 | `KROSS_S3_*` | MinIO / S3：产物与（可选）JuiceFS 底仓 |
 | `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | 开发期注入 Worker 默认模型；生产请在管理中心登记组织模型 |
@@ -124,22 +127,24 @@ bucket `kross` 分开）。元数据用已有 Postgres。控制面只认宿主�
 `agents/{agentId}`。不必在宿主机安装 `juicefs` 二进制，Compose 使用官方镜像
 `juicedata/mount:ce-v1.4.1`（需要 `/dev/fuse`，请在 Linux 节点上跑）。
 
-多机时控制面只调度；各机 `kross-node` 出站连
-`KROSS_CONTROL_PLANE_URL/internal/v2/nodes/ws`，按心跳选负载低的节点。JuiceFS
+多机时控制面只调度；各机 `kross-node` 出站连控制面
+`/internal/v2/nodes/ws`，按心跳选负载低的节点。公网 Nginx（`:8787`）不反代该路径。
+同 Compose 网络用 `http://kross-server:8787`；跨机用内部口（默认 `:8788`）。JuiceFS
 可漂，不必粘滞，但会优先回到上次那台以利用缓存。
 
 ### 控制面 + 第一台节点
 
-`.env` 里把 `KROSS_PUBLIC_BASE_URL` 改成**节点和 Worker 容器都能访问**的地址
-（局域网 IP，不要用 `http://kross-server:8787`）。`./scripts/start-cloud.sh`
-生成 `.env` 时会同时写入 `KROSS_NODE_TOKEN`，集群与额外节点共用这一份。
+`.env` 里把 `KROSS_PUBLIC_BASE_URL` 改成 **Worker 容器能访问的控制面内部口**
+（局域网 IP 加 `8788`，不要用浏览器入口 `8787`，也不要用只有 Compose 内网才认识的
+`http://kross-server:8787`）。`./scripts/start-cloud.sh` 生成 `.env` 时会同时写入
+`KROSS_NODE_TOKEN`，集群与额外节点共用这一份。
 
 ```bash
 # 宿主机准备挂载点
 sudo mkdir -p /var/lib/kross/jfs /var/cache/kross-jfs
 
 # 控制面：Postgres、MinIO、Web、JuiceFS、调度，以及本机 kross-node（node-1）
-export KROSS_PUBLIC_BASE_URL=http://控制面局域网IP:8787
+export KROSS_PUBLIC_BASE_URL=http://控制面局域网IP:8788
 docker compose -f docker-compose.yml -f docker-compose.juicefs.yml -f docker-compose.cluster.yml up -d
 ```
 
@@ -162,7 +167,7 @@ docker save kross-node:local kross-worker:local | gzip > kross-node-worker.tar.g
 
 ```bash
 sudo mkdir -p /var/lib/kross/jfs /var/cache/kross-jfs
-export KROSS_CONTROL_PLANE_URL=http://控制面局域网IP:8787
+export KROSS_CONTROL_PLANE_URL=http://控制面局域网IP:8788
 export KROSS_JUICEFS_META_HOST=控制面局域网IP
 export KROSS_NODE_ID=node-2
 export KROSS_NODE_TOKEN=与控制面.env相同

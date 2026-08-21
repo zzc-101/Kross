@@ -19,6 +19,7 @@ Kross 会把以下内容提供给模型，应该视为受信任输入：
 ## 平台身份
 
 控制面用 HttpOnly `KROSS_SESSION` Cookie 维持登录，不把用户身份交给浏览器伪造。
+浏览器入口不反代 `/internal/`；Worker 与集群节点直连控制面（Compose 网络或内部口）。
 默认是平台账号密码；企业 SSO 由超级管理员在管理中心接入 OIDC，Kross 只验证企业
 IdP 签发的 `id_token`，不充当身份提供商。
 
