@@ -91,13 +91,13 @@ Checkpoint 同时持久化。
 3. 对无法通过前两层处理的单条超大消息执行 head/tail 硬截断。
 
 输入预算由模型上下文窗口减去输出预留得到，使用模型返回的 usage 校准启发式
-token 估算。`/context` 展示预算、来源和治理记录，`/compact` 手动触发滚动压缩。
+token 估算。超阈值时 Runtime 自动老化工具输出并滚动压缩。
 
 固定上下文来源包括 Project Instructions、会话 Todo 和 Skills metadata：
 
 - 每个授权 root 加载顶层 `CLAUDE.md`、`AGENTS.md`、`KROSS.md`；
-- 个人 Skill 位于 `~/.kross/skills`，项目 Skill 位于
-  `<workspace>/.agents/skills`；
+- 项目 Skill 位于 `<workspace>/.agents/skills`（Cloud 即 `/work/.agents/skills`）；
+- 个人 Skill 位于 Worker `$HOME/.kross/skills`，Cloud 上默认不随 `/work` 持久化；
 - Skill 正文和资源通过 `ReadSkill` 按需读取，不常驻上下文；
 - 子代理只接收个人规则和当前执行 root 的项目规则，避免跨仓库污染。
 
@@ -111,29 +111,28 @@ Tool Gateway 是模型能力与真实副作用之间的边界。每个工具必�
 - `read`、`write`、`execute` 或 `network` 风险；
 - 执行、超时、取消、摘要和可选 trace 脱敏逻辑。
 
-`default` 自动允许当前 workspace 内的只读工具，其他风险请求人工审批；
-`classifier` 自动允许 workspace 内可信读写，Shell 与网络继续审批；`auto`
-是完全访问模式，解除内建文件、搜索、
-Git 与 Shell cwd 的 workspace 路径边界。权限模式随 Work State 持久化；调用前
-仍会校验动态风险，调用结果及审批状态写入 trace。
+Cloud Worker 固定 `classifier`：自动允许 workspace 内可信读写，Shell 与网络继续
+审批。Core 仍实现 `default`（只自动允许只读）和 `auto`（完全访问并解除路径边界）。
+调用前仍会校验动态风险，调用结果及审批状态写入 trace。工作台用按钮处理审批，
+没有 TUI 的 `/perm`。
 
 连续、独立且无需审批的 read 调用最多 4 个并发，并按原始 tool-call 顺序回填；
 write、execute、network、Process、MCP 与动态风险调用保持串行屏障。
 
 内置工具覆盖文件、搜索、Git、Shell、后台进程、Todo、Skills、子代理与模式切换。
 文件工具使用真实路径限制 workspace；所有 mutation 工具记录 pre/post image，
-`/undo` 只在当前文件仍匹配 post hash 时恢复，避免覆盖后续人工修改。
+撤销只在当前文件仍匹配 post hash 时恢复，避免覆盖后续人工修改。
 
 MCP 协议客户端通过 Transport 契约使用 JSON-RPC；Transport 负责连接、取消、
 超时、诊断和关闭，协议客户端负责 initialize、capability、tools、resources 与
 prompts 调用。stdio
 和 Streamable HTTP 共用这一生命周期；HTTP 额外维护 session、JSON/SSE 响应、
 cursor 恢复和协议版本 header。所有 MCP 工具仍经过同一 Gateway 权限边界。
-`/mcp reload` 会先在隔离 Gateway 中准备新连接和工具，全部成功后原子切换；
+热重载会先在隔离 Gateway 中准备新连接和工具，全部成功后原子切换；
 旧连接在已有调用排空后关闭，刷新失败则保留当前 generation。Resources 只有在
-用户执行 `/mcp resource` 后才作为带 server/URI 来源的外部
-Context Source 加入当前会话；Prompts 仅通过 `/mcp prompt` 预览，不会静默改变
-系统行为。
+被显式拉取后才作为带 server/URI 来源的外部 Context Source 加入当前会话；
+Prompts 仅预览，不会静默改变系统行为。Cloud 上 MCP 配置默认在容器
+`$HOME/.kross`，不随 `/work` 卷保留。
 
 Cloud Worker 的 `Bash` 和后台进程运行在独立容器内。具体安全边界见
 [安全模型](security.md)。
@@ -155,29 +154,21 @@ Cloud Worker 的 `Bash` 和后台进程运行在独立容器内。具体安全�
 
 ## 持久化与恢复
 
-本地运行数据默认位于 `~/.kross`：
+Cloud 把用户可见状态和执行磁盘分开：
 
-| 数据 | 设计 |
+| 数据 | 位置 |
 |---|---|
-| 会话 | append-only JSONL 事实源，SQLite 仅作为可重建索引 |
-| Thread | 随会话保存的模型上下文 Checkpoint |
-| Work State | Todo、模式、待确认计划和版本化运行 Checkpoint |
-| Trace | JSONL 工具与生命周期事件 |
-| Mutation | JSONL 元数据与 content-addressed blobs |
+| 对话 `parts`、账号、组织模型、Agent 元数据 | 控制面 PostgreSQL |
+| 工作区文件 | `/work`（本机 volume 或 JuiceFS） |
+| Runtime Thread / Work State / Trace / Mutation | Worker `$HOME/.kross`，默认不随工作区卷备份 |
 
-等待审批时，open turn 与运行 Checkpoint 一起保存。恢复前会核对 tool call、已有
-结果、当前工具定义、动态风险和审批策略。只有明确尚未执行的审批调用可以续跑；
-已完成的写入或执行绝不会猜测性重放。证据不完整时恢复路径 fail-closed。
+等待审批时，open turn 与运行 Checkpoint 一起保存在 Worker 本地。恢复前会核对
+tool call、已有结果、当前工具定义、动态风险和审批策略。只有明确尚未执行的审批
+调用可以续跑；已完成的写入或执行绝不会猜测性重放。证据不完整时 fail-closed。
 
-Trace Replay 与运行恢复是两条不同路径。`/trace replay <runId>` 只读取事件并生成
-版本化状态帧和汇总，不调用 LLM、Tool Gateway、Git 或外部系统。它要求事件来自
-同一 run、ID 唯一、时间单调、类型已知、以 `run.started` 开始且终态后无追加；
-可关联的工具终态必须有对应 start。缺失、乱序和未知事件返回稳定错误码，供
-Cloud 检查面板使用。
-
-Cloud 会话权威记录保存在控制面 PostgreSQL；Worker 卷保存 `/work` 工作区文件。
-生命周期、备份边界和容器恢复见
-[Cloud Agent 部署与运维](cloud-agent-deployment.md)。
+浏览器刷新从 PostgreSQL 加载历史。容器被删后，`/work` 仍在；`$HOME/.kross` 中的
+trace 与 journal 则可能丢失。备份边界见
+[Cloud Agent 部署与运维](cloud-agent-deployment.md#数据与恢复)。
 
 ## Cloud 数据流
 
@@ -204,8 +195,8 @@ sequenceDiagram
 保持 WebSocket：空闲时由控制面推送任务，生成过程立即推送 delta。浏览器不直连
 Worker。版本、错误和回放语义见 [Cloud Protocol](cloud-protocol.md)。
 
-每个成员使用独立 Agent 容器和 Docker volume。Web 静态文件由独立
-Nginx 容器提供。
+每个成员使用独立 Agent 容器。单机把 `/work` 放在 Docker volume；集群可挂 JuiceFS，
+并由 `kross-node` 在各机起容器。Web 静态文件由独立 Nginx 容器提供。
 
 ## 当前限制
 
@@ -214,4 +205,5 @@ Nginx 容器提供。
 - 没有跨会话语义记忆。
 - Project Instructions 只加载 workspace root 顶层。
 - Core 尚未作为稳定 SDK 单独发布。
-- Cloud 的 Docker、移动端、弱网、Push 与 Git 凭证流程仍需社区持续验证。
+- Cloud 的 Docker、移动端、弱网与公网反向代理仍需在真实环境验收。
+- 多机节点令牌目前只走环境变量，超管 UI 尚未接入。

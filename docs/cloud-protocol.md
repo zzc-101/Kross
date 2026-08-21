@@ -20,5 +20,12 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 握手后控制面推送 `agent.job`。生成过程立即推 `agent.events`，结束时用
 `agent.message` 提交完整 `parts`。另有心跳、模型环境和休眠帧。
 
+## 集群节点
+
+路径：`ws://<public-base>/internal/v2/nodes/ws`，`Authorization: Bearer <KROSS_NODE_TOKEN>`。
+
+节点上报 `node.hello` / `node.heartbeat`；控制面下发 `node.start` / `node.stop` /
+`node.inspect`，节点用 `node.result` 回答。单机 Compose 不使用该通道。
+
 版本、字段和错误语义以 `backend/src/main/java/com/kross` 下的协议类型为准。
 破坏性变更必须提升协议版本并写入 `CHANGELOG.md`。

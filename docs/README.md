@@ -8,10 +8,10 @@
 | 目标 | 文档 |
 |---|---|
 | 第一次安装和运行 | [快速上手](getting-started.md) |
-| 配置模型、上下文、MCP 或多仓项目 | [配置参考](configuration.md) |
+| 配置模型、工作区文件、Skills 或 MCP | [配置参考](configuration.md) |
 | 了解审批、文件边界和数据风险 | [安全模型](security.md) |
 | 确认受支持的平台、版本和兼容策略 | [支持范围与兼容策略](support.md) |
-| 排查启动、模型、撤销或 MCP 问题 | [故障排查](troubleshooting.md) |
+| 排查启动、登录、模型或直播 | [故障排查](troubleshooting.md) |
 | 部署和维护 Cloud Agent | [Cloud Agent 部署与运维](cloud-agent-deployment.md) |
 
 ## 扩展与贡献
@@ -34,3 +34,4 @@
 - 扩展能力以[扩展 Kross](extensions.md)标注的稳定级别为准；导出的内部类型不自动
   等于稳定 SDK。
 - `node scripts/check-doc-links.mjs` 会验证根目录和 `docs/` 中的本地 Markdown 链接。
+  本分支文档只描述 Cloud Agent；TUI / CLI 以 `main` 为准。

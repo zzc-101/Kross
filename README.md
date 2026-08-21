@@ -23,13 +23,13 @@ Kross is more than a chat interface that forwards prompts to a model. It is a ge
 - **Stalled-loop protection**: repeated tool calls without progress first trigger a recovery strategy, then stop with a bounded failure report if no progress is possible.
 - **Project instruction awareness**: automatically loads `CLAUDE.md`, `AGENTS.md`, and `KROSS.md` from authorized workspace roots.
 - **Extensible Skills**: discovers personal and project Skills, loading their instructions and resources only when needed.
-- **Safer file mutations**: records a mutation journal before and after writes and provides conflict-protected `/undo`.
-- **Recoverable sessions and runs**: messages, context, Todos, mode, pending plans, and pending tool approvals survive restarts without replaying completed writes.
+- **Safer file mutations**: records a mutation journal before and after writes and refuses to overwrite later manual changes.
+- **Recoverable conversations**: chat history lives in PostgreSQL; tool approvals that are still pending can resume if the evidence is intact. Completed writes are never replayed.
 - **Managed background processes**: starts, polls, writes to, and terminates long-running commands with per-session isolation.
 - **Controlled tool scheduling**: independent read-only calls may run concurrently, while writes, execution, Process, and MCP calls remain ordered.
 - **Live streaming over the control plane**: the browser submits messages over HTTP and receives text, thinking, and tool events over SSE. Workers keep a WebSocket to the control plane only while their container is running.
 - **Cloud workspace management**: repository cloning, session recovery, real Git Diff, branch Push, Pull Requests, resource limits, and idle reaping.
-- **Native multi-model profiles**: save, name, and switch between multiple OpenAI, Anthropic, OpenRouter, DeepSeek, and xAI configurations.
+- **Native multi-model profiles**: organization admins save named OpenAI, Anthropic, OpenRouter, DeepSeek, and xAI credentials in the admin console.
 
 ## Quick Start
 
@@ -47,44 +47,29 @@ Open `http://localhost:8787` for the user workbench or `http://localhost:8787/ad
 ./scripts/start-cloud.sh --stop
 ```
 
-Public deployments must place a TLS reverse proxy in front of the Web entry. Only the service that manages containers requires access to the Docker Socket; deploy it only on a dedicated or otherwise controlled host. See [Cloud deployment and operations](docs/cloud-agent-deployment.md) for configuration, security boundaries, and the acceptance checklist.
+Public deployments must place a TLS reverse proxy in front of the Web entry. Only the service that starts Worker containers needs the Docker Socket (the control plane on a single host, or `kross-node` in a cluster). See [Cloud deployment and operations](docs/cloud-agent-deployment.md) for configuration, JuiceFS/cluster setup, security boundaries, and the acceptance checklist.
 
 ## Basic Usage
 
-Describe a task directly:
+Describe a task directly in the workbench:
 
 ```text
-Review the current branch, fix the regression in the login flow, and run the relevant tests.
+Review the current workspace, fix the regression in the login flow, and run the relevant tests.
 ```
 
-Review a plan before execution:
+Ask for a plan first:
 
 ```text
-/mode plan
-Refactor session persistence without changing existing behavior.
-/approve
+Plan first, then refactor session persistence without changing existing behavior.
 ```
 
-Delegate a complex task:
+Ask the agent to split work across subagents:
 
 ```text
-/mode conductor
-Review the frontend and backend authentication protocol, implement the changes separately, then verify them together.
+Split the authentication change into independent tasks, implement them separately, then verify them together.
 ```
 
-## Common Commands
-
-| Command | Purpose |
-|---|---|
-| `/mode auto\|plan\|conductor` | Change the Agent working mode |
-| `/approve` / `/reject` | Approve or reject a pending plan |
-| `/undo [runId\|transactionId]` | Safely revert Agent file mutations |
-| `/context` / `/compact` | Inspect or compact model context |
-| `/instructions` / `/skills` | Inspect loaded project instructions and Skills |
-| `/trace [runId]` / `/diff` | Inspect execution traces and code changes |
-| `/processes` | Inspect managed background processes for the current session |
-| `/model` | Select the model and thinking effort |
-| `/lang zh\|en` | Change the interface language |
+High-risk tools pause in the conversation for an Allow / Reject click. Organization admins add models in the admin console; members do not paste API keys into chat.
 
 ## Model Configuration
 
@@ -96,7 +81,7 @@ Review the frontend and backend authentication protocol, implement the changes s
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` |
 | xAI | `xai` | `XAI_API_KEY` | `XAI_MODEL` |
 
-Kross stores named model profiles in backend configuration. Environment variables can still seed a provider during local development. Each provider also supports its corresponding `*_BASE_URL`.
+Kross stores named model profiles in the Java control plane. Environment variables can still seed a provider during local development. Each provider also supports its corresponding `*_BASE_URL`.
 
 <p align="center">
   <img src="docs/images/kross-model-profiles.png" alt="Kross native multi-model profile settings" width="100%">
@@ -109,6 +94,8 @@ flowchart TB
     U["User"] --> W["Web / PWA"]
     W --> S["Java Control Plane"]
     S --> D["Per-user Docker Worker"]
+    S -.-> N["kross-node (cluster)"]
+    N -.-> D
     D --> R["Agent Runtime"]
     R --> C["Context / Sessions / Checkpoints"]
     R --> H["Harness Completion Gate"]
@@ -118,7 +105,7 @@ flowchart TB
     G --> P["Processes / MCP / Subagents"]
 ```
 
-This branch is a frontend / backend / worker layout:
+This branch is a frontend / backend / worker / node layout:
 
 - `frontend/web`: user workbench (React / Vite), served by Nginx and proxied to the Java backend.
 - `frontend/admin-web`: organization admin console, served at `/admin/` from the same Nginx.
@@ -149,11 +136,11 @@ Most detailed documentation is currently in Chinese. English documentation contr
 
 ## Security Boundaries
 
-- Read-only operations are allowed by default; writes, execution, and network operations require approval.
-- File tools resolve real paths and restrict access to authorized workspaces.
-- `/undo` verifies the current file hash and refuses to overwrite later manual changes.
-- Cloud Workers use Docker containers as an execution boundary with isolated networks, dropped capabilities, `no-new-privileges`, CPU, memory, PID, and soft disk limits. Containers can still access external networks.
-- The service that mounts the Docker Socket has permissions equivalent to a privileged host control plane and must not be exposed directly to the public Internet.
+- Read/write tools inside the member workspace are allowed by default on this branch; shell and network calls require an in-chat approval.
+- File tools resolve real paths and restrict access to the `/work` workspace.
+- Mutation undo verifies the current file hash and refuses to overwrite later manual changes.
+- Cloud Workers use Docker containers as an execution boundary with dropped capabilities, `no-new-privileges`, CPU, memory, and PID limits. Containers can still access external networks.
+- The process that mounts the Docker Socket has permissions equivalent to a privileged host control plane and must not be exposed directly to the public Internet.
 - Scripts referenced by Skills are not executed automatically and still require normal tool approval.
 
 ## Development and Verification
@@ -163,11 +150,12 @@ cd frontend && pnpm install && pnpm dev
 cd frontend && pnpm dev:admin
 cd worker && pnpm install && pnpm dev
 cd backend && ./mvnw -DskipTests compile
+cd node && go build -o /tmp/kross-node .
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
 ```
 
-There is no root Node project. Install dependencies with pnpm in `frontend/` and `worker/` separately. The Java backend does not use pnpm. Start the full Cloud stack with `./scripts/start-cloud.sh`.
+There is no root Node project. Install dependencies with pnpm in `frontend/` and `worker/` separately. The Java backend uses Maven. Cluster scheduling uses the Go module in `node/`. Start the full Cloud stack with `./scripts/start-cloud.sh`.
 
 Current gaps include MCP interactive OAuth, cross-session semantic memory, nested directory-level Project Instructions, and continued end-to-end validation of Cloud Agent deployments on real Docker, mobile, and public reverse-proxy environments.
 

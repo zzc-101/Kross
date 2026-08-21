@@ -1,6 +1,6 @@
 # Agent Harness
 
-Kross 的 Harness 位于模型与本地开发环境之间。它不只负责转发提示词，还负责约束工具执行、判断任务是否具备完成条件，并保存可审计、可恢复的运行状态。
+Kross 的 Harness 位于模型与执行环境之间。它不只负责转发提示词，还负责约束工具执行、判断任务是否具备完成条件，并保存可审计、可恢复的运行状态。
 
 ## 运行闭环
 
@@ -16,7 +16,7 @@ flowchart LR
     C -->|"满足或如实降级"| R["结构化结果"]
 ```
 
-一次正常运行会经历探索、计划、执行、验证、复核和完成等可观测阶段。阶段由真实工具与生命周期事件推导，不要求模型用固定格式自报；工作台和 `/trace` 可以展示这些状态。
+一次正常运行会经历探索、计划、执行、验证、复核和完成等可观测阶段。阶段由真实工具与生命周期事件推导，不要求模型用固定格式自报；工作台的工具卡片和思考过程可以展示这些状态。
 
 ## Prompt 与模式
 
@@ -61,7 +61,7 @@ Harness 能识别常见 test、typecheck、build 和 lint 命令，也能跟踪�
 
 Session Work State 会持久化版本化 `runCheckpoint`，其中包含运行阶段、工具迭代、验证状态、已完成调用 id、待审批调用和后续调用队列。
 
-- 等待工具审批时，open turn 与 checkpoint 会一起保存；重新打开会话后审批面板可以继续出现。
+- 等待工具审批时，open turn 与 checkpoint 会一起保存；刷新工作台后，证据完整的审批面板可以继续出现。
 - 恢复前会核对 assistant tool call、已有 tool result、当前工具定义、动态风险和审批策略。
 - 只有明确尚未执行的待审批调用可以恢复。已完成调用只作为证据存在，绝不会因恢复而重新执行。
 - 如果证据损坏、工具消失或策略发生变化，恢复会 fail-closed，并把悬空轮次安全转为 interrupted。
@@ -76,14 +76,11 @@ Session Work State 会持久化版本化 `runCheckpoint`，其中包含运行阶
 
 ## 可观测性
 
-- `/trace [runId]`：查看阶段迁移、工具调用、审批、验证、重试和失败。
-- `/trace replay <runId>`：按持久化顺序严格派生状态；同一 run、事件 ID、时间、
-  已知类型和工具生命周期不一致时显式失败，不重新执行任何工具或外部副作用。
-- `/diff`：查看本轮涉及的文件和 Git diff 摘要。
-- `/context`：查看 token 预算、上下文来源与治理记录。
-- Verification Report：在最终消息中展示真实验证状态、命令和风险。
+工作台直播文本、思考和工具调用。Verification Report 仍会进入最终消息，展示真实验证状态、命令和风险。
 
-Trace、session checkpoint 和 mutation journal 都可能包含本地路径、源码片段或工具参数，分享前应检查敏感信息。
+Trace、session checkpoint 和 mutation journal 都可能包含路径、源码片段或工具参数，且默认落在 Worker `$HOME/.kross`，分享前应检查敏感信息。
+
+本分支 Web 没有 TUI 的 `/trace`、`/diff`、`/context` 面板。需要看改动时，直接看对话里的工具结果，或让 Agent 在 `/work` 里跑 `git status` / `git diff`。
 
 ## 当前边界
 

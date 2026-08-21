@@ -40,17 +40,18 @@ KROSS.md
 - 禁止修改的生成文件；
 - 安全限制和提交规范。
 
-当前只扫描授权 root 顶层，不递归加载子目录规则。使用 `/instructions` 检查实际
-加载来源和诊断信息。
+当前只扫描授权 root 顶层，不递归加载子目录规则。Cloud 工作区根即 `/work`。
 
 ## Skills
 
-Skill 是带说明的按需知识包。支持两个位置：
+Skill 是带说明的按需知识包。Cloud 请把长期 Skill 放在工作区，以便随 `/work` 保留：
 
 ```text
-~/.kross/skills/<id>/SKILL.md
 <workspace>/.agents/skills/<id>/SKILL.md
 ```
+
+Runtime 仍读取 `$HOME/.kross/skills`；在 Cloud Worker 里该路径是容器本地目录，
+重建后可能丢失。
 
 最小示例：
 
@@ -68,14 +69,14 @@ description: 检查版本、变更记录和发布前验证结果
 ```
 
 Kross 启动时只把 Skill 的名称和描述加入上下文，需要时再通过 `ReadSkill` 读取
-正文。Skill 中出现的命令不会自动获得执行权限，仍然经过正常工具审批。修改 Skill
-后使用 `/skills` 刷新并检查发现结果。
+正文。Skill 中出现的命令不会自动获得执行权限，仍然经过正常工具审批。
 
 ## MCP 工具
 
 无需修改 Kross 源码即可通过 stdio 或 Streamable HTTP MCP server 增加工具。
-配置文件可以放在
-`~/.kross/mcp.json`，也可以写入 `~/.kross/config.json` 的 `mcpServers`：
+配置文件读取 `$HOME/.kross/mcp.json`，也可写入 `$HOME/.kross/config.json` 的
+`mcpServers`。同名 server 以 `config.json` 为准。Cloud Worker 的 `$HOME` 是
+`/home/node`，不在 `/work` 卷上。
 
 ```json
 {
@@ -112,12 +113,12 @@ Kross 启动时只把 Skill 的名称和描述加入上下文，需要时再通�
 
 - 支持 stdio 与 Streamable HTTP，远程 HTTP 自动处理 session、JSON/SSE 响应、
   SSE cursor 恢复、404 重新初始化和 DELETE 关闭；
-- 支持 tools、resources 和 prompts；Resources 通过 `/mcp resource` 显式加入
-  带来源标识的 Context Source，Prompts 通过 `/mcp prompt` 显式预览；
+- 支持 tools、resources 和 prompts；Resources 需显式加入带来源标识的
+  Context Source，Prompts 仅预览；
 - Resource 只接收文本内容，响应默认限制为 128 KiB；Prompt 响应默认限制为
   64 KiB，且不会自动执行或覆盖系统指令；
 - 单个 MCP 连接失败不会阻止其他服务或 Kross 启动；
-- 修改 MCP 配置后可执行 `/mcp reload`；新一代完整准备后才原子替换工具，
+- 修改 MCP 配置后需要重新加载连接；新一代完整准备后才原子替换工具，
   任一启用服务连接失败都会拒绝本次刷新并保留旧配置，在途调用继续使用旧连接直到
   完成；
 - MCP 子进程拥有当前用户权限，远程 MCP 拥有网络与服务端权限；不能把审批等同于
@@ -256,38 +257,28 @@ Agent 行为时，应实现经过 schema、风险、审批和 Trace 的 Tool/Pro
 
 ## 自定义客户端与 Cloud Protocol
 
-Cloud 的浏览器/Worker 线协议由 Java 控制面 DTO 定义，见 [Cloud Protocol](cloud-protocol.md)。
-客户端发送的每条命令必须携带：
-
-```ts
-{
-  protocolVersion: 1,
-  requestId: 'client-generated-id'
-}
-```
+浏览器和 Worker 的线协议由 Java 控制面 DTO 定义，见 [Cloud Protocol](cloud-protocol.md)。
 
 扩展客户端时：
 
 - 以 `backend` 的 Java DTO 和 `frontend/web` 为参考，不另造一套字段；
-- 按 `seq` 处理事件、断线重放和去重；
-- 用 `requestId` / `correlationId` 关联命令与结果；
-- 保留工具审批、计划审批和取消语义；
-- 遇到不支持的协议版本时明确失败。
+- 上行 HTTP、下行 SSE；直播事件按到达顺序处理，回合结束再写完整 `parts`；
+- 保留工具审批和取消语义；
+- Worker 只连 `/internal/v2/agents/ws`，集群节点只连 `/internal/v2/nodes/ws`。
 
 当前 HTTP 路由、容器名称、Worker 持久化目录和 Web 组件树属于内部实现，不是稳定
-扩展 API。现有 `frontend/web` 是首选 TypeScript 参考实现。其他语言使用后端公开的
-JSON 字段、错误与回放语义，详见 [Cloud Protocol](cloud-protocol.md)。
+扩展 API。现有 `frontend/web` 是首选 TypeScript 参考实现。
 
 ## 不应依赖的内部细节
 
 以下内容可能在 `0.x` 版本中直接调整：
 
-- `~/.kross` 内 JSONL、SQLite 和 trace 的具体字段布局；
+- Worker `$HOME/.kross` 内 JSONL、SQLite 和 trace 的具体字段布局；
 - Runtime 内部类的构造顺序；
-- Gateway 私有 HTTP 路径；
+- 控制面内部 HTTP / WebSocket 路径之外尚未公开的字段；
 - Docker 容器标签、网络名称和挂载细节；
 - Web 组件层级和 CSS class；
-- 未从 package `index.ts` 导出的源码文件。
+- 未从 Core public / experimental barrel 导出的源码文件。
 
 `ModeFlows`、`ModelSession`、`SessionServices`、`RuntimeToolLoop` 和 Conductor
 执行器属于内部编排实现，即使在历史版本中曾被顶层 barrel 意外导出，也不构成

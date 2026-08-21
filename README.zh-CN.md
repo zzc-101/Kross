@@ -23,13 +23,13 @@ Kross 不只是一个把提示词转发给模型的聊天界面。它是带完�
 - **抗空转工具循环**：重复调用无进展时先引导模型恢复策略，仍然停滞则有限退出并报告阻塞。
 - **项目规则感知**：自动加载 workspace 根目录中的 `CLAUDE.md`、`AGENTS.md` 和 `KROSS.md`。
 - **可扩展 Skills**：发现个人与项目 Skills，只在需要时安全读取正文和资源。
-- **安全文件修改**：写入前后记录 mutation journal，支持带冲突保护的 `/undo`。
-- **可恢复会话与运行**：消息、上下文、Todo、当前模式、待确认计划和未执行的工具审批可跨重启安全恢复，已完成写操作不会重放。
+- **安全文件修改**：写入前后记录 mutation journal，检测到人工后续修改时拒绝覆盖。
+- **可恢复对话**：聊天历史在 PostgreSQL；证据完整的待审批工具可以继续，已完成写操作不会重放。
 - **可管理后台进程**：启动、轮询、输入和终止长时间运行的命令，并按会话隔离进程。
 - **受控工具调度**：独立只读调用可并发执行，写入、执行、Process 和 MCP 调用保持有序。
 - **经控制面直播**：浏览器用 HTTP 提交消息，用 SSE 接收文本、思考和工具事件；Worker 仅在容器运行时与控制面保持 WebSocket。
 - **云端工作区管理**：支持仓库克隆、会话恢复、真实 Git Diff、分支 Push、Pull Request、资源限额与空闲回收。
-- **原生多模型档案**：可同时保存、命名并切换多个 OpenAI、Anthropic、OpenRouter、DeepSeek 和 xAI 配置。
+- **原生多模型档案**：组织管理员在管理中心保存、命名多个 OpenAI、Anthropic、OpenRouter、DeepSeek 和 xAI 配置。
 
 ## 快速开始
 
@@ -47,44 +47,29 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次运行时，启动�
 ./scripts/start-cloud.sh --stop
 ```
 
-公网部署必须在 Web 入口前放置 TLS 反向代理。只有负责管理容器的服务需要访问 Docker Socket，应部署在专用或受控主机上。配置、安全边界和验收清单见 [Cloud Agent 部署与运维](docs/cloud-agent-deployment.md)。
+公网部署必须在 Web 入口前放置 TLS 反向代理。只有负责拉起 Worker 容器的进程需要 Docker Socket（单机是控制面，集群是 `kross-node`）。配置、JuiceFS/多机、安全边界和验收清单见 [Cloud Agent 部署与运维](docs/cloud-agent-deployment.md)。
 
 ## 基本用法
 
-直接描述任务：
+在工作台直接描述任务：
 
 ```text
-Review the current branch, fix the regression in the login flow, and run the relevant tests.
+Review the current workspace, fix the regression in the login flow, and run the relevant tests.
 ```
 
-先审计划再执行：
+先要计划：
 
 ```text
-/mode plan
-Refactor session persistence without changing existing behavior.
-/approve
+先做计划，再重构会话持久化，不要改变现有行为。
 ```
 
-把复杂任务交给编排：
+让 Agent 拆分任务：
 
 ```text
-/mode conductor
-Review the frontend and backend authentication protocol, implement the changes separately, then verify them together.
+把认证改造拆成独立任务，分别实现后再统一验收。
 ```
 
-## 常用命令
-
-| 命令 | 用途 |
-|---|---|
-| `/mode auto\|plan\|conductor` | 切换 Agent 工作模式 |
-| `/approve` / `/reject` | 批准或拒绝待执行计划 |
-| `/undo [runId\|transactionId]` | 安全撤销 Agent 文件修改 |
-| `/context` / `/compact` | 查看或压缩模型上下文 |
-| `/instructions` / `/skills` | 查看已加载的项目规则和 Skills |
-| `/trace [runId]` / `/diff` | 查看执行轨迹和代码变更 |
-| `/processes` | 查看当前会话的后台进程 |
-| `/model` | 选择模型和思考强度 |
-| `/lang zh\|en` | 切换界面语言 |
+高风险工具会在对话里暂停，点「允许一次」或「拒绝」。组织管理员在管理中心添加模型，成员不要把 API Key 贴进聊天。
 
 ## 模型配置
 
@@ -96,7 +81,7 @@ Review the frontend and backend authentication protocol, implement the changes s
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` |
 | xAI | `xai` | `XAI_API_KEY` | `XAI_MODEL` |
 
-Kross 把命名模型档案保存在后端配置中。本地开发仍可用环境变量注入 Provider。每个 Provider 也支持对应的 `*_BASE_URL`。
+Kross 把命名模型档案保存在 Java 控制面。本地开发仍可用环境变量注入 Provider。每个 Provider 也支持对应的 `*_BASE_URL`。
 
 <p align="center">
   <img src="docs/images/kross-model-profiles.png" alt="Kross 原生多模型档案设置" width="100%">
@@ -109,6 +94,8 @@ flowchart TB
     U["User"] --> W["Web / PWA"]
     W --> S["Java Control Plane"]
     S --> D["Per-user Docker Worker"]
+    S -.-> N["kross-node (cluster)"]
+    N -.-> D
     D --> R["Agent Runtime"]
     R --> C["Context / Sessions / Checkpoints"]
     R --> H["Harness Completion Gate"]
@@ -118,7 +105,7 @@ flowchart TB
     G --> P["Processes / MCP / Subagents"]
 ```
 
-本分支按前端 / 后端 / Worker 分开：
+本分支按前端 / 后端 / Worker / 节点分开：
 
 - `frontend/web`：用户工作台（React / Vite），由 Nginx 提供并反代到 Java 后端。
 - `frontend/admin-web`：组织管理控制台，由同一 Nginx 挂在 `/admin/`。
@@ -149,11 +136,11 @@ flowchart TB
 
 ## 安全边界
 
-- `default` 仅允许读取当前工作区；`classifier` 自动允许工作区内可信编辑，Shell 与网络仍受审批；`auto` 是完全访问模式。
-- 文件工具使用真实路径校验，限制在已授权 workspace 内。
-- `/undo` 会验证当前文件 hash，检测到人工后续修改时拒绝覆盖。
-- Cloud Worker 以 Docker 容器作为执行边界，并使用独立网络、能力丢弃、`no-new-privileges`、CPU、内存、PID 与磁盘软限额；容器仍可访问外网。
-- 挂载 Docker Socket 的服务权限等价于宿主机高权限控制面，不能直接暴露到公网。
+- `default` 仅自动允许读取；本分支 Cloud Worker 固定 `classifier`（工作区内可信编辑自动允许，Shell 与网络仍要确认）；`auto` 是完全访问，Web 不提供切换。
+- 文件工具使用真实路径校验，限制在 `/work` 工作区内。
+- 撤销会验证当前文件 hash，检测到人工后续修改时拒绝覆盖。
+- Cloud Worker 以 Docker 容器作为执行边界，并丢弃多余 capability、启用 `no-new-privileges`、限制 CPU / 内存 / PID；容器仍可访问外网。
+- 挂载 Docker Socket 的进程权限等价于宿主机高权限控制面，不能直接暴露到公网。
 - Skills 中的脚本不会自动执行；执行仍需经过工具审批。
 
 ## 开发与验证
@@ -163,11 +150,12 @@ cd frontend && pnpm install && pnpm dev
 cd frontend && pnpm dev:admin
 cd worker && pnpm install && pnpm dev
 cd backend && ./mvnw -DskipTests compile
+cd node && go build -o /tmp/kross-node .
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
 ```
 
-根目录没有 Node 项目。前端在 `frontend/` 用 pnpm 安装依赖，Worker 在 `worker/` 安装依赖，Java 后端不用 pnpm。完整栈用 `./scripts/start-cloud.sh`。
+根目录没有 Node 项目。前端在 `frontend/` 用 pnpm 安装依赖，Worker 在 `worker/` 安装依赖，Java 后端用 Maven，集群节点在 `node/` 用 Go。完整栈用 `./scripts/start-cloud.sh`。
 
 当前主要待补能力包括 MCP 交互式 OAuth、跨会话语义记忆、嵌套目录级 Project Instructions，以及 Cloud Agent 在真实 Docker、移动端和公网反向代理环境中的持续端到端验收。
 

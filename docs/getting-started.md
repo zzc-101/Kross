@@ -1,14 +1,14 @@
 # 快速上手
 
-本指南从源码启动自托管 Cloud Agent，并完成第一个受审批保护的编程任务。
+本指南从源码启动自托管 Cloud Agent，并完成第一个受审批保护的任务。
 
 ## 1. 准备环境
 
 需要：
 
 - Docker Engine 与 Docker Compose v2
-- Node.js `>= 22.19` 与 pnpm `10.14`（仅在从源码开发 Web / Worker 时需要）
-- 可用的模型凭证
+- 可用的模型凭证（OpenAI / Anthropic / OpenRouter 等）
+- 从源码开发 Web / Worker 时才需要 Node.js `>= 22.19` 与 pnpm `10.14`
 
 确认 Docker：
 
@@ -32,8 +32,8 @@ docker compose version
 - 管理中心：`http://localhost:8787/admin/`
 
 空实例第一次注册的用户会成为平台超级管理员。超管创建组织并指定组织管理员后，
-组织管理员再为本组织登记成员。普通用户只使用工作台。企业 SSO 在管理中心「平台
-设置」接入，Kross 只做 OIDC 验证方，不自己签发身份。
+组织管理员再为本组织登记成员和模型。普通用户只使用工作台。企业 SSO 在管理中心
+「平台设置」接入，Kross 只做 OIDC 验证方。
 
 常用命令：
 
@@ -50,93 +50,46 @@ docker compose version
 
 ## 3. 配置模型
 
-在管理控制台或控制面配置中保存模型档案。开发环境也可以用环境变量注入：
-
-OpenAI 示例：
-
-```bash
-export AGENT_LLM_PROVIDER=openai
-export OPENAI_API_KEY=sk-...
-export OPENAI_MODEL=gpt-5
-```
-
-Anthropic 示例：
-
-```bash
-export AGENT_LLM_PROVIDER=anthropic
-export ANTHROPIC_API_KEY=sk-ant-...
-export ANTHROPIC_MODEL=claude-sonnet-4-5
-```
-
-其他 Provider 和完整字段见 [配置参考](configuration.md)。
+用组织管理员登录管理中心，添加一条模型档案（Provider、模型名、API Key）。
+开发环境也可以把凭证写进 `.env` 后重启栈，字段见 [配置参考](configuration.md)。
 
 ## 4. 完成第一个任务
 
 在工作台直接输入自然语言：
 
 ```text
-检查当前分支的改动，找出最可能的回归并运行相关测试。
+检查当前工作区，找出最可能的回归并运行相关测试。
 ```
 
-默认权限模式下：
+Cloud Worker 默认按可信工作区权限运行：
 
-1. 读取类工具自动执行。
-2. 写文件、运行命令或访问网络前暂停。
-3. 审批面板展示工具、风险类型和输入预览。
-4. 选择 Approve 或 Reject 后继续运行。
+1. 工作区内的读/写类工具自动执行。
+2. Shell、网络等更高风险操作会在对话里弹出确认面板。
+3. 选择「允许一次」或「拒绝」后继续。
 
-## 5. 选择工作方式
+对话历史写在控制面 PostgreSQL，刷新页面可以接着看。代码改动在该成员的 `/work`
+工作区，容器休眠后磁盘仍在。
 
-### 自动模式
+## 5. 工作方式
+
+工作台始终以 `auto` 开跑。Agent 仍可能根据话术进入计划或指挥家流程，例如：
 
 ```text
-/mode auto
+先做计划，再重构配置模块，等我确认方案后再改文件。
 ```
-
-适合大多数任务。Agent 直接工作，也可根据任务复杂度进入计划或编排流程。
-
-### 计划模式
 
 ```text
-/mode plan
-重构配置模块，但先给我完整计划。
-/approve
+用指挥家把认证改造拆成独立任务，分别实现后再统一验收。
 ```
 
-计划未批准前不会开始文件修改。
-
-### 指挥家模式
-
-```text
-/mode conductor
-把认证改造拆成独立任务，交给 worker 执行并统一验收。
-```
-
-## 6. 检查与恢复
-
-```text
-/diff
-/trace
-/context
-/undo
-```
-
-- `/diff` 查看 Agent 触达的文件和 Git 变更摘要。
-- `/trace` 查看最近运行和工具事件。
-- `/context` 查看上下文预算与来源。
-- `/undo` 在文件未被后续修改时撤销最近事务。
-
-对话历史保存在控制面 PostgreSQL。刷新页面后仍可从库中加载完整 `parts`。下一步
-可阅读 [安全模型](security.md)。
+计划或高风险工具都会在界面里等待你确认，不需要输入 TUI 斜杠命令。
 
 ## 停止与清理
-
-从仓库启动的 Cloud Agent 可以停止并保留数据：
 
 ```bash
 ./scripts/start-cloud.sh --stop
 ```
 
-Compose 声明的 PostgreSQL 数据卷会保留。`docker compose down -v` 会删除本地
-控制面数据库，属于破坏性操作。更多细节见
-[SaaS Work Agent 部署与运维](cloud-agent-deployment.md#数据与恢复)。
+Compose 声明的 PostgreSQL 和 MinIO 数据卷会保留。`docker compose down -v` 会删除
+本地数据库和对象存储，属于破坏性操作。更多细节见
+[Cloud Agent 部署与运维](cloud-agent-deployment.md#数据与恢复)。

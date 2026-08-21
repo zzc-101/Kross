@@ -38,15 +38,9 @@ docker compose version
 
 ## 能打开工作台，但没有真实模型回复
 
-在管理控制台确认已配置可用模型。开发环境也可以用环境变量注入：
-
-```bash
-export AGENT_LLM_PROVIDER=openai
-export OPENAI_API_KEY=sk-...
-export OPENAI_MODEL=gpt-5
-```
-
-然后重启 Cloud 栈，让 Worker 拿到新的模型环境。
+在管理中心确认本组织已配置可用模型档案。开发环境也可以把 `AGENT_LLM_*` /
+`OPENAI_API_KEY` 等写入 `.env` 后重启栈，让 Worker 拿到新的模型环境。字段见
+[配置参考](configuration.md)。
 
 ## 消息发出去后没有直播
 
@@ -58,53 +52,33 @@ Nginx 必须关闭 buffering，并且控制面 `spring.mvc.async.request-timeout
 刷新页面后历史仍在，说明 `parts` 已写入 PostgreSQL；只有直播扇出失败时才会
 出现“结束后才看到完整回复”。
 
-## 计划一直等待确认
+## 工具一直停在确认面板
 
-`plan` 和 `conductor` 模式会在执行前暂停。输入：
+工作台用按钮批准或拒绝高风险工具，不要发送 TUI 的 `/approve`。若面板消失：
 
-```text
-/approve
-```
+- 刷新后只有「尚未执行且证据完整」的审批能恢复；
+- 工具定义、动态风险或策略与保存时不一致会 fail-closed；
+- 上次进程若在 LLM / 工具执行中间退出，该轮会标为 interrupted，需要发一条新消息
+  继续。
 
-或取消：
+先看对话里的工具结果和 Git 状态，再决定是否重试。
 
-```text
-/reject
-```
+## 集群节点不上线，或任务起不来
 
-## `/undo` 报 conflict
-
-这表示目标事务执行后，相关文件又发生了变化。Kross 会拒绝强制覆盖。
-
-建议：
-
-1. 用 `/diff` 和 Git 检查当前改动。
-2. 手工保存需要保留的内容。
-3. 明确解决冲突后再决定是否人工恢复。
-
-Kross 当前不提供 `--force` undo。
-
-## 恢复会话后工具审批面板没有出现
-
-只有“尚未执行且证据完整”的工具审批可以恢复。以下情况会 fail-closed，并把上次轮次标记为 interrupted：
-
-- 保存的 assistant tool call 或已完成 tool result 缺失；
-- 工具已被移除或输入不再符合当前 schema；
-- 动态风险或当前审批策略与保存时不一致；
-- 上次进程在普通 LLM / 工具执行中间点退出，而不是停在审批边界。
-
-Kross 不会为了恢复界面而猜测性重放 write / execute 操作。先用 Git、`/diff` 或 `/trace` 确认已有结果，再发送一条新任务继续。
-
-## `/processes` 看不到之前的进程
-
-managed process 按持久化会话隔离。切换到其他会话后不可查看或控制原会话进程。
-Worker 容器重启后，原先的后台进程不会自动重连。
+- 控制面必须是 `KROSS_WORKER_RUNTIME=cluster` 且 `KROSS_WORKER_STORAGE=juicefs`。
+- `KROSS_NODE_TOKEN` 在控制面与 `kross-node` 上一致。
+- `KROSS_PUBLIC_BASE_URL` / `KROSS_CONTROL_PLANE_URL` 必须是节点和 Worker 容器
+  都能访问的地址，不要用 `http://kross-server:8787`。
+- 节点机能访问 `.../internal/v2/nodes/ws`，本机已挂载同一套 JuiceFS。
+- `kross-node` 日志若反复 connection refused，先查控制面 Nginx `/internal/` 反代
+  和防火墙。
 
 ## MCP server 没有加载
 
-检查 Worker 工作区中的 MCP 配置：
+Cloud Worker 从容器 `$HOME/.kross/mcp.json` 读取配置，该路径不随 `/work` 持久化。
+检查：
 
-- `command` 必须存在且可执行。
+- `command` 必须在容器内存在且可执行。
 - `args` 必须是字符串数组。
 - `cwd` 必须有效。
 - `disabled` 不能为 `true`。
@@ -114,21 +88,13 @@ Worker 容器重启后，原先的后台进程不会自动重连。
 
 ## 上下文过大或回答遗忘旧信息
 
-先查看：
-
-```text
-/context
-```
-
-再按需压缩：
-
-```text
-/compact 保留精确文件路径、命令、错误文本和所有未完成事项
-```
+工作台没有独立的 `/context` 面板。可以直接请 Agent 摘要当前任务要点，或新开
+对话以降低上下文。超长历史由 Runtime 自动老化工具输出并滚动压缩。
 
 ## 测试似乎运行了旧代码
 
-该仓库的 TypeScript build 会刷新源码旁的 ignored JavaScript 产物。开发中如果测试表现与 TypeScript 源码不一致，先执行：
+该仓库的 TypeScript build 会刷新源码旁的 ignored JavaScript 产物。开发中如果
+测试表现与 TypeScript 源码不一致，先执行：
 
 ```bash
 cd frontend && pnpm build && pnpm test

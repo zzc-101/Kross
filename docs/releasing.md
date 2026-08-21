@@ -13,8 +13,8 @@
 Kross 使用一个应用版本：
 
 - `frontend/package.json`、`frontend/web`、`frontend/admin-web`、`worker/package.json` 必须同版本，并各自提交 pnpm lockfile。
-- MCP 客户端默认版本必须与应用版本一致。
-- Web、控制面、Worker 镜像应使用同一应用标签。
+- Worker 内 MCP 客户端的运行时兜底版本必须与应用版本一致。
+- Web、控制面、Worker、Node 镜像应使用同一应用标签。
 - Protocol、checkpoint 和持久化 schema 有独立版本，不能因为应用版本变化而
   自动递增；只有格式发生不兼容变化时才升级并提供迁移策略。
 
@@ -47,7 +47,8 @@ Node.js 最低版本和 `CHANGELOG.md` 基本结构。
 ```bash
 cd frontend && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
 cd ../worker && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
-cd ../backend && ./mvnw -B test
+cd ../backend && ./mvnw -B -DskipTests compile
+cd ../node && go build -o /tmp/kross-node .
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
 pnpm --dir frontend audit --prod
@@ -88,7 +89,7 @@ git push origin v0.1.0
 
 ## 安装、升级与回滚验收
 
-Cloud 发布需要分别验证 Web、控制面、Worker 使用同一标签，执行
+Cloud 发布需要分别验证 Web、控制面、Worker（以及集群时的 `kross-node`）使用同一标签，执行
 [Cloud Agent 部署与运维](cloud-agent-deployment.md)，并保留上一版本镜像。
 数据卷不应随容器回滚自动删除。
 
