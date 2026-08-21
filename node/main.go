@@ -77,7 +77,7 @@ func runSession(ctx context.Context, cfg config, runtime *dockerRuntime) error {
 		Type:          "node.hello",
 		NodeID:        cfg.nodeID,
 		Hostname:      cfg.nodeID,
-		JuicefsOK:     cfg.juicefsOK(),
+		JuicefsOK:     runtime.observeJuicefs(ctx),
 		RunningAgents: runtime.runningAgents(ctx),
 	}); err != nil {
 		return err
@@ -115,7 +115,7 @@ func runSession(ctx context.Context, cfg config, runtime *dockerRuntime) error {
 			if err := send(heartbeatMsg{
 				Type:          "node.heartbeat",
 				NodeID:        cfg.nodeID,
-				JuicefsOK:     cfg.juicefsOK(),
+				JuicefsOK:     runtime.observeJuicefs(ctx),
 				RunningAgents: runtime.runningAgents(ctx),
 			}); err != nil {
 				return err

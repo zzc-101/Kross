@@ -38,12 +38,6 @@ func loadConfig() (config, error) {
 	if cfg.workerStorage != "local" && cfg.workerStorage != "juicefs" {
 		return cfg, fmt.Errorf("unknown KROSS_WORKER_STORAGE: %s", cfg.workerStorage)
 	}
-	if cfg.workerStorage == "juicefs" {
-		info, err := os.Stat(cfg.juicefsMount)
-		if err != nil || !info.IsDir() {
-			return cfg, fmt.Errorf("JuiceFS mount not found: %s", cfg.juicefsMount)
-		}
-	}
 	return cfg, nil
 }
 
@@ -53,12 +47,4 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func (c config) juicefsOK() bool {
-	if c.workerStorage != "juicefs" {
-		return true
-	}
-	info, err := os.Stat(c.juicefsMount)
-	return err == nil && info.IsDir()
 }

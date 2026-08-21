@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -26,8 +26,10 @@ const (
 )
 
 type dockerRuntime struct {
-	cli *client.Client
-	cfg config
+	cli          *client.Client
+	cfg          config
+	mu           sync.Mutex
+	juicefsToken string
 }
 
 type handle struct {
@@ -51,6 +53,11 @@ func newDockerRuntime(cfg config) (*dockerRuntime, error) {
 }
 
 func (d *dockerRuntime) start(ctx context.Context, cmd startCommand) (handle, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.juicefsHealthyLocked(ctx) {
+		return handle{}, fmt.Errorf("JuiceFS is not healthy on this node")
+	}
 	names := agentNames(cmd.AgentID)
 	if err := d.ensureVolume(ctx, cmd.AgentID, names.volumeName); err != nil {
 		return handle{}, err
@@ -91,6 +98,8 @@ func (d *dockerRuntime) start(ctx context.Context, cmd startCommand) (handle, er
 }
 
 func (d *dockerRuntime) stop(ctx context.Context, agentID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	names := agentNames(agentID)
 	info, err := d.inspect(ctx, names.containerName)
 	if err != nil {
@@ -149,11 +158,10 @@ func (d *dockerRuntime) runningAgents(ctx context.Context) int {
 
 func (d *dockerRuntime) ensureVolume(ctx context.Context, agentID, volumeName string) error {
 	if d.cfg.workerStorage == "juicefs" {
-		dir, err := agentDirectory(d.cfg.juicefsMount, agentID)
-		if err != nil {
-			return err
-		}
-		return os.MkdirAll(dir, 0o755)
+		// Dockerd bind-mounts the host JuiceFS path into the Worker. Creating
+		// the source directory here would touch the node container filesystem.
+		_, err := agentDirectory(d.cfg.juicefsMount, agentID)
+		return err
 	}
 	_, err := d.cli.VolumeInspect(ctx, volumeName)
 	if err == nil {

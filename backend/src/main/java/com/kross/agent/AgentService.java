@@ -143,9 +143,16 @@ public class AgentService {
     }
     agents.touchConversation(conversation.getId());
     agents.touch(agent.getId());
-    wake(agent);
     emitUpsert(row);
-    afterCommit(() -> offerJobToWorker(agent.getId()));
+    Agent toWake = agent;
+    afterCommit(() -> {
+      try {
+        wake(toWake);
+      } catch (RuntimeException error) {
+        log.warn("Failed to wake agent {}: {}", toWake.getId(), error.getMessage());
+      }
+      offerJobToWorker(toWake.getId());
+    });
     return AgentViews.message(row);
   }
 
@@ -536,6 +543,11 @@ public class AgentService {
       agent.setNodeId(Optional.ofNullable(handle.nodeId()).filter(value -> !value.isBlank()).orElse(agent.getNodeId()));
       agent.setLastActiveAt(Instant.now());
       agents.updateRuntime(agent);
+    } catch (ApiException error) {
+      agent.setStatus("error");
+      agent.setLastError(Optional.ofNullable(error.getMessage()).orElse("Failed to start agent container"));
+      agents.updateRuntime(agent);
+      throw error;
     } catch (RuntimeException error) {
       agent.setStatus("error");
       agent.setLastError(Optional.ofNullable(error.getMessage()).orElse("Failed to start agent container"));

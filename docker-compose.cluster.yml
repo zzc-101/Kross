@@ -32,8 +32,10 @@ services:
       KROSS_WORKER_IMAGE: kross-worker:local
       KROSS_ORCHESTRATOR_MANAGER_ID: ${KROSS_ORCHESTRATOR_MANAGER_ID:-kross-saas}
     volumes:
+      # JuiceFS is bind-mounted into Worker containers at start time via the
+      # Docker socket. Do not mount it here: a long-lived bind goes stale when
+      # the JuiceFS container is recreated.
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}:${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}:rshared
     depends_on:
       juicefs:
         condition: service_healthy
