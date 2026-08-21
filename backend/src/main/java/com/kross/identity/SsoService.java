@@ -13,7 +13,6 @@ import jakarta.servlet.http.HttpSession;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -31,6 +30,7 @@ public class SsoService {
   static final String NONCE_ATTR = "kross.sso.nonce";
   static final String VERIFIER_ATTR = "kross.sso.verifier";
   static final String REDIRECT_ATTR = "kross.sso.redirect";
+  static final String RETURN_ATTR = "kross.sso.return";
 
   private final IdentityMapper identities;
   private final AuthService auth;
@@ -50,7 +50,7 @@ public class SsoService {
         settings.getSsoClientId(),
         Optional.ofNullable(settings.getSsoClientSecretCipher()).filter(value -> !value.isBlank()).isPresent(),
         redirectUri,
-        additionalRedirectUris(redirectUri));
+        List.of());
   }
 
   @Transactional
@@ -94,6 +94,7 @@ public class SsoService {
     session.setAttribute(NONCE_ATTR, nonce);
     session.setAttribute(VERIFIER_ATTR, verifier);
     session.setAttribute(REDIRECT_ATTR, redirectUri);
+    rememberReturnPath(request, session);
     return oidc.authorizationUrl(
         discovery,
         settings.getSsoClientId(),
@@ -108,6 +109,9 @@ public class SsoService {
     PlatformSettings settings = requireEnabled();
     HttpSession session = Optional.ofNullable(request.getSession(false))
         .orElseThrow(() -> new ApiException("sso_state_invalid", "SSO session expired", 401));
+    request.setAttribute(
+        RETURN_ATTR,
+        sanitizeReturnPath(Optional.ofNullable(session.getAttribute(RETURN_ATTR)).map(Object::toString).orElse(null)));
     String expectedState = Optional.ofNullable(session.getAttribute(STATE_ATTR)).map(Object::toString).orElse("");
     String nonce = Optional.ofNullable(session.getAttribute(NONCE_ATTR)).map(Object::toString).orElse("");
     String verifier = Optional.ofNullable(session.getAttribute(VERIFIER_ATTR)).map(Object::toString).orElse("");
@@ -117,6 +121,7 @@ public class SsoService {
     session.removeAttribute(NONCE_ATTR);
     session.removeAttribute(VERIFIER_ATTR);
     session.removeAttribute(REDIRECT_ATTR);
+    session.removeAttribute(RETURN_ATTR);
     if (expectedState.isBlank() || !expectedState.equals(Optional.ofNullable(state).orElse(""))) {
       throw new ApiException("sso_state_invalid", "SSO state mismatch", 401);
     }
@@ -234,23 +239,34 @@ public class SsoService {
     return user;
   }
 
+  public String returnPath(HttpServletRequest request) {
+    return sanitizeReturnPath(
+        Optional.ofNullable(request.getAttribute(RETURN_ATTR)).map(Object::toString)
+            .or(() -> Optional.ofNullable(request.getSession(false))
+                .map(session -> session.getAttribute(RETURN_ATTR))
+                .map(Object::toString))
+            .orElse(null));
+  }
+
+  private void rememberReturnPath(HttpServletRequest request, HttpSession session) {
+    String path = sanitizeReturnPath(request.getParameter("next"));
+    session.setAttribute(RETURN_ATTR, path);
+    request.setAttribute(RETURN_ATTR, path);
+  }
+
+  private static String sanitizeReturnPath(String raw) {
+    if ("/admin".equals(raw) || "/admin/".equals(raw)) {
+      return "/admin/";
+    }
+    return "/";
+  }
+
   private String callbackUri(HttpServletRequest request) {
     return ServletUriComponentsBuilder.fromRequest(request)
         .replacePath(properties.getApi().getPrefix() + "/auth/sso/callback")
         .replaceQuery(null)
         .build()
         .toUriString();
-  }
-
-  private static List<String> additionalRedirectUris(String redirectUri) {
-    List<String> extra = new ArrayList<>();
-    if (redirectUri.contains(":8788")) {
-      extra.add(redirectUri.replace(":8788", ":8787"));
-    } else if (redirectUri.contains(":8787")) {
-      extra.add(redirectUri.replace(":8787", ":8788"));
-    }
-    extra.removeIf(redirectUri::equals);
-    return extra;
   }
 
   private String randomToken() {

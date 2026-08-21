@@ -150,7 +150,10 @@ export function WaitingForInvite({
 }
 
 function adminConsoleUrl() {
-  const url = new URL(location.href);
-  if (url.port === '8787') url.port = '8788';
-  return url.origin;
+  if (location.port === '4173') {
+    const url = new URL(location.href);
+    url.port = '4174';
+    return url.origin;
+  }
+  return `${location.origin}/admin/`;
 }

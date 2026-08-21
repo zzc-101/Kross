@@ -80,12 +80,15 @@ public class AuthController {
             401);
       }
       User user = sso.complete(http, code.orElse(null), state.orElse(null));
+      String next = sso.returnPath(http);
       AuthSessions.establish(http, auth.identityOf(user));
       MeResponse me = auth.current();
       wakeWorkspace(me);
-      response.sendRedirect("/");
+      response.sendRedirect(next);
     } catch (ApiException failed) {
-      response.sendRedirect("/?sso_error=" + URLEncoder.encode(failed.getMessage(), StandardCharsets.UTF_8));
+      String next = sso.returnPath(http);
+      String separator = next.contains("?") ? "&" : "?";
+      response.sendRedirect(next + separator + "sso_error=" + URLEncoder.encode(failed.getMessage(), StandardCharsets.UTF_8));
     }
   }
 

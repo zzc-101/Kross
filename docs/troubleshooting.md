@@ -15,7 +15,7 @@ docker compose version
 ./scripts/start-cloud.sh --logs
 ```
 
-常见原因包括 `.env` 缺失、端口 `8787`/`8788` 被占用，或首次构建镜像失败。停止
+常见原因包括 `.env` 缺失、端口 `8787` 被占用，或首次构建镜像失败。停止
 并保留数据：
 
 ```bash
@@ -29,7 +29,8 @@ docker compose version
 
 常见原因：
 
-- IdP 未登记当前 Origin 的回调地址（本机 `8787` 与 `8788` 要各登记一条）；
+- IdP 未登记当前 Origin 的回调地址（Compose 部署只需一条，本机 Vite 开发才要
+  给 `:4173` / `:4174` 各登记一条）；
 - Issuer 与 discovery 文档中的 `issuer` 不一致；
 - Client Secret 未保存或主密钥 `KROSS_CREDENTIAL_MASTER_KEY` 已更换导致无法解密。
 

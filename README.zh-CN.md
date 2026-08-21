@@ -33,13 +33,13 @@ Kross 不只是一个把提示词转发给模型的聊天界面。它是带完�
 
 ## 快速开始
 
-Cloud Agent 需要 Docker Engine 和 Docker Compose。首次运行时，启动脚本会从 `.env.example` 创建 `.env`、生成内部服务密钥、构建用户 Web、管理端、控制面和 Worker 镜像，并在后台启动：
+Cloud Agent 需要 Docker Engine 和 Docker Compose。首次运行时，启动脚本会从 `.env.example` 创建 `.env`、生成内部服务密钥、构建 Web、控制面和 Worker 镜像，并在后台启动：
 
 ```bash
 ./scripts/start-cloud.sh
 ```
 
-打开 `http://localhost:8787` 进入用户工作台，或打开 `http://localhost:8788` 进入管理中心。第一个注册的用户会成为平台超级管理员，可以创建组织、指定组织管理员、控制自助注册，并接入企业 OIDC SSO（Kross 只做验证方）。组织管理员负责本组织入职。普通成员只使用工作台。常用管理命令：
+打开 `http://localhost:8787` 进入用户工作台，或打开 `http://localhost:8787/admin/` 进入管理中心。第一个注册的用户会成为平台超级管理员，可以创建组织、指定组织管理员、控制自助注册，并接入企业 OIDC SSO（Kross 只做验证方）。组织管理员负责本组织入职。普通成员只使用工作台。常用管理命令：
 
 ```bash
 ./scripts/start-cloud.sh --no-build
@@ -47,7 +47,7 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次运行时，启动�
 ./scripts/start-cloud.sh --stop
 ```
 
-公网部署必须在两个 Web 入口前放置 TLS 反向代理。只有负责管理容器的服务需要访问 Docker Socket，应部署在专用或受控主机上。配置、安全边界和验收清单见 [Cloud Agent 部署与运维](docs/cloud-agent-deployment.md)。
+公网部署必须在 Web 入口前放置 TLS 反向代理。只有负责管理容器的服务需要访问 Docker Socket，应部署在专用或受控主机上。配置、安全边界和验收清单见 [Cloud Agent 部署与运维](docs/cloud-agent-deployment.md)。
 
 ## 基本用法
 
@@ -121,7 +121,7 @@ flowchart TB
 本分支按前端 / 后端 / Worker 分开：
 
 - `frontend/web`：用户工作台（React / Vite），由 Nginx 提供并反代到 Java 后端。
-- `frontend/admin-web`：组织管理控制台。
+- `frontend/admin-web`：组织管理控制台，由同一 Nginx 挂在 `/admin/`。
 - `backend`：Java Spring Boot 控制面（身份、工作、审批、Worker WebSocket、Docker 生命周期）。
 - `worker`：Node 执行器；Agent Runtime 在 `worker/core`。
 - `docs`：用户指南、技术架构、Harness 文档和发布说明。

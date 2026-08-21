@@ -83,7 +83,8 @@ wait_for_web() {
   if [ -z "$port" ]; then port=8787; fi
   attempt=0
   while [ "$attempt" -lt 60 ]; do
-    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/healthz"; then
+    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/healthz" \
+      && curl --fail --silent --output /dev/null "http://127.0.0.1:$port/admin/"; then
       return 0
     fi
     attempt=$((attempt + 1))
@@ -91,22 +92,6 @@ wait_for_web() {
   done
   echo "Web 入口未能在 60 秒内就绪，最近日志如下：" >&2
   docker compose logs --tail 100 web server minio postgres >&2
-  return 1
-}
-
-wait_for_admin_web() {
-  port=$(read_env_value KROSS_ADMIN_PORT)
-  if [ -z "$port" ]; then port=8788; fi
-  attempt=0
-  while [ "$attempt" -lt 60 ]; do
-    if curl --fail --silent --output /dev/null "http://127.0.0.1:$port/healthz"; then
-      return 0
-    fi
-    attempt=$((attempt + 1))
-    sleep 1
-  done
-  echo "管理端入口未能在 60 秒内就绪，最近日志如下：" >&2
-  docker compose logs --tail 100 admin-web server postgres >&2
   return 1
 }
 
@@ -121,28 +106,25 @@ case "$command" in
       docker compose build
     fi
     echo "正在启动 SaaS Work Agent……"
-    docker compose up -d web admin-web
+    docker compose up -d --remove-orphans web
     wait_for_web
-    wait_for_admin_web
     port=$(read_env_value KROSS_PORT)
     if [ -z "$port" ]; then port=8787; fi
-    admin_port=$(read_env_value KROSS_ADMIN_PORT)
-    if [ -z "$admin_port" ]; then admin_port=8788; fi
     echo "SaaS Work Agent 用户端已启动：http://localhost:$port"
-    echo "SaaS Work Agent 管理端已启动：http://localhost:$admin_port"
+    echo "SaaS Work Agent 管理端已启动：http://localhost:$port/admin/"
     ;;
   --stop)
     require_docker
     ensure_env
     cd "$PROJECT_DIR"
-    docker compose down
+    docker compose down --remove-orphans
     echo "服务已停止，PostgreSQL 与 MinIO 数据卷已保留。"
     ;;
   --logs)
     require_docker
     ensure_env
     cd "$PROJECT_DIR"
-    docker compose logs -f web admin-web server minio postgres
+    docker compose logs -f web server minio postgres
     ;;
   --migrate | --migrate-apply)
     require_docker

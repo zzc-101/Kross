@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 工作台与管理中心合并为同一 Nginx 入口：`/` 为用户工作台，`/admin/` 为管理中心。
+  SSO 回调只需登记当前 Origin 的一条地址。
+
 ### Removed
 
 - 本分支改为 Cloud-only：移除 Ink TUI、`kross` CLI、`kross exec` Headless

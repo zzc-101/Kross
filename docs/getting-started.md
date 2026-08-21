@@ -25,11 +25,11 @@ docker compose version
 ./scripts/start-cloud.sh
 ```
 
-首次运行会从 `.env.example` 创建 `.env`、生成内部服务密钥，并构建 Web、管理端、
+首次运行会从 `.env.example` 创建 `.env`、生成内部服务密钥，并构建 Web、
 控制面和 Worker 镜像。启动后打开：
 
 - 用户工作台：`http://localhost:8787`
-- 管理中心：`http://localhost:8788`
+- 管理中心：`http://localhost:8787/admin/`
 
 空实例第一次注册的用户会成为平台超级管理员。超管创建组织并指定组织管理员后，
 组织管理员再为本组织登记成员。普通用户只使用工作台。企业 SSO 在管理中心「平台

@@ -408,7 +408,7 @@ function AuthGate({ mode, canRegister, ssoEnabled, ssoDisplayName, error, busy, 
     <small>{register ? '首次设置' : ssoEnabled ? '企业登录' : '账号登录'}</small>
     <h2>{register ? '注册' : '登录'}</h2>
     {error && <span className="form-error">{error}</span>}
-    {!register && ssoEnabled && <a className="button wide" href="/api/v2/auth/sso/start">使用{ssoLabel}登录</a>}
+    {!register && ssoEnabled && <a className="button wide" href={ssoStartUrl()}>使用{ssoLabel}登录</a>}
     {(register || !ssoEnabled) && <form onSubmit={e => {
       e.preventDefault();
       const data = new FormData(e.currentTarget);
@@ -440,10 +440,19 @@ function AuthGate({ mode, canRegister, ssoEnabled, ssoDisplayName, error, busy, 
   </section></main>;
 }
 function workbenchUrl() {
-  const url = new URL(location.href);
-  if (url.port === '8788') url.port = '8787';
-  return url.origin;
+  if (location.port === '4174') {
+    const url = new URL(location.href);
+    url.port = '4173';
+    return url.origin;
+  }
+  return `${location.origin}/`;
 }
+
+function ssoStartUrl() {
+  const next = import.meta.env.BASE_URL.startsWith('/admin') ? '/admin/' : '/';
+  return `/api/v2/auth/sso/start?next=${encodeURIComponent(next)}`;
+}
+
 function PersonAvatar({ name, src }: { name: string; src?: string }) {
   const letter = (name.trim()[0] || '?').toUpperCase();
   return <span className="avatar">{src ? <img src={src} alt="" /> : letter}</span>;

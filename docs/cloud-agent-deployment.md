@@ -4,8 +4,7 @@
 
 ## 组件边界
 
-- `web`：普通用户工作台和同源 Nginx 入口。
-- `admin-web`：组织管理员控制台；与用户工作台分开部署并复用同一控制面。
+- `web`：同源 Nginx 入口，工作台在 `/`，管理中心在 `/admin/`，`/api/` 反代控制面。
 - `server`：身份、RBAC、Project/Task/Run、事件、Source/Artifact 与 Worker 控制面。
 - `postgres`：控制面权威数据、幂等记录、租约和事件游标。
 - `orchestrator`：唯一能访问 Docker Socket 的内部服务，按 Run 创建短命 Worker。
@@ -25,8 +24,8 @@ Socket。
 
 脚本首次运行会从 `.env.example` 创建 `.env`，生成 PostgreSQL 密码和内部
 Orchestrator 服务令牌，构建镜像，执行 migration，并启动 Web、Server、
-Orchestrator 与 PostgreSQL。用户端默认入口为 `http://localhost:8787`，管理端默认
-入口为 `http://localhost:8788`。
+Orchestrator 与 PostgreSQL。用户端默认入口为 `http://localhost:8787`，管理端为
+`http://localhost:8787/admin/`。
 
 ```bash
 ./scripts/start-cloud.sh --no-build
@@ -64,8 +63,8 @@ Secret。保存并启用时，控制面会请求
 https://你的域名/api/v2/auth/sso/callback
 ```
 
-本机工作台 `:8787` 和管理端 `:8788` 是两个 Origin，需要在 IdP 中同时登记两条
-回调。生产环境应在同一 TLS 域名后反向代理两个入口。
+工作台和管理中心现在是同一 Origin，IdP 只需登记这一条回调。本机开发若分别
+跑 Vite（工作台 `:4173`、管理端 `:4174`），才需要再各登记一条。
 
 登录流：
 
@@ -86,8 +85,7 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 
 | 变量 | 用途 |
 |---|---|
-| `KROSS_PORT` | Web 对宿主机暴露的端口，默认 `8787` |
-| `KROSS_ADMIN_PORT` | 管理端对宿主机暴露的端口，默认 `8788` |
+| `KROSS_PORT` | Web 对宿主机暴露的端口，默认 `8787`（工作台 `/`，管理中心 `/admin/`） |
 | `KROSS_POSTGRES_PASSWORD` | 本地 PostgreSQL 密码；脚本可自动生成 |
 | `KROSS_CREDENTIAL_MASTER_KEY` | 加密模型 API Key 与 SSO Client Secret 的主密钥，至少 32 字符 |
 | `KROSS_PUBLIC_BASE_URL` | Worker/浏览器可访问的签名 Blob URL 基地址 |

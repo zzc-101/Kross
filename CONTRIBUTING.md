@@ -11,14 +11,15 @@ cd frontend && pnpm install && pnpm dev
 ```
 
 管理端：`cd frontend && pnpm dev:admin`。Worker：`cd worker && pnpm install && pnpm dev`。
-Java 后端在 `backend/`，用 Maven，不需要 pnpm。完整栈用 `./scripts/start-cloud.sh`。
+Java 后端在 `backend/`，用 Maven，不需要 pnpm。完整栈用 `./scripts/start-cloud.sh`：
+工作台 `http://localhost:8787`，管理中心 `http://localhost:8787/admin/`。
 
 ## 仓库边界
 
 | 路径 | 职责 |
 |---|---|
 | `frontend/web` | 普通用户工作台 |
-| `frontend/admin-web` | 组织管理端 |
+| `frontend/admin-web` | 组织管理端（部署时挂在 `/admin/`） |
 | `backend` | Java Spring Boot 控制面 |
 | `worker` | 容器内的 Agent 宿主 |
 | `worker/core` | Runtime、上下文、工具、会话、权限、Skills、MCP 与模型适配 |

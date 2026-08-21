@@ -9,7 +9,6 @@ export KROSS_CREDENTIAL_MASTER_KEY="abcdef0123456789abcdef0123456789"
 export KROSS_S3_SECRET_KEY="kross-minio-smoke-${smoke_suffix}"
 export KROSS_DEV_IDENTITY=1
 export KROSS_PORT=0
-export KROSS_ADMIN_PORT=0
 export KROSS_S3_PORT=0
 
 cleanup() {
@@ -27,19 +26,16 @@ trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
 
 docker compose config --quiet
-docker compose up -d --build web admin-web
+docker compose up -d --build web
 
 attempt=0
 while [ "$attempt" -lt 90 ]; do
   published=$(docker compose port web 8787 2>/dev/null || true)
   port=${published##*:}
-  admin_published=$(docker compose port admin-web 8788 2>/dev/null || true)
-  admin_port=${admin_published##*:}
-  if [ -n "$port" ] && [ -n "$admin_port" ] \
+  if [ -n "$port" ] \
     && curl --fail --silent "http://127.0.0.1:$port/healthz" \
       | grep -q '"status":"ok"' \
-    && curl --fail --silent "http://127.0.0.1:$admin_port/healthz" \
-    | grep -q '"status":"ok"'
+    && curl --fail --silent --output /dev/null "http://127.0.0.1:$port/admin/"
   then
     docker compose exec -T server curl -fsS \
       -H 'x-kross-user-id: smoke-user' \

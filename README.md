@@ -33,13 +33,13 @@ Kross is more than a chat interface that forwards prompts to a model. It is a ge
 
 ## Quick Start
 
-Cloud Agent requires Docker Engine and Docker Compose. On first run, the startup script creates `.env` from `.env.example`, generates internal service secrets, builds the user Web, Admin Web, Server, and Worker images, and starts them in the background:
+Cloud Agent requires Docker Engine and Docker Compose. On first run, the startup script creates `.env` from `.env.example`, generates internal service secrets, builds the Web, Server, and Worker images, and starts them in the background:
 
 ```bash
 ./scripts/start-cloud.sh
 ```
 
-Open `http://localhost:8787` for the user workbench or `http://localhost:8788` for the administration console. The first registered user becomes the platform super admin, who can create organizations, assign organization admins, turn self-service registration on or off, and connect an enterprise OIDC IdP (Kross verifies identity and does not issue it). Organization admins onboard members for their own organization. Regular members use the workbench only.
+Open `http://localhost:8787` for the user workbench or `http://localhost:8787/admin/` for the administration console. The first registered user becomes the platform super admin, who can create organizations, assign organization admins, turn self-service registration on or off, and connect an enterprise OIDC IdP (Kross verifies identity and does not issue it). Organization admins onboard members for their own organization. Regular members use the workbench only.
 
 ```bash
 ./scripts/start-cloud.sh --no-build
@@ -47,7 +47,7 @@ Open `http://localhost:8787` for the user workbench or `http://localhost:8788` f
 ./scripts/start-cloud.sh --stop
 ```
 
-Public deployments must place a TLS reverse proxy in front of both Web entry points. Only the service that manages containers requires access to the Docker Socket; deploy it only on a dedicated or otherwise controlled host. See [Cloud deployment and operations](docs/cloud-agent-deployment.md) for configuration, security boundaries, and the acceptance checklist.
+Public deployments must place a TLS reverse proxy in front of the Web entry. Only the service that manages containers requires access to the Docker Socket; deploy it only on a dedicated or otherwise controlled host. See [Cloud deployment and operations](docs/cloud-agent-deployment.md) for configuration, security boundaries, and the acceptance checklist.
 
 ## Basic Usage
 
@@ -121,7 +121,7 @@ flowchart TB
 This branch is a frontend / backend / worker layout:
 
 - `frontend/web`: user workbench (React / Vite), served by Nginx and proxied to the Java backend.
-- `frontend/admin-web`: organization admin console.
+- `frontend/admin-web`: organization admin console, served at `/admin/` from the same Nginx.
 - `backend`: Java Spring Boot control plane (identity, work, approvals, worker WebSocket, Docker lifecycle).
 - `worker`: Node executor; Agent Runtime lives in `worker/core`.
 - `docs`: user guides, technical architecture, Harness documentation, and release notes.
