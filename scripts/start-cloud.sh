@@ -76,6 +76,7 @@ ensure_env() {
   ensure_secret KROSS_POSTGRES_PASSWORD
   ensure_secret KROSS_CREDENTIAL_MASTER_KEY
   ensure_secret KROSS_S3_SECRET_KEY
+  ensure_secret KROSS_NODE_TOKEN
 }
 
 wait_for_web() {

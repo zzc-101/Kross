@@ -104,6 +104,11 @@ services:
         condition: service_healthy
     ports:
       - "${KROSS_PORT:-8787}:8787"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8787/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks: [kross-control]
     restart: unless-stopped
 

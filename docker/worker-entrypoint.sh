@@ -7,4 +7,4 @@ chown node:node /work /work/files
 export HOME=/home/node
 export USER=node
 
-exec setpriv --reuid=node --regid=node --init-groups "$@"
+exec su-exec node "$@"

@@ -17,7 +17,9 @@ await build({
   target: 'node22',
   sourcemap: false,
   minifySyntax: true,
-  packages: 'external',
+  // Bundle JS dependencies into the worker artifact. Native addons stay
+  // external so the image can ship only better-sqlite3 plus system `rg`.
+  external: ['better-sqlite3', '@vscode/ripgrep'],
   alias: {
     '@kross/core': resolve(root, 'core/src/index.ts')
   },

@@ -60,7 +60,6 @@ func (d *dockerRuntime) start(ctx context.Context, cmd startCommand) (handle, er
 	}
 	memory := cmd.MemoryBytes
 	pids := int64(cmd.MaxPids)
-	timeout := 15
 	init := true
 	host := &container.HostConfig{
 		Resources: container.Resources{
@@ -75,23 +74,13 @@ func (d *dockerRuntime) start(ctx context.Context, cmd startCommand) (handle, er
 		Init:          &init,
 		AutoRemove:    false,
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyMode("no")},
-		Mounts:        []mount.Mount{d.workMount(cmd.AgentID, names.volumeName)},
+		Mounts:        []mount.Mount{d.workMount(cmd.AgentID, names.volumeName, true)},
 	}
-	resp, err := d.cli.ContainerCreate(ctx, &container.Config{
-		Image:       d.cfg.workerImage,
-		WorkingDir:  "/work",
-		StopTimeout: &timeout,
-		Labels: map[string]string{
-			agentLabel:   cmd.AgentID,
-			managerLabel: d.cfg.orchestratorManagerID,
-		},
-		Env: []string{
-			"KROSS_AGENT_ID=" + cmd.AgentID,
-			"KROSS_AGENT_TOKEN=" + cmd.AgentToken,
-			"KROSS_CONTROL_PLANE_URL=" + cmd.ControlPlaneURL,
-			"KROSS_PHYSICAL_WORK_ROOT=/work",
-		},
-	}, host, nil, nil, names.containerName)
+	resp, err := d.createWorker(ctx, cmd, names.containerName, host)
+	if err != nil && d.cfg.workerStorage == "juicefs" && isSharedMountError(err) {
+		host.Mounts = []mount.Mount{d.workMount(cmd.AgentID, names.volumeName, false)}
+		resp, err = d.createWorker(ctx, cmd, names.containerName, host)
+	}
 	if err != nil {
 		return handle{}, err
 	}
@@ -185,17 +174,42 @@ func (d *dockerRuntime) ensureVolume(ctx context.Context, agentID, volumeName st
 	return err
 }
 
-func (d *dockerRuntime) workMount(agentID, volumeName string) mount.Mount {
+func (d *dockerRuntime) createWorker(ctx context.Context, cmd startCommand, name string, host *container.HostConfig) (container.CreateResponse, error) {
+	timeout := 15
+	return d.cli.ContainerCreate(ctx, &container.Config{
+		Image:       d.cfg.workerImage,
+		WorkingDir:  "/work",
+		StopTimeout: &timeout,
+		Labels: map[string]string{
+			agentLabel:   cmd.AgentID,
+			managerLabel: d.cfg.orchestratorManagerID,
+		},
+		Env: []string{
+			"KROSS_AGENT_ID=" + cmd.AgentID,
+			"KROSS_AGENT_TOKEN=" + cmd.AgentToken,
+			"KROSS_CONTROL_PLANE_URL=" + cmd.ControlPlaneURL,
+			"KROSS_PHYSICAL_WORK_ROOT=/work",
+		},
+	}, host, nil, nil, name)
+}
+
+func isSharedMountError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "shared mount") || strings.Contains(msg, "rshared")
+}
+
+func (d *dockerRuntime) workMount(agentID, volumeName string, rshared bool) mount.Mount {
 	if d.cfg.workerStorage == "juicefs" {
 		dir, _ := agentDirectory(d.cfg.juicefsMount, agentID)
-		return mount.Mount{
+		item := mount.Mount{
 			Type:   mount.TypeBind,
 			Source: dir,
 			Target: "/work",
-			BindOptions: &mount.BindOptions{
-				Propagation: mount.PropagationRShared,
-			},
 		}
+		if rshared {
+			item.BindOptions = &mount.BindOptions{Propagation: mount.PropagationRShared}
+		}
+		return item
 	}
 	return mount.Mount{Type: mount.TypeVolume, Source: volumeName, Target: "/work"}
 }

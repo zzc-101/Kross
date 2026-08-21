@@ -1,20 +1,13 @@
-# 多机调度：控制面不再本机起容器，由各节点 kross-node 出站连接。
-# 先挂载 JuiceFS，再：
-#   docker compose -f docker-compose.yml -f docker-compose.juicefs.yml -f docker-compose.cluster.yml up -d
-#   docker build -f docker/node.Dockerfile -t kross-node:local .
+# Cluster control plane: Java only schedules. JuiceFS + kross-node start Worker
+# containers via the host Docker socket.
 #
-# KROSS_PUBLIC_BASE_URL 必须是节点和 Worker 容器都能访问的地址（不要用 http://kross-server:8787）。
-# 节点示例：
-#   docker run -d --name kross-node --restart unless-stopped \
-#     -e KROSS_CONTROL_PLANE_URL=http://控制面主机:8787 \
-#     -e KROSS_NODE_TOKEN="$KROSS_NODE_TOKEN" \
-#     -e KROSS_NODE_ID=node-1 \
-#     -e KROSS_WORKER_STORAGE=juicefs \
-#     -e KROSS_JUICEFS_MOUNT=/var/lib/kross/jfs \
-#     -e KROSS_WORKER_IMAGE=kross-worker:local \
-#     -v /var/run/docker.sock:/var/run/docker.sock \
-#     -v /var/lib/kross/jfs:/var/lib/kross/jfs:rshared \
-#     kross-node:local
+#   export KROSS_PUBLIC_BASE_URL=http://控制面局域网IP:8787
+#   export KROSS_NODE_TOKEN=...   # 与 .env 一致；start-cloud.sh 会生成
+#   docker compose -f docker-compose.yml -f docker-compose.juicefs.yml -f docker-compose.cluster.yml up -d
+#
+# Extra worker machines use docker-compose.node.yml, not this file.
+# KROSS_PUBLIC_BASE_URL must be reachable from kross-node and from Worker containers
+# (do not use http://kross-server:8787).
 
 services:
   server:
@@ -23,3 +16,32 @@ services:
       KROSS_WORKER_STORAGE: juicefs
       KROSS_NODE_TOKEN: ${KROSS_NODE_TOKEN:?请设置 KROSS_NODE_TOKEN}
       KROSS_JUICEFS_MOUNT: ${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}
+      KROSS_PUBLIC_BASE_URL: ${KROSS_PUBLIC_BASE_URL:?集群请设为节点和 Worker 都能访问的地址，例如 http://10.0.0.10:8787}
+
+  kross-node:
+    image: kross-node:local
+    build:
+      context: .
+      dockerfile: docker/node.Dockerfile
+    environment:
+      KROSS_CONTROL_PLANE_URL: ${KROSS_CONTROL_PLANE_URL:-http://web:8787}
+      KROSS_NODE_TOKEN: ${KROSS_NODE_TOKEN:?请设置 KROSS_NODE_TOKEN}
+      KROSS_NODE_ID: ${KROSS_NODE_ID:-node-1}
+      KROSS_WORKER_STORAGE: juicefs
+      KROSS_JUICEFS_MOUNT: ${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}
+      KROSS_WORKER_IMAGE: kross-worker:local
+      KROSS_ORCHESTRATOR_MANAGER_ID: ${KROSS_ORCHESTRATOR_MANAGER_ID:-kross-saas}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}:${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}:rshared
+    depends_on:
+      juicefs:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+      worker-image:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [kross-control]
+    restart: unless-stopped

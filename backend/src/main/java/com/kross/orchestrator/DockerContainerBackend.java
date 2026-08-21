@@ -5,9 +5,9 @@ import com.github.dockerjava.api.command.InspectContainerResponse;
 import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.model.AccessMode;
 import com.github.dockerjava.api.model.Bind;
-import com.github.dockerjava.api.model.BindPropagation;
 import com.github.dockerjava.api.model.Capability;
 import com.github.dockerjava.api.model.HostConfig;
+import com.github.dockerjava.api.model.PropagationMode;
 import com.github.dockerjava.api.model.RestartPolicy;
 import com.github.dockerjava.api.model.SELContext;
 import com.github.dockerjava.api.model.Volume;
@@ -156,7 +156,7 @@ public class DockerContainerBackend implements ContainerBackend {
     Volume work = new Volume("/work");
     if (storage() == WorkerStorageMode.JUICEFS) {
       String hostPath = WorkspacePaths.agentDirectory(properties, agentId).toString();
-      return new Bind(hostPath, work, AccessMode.rw, SELContext.none, false, BindPropagation.RSHARED);
+      return new Bind(hostPath, work, AccessMode.rw, SELContext.none, false, PropagationMode.RSHARED);
     }
     return new Bind(names(agentId).volumeName, work);
   }

@@ -39,6 +39,10 @@
 - 移除 Worker 内部 HTTP `/internal/v2/agents/*`；登记、心跳、领任务、直播和回写
   只走 `/internal/v2/agents/ws`。
 - CI 与 Release Candidate 增加 `kross-node` 镜像构建。
+- 缩小 `kross-worker` 镜像：Alpine、把 JS 打进单文件、系统 `rg`/`git`，不再拷整份
+  `node_modules` 和 Debian 上的 GitHub CLI，方便拷到集群节点。
+- 集群 JuiceFS 改用官方镜像 `juicedata/mount`，`docker-compose.cluster.yml` 会拉起
+  本机 `kross-node`；额外 Worker 机用 `docker-compose.node.yml`。
 
 ### Removed
 
