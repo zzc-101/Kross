@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  Activity, AlertTriangle, Bot, CheckCircle2, ChevronDown, Cpu,
-  LayoutDashboard, Menu, Plus, RefreshCw, ScrollText, ShieldCheck, Users, X, XCircle
+  Activity, AlertTriangle, Bot, Building2, CheckCircle2, ChevronDown, Cpu,
+  LayoutDashboard, Menu, Plus, RefreshCw, ScrollText, Settings, ShieldCheck, Users, X
 } from 'lucide-react';
 import { AdminApiClient, AdminApiError } from './apiClient';
-import type { ApprovalPolicy, AuditLog, Bootstrap, Dashboard, Member, ModelConfig } from './contracts';
+import type { ApprovalPolicy, AuditLog, AuthConfig, Member, ModelConfig, Session, UserAccount } from './contracts';
 
-type Page = 'dashboard' | 'members' | 'models' | 'policy' | 'audit';
-const navigation: Array<{ id: Page; label: string; icon: typeof LayoutDashboard }> = [
+type Page = 'organizations' | 'platform' | 'dashboard' | 'members' | 'models' | 'policy' | 'audit';
+const orgNavigation: Array<{ id: Page; label: string; icon: typeof LayoutDashboard }> = [
   { id: 'dashboard', label: '概览', icon: LayoutDashboard },
   { id: 'members', label: '成员与角色', icon: Users },
   { id: 'models', label: '模型配置', icon: Cpu },
@@ -15,48 +15,116 @@ const navigation: Array<{ id: Page; label: string; icon: typeof LayoutDashboard 
   { id: 'audit', label: '审计日志', icon: ScrollText }
 ];
 
-export function App({ devUserId, onChangeIdentity }: { devUserId: string; onChangeIdentity: (id: string) => void }) {
-  const [identity, setIdentity] = useState(devUserId);
-  const [bootstrap, setBootstrap] = useState<Bootstrap>();
+export function App() {
+  const [config, setConfig] = useState<AuthConfig>();
+  const [session, setSession] = useState<Session>();
   const [organizationId, setOrganizationId] = useState('');
-  const [page, setPage] = useState<Page>('dashboard');
+  const [page, setPage] = useState<Page>('organizations');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const api = useMemo(() => new AdminApiClient({ devUserId }), [devUserId]);
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [busy, setBusy] = useState(false);
+  const api = useMemo(() => new AdminApiClient(), []);
+
+  const applyMe = (data: Session) => {
+    const adminMemberships = data.memberships.filter(item => item.role === 'admin');
+    const firstOrganizationId = adminMemberships[0]?.organizationId || '';
+    setSession(data);
+    setOrganizationId(current => {
+      const next = adminMemberships.some(item => item.organizationId === current) ? current : firstOrganizationId;
+      if (next) api.selectOrganization(next);
+      return next;
+    });
+    setPage(current => {
+      if (!data.canAccessAdmin) return current;
+      if (data.user.platformRole === 'super_admin' && adminMemberships.length === 0) return 'organizations';
+      if (current === 'organizations' || current === 'platform') {
+        return data.user.platformRole === 'super_admin' ? current : (firstOrganizationId ? 'dashboard' : current);
+      }
+      return firstOrganizationId ? current : 'organizations';
+    });
+  };
 
   useEffect(() => {
     let active = true;
     setLoading(true); setError('');
-    api.me().then(data => {
-      if (!active) return;
-      const firstOrganizationId = data.memberships[0]?.organizationId || '';
-      if (firstOrganizationId) api.selectOrganization(firstOrganizationId);
-      setBootstrap(data); setOrganizationId(current => current || firstOrganizationId);
-    }).catch(e => active && setError(messageOf(e))).finally(() => active && setLoading(false));
+    void (async () => {
+      try {
+        const nextConfig = await api.authConfig();
+        if (!active) return;
+        setConfig(nextConfig);
+        if (nextConfig.bootstrapRequired) setMode('register');
+        try {
+          applyMe(await api.me());
+        } catch (e) {
+          if (!active) return;
+          if (e instanceof AdminApiError && e.status === 401) setSession(undefined);
+          else setError(messageOf(e));
+        }
+      } catch (e) {
+        if (active) setError(messageOf(e));
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
     return () => { active = false; };
   }, [api]);
   useEffect(() => { if (organizationId) api.selectOrganization(organizationId); }, [api, organizationId]);
 
-  if (loading) return <Centered><Spinner /><h2>正在进入管理中心</h2><p>正在验证身份与组织权限…</p></Centered>;
-  if (error) return <Centered><XCircle size={34} /><h2>无法进入管理中心</h2><p>{error}</p><button className="button" onClick={() => location.reload()}>重新加载</button></Centered>;
-  if (!bootstrap?.memberships.length) return <OrganizationSetup api={api} identity={identity} setIdentity={setIdentity} changeIdentity={onChangeIdentity} done={data => { const id = data.memberships[0]?.organizationId ?? ''; if (id) api.selectOrganization(id); setBootstrap(data); setOrganizationId(id); }} />;
+  const canRegister = Boolean(config?.registrationEnabled || config?.bootstrapRequired);
+  const runAuth = async (action: () => Promise<Session>) => {
+    setBusy(true); setError('');
+    try { applyMe(await action()); } catch (e) { setError(messageOf(e)); } finally { setBusy(false); }
+  };
+  const logout = async () => {
+    await api.logout().catch(() => undefined);
+    setSession(undefined);
+    setOrganizationId('');
+  };
 
-  const currentMembership = bootstrap.memberships.find(m => m.organizationId === organizationId);
+  if (loading) return <Centered><Spinner /><h2>正在进入管理中心</h2><p>正在验证身份与组织权限…</p></Centered>;
+  if (!session) {
+    return <AuthGate mode={canRegister && mode === 'register' ? 'register' : 'login'} canRegister={canRegister} error={error} busy={busy}
+      onLogin={(username, password) => runAuth(() => api.login({ username, password }))}
+      onRegister={(username, password, displayName) => runAuth(() => api.register({ username, password, displayName }))}
+      onToggle={() => { setError(''); setMode(current => current === 'login' ? 'register' : 'login'); }} />;
+  }
+  if (!session.canAccessAdmin) {
+    return <Centered><ShieldCheck size={34} /><h2>没有管理权限</h2><p>普通用户请使用工作台。管理中心只对超级管理员和组织管理员开放。</p><a className="button" href={workbenchUrl()}>打开工作台</a><button className="button secondary" onClick={() => void logout()}>退出登录</button></Centered>;
+  }
+
+  const superAdmin = session.user.platformRole === 'super_admin';
+  const adminMemberships = session.memberships.filter(item => item.role === 'admin');
+  const currentMembership = adminMemberships.find(m => m.organizationId === organizationId);
+  const pages = [
+    ...(superAdmin ? [
+      { id: 'organizations' as const, label: '组织', icon: Building2 },
+      { id: 'platform' as const, label: '平台设置', icon: Settings }
+    ] : []),
+    ...(currentMembership ? orgNavigation : [])
+  ];
+  const roleLabel = superAdmin && !currentMembership ? '超级管理员' : (currentMembership?.role === 'admin' ? '组织管理员' : '管理员');
   return <div className="shell">
     <aside className={sidebarOpen ? 'sidebar open' : 'sidebar'}>
       <div className="brand"><span className="brand-mark"><Bot /></span><div><strong>Kross</strong><small>管理中心</small></div><button className="icon mobile-close" onClick={() => setSidebarOpen(false)}><X /></button></div>
-      <nav>{navigation.map(item => <button key={item.id} className={page === item.id ? 'nav-item active' : 'nav-item'} onClick={() => { setPage(item.id); setSidebarOpen(false); }}><item.icon />{item.label}</button>)}</nav>
-      <div className="sidebar-foot"><span className="avatar">{bootstrap.user.displayName.slice(0, 1).toUpperCase()}</span><div><strong>{bootstrap.user.displayName}</strong><small>{currentMembership?.role ?? 'member'}</small></div></div>
+      <nav>{pages.map(item => <button key={item.id} className={page === item.id ? 'nav-item active' : 'nav-item'} onClick={() => { setPage(item.id); setSidebarOpen(false); }}><item.icon />{item.label}</button>)}</nav>
+      <div className="sidebar-foot"><span className="avatar">{session.user.displayName.slice(0, 1).toUpperCase()}</span><div><strong>{session.user.displayName}</strong><small>{session.user.username} · {roleLabel}</small></div><button className="button secondary" type="button" onClick={() => void logout()}>退出</button></div>
     </aside>
     <main>
-      <header className="topbar"><button className="icon mobile-menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div className="organization"><small>当前组织</small><select aria-label="选择组织" value={organizationId} onChange={e => { api.selectOrganization(e.target.value); setOrganizationId(e.target.value); }}>{bootstrap.memberships.map(m => <option key={m.id} value={m.organizationId}>{m.organizationId}</option>)}</select><ChevronDown /></div><div className="environment"><span />本地开发环境</div></header>
+      <header className="topbar"><button className="icon mobile-menu" onClick={() => setSidebarOpen(true)}><Menu /></button>
+        {currentMembership
+          ? <div className="organization"><small>当前组织</small><select aria-label="选择组织" value={organizationId} onChange={e => { api.selectOrganization(e.target.value); setOrganizationId(e.target.value); }}>{adminMemberships.map(m => <option key={m.id} value={m.organizationId}>{m.organizationName}</option>)}</select><ChevronDown /></div>
+          : <div className="organization"><small>平台</small><strong>组织管理</strong></div>}
+        <div className="environment"><span />组织数据已隔离</div></header>
       <div className="content">
-        {page === 'dashboard' && <DashboardPage api={api} />}
-        {page === 'members' && <MembersPage api={api} />}
-        {page === 'models' && <ModelsPage api={api} />}
-        {page === 'policy' && <PolicyPage api={api} />}
-        {page === 'audit' && <AuditPage api={api} />}
+        {page === 'organizations' && superAdmin && <OrganizationsPage api={api} currentUsername={session.user.username} onChanged={() => void api.me().then(applyMe)} />}
+        {page === 'platform' && superAdmin && <PlatformPage api={api} />}
+        {page === 'dashboard' && currentMembership && <DashboardPage api={api} />}
+        {page === 'members' && currentMembership && <MembersPage api={api} />}
+        {page === 'models' && currentMembership && <ModelsPage api={api} />}
+        {page === 'policy' && currentMembership && <PolicyPage api={api} />}
+        {page === 'audit' && currentMembership && <AuditPage api={api} />}
       </div>
     </main>
   </div>;
@@ -73,23 +141,135 @@ function DashboardPage({ api }: { api: AdminApiClient }) {
   const state = useResource(() => api.dashboard(), [api]);
   return <PageFrame title="组织概览" subtitle="组织运行状况、风险与资源使用情况" action={<RefreshButton onClick={state.reload} />}><Resource state={state}>{d => <>
     <div className="metrics"><Metric label="活跃成员" value={d.counts.activeMembers} icon={<Users />} tone="blue" /><Metric label="运行中 Agent" value={d.counts.runningAgents} icon={<Activity />} tone="green" /><Metric label="已休眠 Agent" value={d.counts.stoppedAgents} icon={<LayoutDashboard />} tone="violet" /></div>
-    <div className="dashboard-grid"><section className="card"><CardTitle title="工作区" subtitle="每人一个长期 Agent，容器可睡，磁盘留下" /><div className="health-list"><Health label="运行中" value={d.counts.runningAgents} ok={true} /><Health label="已休眠" value={d.counts.stoppedAgents} ok={true} /><Health label="活跃成员" value={d.counts.activeMembers} ok={d.counts.activeMembers > 0} /></div></section><section className="card callout"><Bot /><div><h3>Kross 控制面</h3><p>给组织成员配备长期 Agent 工作区。在这里配置模型密钥、成员权限和审计。</p></div></section></div>
+    <div className="dashboard-grid"><section className="card"><CardTitle title="工作区" subtitle="每人一个长期 Agent，容器可睡，磁盘留下" /><div className="health-list"><Health label="运行中" value={d.counts.runningAgents} ok={true} /><Health label="已休眠" value={d.counts.stoppedAgents} ok={true} /><Health label="活跃成员" value={d.counts.activeMembers} ok={d.counts.activeMembers > 0} /></div></section><section className="card callout"><Bot /><div><h3>Kross 控制面</h3><p>给组织成员配备长期 Agent 工作区。会话、模型密钥和 Worker 按组织隔离。</p></div></section></div>
   </>}</Resource></PageFrame>;
 }
 
 function MembersPage({ api }: { api: AdminApiClient }) {
   const state = useResource(() => api.members(), [api]); const [showForm, setShowForm] = useState(false); const [busy, setBusy] = useState('');
   const change = async (member: Member, field: 'role' | 'status', value: string) => { setBusy(member.id); try { await api.updateMember(member.id, { [field]: value }); state.reload(); } finally { setBusy(''); } };
-  return <PageFrame title="成员与角色" subtitle="管理组织成员的访问级别和账号状态" action={<button className="button" onClick={() => setShowForm(true)}><Plus />邀请成员</button>}>
+  return <PageFrame title="成员与角色" subtitle="登记本组织成员。新用户可直接开账号并加入；已有账号只需填写用户名。" action={<button className="button" onClick={() => setShowForm(true)}><Plus />登记成员</button>}>
     {showForm && <InviteForm api={api} close={() => setShowForm(false)} done={state.reload} />}
-    <Resource state={state} empty="组织中还没有成员。">{members => <div className="card table-wrap"><table><thead><tr><th>成员</th><th>角色</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{members.map(m => <tr key={m.id}><td><div className="person"><span className="avatar">{m.displayName[0]}</span><div><strong>{m.displayName}</strong><small>{m.userId}</small></div></div></td><td><select disabled={busy === m.id} value={m.role} onChange={e => change(m, 'role', e.target.value)}><option value="owner">所有者</option><option value="admin">管理员</option><option value="member">成员</option><option value="viewer">访客</option></select></td><td><select disabled={busy === m.id} value={m.status} onChange={e => change(m, 'status', e.target.value)}><option value="active">正常</option><option value="invited">待加入</option><option value="disabled">已停用</option></select></td><td>{formatDate(m.updatedAt)}</td></tr>)}</tbody></table></div>}</Resource>
+    <Resource state={state} empty="组织中还没有成员。">{members => <div className="card table-wrap"><table><thead><tr><th>成员</th><th>角色</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{members.map(m => <tr key={m.id}><td><div className="person"><span className="avatar">{m.displayName[0]}</span><div><strong>{m.displayName}</strong><small>{m.username}</small></div></div></td><td><select disabled={busy === m.id} value={m.role} onChange={e => change(m, 'role', e.target.value)}><option value="admin">组织管理员</option><option value="member">成员</option></select></td><td><select disabled={busy === m.id} value={m.status} onChange={e => change(m, 'status', e.target.value)}><option value="active">正常</option><option value="disabled">已停用</option></select></td><td>{formatDate(m.updatedAt)}</td></tr>)}</tbody></table></div>}</Resource>
   </PageFrame>;
 }
 
 function InviteForm({ api, close, done }: { api: AdminApiClient; close: () => void; done: () => void }) {
-  const [userId, setUserId] = useState(''); const [displayName, setDisplayName] = useState(''); const [role, setRole] = useState<Member['role']>('member'); const [error, setError] = useState('');
-  const submit = async (e: FormEvent) => { e.preventDefault(); setError(''); try { await api.inviteMember({ userId, displayName, role }); close(); done(); } catch (x) { setError(messageOf(x)); } };
-  return <form className="card inline-form" onSubmit={submit}><label>用户 ID<input required value={userId} onChange={e => setUserId(e.target.value)} placeholder="user-001" /></label><label>显示名称<input required value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="成员姓名" /></label><label>角色<select value={role} onChange={e => setRole(e.target.value as Member['role'])}><option value="admin">管理员</option><option value="member">成员</option><option value="viewer">访客</option></select></label><button className="button" type="submit">发送邀请</button><button className="button secondary" type="button" onClick={close}>取消</button>{error && <span className="form-error">{error}</span>}</form>;
+  const [form, setForm] = useState({ username: '', displayName: '', password: '', role: 'member' as Member['role'] });
+  const [error, setError] = useState('');
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setError('');
+    try {
+      await api.inviteMember({
+        username: form.username, role: form.role,
+        ...(form.displayName.trim() ? { displayName: form.displayName.trim() } : {}),
+        ...(form.password ? { password: form.password } : {})
+      });
+      close(); done();
+    } catch (x) { setError(messageOf(x)); }
+  };
+  return <form className="card inline-form" onSubmit={submit}>
+    <label>用户名<input required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} placeholder="新用户或已有账号" /></label>
+    <label>显示名称<input value={form.displayName} onChange={e => setForm({ ...form, displayName: e.target.value })} /></label>
+    <label>初始密码<input type="password" minLength={8} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="新用户必填" /></label>
+    <label>角色<select value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Member['role'] })}><option value="member">成员</option><option value="admin">组织管理员</option></select></label>
+    <button className="button" type="submit">登记并加入</button>
+    <button className="button secondary" type="button" onClick={close}>取消</button>
+    {error && <span className="form-error">{error}</span>}
+  </form>;
+}
+
+function OrganizationsPage({ api, currentUsername, onChanged }: { api: AdminApiClient; currentUsername: string; onChanged: () => void }) {
+  const state = useResource(() => api.organizations(), [api]);
+  const [form, setForm] = useState({ name: '', slug: '', adminUsername: currentUsername, adminPassword: '', adminDisplayName: '' });
+  const [assign, setAssign] = useState({ organizationId: '', username: '', password: '', displayName: '' });
+  const [error, setError] = useState('');
+  const updateName = (value: string) => {
+    setForm(current => {
+      const ascii = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+      return { ...current, name: value, slug: ascii.length >= 2 ? ascii : current.slug };
+    });
+  };
+  const create = async (e: FormEvent) => {
+    e.preventDefault(); setError('');
+    try {
+      await api.createOrganization({
+        name: form.name, slug: form.slug,
+        defaultTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai',
+        adminUsername: form.adminUsername,
+        ...(form.adminPassword ? { adminPassword: form.adminPassword } : {}),
+        ...(form.adminDisplayName.trim() ? { adminDisplayName: form.adminDisplayName.trim() } : {})
+      });
+      setForm({ name: '', slug: '', adminUsername: currentUsername, adminPassword: '', adminDisplayName: '' });
+      state.reload();
+      onChanged();
+    } catch (x) { setError(messageOf(x)); }
+  };
+  const assignAdmin = async (e: FormEvent) => {
+    e.preventDefault(); setError('');
+    try {
+      await api.assignAdmin(assign.organizationId, {
+        username: assign.username,
+        ...(assign.password ? { password: assign.password } : {}),
+        ...(assign.displayName.trim() ? { displayName: assign.displayName.trim() } : {})
+      });
+      setAssign({ organizationId: '', username: '', password: '', displayName: '' });
+      state.reload();
+      onChanged();
+    } catch (x) { setError(messageOf(x)); }
+  };
+  return <PageFrame title="组织" subtitle="超级管理员创建组织、停用组织，并指定该组织的组织管理员。超管默认不是组织成员，也不能查看该组织对话。">
+    <form className="card inline-form" onSubmit={create}>
+      <label>组织名称<input required value={form.name} onChange={e => updateName(e.target.value)} placeholder="例如：产品一部" /></label>
+      <label>组织标识<input required minLength={2} value={form.slug} onChange={e => setForm({ ...form, slug: e.target.value })} placeholder="product-one" /></label>
+      <label>组织管理员用户名<input required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" value={form.adminUsername} onChange={e => setForm({ ...form, adminUsername: e.target.value })} /></label>
+      <label>显示名称<input value={form.adminDisplayName} onChange={e => setForm({ ...form, adminDisplayName: e.target.value })} placeholder="新账号时使用" /></label>
+      <label>初始密码<input type="password" minLength={8} value={form.adminPassword} onChange={e => setForm({ ...form, adminPassword: e.target.value })} placeholder="已有账号可留空" /></label>
+      <button className="button">创建组织</button>
+      {error && <span className="form-error">{error}</span>}
+    </form>
+    <Resource state={state} empty="还没有组织。">{orgs => <div className="card table-wrap"><table><thead><tr><th>组织</th><th>状态</th><th>管理员</th><th>成员</th><th>操作</th></tr></thead><tbody>{orgs.map(org => <tr key={org.id}><td><div><strong>{org.name}</strong><small>{org.slug}</small></div></td><td>{org.status === 'active' ? '正常' : '已停用'}</td><td>{org.adminCount}</td><td>{org.memberCount}</td><td>
+      <button className="button secondary" type="button" onClick={() => void api.updateOrganization(org.id, { status: org.status === 'active' ? 'suspended' : 'active' }).then(() => { state.reload(); onChanged(); })}>{org.status === 'active' ? '停用' : '启用'}</button>
+      <button className="button secondary" type="button" onClick={() => setAssign({ organizationId: org.id, username: '', password: '', displayName: '' })}>指定管理员</button>
+    </td></tr>)}</tbody></table></div>}</Resource>
+    {assign.organizationId && <form className="card inline-form" onSubmit={assignAdmin}>
+      <label>管理员用户名<input required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" value={assign.username} onChange={e => setAssign({ ...assign, username: e.target.value })} /></label>
+      <label>显示名称<input value={assign.displayName} onChange={e => setAssign({ ...assign, displayName: e.target.value })} /></label>
+      <label>初始密码<input type="password" minLength={8} value={assign.password} onChange={e => setAssign({ ...assign, password: e.target.value })} placeholder="已有账号可留空" /></label>
+      <button className="button">指定为组织管理员</button>
+      <button className="button secondary" type="button" onClick={() => setAssign({ organizationId: '', username: '', password: '', displayName: '' })}>取消</button>
+    </form>}
+  </PageFrame>;
+}
+
+function PlatformPage({ api }: { api: AdminApiClient }) {
+  const settings = useResource(() => api.platform(), [api]);
+  const users = useResource(() => api.users(), [api]);
+  const [form, setForm] = useState({ username: '', password: '', displayName: '' });
+  const [error, setError] = useState('');
+  const toggle = async (registrationEnabled: boolean) => {
+    const next = await api.updatePlatform({ registrationEnabled });
+    settings.setData(next);
+  };
+  const create = async (e: FormEvent) => {
+    e.preventDefault(); setError('');
+    try {
+      await api.createUser(form);
+      setForm({ username: '', password: '', displayName: '' });
+      users.reload();
+    } catch (x) { setError(messageOf(x)); }
+  };
+  return <PageFrame title="平台设置" subtitle="超级管理员控制自助注册，并在关闭注册时直接创建账号。">
+    <Resource state={settings}>{p => <section className="card policy-card"><CardTitle title="自助注册" subtitle="关闭后，新用户只能由组织管理员在本组织入职，或由超级管理员创建账号。" /><PolicyRow title="允许注册" description="第一个用户始终可以注册并成为超级管理员。之后是否开放注册由超级管理员决定。"><label className="switch"><input type="checkbox" checked={p.registrationEnabled} onChange={e => void toggle(e.target.checked)} /><span /></label></PolicyRow></section>}</Resource>
+    <form className="card inline-form" onSubmit={create}>
+      <label>用户名<input required pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} /></label>
+      <label>显示名称<input value={form.displayName} onChange={e => setForm({ ...form, displayName: e.target.value })} /></label>
+      <label>初始密码<input required type="password" minLength={8} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></label>
+      <button className="button">创建账号</button>
+      {error && <span className="form-error">{error}</span>}
+    </form>
+    <Resource state={users} empty="还没有账号。">{items => <div className="card table-wrap"><table><thead><tr><th>用户</th><th>角色</th><th>状态</th><th>创建时间</th></tr></thead><tbody>{(items as UserAccount[]).map(user => <tr key={user.userId}><td><div className="person"><span className="avatar">{user.displayName[0]}</span><div><strong>{user.displayName}</strong><small>{user.username}</small></div></div></td><td>{user.platformRole === 'super_admin' ? '超级管理员' : '用户'}</td><td>{user.status}</td><td>{formatDate(user.createdAt)}</td></tr>)}</tbody></table></div>}</Resource>
+  </PageFrame>;
 }
 
 function ModelsPage({ api }: { api: AdminApiClient }) {
@@ -153,16 +333,38 @@ function Badge({ children, tone }: { children: ReactNode; tone: string }) { retu
 function RefreshButton({ onClick }: { onClick: () => void }) { return <button className="button secondary" onClick={onClick}><RefreshCw />刷新</button>; }
 function Spinner() { return <RefreshCw className="spinner" />; }
 function Centered({ children }: { children: ReactNode }) { return <main className="centered">{children}</main>; }
-function IdentityForm({ value, setValue, submit }: { value: string; setValue: (x: string) => void; submit: (x: string) => void }) { return <form className="identity-form" onSubmit={e => { e.preventDefault(); submit(value.trim()); }}><input required value={value} onChange={e => setValue(e.target.value)} aria-label="开发用户 ID" /><button className="button">切换开发身份</button></form>; }
-function OrganizationSetup({ api, identity, setIdentity, changeIdentity, done }: { api: AdminApiClient; identity: string; setIdentity: (x: string) => void; changeIdentity: (x: string) => void; done: (x: Bootstrap) => void }) {
-  const [name, setName] = useState(''); const [slug, setSlug] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  const updateName = (value: string) => {
-    setName(value);
-    const ascii = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
-    setSlug(ascii.length >= 2 ? ascii : `org-${crypto.randomUUID().slice(0, 8)}`);
-  };
-  const submit = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setError(''); try { done(await api.bootstrapOrganization({ organizationId: crypto.randomUUID(), name, slug, defaultTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai' })); } catch (x) { setError(messageOf(x)); } finally { setBusy(false); } };
-  return <main className="setup"><section className="setup-intro"><span className="brand-mark"><Bot /></span><h1>建立你的管理空间</h1><p>创建第一个组织后，你将成为所有者，并可以邀请团队成员、配置模型和制定 Agent 的运行策略。</p><ul><li><ShieldCheck />权限边界和审批策略</li><li><Cpu />模型、成本与用量配置</li><li><ScrollText />完整的管理审计记录</li></ul></section><section className="card setup-card"><small>首次设置</small><h2>创建组织</h2><p>此信息之后仍可在组织设置中修改。</p><form onSubmit={submit}><label>组织名称<input autoFocus required value={name} onChange={e => updateName(e.target.value)} placeholder="例如：Kross 产品团队" /></label><label>组织标识<input required minLength={2} value={slug} onChange={e => setSlug(e.target.value)} placeholder="kross-team" /></label>{error && <span className="form-error">{error}</span>}<button className="button wide" disabled={busy}>{busy ? '正在创建…' : '创建并进入管理中心'}</button></form><div className="setup-divider">开发身份</div><IdentityForm value={identity} setValue={setIdentity} submit={changeIdentity} /></section></main>;
+function AuthGate({ mode, canRegister, error, busy, onLogin, onRegister, onToggle }: {
+  mode: 'login' | 'register'; canRegister: boolean; error?: string; busy: boolean;
+  onLogin(username: string, password: string): Promise<void>;
+  onRegister(username: string, password: string, displayName: string): Promise<void>;
+  onToggle(): void;
+}) {
+  const register = mode === 'register';
+  return <main className="setup"><section className="setup-intro"><span className="brand-mark"><Bot /></span><h1>{register ? '创建管理员账号' : '登录管理中心'}</h1><p>{register ? '第一个注册的用户会成为超级管理员，之后是否开放注册由超级管理员决定。' : '使用用户名和密码管理组织、模型和成员。'}</p></section><section className="card setup-card">
+    <small>{register ? '首次设置' : '账号登录'}</small>
+    <h2>{register ? '注册' : '登录'}</h2>
+    <form onSubmit={e => {
+      e.preventDefault();
+      const data = new FormData(e.currentTarget);
+      const username = String(data.get('username') ?? '').trim();
+      const password = String(data.get('password') ?? '');
+      const displayName = String(data.get('displayName') ?? '').trim();
+      if (register) void onRegister(username, password, displayName);
+      else void onLogin(username, password);
+    }}>
+      <label>用户名<input name="username" required autoFocus pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" autoComplete="username" /></label>
+      {register && <label>显示名称（可选）<input name="displayName" autoComplete="nickname" /></label>}
+      <label>密码<input name="password" type="password" required minLength={8} autoComplete={register ? 'new-password' : 'current-password'} /></label>
+      {error && <span className="form-error">{error}</span>}
+      <button className="button wide" disabled={busy}>{busy ? '请稍候…' : register ? '注册并进入' : '登录'}</button>
+    </form>
+    {canRegister && <p className="setup-switch">{register ? '已有账号？' : '还没有账号？'}<button type="button" className="gate-link" onClick={onToggle}>{register ? '去登录' : '注册'}</button></p>}
+  </section></main>;
+}
+function workbenchUrl() {
+  const url = new URL(location.href);
+  if (url.port === '8788') url.port = '8787';
+  return url.origin;
 }
 function formatDate(value?: string) { return value ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'; }
 function messageOf(error: unknown) { return error instanceof AdminApiError || error instanceof Error ? error.message : '发生未知错误'; }

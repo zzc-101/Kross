@@ -1,3 +1,3 @@
 package com.kross.identity.dto;
 
-public record InviteMemberRequest(String userId, String displayName, String role) {}
+public record InviteMemberRequest(String username, String password, String displayName, String role) {}

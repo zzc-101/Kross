@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import {
-  approvalPolicySchema, auditLogSchema, bootstrapResultSchema, bootstrapSchema, dashboardSchema,
-  memberSchema, modelSchema, page,
-  type ApprovalPolicy, type AuditLog, type Bootstrap,
-  type Member, type ModelConfig
+  approvalPolicySchema, auditLogSchema, authConfigSchema, dashboardSchema, memberSchema, modelSchema,
+  page, platformOrganizationSchema, platformSchema, sessionSchema, userAccountSchema,
+  type ApprovalPolicy, type Member, type ModelConfig, type PlatformSettings, type Session, type UserAccount
 } from './contracts';
 
 export class AdminApiError extends Error {
@@ -21,18 +20,47 @@ const envelopeSchema = z.object({
 export class AdminApiClient {
   private organizationId?: string;
   private readonly fetcher: typeof fetch;
-  constructor(private readonly options: { baseUrl?: string; devUserId?: string; fetch?: typeof fetch } = {}) {
+  constructor(private readonly options: { baseUrl?: string; fetch?: typeof fetch } = {}) {
     this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
   selectOrganization(id: string) { this.organizationId = id; }
-  me() { return this.request('/api/v2/me', bootstrapSchema, { organization: false }); }
-  async bootstrapOrganization(input: { organizationId: string; name: string; slug: string; defaultTimezone: string }) {
-    await this.request('/api/v2/admin/bootstrap', bootstrapResultSchema, { method: 'POST', body: input, organization: false });
-    return this.me();
+  authConfig() { return this.request('/api/v2/auth/config', authConfigSchema, { organization: false }); }
+  login(input: { username: string; password: string }) {
+    return this.request('/api/v2/auth/login', sessionSchema, { method: 'POST', body: input, organization: false });
+  }
+  register(input: { username: string; password: string; displayName?: string }) {
+    return this.request('/api/v2/auth/register', sessionSchema, { method: 'POST', body: input, organization: false });
+  }
+  logout() {
+    return this.request('/api/v2/auth/logout', z.unknown().optional(), { method: 'POST', organization: false }).then(() => undefined);
+  }
+  me() { return this.request('/api/v2/me', sessionSchema, { organization: false }); }
+  createOrganization(input: {
+    name: string; slug: string; defaultTimezone: string;
+    adminUsername: string; adminPassword?: string; adminDisplayName?: string;
+  }) {
+    return this.request('/api/v2/admin/platform/organizations', platformOrganizationSchema, {
+      method: 'POST', body: input, organization: false
+    });
+  }
+  organizations() {
+    return this.request('/api/v2/admin/platform/organizations', page(platformOrganizationSchema), { organization: false }).then(x => x.items);
+  }
+  updateOrganization(organizationId: string, input: { name?: string; status?: 'active' | 'suspended' }) {
+    return this.request(`/api/v2/admin/platform/organizations/${encodeURIComponent(organizationId)}`, platformOrganizationSchema, {
+      method: 'PATCH', body: input, organization: false
+    });
+  }
+  assignAdmin(organizationId: string, input: { username: string; password?: string; displayName?: string }) {
+    return this.request(`/api/v2/admin/platform/organizations/${encodeURIComponent(organizationId)}/admins`, memberSchema, {
+      method: 'POST', body: input, organization: false
+    });
   }
   dashboard() { return this.request('/api/v2/admin/dashboard', dashboardSchema); }
   members() { return this.request('/api/v2/admin/members', page(memberSchema)).then(x => x.items); }
-  inviteMember(input: { userId: string; displayName: string; role: Member['role'] }) { return this.request('/api/v2/admin/members', memberSchema, { method: 'POST', body: input }); }
+  inviteMember(input: { username: string; password?: string; displayName?: string; role: Member['role'] }) {
+    return this.request('/api/v2/admin/members', memberSchema, { method: 'POST', body: input });
+  }
   updateMember(memberId: string, input: Partial<Pick<Member, 'role' | 'status'>>) { return this.request(`/api/v2/admin/members/${encodeURIComponent(memberId)}`, memberSchema, { method: 'PATCH', body: input }); }
   models() { return this.request('/api/v2/admin/models', page(modelSchema)).then(x => x.items); }
   createModel(input: { name: string; provider: string; model: string; apiKey: string; baseUrl?: string }) {
@@ -44,10 +72,17 @@ export class AdminApiClient {
   approvalPolicy() { return this.request('/api/v2/admin/approval-policy', approvalPolicySchema); }
   updateApprovalPolicy(input: ApprovalPolicy) { return this.request('/api/v2/admin/approval-policy', approvalPolicySchema, { method: 'PATCH', body: input }); }
   auditLogs() { return this.request('/api/v2/admin/audit-logs', page(auditLogSchema)).then(x => x.items); }
+  platform() { return this.request('/api/v2/admin/platform', platformSchema, { organization: false }); }
+  updatePlatform(input: Partial<PlatformSettings>) {
+    return this.request('/api/v2/admin/platform', platformSchema, { method: 'PATCH', body: input, organization: false });
+  }
+  users() { return this.request('/api/v2/admin/users', page(userAccountSchema), { organization: false }).then(x => x.items); }
+  createUser(input: { username: string; password: string; displayName?: string }) {
+    return this.request('/api/v2/admin/users', userAccountSchema, { method: 'POST', body: input, organization: false });
+  }
 
   private async request<T>(path: string, schema: z.ZodType<T>, options: RequestOptions = {}): Promise<T> {
     const headers = new Headers({ accept: 'application/json' });
-    if (this.options.devUserId) headers.set('x-kross-user-id', this.options.devUserId);
     if ((options.organization ?? true) && this.organizationId) headers.set('x-kross-organization-id', this.organizationId);
     if (options.body !== undefined) headers.set('content-type', 'application/json');
     const response = await this.fetcher(new URL(path, this.options.baseUrl ?? location.origin), {
@@ -68,3 +103,5 @@ export class AdminApiClient {
     return parsed.data;
   }
 }
+
+export type { Session, UserAccount };

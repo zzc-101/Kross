@@ -9,23 +9,34 @@ function failure(body: unknown, status = 403) {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }));
 }
 
+const member = {
+  id: 'm1', userId: 'u1', username: 'lin', displayName: 'Lin', role: 'admin' as const,
+  status: 'active' as const, createdAt: now, updatedAt: now
+};
+
 describe('AdminApiClient', () => {
-  it('sends organization and dev identity headers', async () => {
+  it('sends organization header and session cookies', async () => {
     let headers: Headers | undefined;
-    const api = new AdminApiClient({ baseUrl: 'http://kross.test', devUserId: 'dev-user', fetch: async (_url, init) => { headers = new Headers(init?.headers); return ok({ counts: { activeMembers: 2, runningAgents: 1, stoppedAgents: 3 } }); } });
+    let credentials: RequestCredentials | undefined;
+    const api = new AdminApiClient({ baseUrl: 'http://kross.test', fetch: async (_url, init) => {
+      headers = new Headers(init?.headers);
+      credentials = init?.credentials;
+      return ok({ counts: { activeMembers: 2, runningAgents: 1, stoppedAgents: 3 } });
+    } });
     api.selectOrganization('org-1');
     await api.dashboard();
-    expect(headers?.get('x-kross-user-id')).toBe('dev-user');
+    expect(headers?.get('x-kross-user-id')).toBeNull();
     expect(headers?.get('x-kross-organization-id')).toBe('org-1');
+    expect(credentials).toBe('include');
   });
 
   it('strictly rejects unknown member fields', async () => {
-    const api = new AdminApiClient({ baseUrl: 'http://kross.test', fetch: () => ok({ items: [{ id: 'm1', userId: 'u1', displayName: 'Lin', role: 'admin', status: 'active', createdAt: now, updatedAt: now, secret: 'must-not-leak' }], page: 1, pageSize: 20, total: 1 }) });
+    const api = new AdminApiClient({ baseUrl: 'http://kross.test', fetch: () => ok({ items: [{ ...member, secret: 'must-not-leak' }], page: 1, pageSize: 20, total: 1 }) });
     await expect(api.members()).rejects.toMatchObject({ code: 'INVALID_RESPONSE', status: 502 });
   });
 
   it('accepts an items-only page and decodes every item', async () => {
-    const api = new AdminApiClient({ baseUrl: 'http://kross.test', fetch: () => ok({ items: [{ id: 'm1', userId: 'u1', displayName: 'Lin', role: 'admin', status: 'active', createdAt: now, updatedAt: now }], page: 1, pageSize: 20, total: 1 }) });
+    const api = new AdminApiClient({ baseUrl: 'http://kross.test', fetch: () => ok({ items: [member], page: 1, pageSize: 20, total: 1 }) });
     await expect(api.members()).resolves.toHaveLength(1);
   });
 
@@ -34,13 +45,21 @@ describe('AdminApiClient', () => {
     await expect(api.auditLogs()).rejects.toEqual(expect.objectContaining<Partial<AdminApiError>>({ status: 403, code: 'FORBIDDEN', message: '需要管理员权限' }));
   });
 
-  it('posts first organization without an organization header', async () => {
+  it('creates an organization without an organization header', async () => {
     let headers: Headers | undefined; let body = '';
-    let calls = 0;
-    const api = new AdminApiClient({ baseUrl: 'http://kross.test', devUserId: 'dev-user', fetch: async (_url, init) => { headers = new Headers(init?.headers); body = String(init?.body ?? ''); calls += 1; return calls === 1 ? ok({ organization: { id: 'org-1', slug: 'kross', name: 'Kross', defaultTimezone: 'Asia/Shanghai' }, membership: { id: 'm1', userId: 'dev-user', role: 'owner', status: 'active' } }) : ok({ user: { userId: 'dev-user', displayName: 'Dev' }, memberships: [{ id: 'm1', organizationId: 'org-1', userId: 'dev-user', role: 'owner', status: 'active', createdAt: now, updatedAt: now }] }); } });
-    const result = await api.bootstrapOrganization({ organizationId: 'org-1', name: 'Kross', slug: 'kross', defaultTimezone: 'Asia/Shanghai' });
+    const api = new AdminApiClient({ baseUrl: 'http://kross.test', fetch: async (_url, init) => {
+      headers = new Headers(init?.headers);
+      body = String(init?.body ?? '');
+      return ok({
+        id: 'org-1', slug: 'kross', name: 'Kross', status: 'active',
+        adminCount: 1, memberCount: 1, createdAt: now
+      });
+    } });
+    const result = await api.createOrganization({
+      name: 'Kross', slug: 'kross', defaultTimezone: 'Asia/Shanghai', adminUsername: 'devuser'
+    });
     expect(headers?.has('x-kross-organization-id')).toBe(false);
-    expect(calls).toBe(2);
-    expect(result.memberships).toHaveLength(1);
+    expect(result.slug).toBe('kross');
+    expect(body).toContain('devuser');
   });
 });

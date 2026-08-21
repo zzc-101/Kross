@@ -18,12 +18,15 @@ public class OrganizationAccess {
         .map(Authentication::getPrincipal)
         .filter(Identity.class::isInstance)
         .map(Identity.class::cast)
-        .orElseThrow(() -> new ApiException("unauthenticated", "Missing development user identity", 401));
+        .orElseThrow(() -> new ApiException("unauthenticated", "Sign in required", 401));
   }
 
   public OrganizationContext require(String organizationId, OrganizationAction action) {
     Identity identity = currentIdentity();
     String parsed = Ids.requireResourceId(organizationId, "Invalid Organization identifier");
+    identities.findOrganization(parsed)
+        .filter(organization -> "active".equals(organization.getStatus()))
+        .orElseThrow(() -> new ApiException("organization_unavailable", "Organization is not active", 403));
     var membership = identities
         .findActiveMembership(parsed, identity.userId())
         .orElseThrow(() -> new ApiException("organization_access_denied", "Organization access denied", 403));

@@ -13,6 +13,8 @@ import java.time.Instant;
 public class Membership {
   private String id;
   private String organizationId;
+  private String organizationName;
+  private String organizationSlug;
   private String userId;
   private String role;
   private String status;

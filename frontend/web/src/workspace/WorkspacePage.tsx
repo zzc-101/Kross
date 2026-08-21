@@ -12,16 +12,18 @@ export function WorkspacePage({
   api,
   memberships,
   organizationId,
-  devUserId,
+  displayName,
+  username,
   onSelectOrganization,
-  onChangeIdentity
+  onLogout
 }: {
   api: AgentApiClient;
   memberships: Membership[];
   organizationId: string;
-  devUserId: string;
+  displayName: string;
+  username: string;
   onSelectOrganization(id: string): void;
-  onChangeIdentity(): void;
+  onLogout(): void;
 }) {
   const { conversationId, setConversationId } = useConversationRoute();
   const [model, setModel] = useState<AgentModel | null>(null);
@@ -84,12 +86,13 @@ export function WorkspacePage({
             open={sidebarOpen}
             memberships={memberships}
             organizationId={organizationId}
-            devUserId={devUserId}
+            displayName={displayName}
+            username={username}
             onClose={() => setSidebarOpen(false)}
             onNew={() => { void onCreateConversation(); setSidebarOpen(false); }}
             onSelect={setConversationId}
             onSelectOrganization={onSelectOrganization}
-            onChangeIdentity={onChangeIdentity}
+            onLogout={onLogout}
             onArchive={(id) => {
               void api.patchConversation(id, { archived: true }).then(async () => {
                 const items = await refreshConversations();

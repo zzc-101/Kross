@@ -1,84 +1,117 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { AgentApiClient } from '../api/client';
-import type { Membership } from '../api/types';
+import { AgentApiClient, ApiError } from '../api/client';
+import type { AuthConfig, Me, Membership } from '../api/types';
 import { WorkspacePage } from '../workspace/WorkspacePage';
-import { IdentityScreen, OrganizationSetup } from './screens';
+import { AuthScreen, SuperAdminHint, WaitingForInvite } from './screens';
 
-const USER_KEY = 'kross.dev-user-id';
 const ORG_KEY = 'kross.organization-id';
 
 export function App() {
-  const [devUserId, setDevUserId] = useState(
-    () => localStorage.getItem(USER_KEY) || import.meta.env.VITE_DEV_USER_ID || 'demo-user'
-  );
+  const [config, setConfig] = useState<AuthConfig>();
+  const [me, setMe] = useState<Me>();
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [organizationId, setOrganizationId] = useState(() => localStorage.getItem(ORG_KEY) || '');
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const api = useMemo(() => new AgentApiClient({ devUserId }), [devUserId]);
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const api = useMemo(() => new AgentApiClient(), []);
+
+  const applyMe = (next: Me) => {
+    setMe(next);
+    setMemberships(next.memberships);
+    setOrganizationId((current) => {
+      const selected = next.memberships.find((item) => item.organizationId === current)?.organizationId
+        ?? next.memberships[0]?.organizationId
+        ?? '';
+      if (selected) {
+        api.selectOrganization(selected);
+        localStorage.setItem(ORG_KEY, selected);
+      }
+      return selected;
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void api.me().then((me) => {
-      if (cancelled) return;
-      setMemberships(me.memberships);
-      setOrganizationId((current) => {
-        const next = me.memberships.find((item) => item.organizationId === current)?.organizationId
-          ?? me.memberships[0]?.organizationId
-          ?? '';
-        if (next) {
-          api.selectOrganization(next);
-          localStorage.setItem(ORG_KEY, next);
+    void (async () => {
+      try {
+        const nextConfig = await api.authConfig();
+        if (cancelled) return;
+        setConfig(nextConfig);
+        if (nextConfig.bootstrapRequired) setMode('register');
+        try {
+          applyMe(await api.me());
+        } catch (cause) {
+          if (cancelled) return;
+          if (cause instanceof ApiError && cause.status === 401) {
+            setMe(undefined);
+            setMemberships([]);
+          } else {
+            setError(cause instanceof Error ? cause.message : '无法读取身份');
+          }
         }
-        return next;
-      });
-      setLoading(false);
-    }).catch((cause) => {
-      if (!cancelled) {
-        setError(cause instanceof Error ? cause.message : '无法读取身份');
-        setLoading(false);
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : '无法连接控制面');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    });
+    })();
     return () => {
       cancelled = true;
     };
   }, [api]);
 
-  if (!devUserId) {
-    return (
-      <IdentityScreen
-        defaultUserId="demo-user"
-        onSubmit={(id) => {
-          localStorage.setItem(USER_KEY, id);
-          setDevUserId(id);
-        }}
-      />
-    );
-  }
+  const canRegister = Boolean(config?.registrationEnabled || config?.bootstrapRequired);
+
+  const runAuth = async (action: () => Promise<Me>) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      applyMe(await action());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '登录失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const logout = async () => {
+    await api.logout().catch(() => undefined);
+    setMe(undefined);
+    setMemberships([]);
+    setOrganizationId('');
+    localStorage.removeItem(ORG_KEY);
+  };
 
   if (loading) {
     return <main className="gate"><div className="mark">K</div><h1>正在进入工作区</h1><p>加载身份与组织…</p></main>;
   }
 
-  if (memberships.length === 0) {
+  if (!me) {
     return (
-      <OrganizationSetup
+      <AuthScreen
+        mode={canRegister && mode === 'register' ? 'register' : 'login'}
+        canRegister={canRegister}
         error={error}
-        onCreate={async (name, slug) => {
-          const me = await api.bootstrapOrganization({ name, slug });
-          setMemberships(me.memberships);
-          const first = me.memberships[0]?.organizationId ?? '';
-          setOrganizationId(first);
-          if (first) {
-            api.selectOrganization(first);
-            localStorage.setItem(ORG_KEY, first);
-          }
-          return true;
+        busy={busy}
+        onLogin={(username, password) => runAuth(() => api.login({ username, password }))}
+        onRegister={(username, password, displayName) => runAuth(() => api.register({ username, password, displayName }))}
+        onToggle={() => {
+          setError(undefined);
+          setMode((current) => current === 'login' ? 'register' : 'login');
         }}
       />
     );
+  }
+
+  if (memberships.length === 0) {
+    if (me.user.platformRole === 'super_admin') {
+      return <SuperAdminHint displayName={me.user.displayName} onLogout={() => void logout()} />;
+    }
+    return <WaitingForInvite displayName={me.user.displayName} onLogout={() => void logout()} />;
   }
 
   return (
@@ -86,16 +119,14 @@ export function App() {
       api={api}
       memberships={memberships}
       organizationId={organizationId}
-      devUserId={devUserId}
+      displayName={me.user.displayName}
+      username={me.user.username}
       onSelectOrganization={(id) => {
         api.selectOrganization(id);
         localStorage.setItem(ORG_KEY, id);
         setOrganizationId(id);
       }}
-      onChangeIdentity={() => {
-        localStorage.removeItem(USER_KEY);
-        setDevUserId('');
-      }}
+      onLogout={() => void logout()}
     />
   );
 }

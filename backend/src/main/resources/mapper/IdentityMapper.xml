@@ -2,21 +2,68 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.kross.identity.IdentityMapper">
   <insert id="upsertUser">
-    INSERT INTO users (id, display_name)
-    VALUES (#{id}, #{displayName})
+    INSERT INTO users (id, username, display_name, platform_role)
+    VALUES (#{id}, #{username}, #{displayName}, 'user')
     ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name
   </insert>
 
+  <insert id="insertUser">
+    INSERT INTO users (id, username, display_name, password_hash, platform_role, status)
+    VALUES (#{id}, #{username}, #{displayName}, #{passwordHash}, #{platformRole}, 'active')
+  </insert>
+
+  <select id="findUserByUsername" resultType="com.kross.identity.entity.User">
+    SELECT id, username, display_name, password_hash, platform_role, status, created_at
+    FROM users WHERE lower(username) = #{username}
+  </select>
+
+  <select id="findUserById" resultType="com.kross.identity.entity.User">
+    SELECT id, username, display_name, password_hash, platform_role, status, created_at
+    FROM users WHERE id = #{id}
+  </select>
+
+  <select id="countUsers" resultType="int">
+    SELECT count(*)::int FROM users
+  </select>
+
+  <select id="isRegistrationEnabled" resultType="boolean">
+    SELECT registration_enabled FROM platform_settings WHERE id = 'default'
+  </select>
+
+  <update id="setRegistrationEnabled">
+    UPDATE platform_settings SET registration_enabled = #{enabled}, updated_at = now() WHERE id = 'default'
+  </update>
+
+  <select id="listUsers" resultType="com.kross.identity.entity.User">
+    SELECT id, username, display_name, platform_role, status, created_at
+    FROM users
+    ORDER BY created_at ASC, id ASC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
   <select id="findActiveMembership" resultType="com.kross.identity.entity.Membership">
-    SELECT id, organization_id, user_id, role, status, created_at, updated_at
-    FROM organization_memberships
-    WHERE organization_id = #{organizationId} AND user_id = #{userId} AND status = 'active'
+    SELECT m.id, m.organization_id, o.name AS organization_name, o.slug AS organization_slug,
+           m.user_id, m.role, m.status, m.created_at, m.updated_at
+    FROM organization_memberships m
+    JOIN organizations o ON o.id = m.organization_id
+    WHERE m.organization_id = #{organizationId} AND m.user_id = #{userId} AND m.status = 'active'
+  </select>
+
+  <select id="findMembershipByUser" resultType="com.kross.identity.entity.Membership">
+    SELECT m.id, m.organization_id, o.name AS organization_name, o.slug AS organization_slug,
+           m.user_id, m.role, m.status, m.created_at, m.updated_at
+    FROM organization_memberships m
+    JOIN organizations o ON o.id = m.organization_id
+    WHERE m.organization_id = #{organizationId} AND m.user_id = #{userId}
   </select>
 
   <select id="listMembershipsForUser" resultType="com.kross.identity.entity.Membership">
-    SELECT id, organization_id, user_id, role, status, created_at, updated_at
-    FROM organization_memberships
-    WHERE user_id = #{userId} AND status = 'active'
+    SELECT m.id, m.organization_id, o.name AS organization_name, o.slug AS organization_slug,
+           m.user_id, m.role, m.status, m.created_at, m.updated_at
+    FROM organization_memberships m
+    JOIN organizations o ON o.id = m.organization_id
+    WHERE m.user_id = #{userId} AND m.status = 'active' AND o.status = 'active'
+    ORDER BY o.name ASC, m.id ASC
   </select>
 
   <select id="findOrganization" resultType="com.kross.identity.entity.Organization">
@@ -43,7 +90,7 @@
   </insert>
 
   <select id="listMembers" resultType="com.kross.identity.entity.Member">
-    SELECT m.id, m.user_id, u.display_name, m.role, m.status, m.created_at, m.updated_at,
+    SELECT m.id, m.user_id, u.username, u.display_name, m.role, m.status, m.created_at, m.updated_at,
            count(*) OVER()::integer AS total
     FROM organization_memberships m
     JOIN users u ON u.id = m.user_id
@@ -54,17 +101,49 @@
   </select>
 
   <select id="findMember" resultType="com.kross.identity.entity.Member">
-    SELECT m.id, m.user_id, u.display_name, m.role, m.status, m.created_at, m.updated_at, 1 AS total
+    SELECT m.id, m.user_id, u.username, u.display_name, m.role, m.status, m.created_at, m.updated_at, 1 AS total
     FROM organization_memberships m
     JOIN users u ON u.id = m.user_id
     WHERE m.organization_id = #{organizationId} AND m.id = #{id}
   </select>
 
-  <select id="countActiveOwners" resultType="int">
+  <select id="countActiveAdmins" resultType="int">
     SELECT count(*)::int FROM organization_memberships
-    WHERE organization_id = #{organizationId} AND role = 'owner' AND status = 'active'
+    WHERE organization_id = #{organizationId} AND role = 'admin' AND status = 'active'
       AND (#{excludingId}::text IS NULL OR id &lt;&gt; #{excludingId})
   </select>
+
+  <select id="listOrganizations" resultType="com.kross.identity.entity.OrganizationListRow">
+    SELECT o.id, o.slug, o.name, o.status, o.created_at,
+           (SELECT count(*)::integer FROM organization_memberships a
+             WHERE a.organization_id = o.id AND a.role = 'admin' AND a.status = 'active') AS admin_count,
+           (SELECT count(*)::integer FROM organization_memberships m
+             WHERE m.organization_id = o.id AND m.status = 'active') AS member_count,
+           count(*) OVER()::integer AS total
+    FROM organizations o
+    WHERE o.status &lt;&gt; 'deleted'
+    ORDER BY o.created_at DESC, o.id DESC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <select id="findOrganizationRow" resultType="com.kross.identity.entity.OrganizationListRow">
+    SELECT o.id, o.slug, o.name, o.status, o.created_at,
+           (SELECT count(*)::integer FROM organization_memberships a
+             WHERE a.organization_id = o.id AND a.role = 'admin' AND a.status = 'active') AS admin_count,
+           (SELECT count(*)::integer FROM organization_memberships m
+             WHERE m.organization_id = o.id AND m.status = 'active') AS member_count,
+           1 AS total
+    FROM organizations o
+    WHERE o.id = #{id}
+  </select>
+
+  <update id="updateOrganization">
+    UPDATE organizations
+    SET name = COALESCE(#{name}, name),
+        status = COALESCE(#{status}, status),
+        updated_at = now()
+    WHERE id = #{id}
+  </update>
 
   <update id="updateMembership">
     UPDATE organization_memberships

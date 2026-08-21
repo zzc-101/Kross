@@ -2,8 +2,9 @@ package com.kross.security;
 
 import com.kross.api.ApiException;
 import com.kross.config.KrossProperties;
+import com.kross.identity.AuthCredentials;
+import com.kross.identity.AuthService;
 import com.kross.identity.Identity;
-import com.kross.identity.IdentityMapper;
 import com.kross.support.Ids;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -18,13 +19,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
-public class DevIdentityFilter extends OncePerRequestFilter {
+public class IdentityFilter extends OncePerRequestFilter {
   private final KrossProperties properties;
-  private final IdentityMapper identities;
+  private final AuthService auth;
 
-  public DevIdentityFilter(KrossProperties properties, IdentityMapper identities) {
+  public IdentityFilter(KrossProperties properties, AuthService auth) {
     this.properties = properties;
-    this.identities = identities;
+    this.auth = auth;
   }
 
   @Override
@@ -37,22 +38,33 @@ public class DevIdentityFilter extends OncePerRequestFilter {
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
       throws ServletException, IOException {
+    if (SecurityContextHolder.getContext().getAuthentication() == null
+        || !(SecurityContextHolder.getContext().getAuthentication().getPrincipal() instanceof Identity)) {
+      AuthSessions.current(request)
+          .or(() -> developmentIdentity(request))
+          .ifPresent(identity -> SecurityContextHolder.getContext().setAuthentication(
+              new UsernamePasswordAuthenticationToken(identity, null, List.of())));
+    }
+    filterChain.doFilter(request, response);
+  }
+
+  private Optional<Identity> developmentIdentity(HttpServletRequest request) {
     if (!properties.isDevIdentityEnabled()) {
-      throw new ApiException("dev_identity_disabled", "Development identity is disabled", 401);
+      return Optional.empty();
     }
     String userId = Optional.ofNullable(request.getHeader("x-kross-user-id")).orElse("");
     if (!Ids.isResourceId(userId)) {
-      throw new ApiException("unauthenticated", "Missing development user identity", 401);
+      return Optional.empty();
     }
     String displayName = Optional.ofNullable(request.getHeader("x-kross-user-name"))
         .map(String::trim)
         .filter(value -> !value.isBlank())
         .orElse(userId);
-    identities.upsertUser(userId, displayName);
-    Identity identity = new Identity(userId, displayName);
-    UsernamePasswordAuthenticationToken authentication =
-        new UsernamePasswordAuthenticationToken(identity, null, List.of());
-    SecurityContextHolder.getContext().setAuthentication(authentication);
-    filterChain.doFilter(request, response);
+    try {
+      String username = AuthCredentials.requireUsername(userId);
+      return Optional.of(auth.authenticate(userId, username, displayName));
+    } catch (ApiException ignored) {
+      return Optional.of(auth.authenticate(userId, userId.toLowerCase(), displayName));
+    }
   }
 }

@@ -5,7 +5,7 @@
 [![CI](https://github.com/zzc-101/Kross/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-可自托管的 Cloud 编程 Agent。Kross 给组织里的每位成员配备一块长期 Agent 工作区：Java 控制面、Web/PWA 工作台，以及在持久卷上运行同一套 Agent Runtime 的 Docker Worker。
+可自托管的通用 Cloud Agent，定位接近 OpenClaw、Hermes：给组织里的每位成员一块长期 Agent 工作区。Java 控制面、Web/PWA 工作台，以及在持久卷上运行同一套 Agent Runtime 的 Docker Worker。
 
 > 本分支是 Cloud-only。本地 Ink TUI 和 `kross` CLI 仍保留在 `main`。Kross 正在积极开发中，尚未发布稳定版本；公网部署前仍建议先在受控环境完成 Docker、移动端、断线恢复、Push 和 Git 流程验收。
 
@@ -15,7 +15,7 @@
 
 ## 为什么是 Kross
 
-Kross 不只是一个把提示词转发给模型的聊天界面。它围绕真实开发任务提供完整运行闭环：
+Kross 不只是一个把提示词转发给模型的聊天界面。它是带完整运行闭环的通用 Agent：写代码、查资料、跑命令、管文件都可以，编程只是其中一类任务，不是产品定义：
 
 - **三种工作模式**：`auto` 直接解决问题，`plan` 先确认计划，`conductor` 拆分任务并交给子代理执行、复核。
 - **每人一块持久工作区**：每成员独立 Docker Worker 与数据卷；空闲时容器休眠，磁盘留下。
@@ -39,7 +39,7 @@ Cloud Agent 需要 Docker Engine 和 Docker Compose。首次运行时，启动�
 ./scripts/start-cloud.sh
 ```
 
-打开 `http://localhost:8787` 进入用户工作台，或打开 `http://localhost:8788` 进入组织管理控制台。本地开发使用显式开发身份流；公网部署必须换成生产 OIDC/会话认证。常用管理命令：
+打开 `http://localhost:8787` 进入用户工作台，或打开 `http://localhost:8788` 进入管理中心。第一个注册的用户会成为平台超级管理员，可以创建组织、指定组织管理员，并控制是否开放自助注册。组织管理员负责本组织入职。普通成员只使用工作台。常用管理命令：
 
 ```bash
 ./scripts/start-cloud.sh --no-build

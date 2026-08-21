@@ -8,15 +8,23 @@ import com.kross.catalog.dto.AuditEventView;
 import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
 import com.kross.catalog.dto.UpdateModelRequest;
-import com.kross.identity.dto.BootstrapRequest;
-import com.kross.identity.dto.BootstrapResponse;
+import com.kross.identity.AuthService;
+import com.kross.identity.dto.AssignOrgAdminRequest;
+import com.kross.identity.dto.CreateOrganizationRequest;
+import com.kross.identity.dto.CreateUserRequest;
 import com.kross.identity.dto.DashboardResponse;
 import com.kross.identity.dto.InviteMemberRequest;
 import com.kross.identity.dto.MemberRemoved;
 import com.kross.identity.dto.MemberView;
 import com.kross.identity.dto.OrganizationPolicyView;
+import com.kross.identity.dto.PlatformOrganizationView;
+import com.kross.identity.dto.PlatformSettingsView;
 import com.kross.identity.dto.UpdateMemberRequest;
+import com.kross.identity.dto.UpdateOrganizationRequest;
+import com.kross.identity.dto.UpdatePlatformRequest;
 import com.kross.identity.dto.UpdatePolicyRequest;
+import com.kross.identity.dto.UserAccountView;
+import com.kross.identity.PlatformService;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -37,11 +45,58 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/admin")
 public class AdminController {
   private final AdminService admin;
+  private final AuthService auth;
+  private final PlatformService platform;
 
-  @PostMapping("/bootstrap")
+  @GetMapping("/platform")
+  public Res<PlatformSettingsView> platform() {
+    return Res.ok(auth.platform());
+  }
+
+  @PatchMapping("/platform")
+  public Res<PlatformSettingsView> updatePlatform(@RequestBody UpdatePlatformRequest request) {
+    return Res.ok(auth.updatePlatform(request));
+  }
+
+  @GetMapping("/platform/organizations")
+  public Res<PageResponse<PlatformOrganizationView>> organizations(
+      @RequestParam(defaultValue = "1") int page,
+      @RequestParam(defaultValue = "20") int pageSize) {
+    return Res.ok(platform.listOrganizations(page, pageSize));
+  }
+
+  @PostMapping("/platform/organizations")
   @ResponseStatus(HttpStatus.CREATED)
-  public Res<BootstrapResponse> bootstrap(@RequestBody BootstrapRequest request) {
-    return Res.ok(admin.bootstrap(request));
+  public Res<PlatformOrganizationView> createOrganization(@RequestBody CreateOrganizationRequest request) {
+    return Res.ok(platform.createOrganization(request));
+  }
+
+  @PatchMapping("/platform/organizations/{organizationId}")
+  public Res<PlatformOrganizationView> updateOrganization(
+      @PathVariable String organizationId,
+      @RequestBody UpdateOrganizationRequest request) {
+    return Res.ok(platform.updateOrganization(organizationId, request));
+  }
+
+  @PostMapping("/platform/organizations/{organizationId}/admins")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<MemberView> assignAdmin(
+      @PathVariable String organizationId,
+      @RequestBody AssignOrgAdminRequest request) {
+    return Res.ok(platform.assignAdmin(organizationId, request));
+  }
+
+  @GetMapping("/users")
+  public Res<PageResponse<UserAccountView>> users(
+      @RequestParam(defaultValue = "1") int page,
+      @RequestParam(defaultValue = "20") int pageSize) {
+    return Res.ok(auth.listUsers(page, pageSize));
+  }
+
+  @PostMapping("/users")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<UserAccountView> createUser(@RequestBody CreateUserRequest request) {
+    return Res.ok(auth.createUser(request));
   }
 
   @GetMapping("/dashboard")

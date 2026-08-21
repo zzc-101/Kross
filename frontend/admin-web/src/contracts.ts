@@ -4,14 +4,48 @@ const id = z.string().min(1);
 const date = z.string().datetime({ offset: true });
 
 export const membershipSchema = z.object({
-  id, organizationId: id, userId: id,
-  role: z.enum(['owner', 'admin', 'member', 'viewer']),
+  id, organizationId: id, organizationName: z.string().min(1), organizationSlug: z.string().min(1),
+  userId: id,
+  role: z.enum(['admin', 'member']),
   status: z.enum(['active', 'invited', 'disabled']), createdAt: date, updatedAt: date
 }).strict();
 
-export const bootstrapSchema = z.object({
-  user: z.object({ userId: id, displayName: z.string().min(1) }).strict(),
-  memberships: z.array(membershipSchema)
+export const sessionSchema = z.object({
+  user: z.object({
+    userId: id,
+    username: z.string().min(1),
+    displayName: z.string().min(1),
+    platformRole: z.enum(['super_admin', 'user'])
+  }).strict(),
+  memberships: z.array(membershipSchema),
+  canAccessAdmin: z.boolean()
+}).strict();
+
+export const authConfigSchema = z.object({
+  registrationEnabled: z.boolean(),
+  bootstrapRequired: z.boolean(),
+  organizationExists: z.boolean()
+}).strict();
+
+export const platformSchema = z.object({
+  registrationEnabled: z.boolean()
+}).strict();
+
+export const platformOrganizationSchema = z.object({
+  id, slug: z.string().min(1), name: z.string().min(1),
+  status: z.enum(['active', 'suspended', 'deleted']),
+  adminCount: z.number().int().nonnegative(),
+  memberCount: z.number().int().nonnegative(),
+  createdAt: date
+}).strict();
+
+export const userAccountSchema = z.object({
+  userId: id,
+  username: z.string().min(1),
+  displayName: z.string().min(1),
+  platformRole: z.enum(['super_admin', 'user']),
+  status: z.string().min(1),
+  createdAt: date
 }).strict();
 
 export const dashboardSchema = z.object({ counts: z.object({
@@ -21,8 +55,8 @@ export const dashboardSchema = z.object({ counts: z.object({
 }).strict() }).strict();
 
 export const memberSchema = z.object({
-  id, userId: id, displayName: z.string().min(1),
-  role: z.enum(['owner', 'admin', 'member', 'viewer']),
+  id, userId: id, username: z.string().min(1), displayName: z.string().min(1),
+  role: z.enum(['admin', 'member']),
   status: z.enum(['active', 'invited', 'disabled']), createdAt: date, updatedAt: date
 }).strict();
 
@@ -50,12 +84,12 @@ export const auditLogSchema = z.object({
 export const page = <T extends z.ZodTypeAny>(item: T) => z.object({
   items: z.array(item), page: z.number().int().positive(), pageSize: z.number().int().positive(), total: z.number().int().nonnegative()
 }).strict();
-export const bootstrapResultSchema = z.object({
-  organization: z.object({ id, slug: z.string().min(2), name: z.string().min(1), defaultTimezone: z.string().min(1) }).strict(),
-  membership: z.object({ id, userId: id, role: z.literal('owner'), status: z.literal('active') }).strict()
-}).strict();
 
-export type Bootstrap = z.infer<typeof bootstrapSchema>;
+export type Session = z.infer<typeof sessionSchema>;
+export type AuthConfig = z.infer<typeof authConfigSchema>;
+export type PlatformSettings = z.infer<typeof platformSchema>;
+export type PlatformOrganization = z.infer<typeof platformOrganizationSchema>;
+export type UserAccount = z.infer<typeof userAccountSchema>;
 export type Dashboard = z.infer<typeof dashboardSchema>;
 export type Member = z.infer<typeof memberSchema>;
 export type ModelConfig = z.infer<typeof modelSchema>;

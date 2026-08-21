@@ -26,14 +26,15 @@ export function Sidebar({
   open,
   memberships,
   organizationId,
-  devUserId,
+  displayName,
+  username,
   onClose,
   onNew,
   onSelect,
   onArchive,
   onRename,
   onSelectOrganization,
-  onChangeIdentity,
+  onLogout,
   onShowWorkspace
 }: {
   conversations: Conversation[];
@@ -41,14 +42,15 @@ export function Sidebar({
   open: boolean;
   memberships: Membership[];
   organizationId: string;
-  devUserId: string;
+  displayName: string;
+  username: string;
   onClose(): void;
   onNew(): void;
   onSelect(id: string): void;
   onArchive(id: string): void;
   onRename(id: string, title: string): void;
   onSelectOrganization(id: string): void;
-  onChangeIdentity(): void;
+  onLogout(): void;
   onShowWorkspace(): void;
 }) {
   const [conversationsOpen, setConversationsOpen] = useState(false);
@@ -91,14 +93,15 @@ export function Sidebar({
             </button>
             {accountOpen && (
               <div className="account-popover">
-                <div className="account-title"><UserRound size={16} /><strong>{devUserId}</strong></div>
+                <div className="account-title"><UserRound size={16} /><strong>{displayName}</strong></div>
+                <p className="account-username">{username}</p>
                 <label>
                   <span>组织</span>
                   <select value={organizationId} onChange={(event) => onSelectOrganization(event.target.value)}>
-                    {memberships.map((item) => <option key={item.id} value={item.organizationId}>{item.organizationId} · {item.role}</option>)}
+                    {memberships.map((item) => <option key={item.id} value={item.organizationId}>{item.organizationName} · {item.role === 'admin' ? '组织管理员' : '成员'}</option>)}
                   </select>
                 </label>
-                <button type="button" onClick={onChangeIdentity}>切换开发身份</button>
+                <button type="button" onClick={onLogout}>退出登录</button>
               </div>
             )}
           </div>

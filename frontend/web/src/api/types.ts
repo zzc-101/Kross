@@ -3,14 +3,28 @@ export type MessageStatus = 'queued' | 'processing' | 'done' | 'failed';
 export interface Membership {
   id: string;
   organizationId: string;
+  organizationName: string;
+  organizationSlug: string;
   userId: string;
-  role: 'owner' | 'admin' | 'member' | 'viewer';
+  role: 'admin' | 'member';
   status: string;
 }
 
 export interface Me {
-  user: { userId: string; displayName: string };
+  user: {
+    userId: string;
+    username: string;
+    displayName: string;
+    platformRole: 'super_admin' | 'user';
+  };
   memberships: Membership[];
+  canAccessAdmin: boolean;
+}
+
+export interface AuthConfig {
+  registrationEnabled: boolean;
+  bootstrapRequired: boolean;
+  organizationExists: boolean;
 }
 
 export interface AgentModel {

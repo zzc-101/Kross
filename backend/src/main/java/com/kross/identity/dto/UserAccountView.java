@@ -2,12 +2,10 @@ package com.kross.identity.dto;
 
 import java.time.Instant;
 
-public record MemberView(
-    String id,
+public record UserAccountView(
     String userId,
     String username,
     String displayName,
-    String role,
+    String platformRole,
     String status,
-    Instant createdAt,
-    Instant updatedAt) {}
+    Instant createdAt) {}

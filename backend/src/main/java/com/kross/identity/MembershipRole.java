@@ -3,10 +3,8 @@ package com.kross.identity;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 public enum MembershipRole {
-  OWNER("owner"),
   ADMIN("admin"),
-  MEMBER("member"),
-  VIEWER("viewer");
+  MEMBER("member");
 
   private final String wire;
 

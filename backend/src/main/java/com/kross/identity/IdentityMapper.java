@@ -5,6 +5,8 @@ import com.kross.identity.entity.DashboardCounts;
 import com.kross.identity.entity.Member;
 import com.kross.identity.entity.Membership;
 import com.kross.identity.entity.Organization;
+import com.kross.identity.entity.OrganizationListRow;
+import com.kross.identity.entity.User;
 import java.util.List;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
@@ -12,9 +14,32 @@ import org.apache.ibatis.annotations.Param;
 
 @Mapper
 public interface IdentityMapper {
-  void upsertUser(@Param("id") String id, @Param("displayName") String displayName);
+  void upsertUser(
+      @Param("id") String id, @Param("username") String username, @Param("displayName") String displayName);
+
+  void insertUser(
+      @Param("id") String id,
+      @Param("username") String username,
+      @Param("displayName") String displayName,
+      @Param("passwordHash") String passwordHash,
+      @Param("platformRole") String platformRole);
+
+  Optional<User> findUserByUsername(@Param("username") String username);
+
+  Optional<User> findUserById(@Param("id") String id);
+
+  int countUsers();
+
+  boolean isRegistrationEnabled();
+
+  void setRegistrationEnabled(@Param("enabled") boolean enabled);
+
+  List<User> listUsers(@Param("limit") int limit, @Param("offset") int offset);
 
   Optional<Membership> findActiveMembership(
+      @Param("organizationId") String organizationId, @Param("userId") String userId);
+
+  Optional<Membership> findMembershipByUser(
       @Param("organizationId") String organizationId, @Param("userId") String userId);
 
   List<Membership> listMembershipsForUser(@Param("userId") String userId);
@@ -48,8 +73,15 @@ public interface IdentityMapper {
   Optional<Member> findMember(
       @Param("organizationId") String organizationId, @Param("id") String id);
 
-  int countActiveOwners(
+  int countActiveAdmins(
       @Param("organizationId") String organizationId, @Param("excludingId") String excludingId);
+
+  List<OrganizationListRow> listOrganizations(@Param("limit") int limit, @Param("offset") int offset);
+
+  Optional<OrganizationListRow> findOrganizationRow(@Param("id") String id);
+
+  int updateOrganization(
+      @Param("id") String id, @Param("name") String name, @Param("status") String status);
 
   int updateMembership(
       @Param("organizationId") String organizationId,

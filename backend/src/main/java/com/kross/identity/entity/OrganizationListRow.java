@@ -1,23 +1,20 @@
 package com.kross.identity.entity;
 
-import lombok.AllArgsConstructor;
+import java.time.Instant;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import java.time.Instant;
 
 @Getter
 @Setter
 @NoArgsConstructor
-@AllArgsConstructor
-public class Member {
+public class OrganizationListRow {
   private String id;
-  private String userId;
-  private String username;
-  private String displayName;
-  private String role;
+  private String slug;
+  private String name;
   private String status;
+  private Integer adminCount;
+  private Integer memberCount;
   private Instant createdAt;
-  private Instant updatedAt;
   private Integer total;
 }

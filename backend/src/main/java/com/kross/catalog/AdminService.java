@@ -1,6 +1,7 @@
 package com.kross.catalog;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kross.agent.AgentService;
 import com.kross.api.ApiException;
 import com.kross.api.PageResponse;
 import com.kross.catalog.dto.AuditEventView;
@@ -11,29 +12,24 @@ import com.kross.catalog.dto.UpdateModelRequest;
 import com.kross.catalog.entity.AuditEvent;
 import com.kross.catalog.entity.CredentialHandle;
 import com.kross.catalog.entity.ModelProfile;
-import com.kross.config.KrossProperties;
-import com.kross.identity.Identity;
+import com.kross.identity.AuthService;
 import com.kross.identity.IdentityMapper;
 import com.kross.identity.MembershipRole;
 import com.kross.identity.OrganizationAccess;
 import com.kross.identity.OrganizationAction;
 import com.kross.identity.OrganizationContext;
 import com.kross.identity.Rbac;
-import com.kross.identity.dto.BootstrapRequest;
-import com.kross.identity.dto.BootstrapResponse;
 import com.kross.identity.dto.DashboardResponse;
 import com.kross.identity.dto.IdentityViews;
 import com.kross.identity.dto.InviteMemberRequest;
 import com.kross.identity.dto.MemberRemoved;
 import com.kross.identity.dto.MemberView;
 import com.kross.identity.dto.OrganizationPolicyView;
-import com.kross.identity.dto.OrganizationSummary;
-import com.kross.identity.dto.OwnerMembershipView;
 import com.kross.identity.dto.UpdateMemberRequest;
 import com.kross.identity.dto.UpdatePolicyRequest;
 import com.kross.identity.entity.Member;
+import com.kross.identity.entity.User;
 import com.kross.support.Ids;
-import com.kross.support.Policies;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -46,42 +42,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class AdminService {
-  private final KrossProperties properties;
   private final OrganizationAccess access;
   private final IdentityMapper identities;
+  private final AuthService auth;
+  private final AgentService agents;
   private final CatalogMapper catalog;
   private final CredentialVault vault;
   private final ObjectMapper mapper;
-
-  @Transactional
-  public BootstrapResponse bootstrap(BootstrapRequest request) {
-    if (!properties.isDevIdentityEnabled()) {
-      throw new ApiException("bootstrap_disabled", "Organization bootstrap is disabled", 403);
-    }
-    Identity identity = access.currentIdentity();
-    if (identities.countUsersWithMembership(identity.userId()) > 0 || identities.countOrganizations() > 0) {
-      throw ApiException.conflict("bootstrap_not_available", "An organization already exists");
-    }
-    String organizationId = Optional.ofNullable(request.organizationId()).filter(value -> !value.isBlank())
-        .orElse(UUID.randomUUID().toString());
-    String slug = Ids.requireSlug(required(request.slug(), "slug"));
-    String name = required(request.name(), "name");
-    String timezone = Optional.ofNullable(request.defaultTimezone()).filter(value -> !value.isBlank()).orElse("UTC");
-    identities.upsertUser(identity.userId(), identity.displayName());
-    identities.insertOrganization(organizationId, slug, name, timezone, Policies.defaultApprovalPolicy());
-    String membershipId = UUID.randomUUID().toString();
-    identities.insertMembership(membershipId, organizationId, identity.userId(), "owner", "active");
-    catalog.insertAudit(
-        organizationId,
-        identity.userId(),
-        "organization.bootstrap",
-        "organization",
-        organizationId,
-        mapper.createObjectNode().put("slug", slug).put("name", name));
-    return new BootstrapResponse(
-        new OrganizationSummary(organizationId, slug, name, timezone),
-        new OwnerMembershipView(membershipId, identity.userId(), "owner", "active"));
-  }
 
   public DashboardResponse dashboard(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AUDIT_READ);
@@ -102,11 +69,10 @@ public class AdminService {
     if (!Rbac.canManageRole(context.role(), invited)) {
       throw new ApiException("permission_denied", "Role cannot manage the requested membership", 403);
     }
-    String userId = Ids.requireResourceId(required(request.userId(), "userId"), "Invalid user");
-    identities.upsertUser(userId, required(request.displayName(), "displayName"));
+    User user = auth.provisionUser(request.username(), request.password(), request.displayName());
     String id = UUID.randomUUID().toString();
     try {
-      identities.insertMembership(id, context.organizationId(), userId, invited.wire(), "invited");
+      identities.insertMembership(id, context.organizationId(), user.getId(), invited.wire(), "active");
     } catch (DuplicateKeyException error) {
       throw ApiException.conflict("membership_exists", "User already belongs to this organization");
     }
@@ -116,7 +82,8 @@ public class AdminService {
         "membership.invite",
         "membership",
         id,
-        mapper.createObjectNode().put("userId", userId).put("role", invited.wire()));
+        mapper.createObjectNode().put("userId", user.getId()).put("username", user.getUsername()).put("role", invited.wire()));
+    agents.scheduleWakeFor(context.organizationId(), user.getId());
     return identities.findMember(context.organizationId(), id).map(IdentityViews::member).orElseThrow();
   }
 
@@ -140,11 +107,11 @@ public class AdminService {
         && !"active".equals(request.status())) {
       throw ApiException.conflict("cannot_disable_self", "Administrators cannot disable their own membership");
     }
-    if ("owner".equals(target.getRole())
-        && ((request.role() != null && !"owner".equals(request.role()))
+    if ("admin".equals(target.getRole())
+        && ((request.role() != null && !"admin".equals(request.role()))
             || (request.status() != null && !"active".equals(request.status())))) {
-      if (identities.countActiveOwners(context.organizationId(), target.getId()) < 1) {
-        throw ApiException.conflict("last_owner", "The last active owner cannot be removed or demoted");
+      if (identities.countActiveAdmins(context.organizationId(), target.getId()) < 1) {
+        throw ApiException.conflict("last_admin", "The last active organization admin cannot be removed or demoted");
       }
     }
     identities.updateMembership(context.organizationId(), target.getId(), request.role(), request.status());
@@ -163,10 +130,10 @@ public class AdminService {
     if (target.getUserId().equals(context.userId())) {
       throw ApiException.conflict("cannot_remove_self", "Administrators cannot remove their own membership");
     }
-    if ("owner".equals(target.getRole())
+    if ("admin".equals(target.getRole())
         && "active".equals(target.getStatus())
-        && identities.countActiveOwners(context.organizationId(), target.getId()) < 1) {
-      throw ApiException.conflict("last_owner", "The last active owner cannot be removed or demoted");
+        && identities.countActiveAdmins(context.organizationId(), target.getId()) < 1) {
+      throw ApiException.conflict("last_admin", "The last active organization admin cannot be removed or demoted");
     }
     identities.deleteMembership(context.organizationId(), target.getId());
     return new MemberRemoved(target.getId(), true);

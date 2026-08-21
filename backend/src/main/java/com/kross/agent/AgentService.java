@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +46,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AgentService {
@@ -72,6 +74,7 @@ public class AgentService {
   public List<ConversationView> listConversations(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
     Agent agent = ensure(context);
+    wakeQuietly(agent);
     return agents.listConversations(context.organizationId(), agent.getId()).stream()
         .map(AgentViews::conversation)
         .toList();
@@ -81,7 +84,7 @@ public class AgentService {
   public ConversationView createConversation(String organizationId, CreateConversationRequest request) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
     Agent agent = ensure(context);
-    return AgentViews.conversation(insertConversation(context, agent, request.title()));
+    return AgentViews.conversation(insertConversation(context.organizationId(), agent, request.title()));
   }
 
   @Transactional
@@ -400,19 +403,23 @@ public class AgentService {
   }
 
   private Agent ensure(OrganizationContext context) {
-    Optional<Agent> existing = agents.findByUser(context.organizationId(), context.userId());
+    return ensure(context.organizationId(), context.userId());
+  }
+
+  private Agent ensure(String organizationId, String userId) {
+    Optional<Agent> existing = agents.findByUser(organizationId, userId);
     if (existing.isPresent()) {
       Agent agent = existing.get();
-      if (agents.listConversations(context.organizationId(), agent.getId()).isEmpty()) {
-        insertConversation(context, agent, DEFAULT_TITLE);
+      if (agents.listConversations(organizationId, agent.getId()).isEmpty()) {
+        insertConversation(organizationId, agent, DEFAULT_TITLE);
       }
       return agent;
     }
     String id = UUID.randomUUID().toString();
     Agent row = new Agent();
     row.setId(id);
-    row.setOrganizationId(context.organizationId());
-    row.setUserId(context.userId());
+    row.setOrganizationId(organizationId);
+    row.setUserId(userId);
     row.setStatus("stopped");
     row.setVolumeName(AgentNames.volume(id));
     row.setContainerName(AgentNames.container(id));
@@ -420,19 +427,19 @@ public class AgentService {
     try {
       agents.insert(row);
     } catch (DuplicateKeyException error) {
-      return agents.findByUser(context.organizationId(), context.userId())
+      return agents.findByUser(organizationId, userId)
           .orElseThrow(() -> ApiException.conflict("agent_create_race", "Agent creation raced"));
     }
     containers.ensureVolume(id);
-    insertConversation(context, row, DEFAULT_TITLE);
+    insertConversation(organizationId, row, DEFAULT_TITLE);
     return row;
   }
 
-  private AgentConversation insertConversation(OrganizationContext context, Agent agent, String title) {
+  private AgentConversation insertConversation(String organizationId, Agent agent, String title) {
     Instant now = Instant.now();
     AgentConversation row = new AgentConversation();
     row.setId(UUID.randomUUID().toString());
-    row.setOrganizationId(context.organizationId());
+    row.setOrganizationId(organizationId);
     row.setAgentId(agent.getId());
     row.setTitle(clipTitle(Optional.ofNullable(title).orElse("").trim().isEmpty()
         ? DEFAULT_TITLE
@@ -462,6 +469,42 @@ public class AgentService {
     return normalized.length() <= MAX_TITLE_CHARS
         ? normalized
         : normalized.substring(0, MAX_TITLE_CHARS);
+  }
+
+  public void scheduleWake(String organizationId) {
+    try {
+      OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+      Thread.ofVirtual().start(() -> wakeQuietly(ensure(context)));
+    } catch (RuntimeException error) {
+      log.warn("Failed to schedule agent wake: {}", error.getMessage());
+    }
+  }
+
+  public void scheduleWakeFor(String organizationId, String userId) {
+    Thread.ofVirtual().start(() -> {
+      try {
+        wakeQuietly(ensure(organizationId, userId));
+      } catch (RuntimeException error) {
+        log.warn("Failed to wake agent workspace: {}", error.getMessage());
+      }
+    });
+  }
+
+  public void wakeWorkspaceQuietly(String organizationId) {
+    try {
+      OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+      wake(ensure(context));
+    } catch (RuntimeException error) {
+      log.warn("Failed to wake agent workspace: {}", error.getMessage());
+    }
+  }
+
+  private void wakeQuietly(Agent agent) {
+    try {
+      wake(agent);
+    } catch (RuntimeException error) {
+      log.warn("Failed to wake agent {}: {}", agent.getId(), error.getMessage());
+    }
   }
 
   private void wake(Agent agent) {

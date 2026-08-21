@@ -4,7 +4,7 @@ import { App } from './App';
 
 describe('Admin App', () => {
   it('renders a dedicated management bootstrap state', () => {
-    const html = renderToStaticMarkup(<App devUserId="dev-user" onChangeIdentity={() => undefined} />);
+    const html = renderToStaticMarkup(<App />);
     expect(html).toContain('正在进入管理中心');
     expect(html).not.toContain('发起 Run');
     expect(html).not.toContain('任务对话');

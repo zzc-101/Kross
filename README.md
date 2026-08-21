@@ -5,7 +5,7 @@
 [![CI](https://github.com/zzc-101/Kross/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A self-hostable Cloud coding agent. Kross gives each organization member a persistent Agent workspace: a Java control plane, a Web/PWA workbench, and a Docker Worker that runs the same Agent Runtime on a durable volume.
+A self-hostable general-purpose Cloud agent, in the same family as OpenClaw and Hermes. Kross gives each organization member a persistent Agent workspace: a Java control plane, a Web/PWA workbench, and a Docker Worker that runs the same Agent Runtime on a durable volume.
 
 > This branch is Cloud-only. The local Ink TUI and `kross` CLI remain on `main`. Kross is under active development; no stable release has been published yet. Public deployments should still be validated for Docker, mobile, reconnect, Push, and Git workflows.
 
@@ -15,7 +15,7 @@ A self-hostable Cloud coding agent. Kross gives each organization member a persi
 
 ## Why Kross
 
-Kross is more than a chat interface that forwards prompts to a model. It provides a complete execution loop for real development work:
+Kross is more than a chat interface that forwards prompts to a model. It is a general agent with a complete execution loop — coding is one of the jobs it can take, not the product definition:
 
 - **Three working modes**: `auto` solves tasks directly, `plan` asks for plan approval first, and `conductor` delegates work to subagents and reviews the result.
 - **Persistent per-user workspaces**: one isolated Docker Worker and volume per member; idle containers sleep, the disk stays.
@@ -39,7 +39,7 @@ Cloud Agent requires Docker Engine and Docker Compose. On first run, the startup
 ./scripts/start-cloud.sh
 ```
 
-Open `http://localhost:8787` for the user workbench or `http://localhost:8788` for the organization administration console. Local development uses the explicit development identity flow; public deployments must replace it with production OIDC/session authentication. Common management commands:
+Open `http://localhost:8787` for the user workbench or `http://localhost:8788` for the administration console. The first registered user becomes the platform super admin, who can create organizations, assign organization admins, and turn self-service registration on or off. Organization admins onboard members for their own organization. Regular members use the workbench only.
 
 ```bash
 ./scripts/start-cloud.sh --no-build

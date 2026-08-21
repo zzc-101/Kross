@@ -2,6 +2,13 @@ server:
   port: ${PORT:8787}
   error:
     include-message: never
+  servlet:
+    session:
+      timeout: 7d
+      cookie:
+        name: KROSS_SESSION
+        http-only: true
+        same-site: lax
 
 spring:
   application:

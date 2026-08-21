@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { AgentMessage, AgentModel, Conversation, Me, MessagePart } from './types';
+import type { AgentMessage, AgentModel, AuthConfig, Conversation, Me, MessagePart } from './types';
 import type { ChannelEvent } from './channelEvents';
 
 export class ApiError extends Error {
@@ -17,14 +17,28 @@ const id = z.string().min(1);
 const instant = z.string().min(1);
 
 const meSchema: z.ZodType<Me> = z.object({
-  user: z.object({ userId: id, displayName: z.string().min(1) }),
+  user: z.object({
+    userId: id,
+    username: z.string().min(1),
+    displayName: z.string().min(1),
+    platformRole: z.enum(['super_admin', 'user'])
+  }),
   memberships: z.array(z.object({
     id,
     organizationId: id,
+    organizationName: z.string().min(1),
+    organizationSlug: z.string().min(1),
     userId: id,
-    role: z.enum(['owner', 'admin', 'member', 'viewer']),
+    role: z.enum(['admin', 'member']),
     status: z.string()
-  }))
+  })),
+  canAccessAdmin: z.boolean()
+});
+
+const authConfigSchema: z.ZodType<AuthConfig> = z.object({
+  registrationEnabled: z.boolean(),
+  bootstrapRequired: z.boolean(),
+  organizationExists: z.boolean()
 });
 
 const agentModelSchema: z.ZodType<AgentModel> = z.object({
@@ -85,7 +99,6 @@ export class AgentApiClient {
 
   constructor(private readonly options: {
     baseUrl?: string;
-    devUserId?: string;
     fetch?: typeof fetch;
   } = {}) {
     this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -95,22 +108,35 @@ export class AgentApiClient {
     this.organizationId = organizationId;
   }
 
-  me(): Promise<Me> {
-    return this.request('/api/v2/me', meSchema, { organization: false });
+  authConfig(): Promise<AuthConfig> {
+    return this.request('/api/v2/auth/config', authConfigSchema, { organization: false });
   }
 
-  async bootstrapOrganization(input: { name: string; slug: string }): Promise<Me> {
-    await this.request('/api/v2/admin/bootstrap', z.unknown(), {
+  login(input: { username: string; password: string }): Promise<Me> {
+    return this.request('/api/v2/auth/login', meSchema, {
       method: 'POST',
       organization: false,
-      body: {
-        organizationId: globalThis.crypto.randomUUID(),
-        name: input.name,
-        slug: input.slug,
-        defaultTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
-      }
+      body: input
     });
-    return this.me();
+  }
+
+  register(input: { username: string; password: string; displayName?: string }): Promise<Me> {
+    return this.request('/api/v2/auth/register', meSchema, {
+      method: 'POST',
+      organization: false,
+      body: input
+    });
+  }
+
+  logout(): Promise<void> {
+    return this.request('/api/v2/auth/logout', z.unknown().optional(), {
+      method: 'POST',
+      organization: false
+    }).then(() => undefined);
+  }
+
+  me(): Promise<Me> {
+    return this.request('/api/v2/me', meSchema, { organization: false });
   }
 
   getCurrentModel(): Promise<AgentModel | null> {
@@ -170,7 +196,6 @@ export class AgentApiClient {
     signal: AbortSignal
   ): Promise<void> {
     const headers = new Headers({ accept: 'text/event-stream' });
-    if (this.options.devUserId) headers.set('x-kross-user-id', this.options.devUserId);
     if (this.organizationId) headers.set('x-kross-organization-id', this.organizationId);
     const response = await this.fetcher(
       new URL(
@@ -204,7 +229,6 @@ export class AgentApiClient {
     organization?: boolean;
   } = {}): Promise<T> {
     const headers = new Headers({ accept: 'application/json' });
-    if (this.options.devUserId) headers.set('x-kross-user-id', this.options.devUserId);
     if ((init.organization ?? true) && this.organizationId) {
       headers.set('x-kross-organization-id', this.organizationId);
     }
