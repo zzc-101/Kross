@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.agent.AgentService;
 import com.kross.agent.dto.AgentProtocol;
 import com.kross.api.ApiException;
+import com.kross.observability.RequestLogContext;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,15 +28,18 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
   public void afterConnectionEstablished(WebSocketSession session) throws Exception {
     String token = attribute(session, AgentSocketHub.ATTR_TOKEN);
     String agentId = attribute(session, AgentSocketHub.ATTR_AGENT_ID);
-    hub.attach(agentId, token, session);
-    try {
-      AgentProtocol.Registered registered = agents.register(
-          token, new AgentProtocol.RegisterRequest("agent.register", agentId));
-      hub.send(agentId, registered);
-      agents.offerJobToWorker(agentId);
-    } catch (RuntimeException error) {
-      sendError(agentId, error);
-      session.close(CloseStatus.POLICY_VIOLATION);
+    try (AutoCloseable ignored = bind(agentId)) {
+      hub.attach(agentId, token, session);
+      log.info("Agent worker connected");
+      try {
+        AgentProtocol.Registered registered = agents.register(
+            token, new AgentProtocol.RegisterRequest("agent.register", agentId));
+        hub.send(agentId, registered);
+        agents.offerJobToWorker(agentId);
+      } catch (RuntimeException error) {
+        sendError(agentId, error);
+        session.close(CloseStatus.POLICY_VIOLATION);
+      }
     }
   }
 
@@ -42,42 +47,52 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
   protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
     String token = attribute(session, AgentSocketHub.ATTR_TOKEN);
     String agentId = attribute(session, AgentSocketHub.ATTR_AGENT_ID);
-    JsonNode root;
-    try {
-      root = mapper.readTree(message.getPayload());
-    } catch (Exception error) {
-      hub.send(agentId, AgentProtocol.SocketError.of("invalid_request", "Invalid websocket payload"));
-      return;
-    }
-    String type = root.path("type").asText("");
-    try {
-      switch (type) {
-        case "agent.heartbeat" -> hub.send(
-            agentId,
-            agents.heartbeat(token, mapper.treeToValue(root, AgentProtocol.HeartbeatRequest.class)));
-        case "agent.events" -> agents.ingestEvents(
-            token, mapper.treeToValue(root, AgentProtocol.StreamEventsRequest.class));
-        case "agent.message" -> agents.postReply(
-            token, mapper.treeToValue(root, AgentProtocol.ReplyRequest.class));
-        case "agent.sleep" -> {
-          agents.sleepFromWorker(token, mapper.treeToValue(root, AgentProtocol.SleepRequest.class));
-          session.close(CloseStatus.NORMAL);
-        }
-        case "agent.model_environment" -> hub.send(agentId, agents.modelEnvironment(token));
-        default -> hub.send(
-            agentId, AgentProtocol.SocketError.of("unknown_type", "Unsupported websocket message type"));
+    try (AutoCloseable ignored = bind(agentId)) {
+      JsonNode root;
+      try {
+        root = mapper.readTree(message.getPayload());
+      } catch (Exception error) {
+        hub.send(agentId, AgentProtocol.SocketError.of("invalid_request", "Invalid websocket payload"));
+        return;
       }
-    } catch (ApiException error) {
-      sendError(agentId, error);
-    } catch (RuntimeException error) {
-      log.warn("Agent websocket handler failed for {}", agentId, error);
-      sendError(agentId, error);
+      String type = root.path("type").asText("");
+      try {
+        switch (type) {
+          case "agent.heartbeat" -> hub.send(
+              agentId,
+              agents.heartbeat(token, mapper.treeToValue(root, AgentProtocol.HeartbeatRequest.class)));
+          case "agent.events" -> agents.ingestEvents(
+              token, mapper.treeToValue(root, AgentProtocol.StreamEventsRequest.class));
+          case "agent.message" -> agents.postReply(
+              token, mapper.treeToValue(root, AgentProtocol.ReplyRequest.class));
+          case "agent.sleep" -> {
+            agents.sleepFromWorker(token, mapper.treeToValue(root, AgentProtocol.SleepRequest.class));
+            session.close(CloseStatus.NORMAL);
+          }
+          case "agent.model_environment" -> hub.send(agentId, agents.modelEnvironment(token));
+          default -> hub.send(
+              agentId, AgentProtocol.SocketError.of("unknown_type", "Unsupported websocket message type"));
+        }
+      } catch (ApiException error) {
+        sendError(agentId, error);
+      } catch (RuntimeException error) {
+        log.warn("Agent websocket handler failed for {}", agentId, error);
+        sendError(agentId, error);
+      }
     }
   }
 
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-    hub.detach(session);
+    String agentId = Optional.ofNullable(session.getAttributes().get(AgentSocketHub.ATTR_AGENT_ID))
+        .map(Object::toString)
+        .orElse("");
+    try (AutoCloseable ignored = bind(agentId)) {
+      hub.detach(session);
+      log.info("Agent worker disconnected");
+    } catch (Exception ignored) {
+      hub.detach(session);
+    }
   }
 
   @Override
@@ -90,6 +105,13 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
     String message = Optional.ofNullable(error.getMessage()).filter(value -> !value.isBlank())
         .orElse("Agent websocket request failed");
     hub.send(agentId, AgentProtocol.SocketError.of(code, message));
+  }
+
+  private static AutoCloseable bind(String agentId) {
+    return RequestLogContext.overlay(
+        Optional.ofNullable(agentId).filter(value -> !value.isBlank())
+            .map(id -> Map.of(RequestLogContext.AGENT_ID, id))
+            .orElse(Map.of()));
   }
 
   private static String attribute(WebSocketSession session, String key) {

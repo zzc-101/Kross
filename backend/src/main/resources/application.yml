@@ -38,6 +38,14 @@ mybatis:
   type-handlers-package: com.kross.support
   mapper-locations: classpath:mapper/*.xml
 
+logging:
+  structured:
+    format:
+      console: logstash
+    json:
+      add:
+        service: kross-control-plane
+
 kross:
   dev-identity-enabled: ${KROSS_DEV_IDENTITY:false}
   public-base-url: ${KROSS_PUBLIC_BASE_URL:http://127.0.0.1:8787}

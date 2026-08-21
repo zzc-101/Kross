@@ -29,6 +29,7 @@ import com.kross.identity.OrganizationContext;
 import com.kross.orchestrator.AgentNames;
 import com.kross.orchestrator.ContainerBackend;
 import com.kross.orchestrator.ContainerBackend.BackendHandle;
+import com.kross.observability.RequestLogContext;
 import com.kross.orchestrator.ContainerBackend.ResourceLimits;
 import com.kross.support.Tokens;
 import java.time.Instant;
@@ -144,6 +145,8 @@ public class AgentService {
     agents.touchConversation(conversation.getId());
     agents.touch(agent.getId());
     emitUpsert(row);
+    RequestLogContext.put(RequestLogContext.CONVERSATION_ID, conversation.getId());
+    RequestLogContext.bindAgent(agent);
     Agent toWake = agent;
     afterCommit(() -> {
       try {
@@ -226,11 +229,13 @@ public class AgentService {
     AgentSession session = authenticate(token);
     assertAgent(session, Optional.ofNullable(request.agentId()));
     Agent agent = requireAgent(session.getAgentId());
+    RequestLogContext.bindAgent(agent);
     agents.requeueInterruptedMessages(agent.getId());
     agent.setStatus("running");
     agent.setLastError(null);
     agent.setLastActiveAt(Instant.now());
     agents.updateRuntime(agent);
+    log.info("Agent worker registered");
     return new AgentProtocol.Registered(
         2,
         "agent.registered",
@@ -262,7 +267,12 @@ public class AgentService {
   public Optional<AgentProtocol.Job> claimJob(String token) {
     AgentSession session = authenticate(token);
     Optional<AgentMessage> claimed = agents.claimJob(session.getAgentId());
-    claimed.ifPresent(row -> agents.touch(session.getAgentId()));
+    claimed.ifPresent(row -> {
+      agents.touch(session.getAgentId());
+      RequestLogContext.put(RequestLogContext.AGENT_ID, session.getAgentId());
+      RequestLogContext.put(RequestLogContext.ORGANIZATION_ID, session.getOrganizationId());
+      RequestLogContext.put(RequestLogContext.CONVERSATION_ID, row.getConversationId());
+    });
     return claimed.map(row -> {
       String conversationId = Optional.ofNullable(row.getConversationId()).orElse("");
       List<AgentProtocol.HistoryTurn> history = conversationId.isBlank()
@@ -299,6 +309,9 @@ public class AgentService {
         .orElseThrow(() -> ApiException.notFound("Message"));
     String conversationId = Optional.ofNullable(userMessage.getConversationId())
         .orElseThrow(() -> ApiException.invalidRequest("Message is missing a conversation"));
+    RequestLogContext.put(RequestLogContext.AGENT_ID, session.getAgentId());
+    RequestLogContext.put(RequestLogContext.ORGANIZATION_ID, session.getOrganizationId());
+    RequestLogContext.put(RequestLogContext.CONVERSATION_ID, conversationId);
     String body = content.isEmpty() && "failed".equals(status)
         ? Optional.ofNullable(request.errorSummary()).orElse("Agent turn failed")
         : content;
@@ -340,6 +353,9 @@ public class AgentService {
         .filter(row -> session.getAgentId().equals(row.getAgentId()))
         .orElseThrow(() -> ApiException.notFound("Message"));
     String conversationId = Optional.ofNullable(reply.getConversationId()).orElse("");
+    RequestLogContext.put(RequestLogContext.AGENT_ID, session.getAgentId());
+    RequestLogContext.put(RequestLogContext.ORGANIZATION_ID, session.getOrganizationId());
+    RequestLogContext.put(RequestLogContext.CONVERSATION_ID, conversationId);
     List<AgentProtocol.StreamEvent> events = Optional.ofNullable(request.events()).orElse(List.of());
     for (AgentProtocol.StreamEvent event : events) {
       if (event == null || event.type() == null || event.type().isBlank()) {
@@ -483,20 +499,24 @@ public class AgentService {
   public void scheduleWake(String organizationId) {
     try {
       OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
-      Thread.ofVirtual().start(() -> wakeQuietly(ensure(context)));
+      RequestLogContext.put(RequestLogContext.ORGANIZATION_ID, context.organizationId());
+      RequestLogContext.put(RequestLogContext.USER_ID, context.userId());
+      Thread.ofVirtual().start(RequestLogContext.propagate(() -> wakeQuietly(ensure(context))));
     } catch (RuntimeException error) {
       log.warn("Failed to schedule agent wake: {}", error.getMessage());
     }
   }
 
   public void scheduleWakeFor(String organizationId, String userId) {
-    Thread.ofVirtual().start(() -> {
+    RequestLogContext.put(RequestLogContext.ORGANIZATION_ID, organizationId);
+    RequestLogContext.put(RequestLogContext.USER_ID, userId);
+    Thread.ofVirtual().start(RequestLogContext.propagate(() -> {
       try {
         wakeQuietly(ensure(organizationId, userId));
       } catch (RuntimeException error) {
         log.warn("Failed to wake agent workspace: {}", error.getMessage());
       }
-    });
+    }));
   }
 
   public void wakeWorkspaceQuietly(String organizationId) {
@@ -517,6 +537,7 @@ public class AgentService {
   }
 
   private void wake(Agent agent) {
+    RequestLogContext.bindAgent(agent);
     Optional<ContainerBackend.BackendInspection> inspection = containers.inspect(agent.getId());
     if (inspection.filter(state -> "running".equals(state.state())).isPresent()) {
       agent.setStatus("running");
@@ -525,12 +546,15 @@ public class AgentService {
           .ifPresent(agent::setNodeId);
       agent.setLastError(null);
       agents.updateRuntime(agent);
+      RequestLogContext.bindAgent(agent);
+      log.info("Agent workspace already running");
       return;
     }
     String token = issueToken(agent);
     agent.setStatus("starting");
     agent.setLastError(null);
     agents.updateRuntime(agent);
+    log.info("Starting agent workspace");
     try {
       KrossProperties.Agent settings = properties.getAgent();
       BackendHandle handle = containers.start(new ContainerBackend.StartRequest(
@@ -543,6 +567,8 @@ public class AgentService {
       agent.setNodeId(Optional.ofNullable(handle.nodeId()).filter(value -> !value.isBlank()).orElse(agent.getNodeId()));
       agent.setLastActiveAt(Instant.now());
       agents.updateRuntime(agent);
+      RequestLogContext.bindAgent(agent);
+      log.info("Agent workspace started");
     } catch (ApiException error) {
       agent.setStatus("error");
       agent.setLastError(Optional.ofNullable(error.getMessage()).orElse("Failed to start agent container"));
@@ -627,15 +653,16 @@ public class AgentService {
   }
 
   private void afterCommit(Runnable action) {
+    Runnable traced = RequestLogContext.propagate(action);
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
       TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
         @Override
         public void afterCommit() {
-          action.run();
+          traced.run();
         }
       });
       return;
     }
-    action.run();
+    traced.run();
   }
 }

@@ -2,6 +2,7 @@ package com.kross.fleet;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.api.ApiException;
+import com.kross.observability.RequestLogContext;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,6 +37,7 @@ public class NodeHub {
   }
 
   public void attach(String nodeId, String hostname, boolean juicefsOk, int runningAgents, WebSocketSession session) {
+    RequestLogContext.put(RequestLogContext.NODE_ID, nodeId);
     WebSocketSession previous = sessions.put(nodeId, session);
     if (previous != null && previous.isOpen() && !previous.getId().equals(session.getId())) {
       sessionToNode.remove(previous.getId());
@@ -54,10 +56,13 @@ public class NodeHub {
     row.setRunningAgents(runningAgents);
     row.setLastSeenAt(Instant.now());
     nodes.upsert(row);
+    log.info("Node connected juicefsOk={} runningAgents={}", juicefsOk, runningAgents);
   }
 
   public void heartbeat(String nodeId, boolean juicefsOk, int runningAgents) {
+    RequestLogContext.put(RequestLogContext.NODE_ID, nodeId);
     WorkerNode row = nodes.findById(nodeId).orElseGet(WorkerNode::new);
+    boolean previousJuicefs = row.isJuicefsOk();
     row.setId(nodeId);
     row.setHostname(Optional.ofNullable(row.getHostname()).filter(value -> !value.isBlank()).orElse(nodeId));
     row.setStatus("online");
@@ -65,6 +70,9 @@ public class NodeHub {
     row.setRunningAgents(runningAgents);
     row.setLastSeenAt(Instant.now());
     nodes.upsert(row);
+    if (previousJuicefs != juicefsOk) {
+      log.warn("Node JuiceFS health changed to {}", juicefsOk);
+    }
   }
 
   public void detach(WebSocketSession session) {
@@ -74,6 +82,8 @@ public class NodeHub {
     }
     sessions.remove(nodeId, session);
     nodes.markOffline(nodeId);
+    RequestLogContext.put(RequestLogContext.NODE_ID, nodeId);
+    log.info("Node disconnected");
   }
 
   public boolean isOnline(String nodeId) {
@@ -131,6 +141,7 @@ public class NodeHub {
   }
 
   private void send(String nodeId, Object payload) {
+    RequestLogContext.put(RequestLogContext.NODE_ID, nodeId);
     WebSocketSession session = Optional.ofNullable(sessions.get(nodeId))
         .filter(WebSocketSession::isOpen)
         .orElseThrow(() -> new ApiException("node_unavailable", "Worker node is offline", 503));

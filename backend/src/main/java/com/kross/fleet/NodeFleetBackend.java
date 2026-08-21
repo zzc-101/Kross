@@ -4,15 +4,18 @@ import com.kross.agent.AgentMapper;
 import com.kross.agent.entity.Agent;
 import com.kross.api.ApiException;
 import com.kross.config.KrossProperties;
+import com.kross.observability.RequestLogContext;
 import com.kross.orchestrator.ContainerBackend;
 import com.kross.orchestrator.WorkerStorageMode;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 @Primary
 @RequiredArgsConstructor
@@ -29,8 +32,11 @@ public class NodeFleetBackend implements ContainerBackend {
 
   @Override
   public BackendHandle start(StartRequest request) {
+    RequestLogContext.put(RequestLogContext.AGENT_ID, request.agentId());
     Optional<String> previous = currentNode(request.agentId());
     String nodeId = pickNode(request.agentId());
+    RequestLogContext.put(RequestLogContext.NODE_ID, nodeId);
+    log.info("Dispatching agent start to node");
     previous.filter(id -> !id.equals(nodeId)).filter(hub::isOnline).ifPresent(oldNode -> {
       try {
         hub.request(oldNode, new NodeProtocol.StopCommand(UUID.randomUUID().toString(), request.agentId()));
@@ -85,12 +91,15 @@ public class NodeFleetBackend implements ContainerBackend {
     return currentNode(agentId)
         .filter(nodeId -> hub.isHealthy(nodeId, juicefs))
         .or(() -> hub.pickLeastLoaded(juicefs))
-        .orElseThrow(() -> new ApiException(
-            "node_unavailable",
-            juicefs
-                ? "No healthy JuiceFS worker node is online"
-                : "No healthy worker node is online",
-            503));
+        .orElseThrow(() -> {
+          log.warn("No healthy worker node is available juicefsRequired={}", juicefs);
+          return new ApiException(
+              "node_unavailable",
+              juicefs
+                  ? "No healthy JuiceFS worker node is online"
+                  : "No healthy worker node is online",
+              503);
+        });
   }
 
   private Optional<String> currentNode(String agentId) {
