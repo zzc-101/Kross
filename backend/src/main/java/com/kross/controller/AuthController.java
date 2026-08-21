@@ -3,6 +3,7 @@ package com.kross.controller;
 import com.kross.agent.AgentService;
 import com.kross.api.ApiException;
 import com.kross.api.Res;
+import com.kross.identity.AuthLogService;
 import com.kross.identity.AuthService;
 import com.kross.identity.SsoService;
 import com.kross.identity.dto.AuthConfigView;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/auth")
 public class AuthController {
   private final AuthService auth;
+  private final AuthLogService authLogs;
   private final SsoService sso;
   private final AgentService agents;
 
@@ -53,10 +55,30 @@ public class AuthController {
 
   @PostMapping("/login")
   public Res<MeResponse> login(@RequestBody LoginRequest request, HttpServletRequest http) {
-    MeResponse me = auth.login(request);
-    AuthSessions.establish(http, IdentityViews.identity(me.user()));
-    wakeWorkspace(me);
-    return Res.ok(me);
+    try {
+      MeResponse me = auth.login(request);
+      AuthSessions.establish(http, IdentityViews.identity(me.user()));
+      authLogs.record(
+          http,
+          "login",
+          "password",
+          "success",
+          Optional.ofNullable(me.user().username()),
+          Optional.ofNullable(me.user().userId()),
+          Optional.empty());
+      wakeWorkspace(me);
+      return Res.ok(me);
+    } catch (ApiException failed) {
+      authLogs.record(
+          http,
+          "login",
+          "password",
+          "failure",
+          Optional.ofNullable(request.username()),
+          Optional.empty(),
+          Optional.ofNullable(failed.getCode()));
+      throw failed;
+    }
   }
 
   @GetMapping("/sso/start")
@@ -82,10 +104,26 @@ public class AuthController {
       User user = sso.complete(http, code.orElse(null), state.orElse(null));
       String next = sso.returnPath(http);
       AuthSessions.establish(http, auth.identityOf(user));
+      authLogs.record(
+          http,
+          "login",
+          "sso",
+          "success",
+          Optional.ofNullable(user.getUsername()),
+          Optional.ofNullable(user.getId()),
+          Optional.empty());
       MeResponse me = auth.current();
       wakeWorkspace(me);
       response.sendRedirect(next);
     } catch (ApiException failed) {
+      authLogs.record(
+          http,
+          "login",
+          "sso",
+          "failure",
+          Optional.empty(),
+          Optional.empty(),
+          Optional.ofNullable(failed.getCode()));
       String next = sso.returnPath(http);
       String separator = next.contains("?") ? "&" : "?";
       response.sendRedirect(next + separator + "sso_error=" + URLEncoder.encode(failed.getMessage(), StandardCharsets.UTF_8));
@@ -94,6 +132,14 @@ public class AuthController {
 
   @PostMapping("/logout")
   public Res<Void> logout(HttpServletRequest http) {
+    AuthSessions.identity(http).ifPresent(current -> authLogs.record(
+        http,
+        "logout",
+        "session",
+        "success",
+        Optional.ofNullable(current.username()),
+        Optional.ofNullable(current.userId()),
+        Optional.empty()));
     AuthSessions.clear(http);
     return Res.ok();
   }

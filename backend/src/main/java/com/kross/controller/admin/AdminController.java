@@ -8,9 +8,11 @@ import com.kross.catalog.dto.AuditEventView;
 import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
 import com.kross.catalog.dto.UpdateModelRequest;
+import com.kross.identity.AuthLogService;
 import com.kross.identity.AuthService;
 import com.kross.identity.PlatformService;
 import com.kross.identity.SsoService;
+import com.kross.identity.dto.AuthLoginEventView;
 import com.kross.identity.dto.AssignOrgAdminRequest;
 import com.kross.identity.dto.CreateOrganizationRequest;
 import com.kross.identity.dto.CreateUserRequest;
@@ -50,6 +52,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminController {
   private final AdminService admin;
   private final AuthService auth;
+  private final AuthLogService authLogs;
   private final PlatformService platform;
   private final SsoService sso;
 
@@ -163,6 +166,15 @@ public class AdminController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestBody UpdatePolicyRequest request) {
     return Res.ok(admin.updatePolicy(organizationId, request));
+  }
+
+  @GetMapping("/auth-logs")
+  public Res<PageResponse<AuthLoginEventView>> authLogs(
+      @RequestParam(defaultValue = "1") int page,
+      @RequestParam(defaultValue = "20") int pageSize,
+      @RequestParam Optional<String> eventType,
+      @RequestParam Optional<String> outcome) {
+    return Res.ok(authLogs.list(page, pageSize, eventType, outcome));
   }
 
   @GetMapping("/audit-logs")

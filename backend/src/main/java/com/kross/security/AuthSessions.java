@@ -43,6 +43,10 @@ public final class AuthSessions {
     Optional.ofNullable(request.getSession(false)).ifPresent(HttpSession::invalidate);
   }
 
+  public static Optional<Identity> identity(HttpServletRequest request) {
+    return current(request);
+  }
+
   static Optional<Identity> current(HttpServletRequest request) {
     return Optional.ofNullable(request.getSession(false))
         .map(session -> session.getAttribute(IDENTITY_ATTR))
