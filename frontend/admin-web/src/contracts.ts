@@ -104,6 +104,19 @@ export const auditLogSchema = z.object({
   payload: z.record(z.unknown()), occurredAt: date
 }).strict();
 
+export const authLoginEventSchema = z.object({
+  id,
+  eventType: z.enum(['login', 'logout']),
+  method: z.enum(['password', 'sso', 'session']),
+  outcome: z.enum(['success', 'failure']),
+  username: z.string().min(1).nullish(),
+  userId: z.string().min(1).nullish(),
+  reason: z.string().min(1).nullish(),
+  ip: z.string().min(1).nullish(),
+  userAgent: z.string().min(1).nullish(),
+  occurredAt: date
+}).strict();
+
 export const page = <T extends z.ZodTypeAny>(item: T) => z.object({
   items: z.array(item), page: z.number().int().positive(), pageSize: z.number().int().positive(), total: z.number().int().nonnegative()
 }).strict();
@@ -120,3 +133,4 @@ export type Member = z.infer<typeof memberSchema>;
 export type ModelConfig = z.infer<typeof modelSchema>;
 export type ApprovalPolicy = z.infer<typeof approvalPolicySchema>;
 export type AuditLog = z.infer<typeof auditLogSchema>;
+export type AuthLoginEvent = z.infer<typeof authLoginEventSchema>;

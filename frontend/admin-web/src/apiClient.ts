@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  approvalPolicySchema, auditLogSchema, authConfigSchema, dashboardSchema, memberSchema, modelSchema,
+  approvalPolicySchema, auditLogSchema, authConfigSchema, authLoginEventSchema, dashboardSchema, memberSchema, modelSchema,
   page, platformOrganizationSchema, platformSchema, platformSsoSchema, sessionSchema, userAccountSchema,
   type ApprovalPolicy, type Member, type ModelConfig, type PlatformSettings, type PlatformSso, type Session, type UserAccount
 } from './contracts';
@@ -75,6 +75,9 @@ export class AdminApiClient {
   approvalPolicy() { return this.request('/api/v2/admin/approval-policy', approvalPolicySchema); }
   updateApprovalPolicy(input: ApprovalPolicy) { return this.request('/api/v2/admin/approval-policy', approvalPolicySchema, { method: 'PATCH', body: input }); }
   auditLogs() { return this.request('/api/v2/admin/audit-logs', page(auditLogSchema)).then(x => x.items); }
+  authLogs() {
+    return this.request('/api/v2/admin/auth-logs', page(authLoginEventSchema), { organization: false }).then(x => x.items);
+  }
   platform() { return this.request('/api/v2/admin/platform', platformSchema, { organization: false }); }
   updatePlatform(input: Partial<PlatformSettings>) {
     return this.request('/api/v2/admin/platform', platformSchema, { method: 'PATCH', body: input, organization: false });

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Activity, AlertTriangle, Bot, Building2, CheckCircle2, ChevronDown, Cpu,
-  LayoutDashboard, Menu, Plus, RefreshCw, ScrollText, Settings, ShieldCheck, Users, X
+  KeyRound, LayoutDashboard, Menu, Plus, RefreshCw, ScrollText, Settings, ShieldCheck, Users, X
 } from 'lucide-react';
 import { AdminApiClient, AdminApiError } from './apiClient';
-import type { ApprovalPolicy, AuditLog, AuthConfig, Member, ModelConfig, Session, UserAccount } from './contracts';
+import type { ApprovalPolicy, AuditLog, AuthConfig, AuthLoginEvent, Member, ModelConfig, Session, UserAccount } from './contracts';
 
-type Page = 'organizations' | 'platform' | 'dashboard' | 'members' | 'models' | 'policy' | 'audit';
+type Page = 'organizations' | 'platform' | 'logins' | 'dashboard' | 'members' | 'models' | 'policy' | 'audit';
 const orgNavigation: Array<{ id: Page; label: string; icon: typeof LayoutDashboard }> = [
   { id: 'dashboard', label: '概览', icon: LayoutDashboard },
   { id: 'members', label: '成员与角色', icon: Users },
@@ -39,7 +39,7 @@ export function App() {
     setPage(current => {
       if (!data.canAccessAdmin) return current;
       if (data.user.platformRole === 'super_admin' && adminMemberships.length === 0) return 'organizations';
-      if (current === 'organizations' || current === 'platform') {
+      if (current === 'organizations' || current === 'platform' || current === 'logins') {
         return data.user.platformRole === 'super_admin' ? current : (firstOrganizationId ? 'dashboard' : current);
       }
       return firstOrganizationId ? current : 'organizations';
@@ -106,7 +106,8 @@ export function App() {
   const pages = [
     ...(superAdmin ? [
       { id: 'organizations' as const, label: '组织', icon: Building2 },
-      { id: 'platform' as const, label: '平台设置', icon: Settings }
+      { id: 'platform' as const, label: '平台设置', icon: Settings },
+      { id: 'logins' as const, label: '登录日志', icon: KeyRound }
     ] : []),
     ...(currentMembership ? orgNavigation : [])
   ];
@@ -131,6 +132,7 @@ export function App() {
       <div className="content">
         {page === 'organizations' && superAdmin && <OrganizationsPage api={api} currentUsername={session.user.username} onChanged={() => void api.me().then(applyMe)} />}
         {page === 'platform' && superAdmin && <PlatformPage api={api} />}
+        {page === 'logins' && superAdmin && <AuthLogsPage api={api} />}
         {page === 'dashboard' && currentMembership && <DashboardPage api={api} />}
         {page === 'members' && currentMembership && <MembersPage api={api} />}
         {page === 'models' && currentMembership && <ModelsPage api={api} />}
@@ -385,6 +387,21 @@ function AuditPage({ api }: { api: AdminApiClient }) {
   return <PageFrame title="审计日志" subtitle="追踪管理操作、权限决策和配置变更" action={<RefreshButton onClick={state.reload} />}><Resource state={state} empty="暂无审计事件。">{logs => <div className="card audit-list">{logs.map(log => <AuditRow key={log.id} log={log} />)}</div>}</Resource></PageFrame>;
 }
 function AuditRow({ log }: { log: AuditLog }) { return <div className="audit-row"><span className="result success"><CheckCircle2 /></span><div className="grow"><strong>{log.actorUserId ?? '系统'} · {log.action}</strong><p>{log.resourceType}{log.resourceId ? ` / ${log.resourceId}` : ''}</p></div><div className="audit-meta"><span>{formatDate(log.occurredAt)}</span><small>{Object.keys(log.payload).length ? '包含操作详情' : '无附加数据'}</small></div></div>; }
+
+function AuthLogsPage({ api }: { api: AdminApiClient }) {
+  const state = useResource(() => api.authLogs(), [api]);
+  return <PageFrame title="登录日志" subtitle="记录密码与 SSO 登录、登出，以及失败尝试。不按组织隔离。" action={<RefreshButton onClick={state.reload} />}><Resource state={state} empty="暂无登录事件。">{logs => <div className="card audit-list">{logs.map(log => <AuthLogRow key={log.id} log={log} />)}</div>}</Resource></PageFrame>;
+}
+function AuthLogRow({ log }: { log: AuthLoginEvent }) {
+  const ok = log.outcome === 'success';
+  const who = log.username || log.userId || '未知账号';
+  const action = log.eventType === 'logout' ? '登出' : (log.method === 'sso' ? 'SSO 登录' : '密码登录');
+  return <div className="audit-row">
+    <span className={ok ? 'result success' : 'result'}><CheckCircle2 /></span>
+    <div className="grow"><strong>{who} · {action}</strong><p>{ok ? '成功' : (log.reason || '失败')}{log.ip ? ` · ${log.ip}` : ''}</p></div>
+    <div className="audit-meta"><span>{formatDate(log.occurredAt)}</span><small>{log.userAgent || '无客户端信息'}</small></div>
+  </div>;
+}
 
 function PageFrame({ title, subtitle, action, children }: { title: string; subtitle: string; action?: ReactNode; children: ReactNode }) { return <><div className="page-heading"><div><h1>{title}</h1><p>{subtitle}</p></div>{action}</div>{children}</>; }
 function Resource<T>({ state, children, empty = '暂无数据。' }: { state: { data?: T; loading: boolean; error: string; reload: () => void }; children: (data: T) => ReactNode; empty?: string }) { if (state.loading) return <div className="resource"><Spinner /><span>正在加载…</span></div>; if (state.error) return <div className="resource error"><AlertTriangle /><strong>加载失败</strong><span>{state.error}</span><button className="button secondary" onClick={state.reload}>重试</button></div>; if (Array.isArray(state.data) && state.data.length === 0) return <div className="resource empty"><ScrollText /><strong>{empty}</strong></div>; return state.data === undefined ? null : <>{children(state.data)}</>; }
