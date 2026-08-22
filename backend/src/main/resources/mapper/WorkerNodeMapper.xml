@@ -13,6 +13,11 @@
     ORDER BY running_agents ASC, id ASC
   </select>
 
+  <select id="listAll" resultType="com.kross.fleet.WorkerNode">
+    SELECT * FROM worker_nodes
+    ORDER BY status DESC, last_seen_at DESC NULLS LAST, id ASC
+  </select>
+
   <insert id="upsert">
     INSERT INTO worker_nodes
       (id, hostname, status, running_agents, juicefs_ok, last_seen_at, created_at, updated_at)

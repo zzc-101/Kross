@@ -70,11 +70,59 @@ export const userAccountSchema = z.object({
   createdAt: date
 }).strict();
 
-export const dashboardSchema = z.object({ counts: z.object({
-  activeMembers: z.number().int().nonnegative(),
+export const usageSchema = z.object({
+  messages1d: z.number().int().nonnegative(),
+  messages7d: z.number().int().nonnegative()
+}).strict();
+
+export const agentRuntimeSchema = z.object({
+  id,
+  userId: id,
+  username: z.string().min(1),
+  displayName: z.string().min(1),
+  status: z.string().min(1),
+  nodeId: z.string().min(1).nullish(),
+  lastError: z.string().nullish(),
+  lastActiveAt: date.nullish(),
+  connected: z.boolean()
+}).strict();
+
+export const nodeHealthSchema = z.object({
+  id,
+  hostname: z.string().nullish(),
+  status: z.string().min(1),
   runningAgents: z.number().int().nonnegative(),
-  stoppedAgents: z.number().int().nonnegative()
-}).strict() }).strict();
+  juicefsOk: z.boolean(),
+  lastSeenAt: date.nullish(),
+  connected: z.boolean()
+}).strict();
+
+export const dashboardSchema = z.object({
+  counts: z.object({
+    activeMembers: z.number().int().nonnegative(),
+    runningAgents: z.number().int().nonnegative(),
+    stoppedAgents: z.number().int().nonnegative()
+  }).strict(),
+  usage: usageSchema,
+  agents: z.array(agentRuntimeSchema),
+  nodes: z.array(nodeHealthSchema)
+}).strict();
+
+export const inviteSchema = z.object({
+  id,
+  role: z.enum(['admin', 'member']),
+  expiresAt: date,
+  acceptedAt: date.nullish(),
+  createdAt: date
+}).strict();
+
+export const createdInviteSchema = z.object({
+  id,
+  token: z.string().min(1),
+  role: z.enum(['admin', 'member']),
+  expiresAt: date,
+  path: z.string().min(1)
+}).strict();
 
 export const memberSchema = z.object({
   id, userId: id, username: z.string().min(1), displayName: z.string().min(1),
@@ -129,6 +177,10 @@ export type PlatformSso = z.infer<typeof platformSsoSchema>;
 export type PlatformOrganization = z.infer<typeof platformOrganizationSchema>;
 export type UserAccount = z.infer<typeof userAccountSchema>;
 export type Dashboard = z.infer<typeof dashboardSchema>;
+export type AgentRuntime = z.infer<typeof agentRuntimeSchema>;
+export type NodeHealth = z.infer<typeof nodeHealthSchema>;
+export type Invite = z.infer<typeof inviteSchema>;
+export type CreatedInvite = z.infer<typeof createdInviteSchema>;
 export type Member = z.infer<typeof memberSchema>;
 export type ModelConfig = z.infer<typeof modelSchema>;
 export type ApprovalPolicy = z.infer<typeof approvalPolicySchema>;

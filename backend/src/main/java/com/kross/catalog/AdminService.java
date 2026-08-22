@@ -2,6 +2,8 @@ package com.kross.catalog;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.agent.AgentService;
+import com.kross.agent.entity.AgentRuntimeRow;
+import com.kross.agent.entity.UsageCounts;
 import com.kross.api.ApiException;
 import com.kross.api.PageResponse;
 import com.kross.catalog.dto.AuditEventView;
@@ -12,6 +14,9 @@ import com.kross.catalog.dto.UpdateModelRequest;
 import com.kross.catalog.entity.AuditEvent;
 import com.kross.catalog.entity.CredentialHandle;
 import com.kross.catalog.entity.ModelProfile;
+import com.kross.channel.AgentSocketHub;
+import com.kross.fleet.WorkerNode;
+import com.kross.fleet.WorkerNodeMapper;
 import com.kross.identity.AuthService;
 import com.kross.identity.IdentityMapper;
 import com.kross.identity.MembershipRole;
@@ -19,17 +24,26 @@ import com.kross.identity.OrganizationAccess;
 import com.kross.identity.OrganizationAction;
 import com.kross.identity.OrganizationContext;
 import com.kross.identity.Rbac;
+import com.kross.identity.dto.AgentRuntimeView;
+import com.kross.identity.dto.CreatedInviteView;
+import com.kross.identity.dto.CreateInviteRequest;
 import com.kross.identity.dto.DashboardResponse;
 import com.kross.identity.dto.IdentityViews;
 import com.kross.identity.dto.InviteMemberRequest;
+import com.kross.identity.dto.InviteView;
 import com.kross.identity.dto.MemberRemoved;
 import com.kross.identity.dto.MemberView;
+import com.kross.identity.dto.NodeHealthView;
 import com.kross.identity.dto.OrganizationPolicyView;
 import com.kross.identity.dto.UpdateMemberRequest;
 import com.kross.identity.dto.UpdatePolicyRequest;
+import com.kross.identity.dto.UsageView;
 import com.kross.identity.entity.Member;
+import com.kross.identity.entity.OrganizationInvite;
 import com.kross.identity.entity.User;
 import com.kross.support.Ids;
+import com.kross.support.Tokens;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -49,10 +63,99 @@ public class AdminService {
   private final CatalogMapper catalog;
   private final CredentialVault vault;
   private final ObjectMapper mapper;
+  private final AgentSocketHub sockets;
+  private final WorkerNodeMapper nodes;
 
   public DashboardResponse dashboard(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AUDIT_READ);
-    return new DashboardResponse(IdentityViews.counts(identities.dashboardCounts(context.organizationId())));
+    UsageCounts usage = agents.usageCounts(context.organizationId());
+    List<AgentRuntimeView> runtimes = agents.listRuntimes(context.organizationId()).stream()
+        .map(row -> toRuntimeView(row))
+        .toList();
+    Instant onlineSince = Instant.now().minus(Duration.ofMinutes(2));
+    List<NodeHealthView> nodeViews = nodes.listAll().stream()
+        .map(node -> toNodeView(node, onlineSince))
+        .toList();
+    return new DashboardResponse(
+        IdentityViews.counts(identities.dashboardCounts(context.organizationId())),
+        new UsageView(
+            Optional.ofNullable(usage.getMessages1d()).orElse(0),
+            Optional.ofNullable(usage.getMessages7d()).orElse(0)),
+        runtimes,
+        nodeViews);
+  }
+
+  @Transactional
+  public CreatedInviteView createInvite(String organizationId, CreateInviteRequest request) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.MEMBERSHIP_INVITE);
+    MembershipRole invited = MembershipRole.fromWire(Optional.ofNullable(request.role()).orElse("member"));
+    if (!Rbac.canManageRole(context.role(), invited)) {
+      throw new ApiException("permission_denied", "Role cannot manage the requested membership", 403);
+    }
+    if (identities.countActiveInvites(context.organizationId()) >= 50) {
+      throw ApiException.conflict("invite_limit", "Too many active invite links");
+    }
+    int days = Optional.ofNullable(request.expiresInDays()).orElse(14);
+    if (days < 1 || days > 90) {
+      throw ApiException.invalidRequest("expiresInDays must be 1-90");
+    }
+    String token = Tokens.randomSecret();
+    OrganizationInvite row = new OrganizationInvite();
+    row.setId(UUID.randomUUID().toString());
+    row.setOrganizationId(context.organizationId());
+    row.setTokenHash(Tokens.sha256Hex(token));
+    row.setRole(invited.wire());
+    row.setCreatedBy(context.userId());
+    row.setExpiresAt(Instant.now().plus(Duration.ofDays(days)));
+    identities.insertInvite(row);
+    catalog.insertAudit(
+        context.organizationId(),
+        context.userId(),
+        "membership.invite_link",
+        "invite",
+        row.getId(),
+        mapper.createObjectNode().put("role", invited.wire()));
+    return new CreatedInviteView(row.getId(), token, invited.wire(), row.getExpiresAt(), "/invite/" + token);
+  }
+
+  private AgentRuntimeView toRuntimeView(AgentRuntimeRow row) {
+    return new AgentRuntimeView(
+        row.getId(),
+        row.getUserId(),
+        row.getUsername(),
+        row.getDisplayName(),
+        row.getStatus(),
+        row.getNodeId(),
+        row.getLastError(),
+        row.getLastActiveAt(),
+        sockets.isConnected(row.getId()));
+  }
+
+  private static NodeHealthView toNodeView(WorkerNode node, Instant onlineSince) {
+    boolean connected = "online".equals(node.getStatus())
+        && Optional.ofNullable(node.getLastSeenAt()).filter(seen -> !seen.isBefore(onlineSince)).isPresent();
+    return new NodeHealthView(
+        node.getId(),
+        node.getHostname(),
+        node.getStatus(),
+        node.getRunningAgents(),
+        node.isJuicefsOk(),
+        node.getLastSeenAt(),
+        connected);
+  }
+
+  public List<InviteView> listInvites(String organizationId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.MEMBERSHIP_READ);
+    return identities.listInvites(context.organizationId()).stream()
+        .map(row -> new InviteView(row.getId(), row.getRole(), row.getExpiresAt(), row.getAcceptedAt(), row.getCreatedAt()))
+        .toList();
+  }
+
+  public void revokeInvite(String organizationId, String inviteId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.MEMBERSHIP_INVITE);
+    if (identities.deleteInvite(context.organizationId(), Ids.requireResourceId(inviteId, "Invalid invite")) == 0) {
+      throw ApiException.notFound("Invite");
+    }
   }
 
   public PageResponse<MemberView> listMembers(String organizationId, int page, int pageSize, Optional<String> status) {

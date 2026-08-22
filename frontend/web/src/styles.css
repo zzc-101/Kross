@@ -259,7 +259,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .gate-error { color: #9d3c30 !important; }
 .gate-switch { margin-top: 16px; color: #666; font-size: 13px; }
 .gate-link { border: 0; background: transparent; color: #202020; text-decoration: underline; padding: 0 4px; }
-.gate-card { width: min(400px, calc(100vw - 32px)); padding: 32px; border: 1px solid #dedede; border-radius: 20px; background: #fff; box-shadow: 0 10px 30px rgb(0 0 0 / .08); }
+.gate-card form { width: auto; max-width: none; padding: 0; border: 0; box-shadow: none; }
+.gate-card .primary { margin-top: 12px; }
 .account-username { margin: 0; color: #888; font-size: 12px; }
 .dialog-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgb(0 0 0 / .38); }
 .dialog { width: min(420px, calc(100vw - 32px)); border-radius: 16px; background: #fff; color: #202020; padding: 24px; box-shadow: 0 16px 45px rgb(0 0 0 / .2); }

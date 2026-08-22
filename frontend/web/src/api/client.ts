@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type {
-  AgentMessage, AgentModel, AuthConfig, CloneResult, Conversation, GitStatus, Me, MessagePart, Skill, WorkspaceListing
+  AgentMessage, AgentModel, AuthConfig, CloneResult, Conversation, GitStatus, InvitePreview, Me, MessagePart, Skill, WorkspaceListing
 } from './types';
 import type { ChannelEvent } from './channelEvents';
 
@@ -50,6 +50,14 @@ const authConfigSchema: z.ZodType<AuthConfig> = z.object({
   organizationExists: z.boolean(),
   ssoEnabled: z.boolean(),
   ssoDisplayName: z.string().min(1).optional()
+});
+
+const invitePreviewSchema: z.ZodType<InvitePreview> = z.object({
+  organizationName: z.string().min(1),
+  organizationSlug: z.string().min(1),
+  role: z.enum(['admin', 'member']),
+  expiresAt: instant,
+  accepted: z.boolean()
 });
 
 const agentModelSchema: z.ZodType<AgentModel> = z.object({
@@ -187,6 +195,22 @@ export class AgentApiClient {
 
   me(): Promise<Me> {
     return this.request('/api/v2/me', meSchema, { organization: false });
+  }
+
+  previewInvite(token: string): Promise<InvitePreview> {
+    return this.request(
+      `/api/v2/auth/invites/${encodeURIComponent(token)}`,
+      invitePreviewSchema,
+      { organization: false }
+    );
+  }
+
+  acceptInvite(token: string, input?: { username?: string; password?: string; displayName?: string }): Promise<Me> {
+    return this.request(
+      `/api/v2/auth/invites/${encodeURIComponent(token)}/accept`,
+      meSchema,
+      { method: 'POST', organization: false, body: input ?? {} }
+    );
   }
 
   updateProfile(input: { displayName?: string; avatarUrl?: string; gender?: string; phone?: string }): Promise<Me> {

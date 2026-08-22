@@ -4,8 +4,10 @@ import com.kross.agent.entity.Agent;
 import com.kross.agent.entity.AgentConversation;
 import com.kross.agent.entity.AgentMessage;
 import com.kross.agent.entity.AgentModel;
+import com.kross.agent.entity.AgentRuntimeRow;
 import com.kross.agent.entity.AgentSession;
 import com.kross.agent.entity.AgentSettings;
+import com.kross.agent.entity.UsageCounts;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -97,4 +99,8 @@ public interface AgentMapper {
   Optional<AgentSettings> findSettings(@Param("agentId") String agentId);
 
   void upsertSettings(AgentSettings row);
+
+  List<AgentRuntimeRow> listRuntimes(@Param("organizationId") String organizationId);
+
+  UsageCounts usageCounts(@Param("organizationId") String organizationId);
 }

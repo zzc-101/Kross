@@ -12,6 +12,8 @@ public interface WorkerNodeMapper {
 
   List<WorkerNode> listOnlineSince(@Param("since") Instant since);
 
+  List<WorkerNode> listAll();
+
   void upsert(WorkerNode row);
 
   int markOffline(@Param("id") String id);

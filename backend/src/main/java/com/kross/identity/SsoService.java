@@ -246,6 +246,13 @@ public class SsoService {
     if ("/admin".equals(raw) || "/admin/".equals(raw)) {
       return "/admin/";
     }
+    if (raw != null && raw.startsWith("/invite/")) {
+      String token = raw.substring("/invite/".length());
+      if (!token.isBlank() && token.indexOf('/') < 0 && token.indexOf('?') < 0 && token.indexOf('#') < 0
+          && token.matches("[A-Za-z0-9_-]{8,128}")) {
+        return "/invite/" + token;
+      }
+    }
     return "/";
   }
 

@@ -36,6 +36,14 @@ export interface AuthConfig {
   ssoDisplayName?: string;
 }
 
+export interface InvitePreview {
+  organizationName: string;
+  organizationSlug: string;
+  role: 'admin' | 'member';
+  expiresAt: string;
+  accepted: boolean;
+}
+
 export interface AgentModel {
   id: string;
   name: string;

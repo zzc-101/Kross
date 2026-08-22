@@ -41,6 +41,8 @@ public class SecurityConfig {
             .requestMatchers("/internal/v2/agents/**", "/internal/v2/nodes/**").permitAll()
             .requestMatchers(HttpMethod.GET, api + "/auth/config").permitAll()
             .requestMatchers(HttpMethod.GET, api + "/auth/sso/start", api + "/auth/sso/callback").permitAll()
+            .requestMatchers(HttpMethod.GET, api + "/auth/invites/*").permitAll()
+            .requestMatchers(HttpMethod.POST, api + "/auth/invites/*/accept").permitAll()
             .requestMatchers(HttpMethod.POST, api + "/auth/register", api + "/auth/login", api + "/auth/logout")
             .permitAll()
             .requestMatchers(api + "/**").authenticated()

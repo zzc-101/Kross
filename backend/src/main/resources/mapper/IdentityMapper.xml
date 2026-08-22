@@ -227,4 +227,47 @@
       (SELECT count(*)::integer FROM agents WHERE organization_id = #{organizationId} AND status = 'running') AS running_agents,
       (SELECT count(*)::integer FROM agents WHERE organization_id = #{organizationId} AND status = 'stopped') AS stopped_agents
   </select>
+
+  <insert id="insertInvite">
+    INSERT INTO organization_invites
+      (id, organization_id, token_hash, role, created_by, expires_at)
+    VALUES
+      (#{id}, #{organizationId}, #{tokenHash}, #{role}, #{createdBy}, #{expiresAt})
+  </insert>
+
+  <select id="listInvites" resultType="com.kross.identity.entity.OrganizationInvite">
+    SELECT * FROM organization_invites
+    WHERE organization_id = #{organizationId}
+    ORDER BY created_at DESC, id DESC
+    LIMIT 50
+  </select>
+
+  <select id="findInviteByHash" resultType="com.kross.identity.entity.OrganizationInvite">
+    SELECT * FROM organization_invites WHERE token_hash = #{tokenHash}
+  </select>
+
+  <select id="findInvite" resultType="com.kross.identity.entity.OrganizationInvite">
+    SELECT * FROM organization_invites
+    WHERE organization_id = #{organizationId} AND id = #{id}
+  </select>
+
+  <select id="countActiveInvites" resultType="int">
+    SELECT count(*)::integer FROM organization_invites
+    WHERE organization_id = #{organizationId}
+      AND accepted_at IS NULL
+      AND expires_at &gt; now()
+  </select>
+
+  <update id="markInviteAccepted">
+    UPDATE organization_invites
+    SET accepted_at = now(), accepted_by = #{acceptedBy}
+    WHERE id = #{id}
+      AND accepted_at IS NULL
+      AND expires_at &gt; now()
+  </update>
+
+  <delete id="deleteInvite">
+    DELETE FROM organization_invites
+    WHERE organization_id = #{organizationId} AND id = #{id} AND accepted_at IS NULL
+  </delete>
 </mapper>

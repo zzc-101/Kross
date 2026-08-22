@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AgentApiClient, ApiError } from '../api/client';
 import type { AuthConfig, Me, Membership } from '../api/types';
 import { WorkspacePage } from '../workspace/WorkspacePage';
-import { AuthScreen, SuperAdminHint, WaitingForInvite } from './screens';
+import { AuthScreen, InvitePage, SuperAdminHint, WaitingForInvite } from './screens';
 
 const ORG_KEY = 'kross.organization-id';
 
@@ -16,6 +16,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [inviteToken, setInviteToken] = useState(() => inviteTokenFromPath(location.pathname));
   const api = useMemo(() => new AgentApiClient(), []);
 
   const applyMe = (next: Me) => {
@@ -95,6 +96,29 @@ export function App() {
     return <main className="gate"><div className="mark">K</div><h1>正在进入工作区</h1><p>加载身份与组织…</p></main>;
   }
 
+  if (inviteToken) {
+    return (
+      <InvitePage
+        token={inviteToken}
+        me={me}
+        config={config}
+        api={api}
+        busy={busy}
+        error={error}
+        onAccepted={(next) => {
+          applyMe(next);
+          setInviteToken(undefined);
+          history.replaceState(null, '', '/');
+        }}
+        onEnterWorkspace={() => {
+          setInviteToken(undefined);
+          history.replaceState(null, '', '/');
+        }}
+        onLogout={() => void logout()}
+      />
+    );
+  }
+
   if (!me) {
     return (
       <AuthScreen
@@ -136,4 +160,9 @@ export function App() {
       onUserUpdated={(user) => setMe((current) => current ? { ...current, user } : current)}
     />
   );
+}
+
+function inviteTokenFromPath(pathname: string): string | undefined {
+  const match = pathname.match(/^\/invite\/([^/]+)$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }

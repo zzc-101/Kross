@@ -6,8 +6,10 @@ import com.kross.api.Res;
 import com.kross.identity.AuthLogService;
 import com.kross.identity.AuthService;
 import com.kross.identity.SsoService;
+import com.kross.identity.dto.AcceptInviteRequest;
 import com.kross.identity.dto.AuthConfigView;
 import com.kross.identity.dto.IdentityViews;
+import com.kross.identity.dto.InvitePreviewView;
 import com.kross.identity.dto.LoginRequest;
 import com.kross.identity.dto.MeResponse;
 import com.kross.identity.dto.MembershipView;
@@ -23,6 +25,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -128,6 +131,22 @@ public class AuthController {
       String separator = next.contains("?") ? "&" : "?";
       response.sendRedirect(next + separator + "sso_error=" + URLEncoder.encode(failed.getMessage(), StandardCharsets.UTF_8));
     }
+  }
+
+  @GetMapping("/invites/{token}")
+  public Res<InvitePreviewView> previewInvite(@PathVariable String token) {
+    return Res.ok(auth.previewInvite(token));
+  }
+
+  @PostMapping("/invites/{token}/accept")
+  public Res<MeResponse> acceptInvite(
+      @PathVariable String token,
+      @RequestBody(required = false) AcceptInviteRequest request,
+      HttpServletRequest http) {
+    MeResponse me = auth.acceptInvite(token, Optional.ofNullable(request));
+    AuthSessions.establish(http, IdentityViews.identity(me.user()));
+    wakeWorkspace(me);
+    return Res.ok(me);
   }
 
   @PostMapping("/logout")

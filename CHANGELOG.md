@@ -26,6 +26,9 @@
 - 工作区浏览器：列出 `/work`、查看 Git 状态、克隆远程仓库（Agent 离线时先唤醒）。
 - Skills / MCP 安装界面：Skill 写入 `/work/skills`；MCP 配置存库并同步到
   `/work/.kross/mcp.json`，Worker 启动时加载。
+- 管理中心概览展示近 1/7 天消息量、Agent 运行明细与集群节点健康。
+- 可转发的组织邀请链接：管理中心生成，工作台 `/invite/{token}` 加入；
+  关闭自助注册时仍可用链接建号，SSO 开启时需先登录再打开链接。
 - 文件、搜索、Git、Shell、后台进程与 MCP 工具；workspace 边界、审批与
   mutation journal。
 - Provider Capability 与调用指标：Runtime 只消费 Adapter 声明，记录不含正文的

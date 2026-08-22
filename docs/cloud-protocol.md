@@ -38,6 +38,13 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 - Skills：`GET/PUT/DELETE /api/v2/agent/skills`
 - MCP：`GET/PUT /api/v2/agent/mcp`（持久化到 `/work/.kross/mcp.json`）
 
+管理中心：
+
+- 概览：`GET /api/v2/admin/dashboard` 现含 `usage`、`agents`、`nodes`
+- 邀请链接：`GET/POST /api/v2/admin/invites`，`DELETE /api/v2/admin/invites/{id}`
+- 公开加入：`GET /api/v2/auth/invites/{token}`，`POST /api/v2/auth/invites/{token}/accept`
+  工作台路径 `/invite/{token}`
+
 ## 集群节点
 
 路径：`ws://<control-plane>/internal/v2/nodes/ws?nodeId=<KROSS_NODE_ID>`，

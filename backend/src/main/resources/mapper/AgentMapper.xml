@@ -278,4 +278,20 @@
       mcp_servers = EXCLUDED.mcp_servers,
       updated_at = now()
   </insert>
+
+  <select id="listRuntimes" resultType="com.kross.agent.entity.AgentRuntimeRow">
+    SELECT a.id, a.user_id, u.username, u.display_name, a.status, a.node_id, a.last_error, a.last_active_at
+    FROM agents a
+    JOIN users u ON u.id = a.user_id
+    WHERE a.organization_id = #{organizationId}
+    ORDER BY a.last_active_at DESC, a.id DESC
+  </select>
+
+  <select id="usageCounts" resultType="com.kross.agent.entity.UsageCounts">
+    SELECT
+      count(*) FILTER (WHERE created_at &gt;= now() - interval '1 day')::integer AS messages1d,
+      count(*) FILTER (WHERE created_at &gt;= now() - interval '7 day')::integer AS messages7d
+    FROM agent_messages
+    WHERE organization_id = #{organizationId} AND role = 'user'
+  </select>
 </mapper>

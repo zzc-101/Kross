@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import {
-  approvalPolicySchema, auditLogSchema, authConfigSchema, authLoginEventSchema, dashboardSchema, memberSchema, modelSchema,
-  page, platformOrganizationSchema, platformSchema, platformSsoSchema, sessionSchema, userAccountSchema,
-  type ApprovalPolicy, type Member, type ModelConfig, type PlatformSettings, type PlatformSso, type Session, type UserAccount
+  approvalPolicySchema, auditLogSchema, authConfigSchema, authLoginEventSchema, createdInviteSchema, dashboardSchema,
+  inviteSchema, memberSchema, modelSchema, page, platformOrganizationSchema, platformSchema, platformSsoSchema,
+  sessionSchema, userAccountSchema,
+  type ApprovalPolicy, type CreatedInvite, type Invite, type Member, type ModelConfig, type PlatformSettings,
+  type PlatformSso, type Session, type UserAccount
 } from './contracts';
 
 export class AdminApiError extends Error {
@@ -64,6 +66,14 @@ export class AdminApiClient {
   inviteMember(input: { username: string; password?: string; displayName?: string; role: Member['role'] }) {
     return this.request('/api/v2/admin/members', memberSchema, { method: 'POST', body: input });
   }
+  invites() { return this.request('/api/v2/admin/invites', z.array(inviteSchema)); }
+  createInvite(input: { role: Member['role']; expiresInDays?: number }) {
+    return this.request('/api/v2/admin/invites', createdInviteSchema, { method: 'POST', body: input });
+  }
+  revokeInvite(inviteId: string) {
+    return this.request(`/api/v2/admin/invites/${encodeURIComponent(inviteId)}`, z.unknown().optional(), { method: 'DELETE' })
+      .then(() => undefined);
+  }
   updateMember(memberId: string, input: Partial<Pick<Member, 'role' | 'status'>>) { return this.request(`/api/v2/admin/members/${encodeURIComponent(memberId)}`, memberSchema, { method: 'PATCH', body: input }); }
   models() { return this.request('/api/v2/admin/models', page(modelSchema)).then(x => x.items); }
   createModel(input: { name: string; provider: string; model: string; apiKey: string; baseUrl?: string }) {
@@ -114,4 +124,4 @@ export class AdminApiClient {
   }
 }
 
-export type { Session, UserAccount };
+export type { CreatedInvite, Invite, Session, UserAccount };

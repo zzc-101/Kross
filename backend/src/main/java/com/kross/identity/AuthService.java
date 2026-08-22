@@ -1,22 +1,29 @@
 package com.kross.identity;
 
+import com.kross.agent.AgentService;
 import com.kross.api.ApiException;
 import com.kross.api.PageResponse;
+import com.kross.identity.dto.AcceptInviteRequest;
 import com.kross.identity.dto.AuthConfigView;
 import com.kross.identity.dto.CreateUserRequest;
 import com.kross.identity.dto.IdentityViews;
+import com.kross.identity.dto.InvitePreviewView;
 import com.kross.identity.dto.LoginRequest;
 import com.kross.identity.dto.MeResponse;
 import com.kross.identity.dto.PlatformSettingsView;
 import com.kross.identity.dto.RegisterRequest;
 import com.kross.identity.dto.UpdatePlatformRequest;
 import com.kross.identity.dto.UserAccountView;
+import com.kross.identity.entity.Organization;
+import com.kross.identity.entity.OrganizationInvite;
 import com.kross.identity.entity.PlatformSettings;
 import com.kross.identity.entity.User;
+import com.kross.support.Tokens;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,12 +32,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@RequiredArgsConstructor
 public class AuthService {
   private final IdentityMapper identities;
   private final IdentityService identityService;
   private final OrganizationAccess access;
   private final PasswordEncoder passwords;
+  private final AgentService agents;
+
+  public AuthService(
+      IdentityMapper identities,
+      IdentityService identityService,
+      OrganizationAccess access,
+      PasswordEncoder passwords,
+      @Lazy AgentService agents) {
+    this.identities = identities;
+    this.identityService = identityService;
+    this.access = access;
+    this.passwords = passwords;
+    this.agents = agents;
+  }
 
   public AuthConfigView config() {
     PlatformSettings settings = identities.findPlatformSettings().orElse(null);
@@ -135,6 +155,47 @@ public class AuthService {
         .orElseGet(() -> new Identity(userId, username, displayName, "user"));
   }
 
+  private OrganizationInvite requireInvite(String token) {
+    String value = Optional.ofNullable(token).map(String::trim).filter(item -> !item.isBlank())
+        .orElseThrow(() -> ApiException.notFound("Invite"));
+    return identities.findInviteByHash(Tokens.sha256Hex(value))
+        .orElseThrow(() -> ApiException.notFound("Invite"));
+  }
+
+  private User resolveInviteUser(Optional<AcceptInviteRequest> request) {
+    Optional<Identity> signedIn = access.findCurrentIdentity();
+    if (signedIn.isPresent()) {
+      return identities.findUserById(signedIn.get().userId())
+          .filter(user -> "active".equals(Optional.ofNullable(user.getStatus()).orElse("")))
+          .orElseThrow(() -> new ApiException("account_disabled", "This account is disabled", 403));
+    }
+    AcceptInviteRequest body = request.orElseThrow(
+        () -> new ApiException("unauthenticated", "Sign in or provide credentials", 401));
+    if (identities.isSsoEnabled()) {
+      throw new ApiException("sso_required", "Sign in with SSO, then open this invite link again", 403);
+    }
+    String username = AuthCredentials.requireUsername(body.username());
+    String password = AuthCredentials.requirePassword(body.password());
+    Optional<User> existing = identities.findUserByUsername(username);
+    if (existing.isPresent()) {
+      User user = existing.get();
+      if (!"active".equals(Optional.ofNullable(user.getStatus()).orElse(""))) {
+        throw new ApiException("account_disabled", "This account is disabled", 403);
+      }
+      String hash = Optional.ofNullable(user.getPasswordHash()).filter(value -> !value.isBlank())
+          .orElseThrow(AuthService::invalidCredentials);
+      if (!passwords.matches(password, hash)) {
+        throw invalidCredentials();
+      }
+      return user;
+    }
+    String displayName = AuthCredentials.requireDisplayName(
+        Optional.ofNullable(body.displayName()).filter(value -> !value.isBlank()).orElse(username));
+    insertAccount(username, displayName, password, "user");
+    return identities.findUserByUsername(username)
+        .orElseThrow(() -> ApiException.conflict("user_create_failed", "Failed to create user"));
+  }
+
   private void insertAccount(String username, String displayName, String password, String platformRole) {
     try {
       identities.insertUser(
@@ -156,6 +217,45 @@ public class AuthService {
     Identity identity = toIdentity(user);
     SecurityContextHolder.getContext()
         .setAuthentication(new UsernamePasswordAuthenticationToken(identity, null, List.of()));
+  }
+
+  public InvitePreviewView previewInvite(String token) {
+    OrganizationInvite invite = requireInvite(token);
+    Organization organization = identities.findOrganization(invite.getOrganizationId())
+        .orElseThrow(() -> ApiException.notFound("Invite"));
+    return new InvitePreviewView(
+        organization.getName(),
+        organization.getSlug(),
+        invite.getRole(),
+        invite.getExpiresAt(),
+        invite.getAcceptedAt() != null);
+  }
+
+  @Transactional
+  public MeResponse acceptInvite(String token, Optional<AcceptInviteRequest> request) {
+    OrganizationInvite invite = requireInvite(token);
+    if (invite.getAcceptedAt() != null) {
+      throw ApiException.conflict("invite_used", "Invite already accepted");
+    }
+    if (invite.getExpiresAt().isBefore(Instant.now())) {
+      throw ApiException.conflict("invite_expired", "Invite expired");
+    }
+    Organization organization = identities.findOrganization(invite.getOrganizationId())
+        .filter(row -> "active".equals(row.getStatus()))
+        .orElseThrow(() -> new ApiException("organization_unavailable", "Organization is not active", 403));
+    User user = resolveInviteUser(request);
+    String membershipId = UUID.randomUUID().toString();
+    try {
+      identities.insertMembership(membershipId, organization.getId(), user.getId(), invite.getRole(), "active");
+    } catch (DuplicateKeyException error) {
+      throw ApiException.conflict("membership_exists", "User already belongs to this organization");
+    }
+    if (identities.markInviteAccepted(invite.getId(), user.getId()) == 0) {
+      throw ApiException.conflict("invite_used", "Invite already accepted");
+    }
+    bind(user);
+    agents.scheduleWakeFor(organization.getId(), user.getId());
+    return identityService.me();
   }
 
   public User provisionUser(String username, String password, String displayName) {

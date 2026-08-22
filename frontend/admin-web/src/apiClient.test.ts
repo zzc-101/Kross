@@ -21,7 +21,12 @@ describe('AdminApiClient', () => {
     const api = new AdminApiClient({ baseUrl: 'http://kross.test', fetch: async (_url, init) => {
       headers = new Headers(init?.headers);
       credentials = init?.credentials;
-      return ok({ counts: { activeMembers: 2, runningAgents: 1, stoppedAgents: 3 } });
+      return ok({
+        counts: { activeMembers: 2, runningAgents: 1, stoppedAgents: 3 },
+        usage: { messages1d: 4, messages7d: 11 },
+        agents: [],
+        nodes: []
+      });
     } });
     api.selectOrganization('org-1');
     await api.dashboard();

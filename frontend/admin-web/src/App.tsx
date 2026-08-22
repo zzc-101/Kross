@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Activity, AlertTriangle, Bot, Building2, CheckCircle2, ChevronDown, Cpu,
-  KeyRound, LayoutDashboard, Menu, Plus, RefreshCw, ScrollText, Settings, ShieldCheck, Users, X
+  KeyRound, LayoutDashboard, Link2, Menu, MessageSquare, Plus, RefreshCw, ScrollText, Settings, ShieldCheck, Users, X
 } from 'lucide-react';
 import { AdminApiClient, AdminApiError } from './apiClient';
-import type { ApprovalPolicy, AuditLog, AuthConfig, AuthLoginEvent, Member, ModelConfig, Session, UserAccount } from './contracts';
+import type { ApprovalPolicy, AuditLog, AuthConfig, AuthLoginEvent, CreatedInvite, Invite, Member, ModelConfig, Session, UserAccount } from './contracts';
 
 type Page = 'organizations' | 'platform' | 'logins' | 'dashboard' | 'members' | 'models' | 'policy' | 'audit';
 const orgNavigation: Array<{ id: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -152,19 +152,126 @@ function useResource<T>(loader: () => Promise<T>, dependencies: unknown[] = []) 
 
 function DashboardPage({ api }: { api: AdminApiClient }) {
   const state = useResource(() => api.dashboard(), [api]);
-  return <PageFrame title="组织概览" subtitle="组织运行状况、风险与资源使用情况" action={<RefreshButton onClick={state.reload} />}><Resource state={state}>{d => <>
-    <div className="metrics"><Metric label="活跃成员" value={d.counts.activeMembers} icon={<Users />} tone="blue" /><Metric label="运行中 Agent" value={d.counts.runningAgents} icon={<Activity />} tone="green" /><Metric label="已休眠 Agent" value={d.counts.stoppedAgents} icon={<LayoutDashboard />} tone="violet" /></div>
-    <div className="dashboard-grid"><section className="card"><CardTitle title="工作区" subtitle="每人一个长期 Agent，容器可睡，磁盘留下" /><div className="health-list"><Health label="运行中" value={d.counts.runningAgents} ok={true} /><Health label="已休眠" value={d.counts.stoppedAgents} ok={true} /><Health label="活跃成员" value={d.counts.activeMembers} ok={d.counts.activeMembers > 0} /></div></section><section className="card callout"><Bot /><div><h3>Kross 控制面</h3><p>给组织成员配备长期 Agent 工作区。会话、模型密钥和 Worker 按组织隔离。</p></div></section></div>
+  return <PageFrame title="组织概览" subtitle="用量、Agent 运行状态与节点健康" action={<RefreshButton onClick={state.reload} />}><Resource state={state}>{d => <>
+    <div className="metrics">
+      <Metric label="活跃成员" value={d.counts.activeMembers} icon={<Users />} tone="blue" />
+      <Metric label="运行中 Agent" value={d.counts.runningAgents} icon={<Activity />} tone="green" />
+      <Metric label="已休眠 Agent" value={d.counts.stoppedAgents} icon={<LayoutDashboard />} tone="violet" />
+      <Metric label="近 1 天消息" value={d.usage.messages1d} icon={<MessageSquare />} tone="amber" />
+      <Metric label="近 7 天消息" value={d.usage.messages7d} icon={<MessageSquare />} tone="blue" />
+    </div>
+    <div className="dashboard-grid">
+      <section className="card">
+        <CardTitle title="Agent 工作区" subtitle="每人一个长期 Agent。已连接表示 Worker 当前在线。" />
+        {d.agents.length === 0
+          ? <p className="empty-hint">还没有 Agent。成员加入组织后会自动创建工作区。</p>
+          : <div className="table-wrap"><table><thead><tr><th>成员</th><th>状态</th><th>连接</th><th>节点</th><th>最近活动</th></tr></thead>
+            <tbody>{d.agents.map(agent => <tr key={agent.id}>
+              <td><div><strong>{agent.displayName}</strong><small>{agent.username}</small></div></td>
+              <td>{agentStatusLabel(agent.status)}</td>
+              <td>{agent.connected ? '在线' : '离线'}</td>
+              <td>{agent.nodeId || '本机'}</td>
+              <td>{formatDate(agent.lastActiveAt ?? undefined)}</td>
+            </tr>)}</tbody>
+          </table></div>}
+      </section>
+      <section className="card">
+        <CardTitle title="节点健康" subtitle="集群 Worker 节点。单机 Docker 部署通常没有登记节点。" />
+        {d.nodes.length === 0
+          ? <p className="empty-hint">当前没有集群节点。单机 Compose 不会出现在此列表。</p>
+          : <div className="health-list">{d.nodes.map(node => <div key={node.id}>
+              <span>{node.connected ? <CheckCircle2 className="success" /> : <AlertTriangle className="warning" />}
+                {node.hostname || node.id} · {node.connected ? '在线' : (node.status || '离线')}
+                {node.juicefsOk ? '' : ' · JuiceFS 异常'}</span>
+              <strong>{node.runningAgents}</strong>
+            </div>)}</div>}
+      </section>
+    </div>
   </>}</Resource></PageFrame>;
 }
 
 function MembersPage({ api }: { api: AdminApiClient }) {
-  const state = useResource(() => api.members(), [api]); const [showForm, setShowForm] = useState(false); const [busy, setBusy] = useState('');
-  const change = async (member: Member, field: 'role' | 'status', value: string) => { setBusy(member.id); try { await api.updateMember(member.id, { [field]: value }); state.reload(); } finally { setBusy(''); } };
-  return <PageFrame title="成员与角色" subtitle="登记本组织成员。新用户可直接开账号并加入；已有账号只需填写用户名。" action={<button className="button" onClick={() => setShowForm(true)}><Plus />登记成员</button>}>
-    {showForm && <InviteForm api={api} close={() => setShowForm(false)} done={state.reload} />}
-    <Resource state={state} empty="组织中还没有成员。">{members => <div className="card table-wrap"><table><thead><tr><th>成员</th><th>角色</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{members.map(m => <tr key={m.id}><td><div className="person"><PersonAvatar name={m.displayName} src={m.avatarUrl} /><div><strong>{m.displayName}</strong><small>{m.username}</small></div></div></td><td><select disabled={busy === m.id} value={m.role} onChange={e => change(m, 'role', e.target.value)}><option value="admin">组织管理员</option><option value="member">成员</option></select></td><td><select disabled={busy === m.id} value={m.status} onChange={e => change(m, 'status', e.target.value)}><option value="active">正常</option><option value="disabled">已停用</option></select></td><td>{formatDate(m.updatedAt)}</td></tr>)}</tbody></table></div>}</Resource>
+  const members = useResource(() => api.members(), [api]);
+  const invites = useResource(() => api.invites(), [api]);
+  const [showForm, setShowForm] = useState(false);
+  const [busy, setBusy] = useState('');
+  const change = async (member: Member, field: 'role' | 'status', value: string) => {
+    setBusy(member.id);
+    try { await api.updateMember(member.id, { [field]: value }); members.reload(); }
+    finally { setBusy(''); }
+  };
+  return <PageFrame title="成员与角色" subtitle="直接登记成员，或生成可转发的邀请链接。" action={<button className="button" onClick={() => setShowForm(true)}><Plus />登记成员</button>}>
+    {showForm && <InviteForm api={api} close={() => setShowForm(false)} done={members.reload} />}
+    <InviteLinks api={api} invites={invites.data ?? []} reload={invites.reload} loading={invites.loading} error={invites.error} />
+    <Resource state={members} empty="组织中还没有成员。">{items => <div className="card table-wrap"><table><thead><tr><th>成员</th><th>角色</th><th>状态</th><th>更新时间</th></tr></thead><tbody>{items.map(m => <tr key={m.id}><td><div className="person"><PersonAvatar name={m.displayName} src={m.avatarUrl} /><div><strong>{m.displayName}</strong><small>{m.username}</small></div></div></td><td><select disabled={busy === m.id} value={m.role} onChange={e => change(m, 'role', e.target.value)}><option value="admin">组织管理员</option><option value="member">成员</option></select></td><td><select disabled={busy === m.id} value={m.status} onChange={e => change(m, 'status', e.target.value)}><option value="active">正常</option><option value="disabled">已停用</option></select></td><td>{formatDate(m.updatedAt)}</td></tr>)}</tbody></table></div>}</Resource>
   </PageFrame>;
+}
+
+function InviteLinks({ api, invites, reload, loading, error }: {
+  api: AdminApiClient; invites: Invite[]; reload: () => void; loading: boolean; error: string;
+}) {
+  const [form, setForm] = useState({ role: 'member' as Member['role'], expiresInDays: 14 });
+  const [created, setCreated] = useState<CreatedInvite>();
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState('');
+  const create = async (e: FormEvent) => {
+    e.preventDefault(); setFormError(''); setBusy(true);
+    try {
+      const next = await api.createInvite({ role: form.role, expiresInDays: form.expiresInDays });
+      setCreated(next); setCopied(false); reload();
+    } catch (x) { setFormError(messageOf(x)); }
+    finally { setBusy(false); }
+  };
+  const copy = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+    } catch {
+      setFormError('无法写入剪贴板，请手动复制链接');
+    }
+  };
+  const revoke = async (id: string) => {
+    setBusy(true); setFormError('');
+    try {
+      await api.revokeInvite(id);
+      if (created?.id === id) setCreated(undefined);
+      reload();
+    } catch (x) { setFormError(messageOf(x)); }
+    finally { setBusy(false); }
+  };
+  const createdUrl = created ? workbenchInviteUrl(created.path) : '';
+  return <section className="card invite-card">
+    <CardTitle title="邀请链接" subtitle="链接可转发给同事。明文令牌只在创建时显示一次，过期或加入后失效。" />
+    <form className="inline-form" onSubmit={create}>
+      <label>角色<select value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Member['role'] })}>
+        <option value="member">成员</option>
+        <option value="admin">组织管理员</option>
+      </select></label>
+      <label>有效天数<input type="number" min={1} max={90} value={form.expiresInDays} onChange={e => setForm({ ...form, expiresInDays: Number(e.target.value) })} /></label>
+      <button className="button" type="submit" disabled={busy}><Link2 />生成链接</button>
+    </form>
+    {created && <div className="inline-form">
+      <label>邀请地址<input readOnly value={createdUrl} onFocus={e => e.currentTarget.select()} /></label>
+      <button className="button secondary" type="button" onClick={() => void copy(createdUrl)}>{copied ? '已复制' : '复制'}</button>
+    </div>}
+    {formError && <span className="form-error">{formError}</span>}
+    {error && <span className="form-error">{error}</span>}
+    {loading && <p className="empty-hint">正在加载邀请链接…</p>}
+    {!loading && invites.length === 0 && <p className="empty-hint">还没有邀请链接。</p>}
+    {!loading && invites.length > 0 && <div className="table-wrap"><table><thead><tr><th>角色</th><th>过期时间</th><th>状态</th><th></th></tr></thead>
+      <tbody>{invites.map(item => {
+        const used = Boolean(item.acceptedAt);
+        const expired = new Date(item.expiresAt).getTime() < Date.now();
+        return <tr key={item.id}>
+          <td>{item.role === 'admin' ? '组织管理员' : '成员'}</td>
+          <td>{formatDate(item.expiresAt)}</td>
+          <td>{used ? '已加入' : expired ? '已过期' : '待使用'}</td>
+          <td>{used ? null : <button className="button secondary" type="button" disabled={busy} onClick={() => void revoke(item.id)}>撤销</button>}</td>
+        </tr>;
+      })}</tbody>
+    </table></div>}
+  </section>;
 }
 
 function InviteForm({ api, close, done }: { api: AdminApiClient; close: () => void; done: () => void }) {
@@ -406,7 +513,6 @@ function AuthLogRow({ log }: { log: AuthLoginEvent }) {
 function PageFrame({ title, subtitle, action, children }: { title: string; subtitle: string; action?: ReactNode; children: ReactNode }) { return <><div className="page-heading"><div><h1>{title}</h1><p>{subtitle}</p></div>{action}</div>{children}</>; }
 function Resource<T>({ state, children, empty = '暂无数据。' }: { state: { data?: T; loading: boolean; error: string; reload: () => void }; children: (data: T) => ReactNode; empty?: string }) { if (state.loading) return <div className="resource"><Spinner /><span>正在加载…</span></div>; if (state.error) return <div className="resource error"><AlertTriangle /><strong>加载失败</strong><span>{state.error}</span><button className="button secondary" onClick={state.reload}>重试</button></div>; if (Array.isArray(state.data) && state.data.length === 0) return <div className="resource empty"><ScrollText /><strong>{empty}</strong></div>; return state.data === undefined ? null : <>{children(state.data)}</>; }
 function Metric({ label, value, icon, tone }: { label: string; value: string | number; icon: ReactNode; tone: string }) { return <article className="metric card"><span className={`metric-icon ${tone}`}>{icon}</span><div><small>{label}</small><strong>{value}</strong></div></article>; }
-function Health({ label, value, ok }: { label: string; value: number; ok: boolean }) { return <div><span>{ok ? <CheckCircle2 className="success" /> : <AlertTriangle className="warning" />}{label}</span><strong>{value}</strong></div>; }
 function CardTitle({ title, subtitle }: { title: string; subtitle: string }) { return <div className="card-title"><h3>{title}</h3><p>{subtitle}</p></div>; }
 function PolicyRow({ title, description, children }: { title: string; description: string; children: ReactNode }) { return <div className="policy-row"><div><strong>{title}</strong><p>{description}</p></div>{children}</div>; }
 function Badge({ children, tone }: { children: ReactNode; tone: string }) { return <span className={`badge ${tone}`}>{children}</span>; }
@@ -463,6 +569,19 @@ function workbenchUrl() {
     return url.origin;
   }
   return `${location.origin}/`;
+}
+
+function workbenchInviteUrl(path: string) {
+  const origin = workbenchUrl().replace(/\/$/, '');
+  return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function agentStatusLabel(status: string) {
+  if (status === 'running') return '运行中';
+  if (status === 'stopped') return '已休眠';
+  if (status === 'starting') return '启动中';
+  if (status === 'error') return '异常';
+  return status;
 }
 
 function ssoStartUrl() {

@@ -14,10 +14,13 @@ import com.kross.identity.PlatformService;
 import com.kross.identity.SsoService;
 import com.kross.identity.dto.AuthLoginEventView;
 import com.kross.identity.dto.AssignOrgAdminRequest;
+import com.kross.identity.dto.CreateInviteRequest;
 import com.kross.identity.dto.CreateOrganizationRequest;
 import com.kross.identity.dto.CreateUserRequest;
+import com.kross.identity.dto.CreatedInviteView;
 import com.kross.identity.dto.DashboardResponse;
 import com.kross.identity.dto.InviteMemberRequest;
+import com.kross.identity.dto.InviteView;
 import com.kross.identity.dto.MemberRemoved;
 import com.kross.identity.dto.MemberView;
 import com.kross.identity.dto.OrganizationPolicyView;
@@ -31,6 +34,7 @@ import com.kross.identity.dto.UpdatePolicyRequest;
 import com.kross.identity.dto.UpdateSsoRequest;
 import com.kross.identity.dto.UserAccountView;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -138,6 +142,29 @@ public class AdminController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestBody InviteMemberRequest request) {
     return Res.ok(admin.inviteMember(organizationId, request));
+  }
+
+  @GetMapping("/invites")
+  public Res<List<InviteView>> invites(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
+    return Res.ok(admin.listInvites(organizationId));
+  }
+
+  @PostMapping("/invites")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<CreatedInviteView> createInvite(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestBody(required = false) CreateInviteRequest request) {
+    return Res.ok(admin.createInvite(
+        organizationId, Optional.ofNullable(request).orElse(new CreateInviteRequest(null, null))));
+  }
+
+  @DeleteMapping("/invites/{inviteId}")
+  public Res<Void> revokeInvite(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String inviteId) {
+    admin.revokeInvite(organizationId, inviteId);
+    return Res.ok();
   }
 
   @PatchMapping("/members/{membershipId}")

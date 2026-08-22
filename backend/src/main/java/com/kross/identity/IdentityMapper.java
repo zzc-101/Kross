@@ -5,6 +5,7 @@ import com.kross.identity.entity.DashboardCounts;
 import com.kross.identity.entity.Member;
 import com.kross.identity.entity.Membership;
 import com.kross.identity.entity.Organization;
+import com.kross.identity.entity.OrganizationInvite;
 import com.kross.identity.entity.OrganizationListRow;
 import com.kross.identity.entity.PlatformSettings;
 import com.kross.identity.entity.User;
@@ -138,4 +139,20 @@ public interface IdentityMapper {
       @Param("policy") JsonNode policy);
 
   DashboardCounts dashboardCounts(@Param("organizationId") String organizationId);
+
+  void insertInvite(OrganizationInvite row);
+
+  List<OrganizationInvite> listInvites(@Param("organizationId") String organizationId);
+
+  Optional<OrganizationInvite> findInviteByHash(@Param("tokenHash") String tokenHash);
+
+  Optional<OrganizationInvite> findInvite(
+      @Param("organizationId") String organizationId, @Param("id") String id);
+
+  int countActiveInvites(@Param("organizationId") String organizationId);
+
+  int markInviteAccepted(
+      @Param("id") String id, @Param("acceptedBy") String acceptedBy);
+
+  int deleteInvite(@Param("organizationId") String organizationId, @Param("id") String id);
 }

@@ -14,11 +14,15 @@ public class OrganizationAccess {
   private final IdentityMapper identities;
 
   public Identity currentIdentity() {
+    return findCurrentIdentity()
+        .orElseThrow(() -> new ApiException("unauthenticated", "Sign in required", 401));
+  }
+
+  public Optional<Identity> findCurrentIdentity() {
     return Optional.ofNullable(SecurityContextHolder.getContext().getAuthentication())
         .map(Authentication::getPrincipal)
         .filter(Identity.class::isInstance)
-        .map(Identity.class::cast)
-        .orElseThrow(() -> new ApiException("unauthenticated", "Sign in required", 401));
+        .map(Identity.class::cast);
   }
 
   public OrganizationContext require(String organizationId, OrganizationAction action) {

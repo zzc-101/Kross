@@ -27,6 +27,8 @@ import com.kross.agent.entity.AgentMessage;
 import com.kross.agent.entity.AgentModel;
 import com.kross.agent.entity.AgentSession;
 import com.kross.agent.entity.AgentSettings;
+import com.kross.agent.entity.UsageCounts;
+import com.kross.agent.entity.AgentRuntimeRow;
 import com.kross.api.ApiException;
 import com.kross.catalog.CredentialVault;
 import com.kross.channel.AgentSocketHub;
@@ -316,6 +318,16 @@ public class AgentService {
     JsonNode servers = loadMcpServers(session.getAgentId());
     Map<String, Object> map = mapper.convertValue(servers, new TypeReference<Map<String, Object>>() {});
     return new AgentProtocol.WorkerSettings(Optional.ofNullable(map).orElse(Map.of()));
+  }
+
+  public UsageCounts usageCounts(String organizationId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AUDIT_READ);
+    return Optional.ofNullable(agents.usageCounts(context.organizationId())).orElseGet(UsageCounts::new);
+  }
+
+  public List<AgentRuntimeRow> listRuntimes(String organizationId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AUDIT_READ);
+    return agents.listRuntimes(context.organizationId());
   }
 
   public void sleepIdleAgents() {
