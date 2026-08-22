@@ -5,7 +5,7 @@ import type { AgentMode, AgentModel, Conversation, MeUser, Membership } from '..
 import { AgentRuntimeProvider } from '../assistant/AgentRuntimeProvider';
 import { Thread } from '../assistant/Thread';
 import { useConversationRoute } from '../lib/conversationRoute';
-import { Sidebar } from './Sidebar';
+import { Sidebar, type SidebarSection } from './Sidebar';
 import { TopBar } from './TopBar';
 
 export function WorkspacePage({
@@ -30,7 +30,8 @@ export function WorkspacePage({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [error, setError] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [section, setSection] = useState<'conversations' | 'files' | 'skills'>('conversations');
+  const [section, setSection] = useState<SidebarSection>('conversations');
+  const [placeholder, setPlaceholder] = useState<{ title: string; body: string }>();
 
   const refreshConversations = useCallback(async () => {
     const items = await api.listConversations();
@@ -113,6 +114,7 @@ export function WorkspacePage({
             onSelect={setConversationId}
             onSelectOrganization={onSelectOrganization}
             onLogout={onLogout}
+            onPlaceholder={(title, body) => setPlaceholder({ title, body })}
             onArchive={(id) => {
               void api.patchConversation(id, { archived: true }).then(async () => {
                 const items = await refreshConversations();
@@ -131,7 +133,14 @@ export function WorkspacePage({
             onSection={setSection}
           />
           <main className="stage">
-            <TopBar onOpenSidebar={() => setSidebarOpen(true)} onNew={() => void onCreateConversation()} />
+            <TopBar
+              onOpenSidebar={() => setSidebarOpen(true)}
+              onNew={() => void onCreateConversation()}
+              onTemporaryChat={() => setPlaceholder({
+                title: '临时对话',
+                body: '临时对话不会写入历史。入口已恢复，能力尚未接入。'
+              })}
+            />
             <Thread
               model={selectedModel}
               models={models}
@@ -142,6 +151,17 @@ export function WorkspacePage({
           </main>
         </div>
       </AgentRuntimeProvider>
+      {placeholder && (
+        <div className="dialog-backdrop" onClick={() => setPlaceholder(undefined)}>
+          <div className="dialog" onClick={(event) => event.stopPropagation()}>
+            <h2>{placeholder.title}</h2>
+            <p>{placeholder.body}</p>
+            <div className="dialog-actions">
+              <button type="button" className="primary" onClick={() => setPlaceholder(undefined)}>知道了</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
