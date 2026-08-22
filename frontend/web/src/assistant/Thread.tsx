@@ -19,7 +19,9 @@ import {
   Copy,
   Lightbulb,
   LoaderCircle,
-  PencilLine
+  Mic,
+  PencilLine,
+  Plus
 } from 'lucide-react';
 
 import { messagePartComponents } from './MessageParts';
@@ -130,10 +132,16 @@ function Composer({
         />
         <div className="composer-toolbar">
           <div className="composer-tools">
+            <button type="button" aria-label="添加附件（即将支持）" title="等待 Kross 附件协议支持" disabled>
+              <Plus />
+            </button>
             <ModeMenu mode={mode} onChange={onModeChange} />
             <ModelMenu model={model} models={models} onChange={onModelChange} />
           </div>
           <div className="composer-tools right">
+            <button type="button" aria-label="语音输入（即将支持）" title="等待语音协议支持" disabled>
+              <Mic />
+            </button>
             <ComposerPrimitive.Send className="composer-send" aria-label="发送"><ArrowUp /></ComposerPrimitive.Send>
           </div>
         </div>
@@ -264,9 +272,24 @@ function QuickActions() {
 }
 
 function Footer() {
+  const [policy, setPolicy] = useState<string>();
   return (
     <footer className="libre-footer">
       <span>Kross Agent – Every AI for Everyone.</span>
+      <i />
+      <button type="button" onClick={() => setPolicy('隐私政策尚未发布，入口先保留。')}>隐私政策</button>
+      <button type="button" onClick={() => setPolicy('服务政策尚未发布，入口先保留。')}>服务政策</button>
+      {policy && (
+        <div className="dialog-backdrop" onClick={() => setPolicy(undefined)}>
+          <div className="dialog" onClick={(event) => event.stopPropagation()}>
+            <h2>政策</h2>
+            <p>{policy}</p>
+            <div className="dialog-actions">
+              <button type="button" className="primary" onClick={() => setPolicy(undefined)}>知道了</button>
+            </div>
+          </div>
+        </div>
+      )}
     </footer>
   );
 }

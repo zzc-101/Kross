@@ -1,9 +1,15 @@
 import { useMemo, useState } from 'react';
 import {
   Archive,
+  Bookmark,
+  Bot,
+  BrainCircuit,
   ChevronDown,
   ChevronRight,
+  Folder,
+  FolderPlus,
   MessagesSquare,
+  NotebookPen,
   PanelLeft,
   Paperclip,
   Pencil,
@@ -14,10 +20,28 @@ import {
 
 import type { Conversation, Membership } from '../api/types';
 import type { AgentApiClient } from '../api/client';
+import { ComingSoonPanel } from './ComingSoonPanel';
 import { FilesPanel } from './FilesPanel';
 import { SkillsPanel } from './SkillsPanel';
 
-export type SidebarSection = 'conversations' | 'files' | 'skills';
+export type SidebarSection =
+  | 'conversations'
+  | 'agents'
+  | 'prompts'
+  | 'notes'
+  | 'memory'
+  | 'bookmarks'
+  | 'files';
+
+const RAIL: Array<{ id: SidebarSection; label: string; icon: typeof MessagesSquare }> = [
+  { id: 'conversations', label: '对话', icon: MessagesSquare },
+  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'prompts', label: '提示词', icon: ScrollText },
+  { id: 'notes', label: '笔记', icon: NotebookPen },
+  { id: 'memory', label: '记忆', icon: BrainCircuit },
+  { id: 'bookmarks', label: '书签', icon: Bookmark },
+  { id: 'files', label: '文件', icon: Paperclip }
+];
 
 export function Sidebar({
   conversations,
@@ -38,6 +62,7 @@ export function Sidebar({
   onSelectOrganization,
   onLogout,
   onSaveProfile,
+  onPlaceholder,
   api,
   section,
   onSection
@@ -60,6 +85,7 @@ export function Sidebar({
   onSelectOrganization(id: string): void;
   onLogout(): void;
   onSaveProfile(input: { displayName: string; avatarUrl: string; gender: string; phone: string }): Promise<void>;
+  onPlaceholder(title: string, body: string): void;
   api: AgentApiClient;
   section: SidebarSection;
   onSection(section: SidebarSection): void;
@@ -85,33 +111,18 @@ export function Sidebar({
           <button type="button" className="rail-button" aria-label="新对话" onClick={onNew}><SquarePen /></button>
           <div className="rail-divider" />
           <div className="rail-links">
-            <button
-              type="button"
-              className={section === 'conversations' ? 'rail-button active' : 'rail-button'}
-              aria-label="对话"
-              aria-pressed={section === 'conversations'}
-              onClick={() => onSection('conversations')}
-            >
-              <MessagesSquare />
-            </button>
-            <button
-              type="button"
-              className={section === 'files' ? 'rail-button active' : 'rail-button'}
-              aria-label="文件"
-              aria-pressed={section === 'files'}
-              onClick={() => onSection('files')}
-            >
-              <Paperclip />
-            </button>
-            <button
-              type="button"
-              className={section === 'skills' ? 'rail-button active' : 'rail-button'}
-              aria-label="Skills 与 MCP"
-              aria-pressed={section === 'skills'}
-              onClick={() => onSection('skills')}
-            >
-              <ScrollText />
-            </button>
+            {RAIL.map(({ id, label, icon: Icon }) => (
+              <button
+                type="button"
+                key={id}
+                className={section === id ? 'rail-button active' : 'rail-button'}
+                aria-label={label}
+                aria-pressed={section === id}
+                onClick={() => onSection(id)}
+              >
+                <Icon />
+              </button>
+            ))}
           </div>
           <div className="rail-account">
             <button type="button" className="account-avatar" aria-label="账户与工作区" onClick={() => setAccountOpen((value) => !value)}>
@@ -177,43 +188,81 @@ export function Sidebar({
         <div className="sidebar-panel">
           {section === 'files' ? (
             <FilesPanel api={api} />
-          ) : section === 'skills' ? (
+          ) : section === 'prompts' ? (
             <SkillsPanel api={api} />
+          ) : section === 'agents' ? (
+            <ComingSoonPanel title="Agents" body="每人目前只有一个长期 Agent 工作区。多 Agent 切换会作为后续入口单独接入，不会再跳到空页面。" />
+          ) : section === 'notes' ? (
+            <ComingSoonPanel title="笔记" body="笔记将与对话分开保存、可检索。这一期只恢复入口，实现按你指定的顺序逐项接入。" />
+          ) : section === 'memory' ? (
+            <ComingSoonPanel title="记忆" body="永久记忆：属于当前用户，跨对话保留，不随会话结束或 Agent 休眠消失。方案确认后再落库。" />
+          ) : section === 'bookmarks' ? (
+            <ComingSoonPanel title="书签" body="书签用来固定对话、文件或网页。入口已恢复，能力尚未接入。" />
           ) : (
-            <div className="sidebar-section conversation-section">
-              <button type="button" className="section-toggle" aria-expanded={conversationsOpen} onClick={() => setConversationsOpen((value) => !value)}>
-                <span>对话</span>{conversationsOpen ? <ChevronDown /> : <ChevronRight />}
+            <>
+              <button
+                type="button"
+                className="bookmark-head"
+                aria-label="书签"
+                onClick={() => onSection('bookmarks')}
+              >
+                <Bookmark />
               </button>
-              {conversationsOpen && (
-                <div className="conversation-list">
-                  {visibleConversations.map((item) => (
-                    <div key={item.id} className={item.id === activeId ? 'conversation-row active' : 'conversation-row'}>
-                      {editingId === item.id ? (
-                        <input
-                          value={draft}
-                          autoFocus
-                          onChange={(event) => setDraft(event.target.value)}
-                          onBlur={() => {
-                            const title = draft.trim();
-                            if (title && title !== item.title) onRename(item.id, title);
-                            setEditingId(undefined);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') event.currentTarget.blur();
-                            if (event.key === 'Escape') setEditingId(undefined);
-                          }}
-                        />
-                      ) : (
-                        <button type="button" className="conversation-trigger" onClick={() => { onSelect(item.id); onClose(); }}>{item.title}</button>
-                      )}
-                      <button type="button" className="conversation-action" aria-label="重命名" onClick={() => { setDraft(item.title); setEditingId(item.id); }}><Pencil /></button>
-                      <button type="button" className="conversation-action" aria-label="归档" onClick={() => onArchive(item.id)}><Archive /></button>
-                    </div>
-                  ))}
-                  {visibleConversations.length === 0 && <p className="conversation-empty">还没有对话</p>}
+              <div className="sidebar-section projects-section">
+                <div className="section-heading">
+                  <button
+                    type="button"
+                    onClick={() => onPlaceholder('项目', '项目将按 /work 下的目录组织。入口先恢复，独立项目模型尚未接入。')}
+                  >
+                    <span>Projects</span><ChevronRight />
+                  </button>
+                  <div>
+                    <button type="button" aria-label="打开项目" onClick={() => onSection('files')}><Folder /></button>
+                    <button
+                      type="button"
+                      aria-label="新建项目"
+                      onClick={() => onPlaceholder('新建项目', '新建项目会在 /work 下建目录。入口先恢复，向导尚未接入。')}
+                    >
+                      <FolderPlus />
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
+              </div>
+              <div className="sidebar-section conversation-section">
+                <button type="button" className="section-toggle" aria-expanded={conversationsOpen} onClick={() => setConversationsOpen((value) => !value)}>
+                  <span>对话</span>{conversationsOpen ? <ChevronDown /> : <ChevronRight />}
+                </button>
+                {conversationsOpen && (
+                  <div className="conversation-list">
+                    {visibleConversations.map((item) => (
+                      <div key={item.id} className={item.id === activeId ? 'conversation-row active' : 'conversation-row'}>
+                        {editingId === item.id ? (
+                          <input
+                            value={draft}
+                            autoFocus
+                            onChange={(event) => setDraft(event.target.value)}
+                            onBlur={() => {
+                              const title = draft.trim();
+                              if (title && title !== item.title) onRename(item.id, title);
+                              setEditingId(undefined);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') event.currentTarget.blur();
+                              if (event.key === 'Escape') setEditingId(undefined);
+                            }}
+                          />
+                        ) : (
+                          <button type="button" className="conversation-trigger" onClick={() => { onSelect(item.id); onClose(); }}>{item.title}</button>
+                        )}
+                        <button type="button" className="conversation-action" aria-label="重命名" onClick={() => { setDraft(item.title); setEditingId(item.id); }}><Pencil /></button>
+                        <button type="button" className="conversation-action" aria-label="归档" onClick={() => onArchive(item.id)}><Archive /></button>
+                      </div>
+                    ))}
+                    {visibleConversations.length === 0 && <p className="conversation-empty">还没有对话</p>}
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       </aside>
