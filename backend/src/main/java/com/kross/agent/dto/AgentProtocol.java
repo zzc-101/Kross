@@ -78,6 +78,12 @@ public final class AgentProtocol {
       Map<String, Object> payload,
       String error) {}
 
+  public record WorkerSettings(String type, Map<String, Object> mcpServers) {
+    public WorkerSettings(Map<String, Object> mcpServers) {
+      this("agent.settings", mcpServers == null ? Map.of() : mcpServers);
+    }
+  }
+
   public record ReplyRequest(
       String type,
       String userMessageId,

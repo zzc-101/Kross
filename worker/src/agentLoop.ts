@@ -9,7 +9,7 @@ import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFa
 import { createWorkerLogger } from './logger';
 import { createPersonalAgentProfile } from './runtime/workExecutionProfile';
 import type { AgentControlTransport, AgentStreamEvent } from './transport';
-import { handleWorkspaceCommand } from './workspaceCommands';
+import { handleWorkspaceCommand, writeMcpConfig } from './workspaceCommands';
 
 const TOOL_CLIP_CHARS = 8_000;
 
@@ -48,9 +48,15 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   });
   const registered = await options.transport.register();
   log.info('Worker registered', { idleMs: registered.idleMs });
+  const settings = await options.transport.fetchSettings().catch(() => ({ mcpServers: {} }));
+  await writeMcpConfig(options.workspaceRoot, settings.mcpServers);
+  const box: { host?: AgentHostHandle } = {};
   options.transport.onCommand(async (command) => {
     try {
       const payload = await handleWorkspaceCommand(options.workspaceRoot, command);
+      if (command.name === 'mcp.save') {
+        await box.host?.reloadMcp();
+      }
       return { ok: true, payload };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -62,6 +68,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
     env: { ...options.processEnv, ...minted },
     executionProfile: createPersonalAgentProfile()
   });
+  box.host = host;
   let currentModelId: string | undefined;
   const delay = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   let sleeping = false;
@@ -94,6 +101,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
           });
           await host.close();
           host = nextHost;
+          box.host = host;
           currentModelId = job.modelId;
         }
         const reply = await runTurn(host, options.transport, job, formatTurnInput(job.content, job.history), job.mode);
@@ -335,6 +343,7 @@ async function ensureWorkspaceLayout(root: string): Promise<void> {
   await mkdir(join(root, 'files'), { recursive: true });
   await mkdir(join(root, 'memory'), { recursive: true });
   await mkdir(join(root, 'skills'), { recursive: true });
+  await mkdir(join(root, '.kross'), { recursive: true });
   await writeIfMissing(join(root, 'USER.md'), '# User\n\nDescribe preferences for this Agent.\n');
   await writeIfMissing(join(root, 'MEMORY.md'), '# Memory\n\nLong-term notes for this Agent.\n');
 }

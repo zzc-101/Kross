@@ -7,6 +7,7 @@ import {
   PanelLeft,
   Paperclip,
   Pencil,
+  ScrollText,
   SquarePen,
   UserRound
 } from 'lucide-react';
@@ -14,8 +15,9 @@ import {
 import type { Conversation, Membership } from '../api/types';
 import type { AgentApiClient } from '../api/client';
 import { FilesPanel } from './FilesPanel';
+import { SkillsPanel } from './SkillsPanel';
 
-export type SidebarSection = 'conversations' | 'files';
+export type SidebarSection = 'conversations' | 'files' | 'skills';
 
 export function Sidebar({
   conversations,
@@ -101,6 +103,15 @@ export function Sidebar({
             >
               <Paperclip />
             </button>
+            <button
+              type="button"
+              className={section === 'skills' ? 'rail-button active' : 'rail-button'}
+              aria-label="Skills 与 MCP"
+              aria-pressed={section === 'skills'}
+              onClick={() => onSection('skills')}
+            >
+              <ScrollText />
+            </button>
           </div>
           <div className="rail-account">
             <button type="button" className="account-avatar" aria-label="账户与工作区" onClick={() => setAccountOpen((value) => !value)}>
@@ -166,6 +177,8 @@ export function Sidebar({
         <div className="sidebar-panel">
           {section === 'files' ? (
             <FilesPanel api={api} />
+          ) : section === 'skills' ? (
+            <SkillsPanel api={api} />
           ) : (
             <div className="sidebar-section conversation-section">
               <button type="button" className="section-toggle" aria-expanded={conversationsOpen} onClick={() => setConversationsOpen((value) => !value)}>

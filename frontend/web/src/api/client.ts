@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type {
-  AgentMessage, AgentModel, AuthConfig, CloneResult, Conversation, GitStatus, Me, MessagePart, WorkspaceListing
+  AgentMessage, AgentModel, AuthConfig, CloneResult, Conversation, GitStatus, Me, MessagePart, Skill, WorkspaceListing
 } from './types';
 import type { ChannelEvent } from './channelEvents';
 
@@ -124,6 +124,17 @@ const gitStatusSchema: z.ZodType<GitStatus> = z.object({
 const cloneResultSchema: z.ZodType<CloneResult> = z.object({
   directory: z.string().min(1),
   url: z.string().min(1)
+});
+
+const skillSchema: z.ZodType<Skill> = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  content: z.string()
+});
+
+const mcpConfigSchema = z.object({
+  servers: z.record(z.record(z.unknown())).default({})
 });
 
 const envelopeSchema = z.object({
@@ -262,6 +273,34 @@ export class AgentApiClient {
       method: 'POST',
       body: input
     });
+  }
+
+  listSkills(): Promise<Skill[]> {
+    return this.request('/api/v2/agent/skills', z.object({ items: z.array(skillSchema) }))
+      .then((page) => page.items);
+  }
+
+  upsertSkill(skillId: string, input: { name?: string; description?: string; content?: string }): Promise<Skill> {
+    return this.request(`/api/v2/agent/skills/${encodeURIComponent(skillId)}`, skillSchema, {
+      method: 'PUT',
+      body: { id: skillId, ...input }
+    });
+  }
+
+  deleteSkill(skillId: string): Promise<void> {
+    return this.request(
+      `/api/v2/agent/skills/${encodeURIComponent(skillId)}`,
+      z.object({ id: z.string() }),
+      { method: 'DELETE' }
+    ).then(() => undefined);
+  }
+
+  mcpConfig(): Promise<{ servers: Record<string, Record<string, unknown>> }> {
+    return this.request('/api/v2/agent/mcp', mcpConfigSchema);
+  }
+
+  updateMcpConfig(servers: Record<string, Record<string, unknown>>): Promise<{ servers: Record<string, Record<string, unknown>> }> {
+    return this.request('/api/v2/agent/mcp', mcpConfigSchema, { method: 'PUT', body: { servers } });
   }
 
   async subscribeConversationEvents(

@@ -30,7 +30,7 @@ export function WorkspacePage({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [error, setError] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [section, setSection] = useState<'conversations' | 'files'>('conversations');
+  const [section, setSection] = useState<'conversations' | 'files' | 'skills'>('conversations');
 
   const refreshConversations = useCallback(async () => {
     const items = await api.listConversations();

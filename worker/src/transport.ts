@@ -31,6 +31,7 @@ export interface AgentControlTransport {
   }) => Promise<{ ok: boolean; payload?: Record<string, unknown>; error?: string }>): void;
   sleep(): Promise<void>;
   mintModelEnvironment(modelId?: string): Promise<Record<string, string | undefined>>;
+  fetchSettings(): Promise<{ mcpServers: Record<string, unknown> }>;
   close(): void;
 }
 
@@ -70,6 +71,7 @@ type SocketMessage = {
   idleMs?: unknown;
   shouldSleep?: unknown;
   env?: unknown;
+  mcpServers?: unknown;
   id?: unknown;
   conversationId?: unknown;
   agentMessageId?: unknown;
@@ -223,6 +225,14 @@ export class WsAgentControlTransport implements AgentControlTransport {
     }
     if (!env.AGENT_LLM_PROVIDER) throw new Error('Control plane returned a model environment without AGENT_LLM_PROVIDER');
     return env;
+  }
+
+  async fetchSettings(): Promise<{ mcpServers: Record<string, unknown> }> {
+    await this.ensureConnected();
+    const body = await this.request('agent.settings', { type: 'agent.settings' });
+    const raw = (body as SocketMessage & { mcpServers?: unknown }).mcpServers;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { mcpServers: {} };
+    return { mcpServers: raw as Record<string, unknown> };
   }
 
   close(): void {

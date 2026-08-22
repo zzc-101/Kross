@@ -5,6 +5,7 @@ import com.kross.agent.entity.AgentConversation;
 import com.kross.agent.entity.AgentMessage;
 import com.kross.agent.entity.AgentModel;
 import com.kross.agent.entity.AgentSession;
+import com.kross.agent.entity.AgentSettings;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -92,4 +93,8 @@ public interface AgentMapper {
   boolean hasQueued(@Param("agentId") String agentId);
 
   int requeueInterruptedMessages(@Param("agentId") String agentId);
+
+  Optional<AgentSettings> findSettings(@Param("agentId") String agentId);
+
+  void upsertSettings(AgentSettings row);
 }

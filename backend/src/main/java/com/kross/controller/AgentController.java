@@ -8,9 +8,14 @@ import com.kross.agent.dto.CloneWorkspaceRequest;
 import com.kross.agent.dto.CloneWorkspaceView;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
+import com.kross.agent.dto.DeleteSkillView;
 import com.kross.agent.dto.GitStatusView;
+import com.kross.agent.dto.McpConfigView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
+import com.kross.agent.dto.SkillView;
+import com.kross.agent.dto.UpdateMcpRequest;
+import com.kross.agent.dto.UpsertSkillRequest;
 import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.api.ApiHeaders;
 import com.kross.api.ItemList;
@@ -20,10 +25,12 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -117,6 +124,44 @@ public class AgentController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestBody CloneWorkspaceRequest request) {
     return Res.ok(agents.cloneWorkspace(organizationId, request));
+  }
+
+  @GetMapping("/skills")
+  public Res<ItemList<SkillView>> skills(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
+    return Res.ok(new ItemList<>(agents.listSkills(organizationId)));
+  }
+
+  @PutMapping("/skills/{skillId}")
+  public Res<SkillView> upsertSkill(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String skillId,
+      @RequestBody UpsertSkillRequest request) {
+    return Res.ok(agents.upsertSkill(
+        organizationId,
+        new UpsertSkillRequest(
+            Optional.ofNullable(request.id()).orElse(skillId),
+            request.name(),
+            request.description(),
+            request.content())));
+  }
+
+  @DeleteMapping("/skills/{skillId}")
+  public Res<DeleteSkillView> deleteSkill(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String skillId) {
+    return Res.ok(agents.deleteSkill(organizationId, skillId));
+  }
+
+  @GetMapping("/mcp")
+  public Res<McpConfigView> mcp(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
+    return Res.ok(agents.mcpConfig(organizationId));
+  }
+
+  @PutMapping("/mcp")
+  public Res<McpConfigView> updateMcp(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestBody UpdateMcpRequest request) {
+    return Res.ok(agents.updateMcpConfig(organizationId, request));
   }
 
   @GetMapping(path = "/conversations/{conversationId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

@@ -258,4 +258,24 @@
       AND role = 'user'
       AND status = 'processing'
   </update>
+
+  <resultMap id="AgentSettingsMap" type="com.kross.agent.entity.AgentSettings">
+    <id column="agent_id" property="agentId"/>
+    <result column="organization_id" property="organizationId"/>
+    <result column="mcp_servers" property="mcpServers" typeHandler="com.kross.support.JsonbTypeHandler"/>
+    <result column="updated_at" property="updatedAt"/>
+  </resultMap>
+
+  <select id="findSettings" resultMap="AgentSettingsMap">
+    SELECT * FROM agent_settings WHERE agent_id = #{agentId}
+  </select>
+
+  <insert id="upsertSettings">
+    INSERT INTO agent_settings (agent_id, organization_id, mcp_servers, updated_at)
+    VALUES
+      (#{agentId}, #{organizationId}, #{mcpServers, typeHandler=com.kross.support.JsonbTypeHandler}, now())
+    ON CONFLICT (agent_id) DO UPDATE SET
+      mcp_servers = EXCLUDED.mcp_servers,
+      updated_at = now()
+  </insert>
 </mapper>

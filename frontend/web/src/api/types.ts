@@ -114,3 +114,12 @@ export interface CloneResult {
   directory: string;
   url: string;
 }
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+}
+
+export type McpServers = Record<string, Record<string, unknown>>;

@@ -35,6 +35,8 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 - 文件列表：`GET /api/v2/agent/workspace/files?path=`
 - Git 状态：`GET /api/v2/agent/workspace/git?path=`
 - 克隆：`POST /api/v2/agent/workspace/git/clone`
+- Skills：`GET/PUT/DELETE /api/v2/agent/skills`
+- MCP：`GET/PUT /api/v2/agent/mcp`（持久化到 `/work/.kross/mcp.json`）
 
 ## 集群节点
 

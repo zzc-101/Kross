@@ -1,5 +1,6 @@
 package com.kross.agent;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.agent.dto.AgentProtocol;
@@ -11,15 +12,21 @@ import com.kross.agent.dto.CloneWorkspaceRequest;
 import com.kross.agent.dto.CloneWorkspaceView;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
+import com.kross.agent.dto.DeleteSkillView;
 import com.kross.agent.dto.GitStatusView;
+import com.kross.agent.dto.McpConfigView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
+import com.kross.agent.dto.SkillView;
+import com.kross.agent.dto.UpdateMcpRequest;
+import com.kross.agent.dto.UpsertSkillRequest;
 import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.agent.entity.Agent;
 import com.kross.agent.entity.AgentConversation;
 import com.kross.agent.entity.AgentMessage;
 import com.kross.agent.entity.AgentModel;
 import com.kross.agent.entity.AgentSession;
+import com.kross.agent.entity.AgentSettings;
 import com.kross.api.ApiException;
 import com.kross.catalog.CredentialVault;
 import com.kross.channel.AgentSocketHub;
@@ -35,6 +42,7 @@ import com.kross.orchestrator.ContainerBackend;
 import com.kross.orchestrator.ContainerBackend.BackendHandle;
 import com.kross.observability.RequestLogContext;
 import com.kross.orchestrator.ContainerBackend.ResourceLimits;
+import com.kross.support.Jsons;
 import com.kross.support.Tokens;
 import java.time.Duration;
 import java.time.Instant;
@@ -250,6 +258,64 @@ public class AgentService {
         .ifPresent(directory -> payload.put("directory", directory));
     Map<String, Object> result = runWorkspaceCommand(agent, "git.clone", payload, Duration.ofMinutes(3));
     return mapper.convertValue(result, CloneWorkspaceView.class);
+  }
+
+  public List<SkillView> listSkills(String organizationId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+    Agent agent = ensure(context);
+    Map<String, Object> payload = runWorkspaceCommand(agent, "skills.list", Map.of(), Duration.ofSeconds(30));
+    List<SkillView> items = mapper.convertValue(
+        payload.get("items"), new TypeReference<List<SkillView>>() {});
+    return Optional.ofNullable(items).orElse(List.of());
+  }
+
+  public SkillView upsertSkill(String organizationId, UpsertSkillRequest request) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
+    String id = requireResourceName(request.id(), "Skill id");
+    Agent agent = ensure(context);
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("id", id);
+    payload.put("name", Optional.ofNullable(request.name()).map(String::trim).filter(value -> !value.isEmpty()).orElse(id));
+    payload.put("description", Optional.ofNullable(request.description()).map(String::trim).orElse(""));
+    payload.put("content", Optional.ofNullable(request.content()).orElse(""));
+    Map<String, Object> result = runWorkspaceCommand(agent, "skills.upsert", payload, Duration.ofSeconds(30));
+    return mapper.convertValue(result, SkillView.class);
+  }
+
+  public DeleteSkillView deleteSkill(String organizationId, String skillId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
+    String id = requireResourceName(skillId, "Skill id");
+    Agent agent = ensure(context);
+    runWorkspaceCommand(agent, "skills.remove", Map.of("id", id), Duration.ofSeconds(30));
+    return new DeleteSkillView(id);
+  }
+
+  public McpConfigView mcpConfig(String organizationId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+    Agent agent = ensure(context);
+    return new McpConfigView(loadMcpServers(agent.getId()));
+  }
+
+  public McpConfigView updateMcpConfig(String organizationId, UpdateMcpRequest request) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
+    Agent agent = ensure(context);
+    JsonNode servers = requireMcpServers(Optional.ofNullable(request).map(UpdateMcpRequest::servers).orElse(null));
+    AgentSettings settings = new AgentSettings();
+    settings.setAgentId(agent.getId());
+    settings.setOrganizationId(context.organizationId());
+    settings.setMcpServers(servers);
+    agents.upsertSettings(settings);
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("servers", mapper.convertValue(servers, new TypeReference<Map<String, Object>>() {}));
+    runWorkspaceCommand(agent, "mcp.save", payload, Duration.ofSeconds(45));
+    return new McpConfigView(servers);
+  }
+
+  public AgentProtocol.WorkerSettings workerSettings(String token) {
+    AgentSession session = authenticate(token);
+    JsonNode servers = loadMcpServers(session.getAgentId());
+    Map<String, Object> map = mapper.convertValue(servers, new TypeReference<Map<String, Object>>() {});
+    return new AgentProtocol.WorkerSettings(Optional.ofNullable(map).orElse(Map.of()));
   }
 
   public void sleepIdleAgents() {
@@ -635,6 +701,39 @@ public class AgentService {
       throw ApiException.invalidRequest("mode must be auto, plan or conductor");
     }
     return mode;
+  }
+
+  private JsonNode loadMcpServers(String agentId) {
+    return agents.findSettings(agentId)
+        .map(AgentSettings::getMcpServers)
+        .map(Jsons::objectOrEmpty)
+        .orElseGet(() -> mapper.createObjectNode());
+  }
+
+  private JsonNode requireMcpServers(JsonNode node) {
+    JsonNode servers = Jsons.objectOrEmpty(node);
+    if (servers.size() > 40) {
+      throw ApiException.invalidRequest("Too many MCP servers");
+    }
+    if (servers.toString().length() > 64_000) {
+      throw ApiException.invalidRequest("MCP configuration is too large");
+    }
+    servers.fieldNames().forEachRemaining(id -> {
+      requireResourceName(id, "MCP server id");
+      JsonNode config = servers.get(id);
+      if (config == null || !config.isObject()) {
+        throw ApiException.invalidRequest("Each MCP server must be an object");
+      }
+    });
+    return servers;
+  }
+
+  private static String requireResourceName(String value, String label) {
+    String name = Optional.ofNullable(value).orElse("").trim();
+    if (!name.matches("[A-Za-z][A-Za-z0-9_-]{0,63}")) {
+      throw ApiException.invalidRequest(label + " must be 1-64 letters, digits, _ or -");
+    }
+    return name;
   }
 
   private static String clipTitle(String title) {

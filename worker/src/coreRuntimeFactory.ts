@@ -1,6 +1,8 @@
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { createAgentHost } from '../core/src/host/createAgentHost';
 import type { AgentMode } from '../core/src/domain';
-import type { AgentResult } from '../core/src/domain';
 import type { AgentExecutionProfile } from '../core/src/runtime/agentExecutionProfile';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
@@ -20,6 +22,7 @@ export interface AgentRuntimeHandle {
 
 export interface AgentHostHandle {
   runtime: AgentRuntimeHandle;
+  reloadMcp(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -28,15 +31,22 @@ export async function createPersistentAgentHost(input: {
   env: Record<string, string | undefined>;
   executionProfile: AgentExecutionProfile;
 }): Promise<AgentHostHandle> {
+  const krossHome = join(input.workspaceRoot, '.kross');
+  await mkdir(krossHome, { recursive: true });
   const host = await createAgentHost({
     workspaceRoot: input.workspaceRoot,
     env: input.env,
-    executionProfile: input.executionProfile
+    executionProfile: input.executionProfile,
+    config: { homeDir: input.workspaceRoot, krossHome },
+    runtimeOptions: { personalSkillsDir: join(input.workspaceRoot, 'skills') }
   });
   const runtime = host.createRuntime();
   runtime.setPermissionMode('classifier');
   return {
     runtime: runtime as unknown as AgentRuntimeHandle,
+    reloadMcp: async () => {
+      await host.tooling.mcpManager?.reload?.();
+    },
     close: () => host.close()
   };
 }

@@ -73,6 +73,7 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
               agentId,
               agents.modelEnvironment(
                   token, mapper.treeToValue(root, AgentProtocol.ModelEnvironmentRequest.class)));
+          case "agent.settings" -> hub.send(agentId, agents.workerSettings(token));
           case "agent.command_result" -> hub.completeCommand(
               agentId, mapper.treeToValue(root, AgentProtocol.CommandResult.class));
           default -> hub.send(

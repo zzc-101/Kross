@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, basename } from 'node:path';
 import { spawn } from 'node:child_process';
 
@@ -35,6 +35,14 @@ export async function handleWorkspaceCommand(
         stringField(command.payload.url, ''),
         optionalString(command.payload.directory)
       );
+    case 'skills.list':
+      return listSkills(workspaceRoot);
+    case 'skills.upsert':
+      return upsertSkill(workspaceRoot, command.payload);
+    case 'skills.remove':
+      return removeSkill(workspaceRoot, stringField(command.payload.id, ''));
+    case 'mcp.save':
+      return saveMcp(workspaceRoot, command.payload.servers);
     default:
       throw new Error(`Unsupported workspace command: ${command.name}`);
   }
@@ -136,6 +144,111 @@ async function gitClone(
     throw new Error(result.stderr.trim() || result.stdout.trim() || 'git clone failed');
   }
   return { directory: toRelative(root, target), url: safeUrl };
+}
+
+async function listSkills(root: string): Promise<Record<string, unknown>> {
+  const skillsDir = resolveWorkPath(root, 'skills');
+  await mkdir(skillsDir, { recursive: true });
+  const names = (await readdir(skillsDir)).sort((left, right) => left.localeCompare(right));
+  const items: Array<Record<string, unknown>> = [];
+  for (const id of names) {
+    try {
+      const info = await stat(join(skillsDir, id));
+      if (!info.isDirectory()) continue;
+      const entry = join(skillsDir, id, 'SKILL.md');
+      const content = await readFile(entry, 'utf8');
+      const meta = parseSkillMarkdown(id, content);
+      items.push({ id, ...meta, content });
+    } catch {
+      // skip unreadable skill folders
+    }
+  }
+  return { items };
+}
+
+async function upsertSkill(root: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const id = assertResourceId(stringField(payload.id, ''), 'Skill id');
+  const name = stringField(payload.name, id).trim() || id;
+  const description = stringField(payload.description, '').trim();
+  const body = stringField(payload.content, '');
+  const content = [
+    '---',
+    `name: ${name}`,
+    `description: ${description}`,
+    '---',
+    '',
+    body.replace(/^\uFEFF/, '')
+  ].join('\n');
+  const target = resolveWorkPath(root, join('skills', id, 'SKILL.md'));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, content, { encoding: 'utf8', mode: 0o600 });
+  return { id, name, description, content };
+}
+
+async function removeSkill(root: string, id: string): Promise<Record<string, unknown>> {
+  const safeId = assertResourceId(id, 'Skill id');
+  const target = resolveWorkPath(root, join('skills', safeId));
+  await rm(target, { recursive: true, force: true });
+  return { id: safeId };
+}
+
+export async function writeMcpConfig(root: string, servers: unknown): Promise<Record<string, unknown>> {
+  const map = normalizeMcpServers(servers);
+  const krossHome = join(root, '.kross');
+  await mkdir(krossHome, { recursive: true });
+  await writeFile(
+    join(krossHome, 'mcp.json'),
+    `${JSON.stringify({ mcpServers: map }, null, 2)}\n`,
+    { encoding: 'utf8', mode: 0o600 }
+  );
+  return { servers: map };
+}
+
+async function saveMcp(root: string, servers: unknown): Promise<Record<string, unknown>> {
+  return writeMcpConfig(root, servers);
+}
+
+function parseSkillMarkdown(id: string, content: string): { name: string; description: string } {
+  let name = id;
+  let description = '';
+  if (content.startsWith('---\n') || content.startsWith('---\r\n')) {
+    const lines = content.split(/\r?\n/);
+    const closing = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
+    if (closing > 0) {
+      for (const line of lines.slice(1, closing)) {
+        const match = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/.exec(line);
+        if (!match) continue;
+        const key = match[1]!.toLowerCase();
+        const value = match[2]!.trim().replace(/^['"]|['"]$/g, '');
+        if (key === 'name' && value) name = value;
+        if (key === 'description') description = value;
+      }
+    }
+  }
+  return { name, description };
+}
+
+function normalizeMcpServers(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const root = value as Record<string, unknown>;
+  const source = root.mcpServers && typeof root.mcpServers === 'object' && !Array.isArray(root.mcpServers)
+    ? root.mcpServers as Record<string, unknown>
+    : root;
+  const next: Record<string, unknown> = {};
+  for (const [id, config] of Object.entries(source)) {
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(id)) continue;
+    if (!config || typeof config !== 'object' || Array.isArray(config)) continue;
+    next[id] = config;
+  }
+  return next;
+}
+
+function assertResourceId(value: string, label: string): string {
+  const id = value.trim();
+  if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(id)) {
+    throw new Error(`${label} must be 1-64 letters, digits, _ or -`);
+  }
+  return id;
 }
 
 async function findGitRoot(start: string, workspaceRoot: string): Promise<string | undefined> {
