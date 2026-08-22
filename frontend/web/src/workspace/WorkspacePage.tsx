@@ -30,6 +30,7 @@ export function WorkspacePage({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [error, setError] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [section, setSection] = useState<'conversations' | 'files'>('conversations');
 
   const refreshConversations = useCallback(async () => {
     const items = await api.listConversations();
@@ -125,6 +126,9 @@ export function WorkspacePage({
             onRename={(id, title) => {
               void api.patchConversation(id, { title }).then(() => refreshConversations());
             }}
+            api={api}
+            section={section}
+            onSection={setSection}
           />
           <main className="stage">
             <TopBar onOpenSidebar={() => setSidebarOpen(true)} onNew={() => void onCreateConversation()} />

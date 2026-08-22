@@ -7,10 +7,14 @@ import com.kross.agent.dto.AgentMessageView;
 import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AgentViews;
 import com.kross.agent.dto.AppendAgentMessageRequest;
+import com.kross.agent.dto.CloneWorkspaceRequest;
+import com.kross.agent.dto.CloneWorkspaceView;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
+import com.kross.agent.dto.GitStatusView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
+import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.agent.entity.Agent;
 import com.kross.agent.entity.AgentConversation;
 import com.kross.agent.entity.AgentMessage;
@@ -205,6 +209,47 @@ public class AgentService {
         approvalId,
         request.approved(),
         Optional.ofNullable(request.reason()).map(String::trim).filter(value -> !value.isEmpty()).orElse(null)));
+  }
+
+  public WorkspaceListingView listWorkspace(String organizationId, String path) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+    Agent agent = ensure(context);
+    Map<String, Object> payload = runWorkspaceCommand(
+        agent,
+        "workspace.list",
+        Map.of("path", Optional.ofNullable(path).orElse(".")),
+        Duration.ofSeconds(30));
+    return mapper.convertValue(payload, WorkspaceListingView.class);
+  }
+
+  public GitStatusView gitStatus(String organizationId, String path) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+    Agent agent = ensure(context);
+    Map<String, Object> payload = runWorkspaceCommand(
+        agent,
+        "git.status",
+        Map.of("path", Optional.ofNullable(path).orElse(".")),
+        Duration.ofSeconds(30));
+    GitStatusView view = mapper.convertValue(payload, GitStatusView.class);
+    return new GitStatusView(
+        view.path(),
+        view.repository(),
+        view.branch(),
+        view.dirty(),
+        Optional.ofNullable(view.files()).orElse(List.of()));
+  }
+
+  public CloneWorkspaceView cloneWorkspace(String organizationId, CloneWorkspaceRequest request) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
+    String url = Optional.ofNullable(request.url()).map(String::trim).filter(value -> !value.isEmpty())
+        .orElseThrow(() -> ApiException.invalidRequest("Repository URL is required"));
+    Agent agent = ensure(context);
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("url", url);
+    Optional.ofNullable(request.directory()).map(String::trim).filter(value -> !value.isEmpty())
+        .ifPresent(directory -> payload.put("directory", directory));
+    Map<String, Object> result = runWorkspaceCommand(agent, "git.clone", payload, Duration.ofMinutes(3));
+    return mapper.convertValue(result, CloneWorkspaceView.class);
   }
 
   public void sleepIdleAgents() {
@@ -548,6 +593,25 @@ public class AgentService {
       throw ApiException.notFound("Conversation");
     }
     return conversation;
+  }
+
+  private Map<String, Object> runWorkspaceCommand(
+      Agent agent, String name, Map<String, Object> payload, Duration timeout) {
+    ensureWorker(agent);
+    return sockets.requestCommand(agent.getId(), name, payload, timeout);
+  }
+
+  private void ensureWorker(Agent agent) {
+    if (sockets.isConnected(agent.getId())) {
+      return;
+    }
+    wake(agent);
+    Duration wait = Duration.ofMillis(Math.min(
+        Math.max(properties.getAgent().getStartTimeoutMs(), 5_000L),
+        60_000L));
+    if (!sockets.awaitConnected(agent.getId(), wait)) {
+      throw ApiException.conflict("agent_offline", "Agent worker is not connected");
+    }
   }
 
   private AgentModel requireUsableModel(String organizationId, String modelId) {

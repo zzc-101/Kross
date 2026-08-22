@@ -73,6 +73,8 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
               agentId,
               agents.modelEnvironment(
                   token, mapper.treeToValue(root, AgentProtocol.ModelEnvironmentRequest.class)));
+          case "agent.command_result" -> hub.completeCommand(
+              agentId, mapper.treeToValue(root, AgentProtocol.CommandResult.class));
           default -> hub.send(
               agentId, AgentProtocol.SocketError.of("unknown_type", "Unsupported websocket message type"));
         }

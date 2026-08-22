@@ -29,6 +29,13 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 `modelId` 再要一次 `agent.model_environment`。生成过程立即推 `agent.events`，
 结束时用 `agent.message` 提交完整 `parts`。另有心跳和休眠帧。
 
+工作区浏览走同一条 WebSocket：控制面下发 `agent.command`（`workspace.list` /
+`git.status` / `git.clone`），Worker 用 `agent.command_result` 回答。浏览器 HTTP：
+
+- 文件列表：`GET /api/v2/agent/workspace/files?path=`
+- Git 状态：`GET /api/v2/agent/workspace/git?path=`
+- 克隆：`POST /api/v2/agent/workspace/git/clone`
+
 ## 集群节点
 
 路径：`ws://<control-plane>/internal/v2/nodes/ws?nodeId=<KROSS_NODE_ID>`，

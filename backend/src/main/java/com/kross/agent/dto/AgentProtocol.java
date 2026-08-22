@@ -61,6 +61,23 @@ public final class AgentProtocol {
 
   public record ModelEnvironmentRequest(String type, String modelId) {}
 
+  public record Command(
+      String type,
+      String commandId,
+      String name,
+      Map<String, Object> payload) {
+    public Command(String commandId, String name, Map<String, Object> payload) {
+      this("agent.command", commandId, name, payload == null ? Map.of() : payload);
+    }
+  }
+
+  public record CommandResult(
+      String type,
+      String commandId,
+      boolean ok,
+      Map<String, Object> payload,
+      String error) {}
+
   public record ReplyRequest(
       String type,
       String userMessageId,

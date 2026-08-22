@@ -24,6 +24,11 @@ export interface AgentControlTransport {
     parts?: unknown[];
   }): Promise<void>;
   waitForApproval(approvalId: string): Promise<{ approved: boolean; reason?: string }>;
+  onCommand(handler: (command: {
+    commandId: string;
+    name: string;
+    payload: Record<string, unknown>;
+  }) => Promise<{ ok: boolean; payload?: Record<string, unknown>; error?: string }>): void;
   sleep(): Promise<void>;
   mintModelEnvironment(modelId?: string): Promise<Record<string, string | undefined>>;
   close(): void;
@@ -72,6 +77,9 @@ type SocketMessage = {
   history?: unknown;
   mode?: unknown;
   modelId?: unknown;
+  commandId?: unknown;
+  name?: unknown;
+  payload?: unknown;
   approvalId?: unknown;
   approved?: unknown;
   reason?: unknown;
@@ -88,6 +96,11 @@ export class WsAgentControlTransport implements AgentControlTransport {
   private readonly jobWaiters: Array<(job: Job | undefined) => void> = [];
   private readonly approvalWaiters = new Map<string, Deferred<{ approved: boolean; reason?: string }>>();
   private readonly approvalQueue = new Map<string, { approved: boolean; reason?: string }>();
+  private commandHandler?: (command: {
+    commandId: string;
+    name: string;
+    payload: Record<string, unknown>;
+  }) => Promise<{ ok: boolean; payload?: Record<string, unknown>; error?: string }>;
 
   constructor(private readonly options: WsAgentControlTransportOptions) {
     const url = new URL(options.controlPlaneUrl);
@@ -177,6 +190,14 @@ export class WsAgentControlTransport implements AgentControlTransport {
     return new Promise((resolve, reject) => {
       this.approvalWaiters.set(approvalId, { resolve, reject });
     });
+  }
+
+  onCommand(handler: (command: {
+    commandId: string;
+    name: string;
+    payload: Record<string, unknown>;
+  }) => Promise<{ ok: boolean; payload?: Record<string, unknown>; error?: string }>): void {
+    this.commandHandler = handler;
   }
 
   async sleep(): Promise<void> {
@@ -298,6 +319,10 @@ export class WsAgentControlTransport implements AgentControlTransport {
       }
       return;
     }
+    if (type === 'agent.command') {
+      void this.dispatchCommand(parsed);
+      return;
+    }
     const waiters = this.pending.get(type);
     const waiter = waiters?.shift();
     if (waiter) waiter.resolve(parsed);
@@ -361,6 +386,40 @@ export class WsAgentControlTransport implements AgentControlTransport {
     while (this.jobWaiters.length > 0) {
       const waiter = this.jobWaiters.shift();
       waiter?.(undefined);
+    }
+  }
+
+  private async dispatchCommand(parsed: SocketMessage): Promise<void> {
+    const commandId = typeof parsed.commandId === 'string' ? parsed.commandId : '';
+    const name = typeof parsed.name === 'string' ? parsed.name : '';
+    if (!commandId || !name) return;
+    const payload = parsed.payload && typeof parsed.payload === 'object' && !Array.isArray(parsed.payload)
+      ? parsed.payload as Record<string, unknown>
+      : {};
+    try {
+      const handler = this.commandHandler;
+      const result = handler
+        ? await handler({ commandId, name, payload })
+        : { ok: false, error: 'Workspace commands are not available' };
+      this.send({
+        type: 'agent.command_result',
+        commandId,
+        ok: result.ok,
+        ...(result.payload ? { payload: result.payload } : {}),
+        ...(result.error ? { error: result.error } : {})
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      try {
+        this.send({
+          type: 'agent.command_result',
+          commandId,
+          ok: false,
+          error: message
+        });
+      } catch {
+        // socket already closed
+      }
     }
   }
 }

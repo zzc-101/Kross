@@ -9,6 +9,7 @@ import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFa
 import { createWorkerLogger } from './logger';
 import { createPersonalAgentProfile } from './runtime/workExecutionProfile';
 import type { AgentControlTransport, AgentStreamEvent } from './transport';
+import { handleWorkspaceCommand } from './workspaceCommands';
 
 const TOOL_CLIP_CHARS = 8_000;
 
@@ -47,6 +48,14 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   });
   const registered = await options.transport.register();
   log.info('Worker registered', { idleMs: registered.idleMs });
+  options.transport.onCommand(async (command) => {
+    try {
+      const payload = await handleWorkspaceCommand(options.workspaceRoot, command);
+      return { ok: true, payload };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
   const minted = await options.transport.mintModelEnvironment();
   let host: AgentHostHandle = await createPersistentAgentHost({
     workspaceRoot: options.workspaceRoot,

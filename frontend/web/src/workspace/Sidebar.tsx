@@ -5,12 +5,17 @@ import {
   ChevronRight,
   MessagesSquare,
   PanelLeft,
+  Paperclip,
   Pencil,
   SquarePen,
   UserRound
 } from 'lucide-react';
 
 import type { Conversation, Membership } from '../api/types';
+import type { AgentApiClient } from '../api/client';
+import { FilesPanel } from './FilesPanel';
+
+export type SidebarSection = 'conversations' | 'files';
 
 export function Sidebar({
   conversations,
@@ -30,7 +35,10 @@ export function Sidebar({
   onRename,
   onSelectOrganization,
   onLogout,
-  onSaveProfile
+  onSaveProfile,
+  api,
+  section,
+  onSection
 }: {
   conversations: Conversation[];
   activeId?: string;
@@ -50,6 +58,9 @@ export function Sidebar({
   onSelectOrganization(id: string): void;
   onLogout(): void;
   onSaveProfile(input: { displayName: string; avatarUrl: string; gender: string; phone: string }): Promise<void>;
+  api: AgentApiClient;
+  section: SidebarSection;
+  onSection(section: SidebarSection): void;
 }) {
   const [conversationsOpen, setConversationsOpen] = useState(true);
   const [editingId, setEditingId] = useState<string>();
@@ -74,12 +85,21 @@ export function Sidebar({
           <div className="rail-links">
             <button
               type="button"
-              className="rail-button active"
+              className={section === 'conversations' ? 'rail-button active' : 'rail-button'}
               aria-label="对话"
-              aria-pressed="true"
-              onClick={() => setConversationsOpen(true)}
+              aria-pressed={section === 'conversations'}
+              onClick={() => onSection('conversations')}
             >
               <MessagesSquare />
+            </button>
+            <button
+              type="button"
+              className={section === 'files' ? 'rail-button active' : 'rail-button'}
+              aria-label="文件"
+              aria-pressed={section === 'files'}
+              onClick={() => onSection('files')}
+            >
+              <Paperclip />
             </button>
           </div>
           <div className="rail-account">
@@ -144,40 +164,44 @@ export function Sidebar({
         </div>
 
         <div className="sidebar-panel">
-          <div className="sidebar-section conversation-section">
-            <button type="button" className="section-toggle" aria-expanded={conversationsOpen} onClick={() => setConversationsOpen((value) => !value)}>
-              <span>对话</span>{conversationsOpen ? <ChevronDown /> : <ChevronRight />}
-            </button>
-            {conversationsOpen && (
-              <div className="conversation-list">
-                {visibleConversations.map((item) => (
-                  <div key={item.id} className={item.id === activeId ? 'conversation-row active' : 'conversation-row'}>
-                    {editingId === item.id ? (
-                      <input
-                        value={draft}
-                        autoFocus
-                        onChange={(event) => setDraft(event.target.value)}
-                        onBlur={() => {
-                          const title = draft.trim();
-                          if (title && title !== item.title) onRename(item.id, title);
-                          setEditingId(undefined);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') event.currentTarget.blur();
-                          if (event.key === 'Escape') setEditingId(undefined);
-                        }}
-                      />
-                    ) : (
-                      <button type="button" className="conversation-trigger" onClick={() => { onSelect(item.id); onClose(); }}>{item.title}</button>
-                    )}
-                    <button type="button" className="conversation-action" aria-label="重命名" onClick={() => { setDraft(item.title); setEditingId(item.id); }}><Pencil /></button>
-                    <button type="button" className="conversation-action" aria-label="归档" onClick={() => onArchive(item.id)}><Archive /></button>
-                  </div>
-                ))}
-                {visibleConversations.length === 0 && <p className="conversation-empty">还没有对话</p>}
-              </div>
-            )}
-          </div>
+          {section === 'files' ? (
+            <FilesPanel api={api} />
+          ) : (
+            <div className="sidebar-section conversation-section">
+              <button type="button" className="section-toggle" aria-expanded={conversationsOpen} onClick={() => setConversationsOpen((value) => !value)}>
+                <span>对话</span>{conversationsOpen ? <ChevronDown /> : <ChevronRight />}
+              </button>
+              {conversationsOpen && (
+                <div className="conversation-list">
+                  {visibleConversations.map((item) => (
+                    <div key={item.id} className={item.id === activeId ? 'conversation-row active' : 'conversation-row'}>
+                      {editingId === item.id ? (
+                        <input
+                          value={draft}
+                          autoFocus
+                          onChange={(event) => setDraft(event.target.value)}
+                          onBlur={() => {
+                            const title = draft.trim();
+                            if (title && title !== item.title) onRename(item.id, title);
+                            setEditingId(undefined);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') event.currentTarget.blur();
+                            if (event.key === 'Escape') setEditingId(undefined);
+                          }}
+                        />
+                      ) : (
+                        <button type="button" className="conversation-trigger" onClick={() => { onSelect(item.id); onClose(); }}>{item.title}</button>
+                      )}
+                      <button type="button" className="conversation-action" aria-label="重命名" onClick={() => { setDraft(item.title); setEditingId(item.id); }}><Pencil /></button>
+                      <button type="button" className="conversation-action" aria-label="归档" onClick={() => onArchive(item.id)}><Archive /></button>
+                    </div>
+                  ))}
+                  {visibleConversations.length === 0 && <p className="conversation-empty">还没有对话</p>}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </aside>
     </>

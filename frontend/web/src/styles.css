@@ -73,6 +73,30 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .conversation-row input { min-width: 0; margin: 4px; border: 1px solid #c8c8c8; border-radius: 6px; background: #fff; padding: 5px 7px; outline: none; font-size: 13px; }
 .conversation-empty { margin: 6px 8px; color: #888; font-size: 12px; }
 
+.files-panel { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 8px; padding-top: 8px; }
+.files-toolbar { display: flex; align-items: center; justify-content: space-between; }
+.files-toolbar strong { font-size: 14px; }
+.files-toolbar button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 7px; background: transparent; color: #494949; }
+.files-toolbar button:hover { background: #e7e7e8; }
+.files-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; color: #666; font-size: 12px; }
+.files-crumb button { border: 0; background: transparent; padding: 2px 4px; border-radius: 6px; color: inherit; }
+.files-crumb button:hover { background: #ececec; }
+.files-crumb span { display: inline-flex; align-items: center; }
+.git-banner { display: flex; align-items: center; gap: 6px; border-radius: 8px; background: #ececec; padding: 6px 8px; font-size: 12px; }
+.git-banner.dirty { background: #f4efe4; }
+.files-hint, .files-error { margin: 0; font-size: 12px; color: #888; }
+.files-error { color: #b42318; }
+.files-list { display: grid; gap: 2px; min-height: 0; overflow: auto; }
+.file-row { display: flex; width: 100%; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: transparent; padding: 7px 8px; text-align: left; font-size: 13px; }
+.file-row:hover:not(:disabled) { background: #ececec; }
+.file-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-files { display: grid; gap: 4px; max-height: 120px; overflow: auto; font-size: 11px; color: #555; }
+.git-files code { margin-right: 6px; color: #8a5a00; }
+.clone-form { display: grid; gap: 8px; margin-top: auto; padding-top: 10px; }
+.clone-form label { display: grid; gap: 4px; color: #777; font-size: 11px; }
+.clone-form input { width: 100%; border: 1px solid #d8d8d8; border-radius: 8px; background: #fff; padding: 7px; font-size: 12px; }
+.clone-form button { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 8px; background: #222; color: #fff; padding: 8px; font-size: 12px; }
+
 .libre-topbar { display: flex; height: 72px; align-items: center; gap: 8px; padding: 10px 14px 10px 18px; background: #fff; }
 .mobile-menu { display: none; width: 40px; height: 40px; place-items: center; border-radius: 10px; }
 .header-icon:hover { background: #f7f7f8; }

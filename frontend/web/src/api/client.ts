@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-import type { AgentMessage, AgentModel, AuthConfig, Conversation, Me, MessagePart } from './types';
+import type {
+  AgentMessage, AgentModel, AuthConfig, CloneResult, Conversation, GitStatus, Me, MessagePart, WorkspaceListing
+} from './types';
 import type { ChannelEvent } from './channelEvents';
 
 export class ApiError extends Error {
@@ -96,6 +98,32 @@ const messageSchema: z.ZodType<AgentMessage> = z.object({
   status: z.enum(['queued', 'processing', 'done', 'failed']),
   errorSummary: z.string().optional(),
   createdAt: instant
+});
+
+const workspaceListingSchema: z.ZodType<WorkspaceListing> = z.object({
+  path: z.string().min(1),
+  entries: z.array(z.object({
+    name: z.string().min(1),
+    type: z.enum(['file', 'dir']),
+    size: z.number().optional(),
+    modifiedAt: instant.optional()
+  }))
+});
+
+const gitStatusSchema: z.ZodType<GitStatus> = z.object({
+  path: z.string().min(1),
+  repository: z.boolean(),
+  branch: z.string().min(1).optional(),
+  dirty: z.boolean(),
+  files: z.array(z.object({
+    path: z.string().min(1),
+    status: z.string().min(1)
+  })).default([])
+});
+
+const cloneResultSchema: z.ZodType<CloneResult> = z.object({
+  directory: z.string().min(1),
+  url: z.string().min(1)
 });
 
 const envelopeSchema = z.object({
@@ -213,6 +241,27 @@ export class AgentApiClient {
       z.null(),
       { method: 'POST', body: input }
     ).then(() => undefined);
+  }
+
+  listWorkspace(path = '.'): Promise<WorkspaceListing> {
+    return this.request(
+      `/api/v2/agent/workspace/files?path=${encodeURIComponent(path)}`,
+      workspaceListingSchema
+    );
+  }
+
+  gitStatus(path = '.'): Promise<GitStatus> {
+    return this.request(
+      `/api/v2/agent/workspace/git?path=${encodeURIComponent(path)}`,
+      gitStatusSchema
+    );
+  }
+
+  cloneWorkspace(input: { url: string; directory?: string }): Promise<CloneResult> {
+    return this.request('/api/v2/agent/workspace/git/clone', cloneResultSchema, {
+      method: 'POST',
+      body: input
+    });
   }
 
   async subscribeConversationEvents(

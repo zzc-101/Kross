@@ -84,3 +84,33 @@ export interface AgentMessage {
   errorSummary?: string;
   createdAt: string;
 }
+
+export interface WorkspaceEntry {
+  name: string;
+  type: 'file' | 'dir';
+  size?: number;
+  modifiedAt?: string;
+}
+
+export interface WorkspaceListing {
+  path: string;
+  entries: WorkspaceEntry[];
+}
+
+export interface GitFileStatus {
+  path: string;
+  status: string;
+}
+
+export interface GitStatus {
+  path: string;
+  repository: boolean;
+  branch?: string;
+  dirty: boolean;
+  files: GitFileStatus[];
+}
+
+export interface CloneResult {
+  directory: string;
+  url: string;
+}

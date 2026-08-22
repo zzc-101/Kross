@@ -4,10 +4,14 @@ import com.kross.agent.AgentService;
 import com.kross.agent.dto.AgentMessageView;
 import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AppendAgentMessageRequest;
+import com.kross.agent.dto.CloneWorkspaceRequest;
+import com.kross.agent.dto.CloneWorkspaceView;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
+import com.kross.agent.dto.GitStatusView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
+import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.api.ApiHeaders;
 import com.kross.api.ItemList;
 import com.kross.api.Res;
@@ -92,6 +96,27 @@ public class AgentController {
       @RequestBody ResolveToolApprovalRequest request) {
     agents.resolveApproval(organizationId, conversationId, approvalId, request);
     return Res.ok();
+  }
+
+  @GetMapping("/workspace/files")
+  public Res<WorkspaceListingView> workspaceFiles(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestParam Optional<String> path) {
+    return Res.ok(agents.listWorkspace(organizationId, path.orElse(".")));
+  }
+
+  @GetMapping("/workspace/git")
+  public Res<GitStatusView> workspaceGit(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestParam Optional<String> path) {
+    return Res.ok(agents.gitStatus(organizationId, path.orElse(".")));
+  }
+
+  @PostMapping("/workspace/git/clone")
+  public Res<CloneWorkspaceView> cloneWorkspace(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestBody CloneWorkspaceRequest request) {
+    return Res.ok(agents.cloneWorkspace(organizationId, request));
   }
 
   @GetMapping(path = "/conversations/{conversationId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

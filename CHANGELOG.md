@@ -23,6 +23,7 @@
   Worker 按任务使用对应模式，模型变更时重新领取密钥环境。
 - 工作台去掉不可用入口（假工作区、临时对话、附件、语音、政策链接），
   模式与模型选择改为真实控件。
+- 工作区浏览器：列出 `/work`、查看 Git 状态、克隆远程仓库（Agent 离线时先唤醒）。
 - 文件、搜索、Git、Shell、后台进程与 MCP 工具；workspace 边界、审批与
   mutation journal。
 - Provider Capability 与调用指标：Runtime 只消费 Adapter 声明，记录不含正文的
