@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -24,9 +22,6 @@ func main() {
 		initLogger("")
 		slog.Error("kross-node failed to start", "error", err.Error())
 		os.Exit(1)
-	}
-	if cfg.nodeID == "" {
-		cfg.nodeID = randomID()
 	}
 	initLogger(cfg.nodeID)
 	runtime, err := newDockerRuntime(cfg)
@@ -202,14 +197,6 @@ func websocketURL(base, nodeID string) (string, error) {
 	query.Set("nodeId", nodeID)
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
-}
-
-func randomID() string {
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return time.Now().UTC().Format("20060102150405.000000000")
-	}
-	return hex.EncodeToString(raw[:])
 }
 
 func ptr[T any](v T) *T { return &v }

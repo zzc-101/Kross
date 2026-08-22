@@ -164,10 +164,6 @@ public class SsoService {
         stringClaim(claims, "preferred_username"),
         email.orElse(null),
         subject);
-    Optional<User> byUsername = identities.findUserByUsername(derived).filter(user -> canLink(user, email));
-    if (byUsername.isPresent()) {
-      return bindExisting(byUsername.get(), email.orElse(null), issuer, subject, displayName, avatarUrl);
-    }
     String username = uniqueUsername(derived);
     try {
       identities.insertUser(
@@ -191,14 +187,6 @@ public class SsoService {
     User active = requireActive(user);
     identities.bindSso(active.getId(), email, issuer, subject, AuthCredentials.requireDisplayName(displayName), avatarUrl);
     return identities.findUserById(active.getId()).orElse(active);
-  }
-
-  private static boolean canLink(User user, Optional<String> email) {
-    if (Optional.ofNullable(user.getSsoSubject()).filter(value -> !value.isBlank()).isPresent()) {
-      return false;
-    }
-    Optional<String> existingEmail = Optional.ofNullable(user.getEmail()).map(String::toLowerCase).filter(value -> !value.isBlank());
-    return existingEmail.isEmpty() || email.equals(existingEmail);
   }
 
   private String uniqueUsername(String base) {

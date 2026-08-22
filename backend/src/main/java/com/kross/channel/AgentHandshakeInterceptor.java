@@ -2,13 +2,9 @@ package com.kross.channel;
 
 import com.kross.agent.AgentService;
 import com.kross.api.ApiException;
-import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
@@ -27,10 +23,7 @@ public class AgentHandshakeInterceptor implements HandshakeInterceptor {
       ServerHttpResponse response,
       WebSocketHandler wsHandler,
       Map<String, Object> attributes) {
-    String token = bearer(request);
-    if (token.isBlank()) {
-      token = queryValue(request.getURI(), "token");
-    }
+    String token = WebSocketTokens.credential(request);
     try {
       var session = agents.requireAgentSession(token);
       attributes.put(AgentSocketHub.ATTR_TOKEN, token);
@@ -49,28 +42,5 @@ public class AgentHandshakeInterceptor implements HandshakeInterceptor {
       WebSocketHandler wsHandler,
       Exception exception) {
     // token is stored on the session during the handshake
-  }
-
-  private static String bearer(ServerHttpRequest request) {
-    String header = Optional.ofNullable(request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION)).orElse("");
-    if (!header.startsWith("Bearer ") || header.length() <= 7) {
-      return "";
-    }
-    return header.substring("Bearer ".length());
-  }
-
-  private static String queryValue(URI uri, String name) {
-    String query = Optional.ofNullable(uri.getRawQuery()).orElse("");
-    for (String pair : query.split("&")) {
-      int eq = pair.indexOf('=');
-      if (eq <= 0) {
-        continue;
-      }
-      String key = URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8);
-      if (name.equals(key)) {
-        return URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
-      }
-    }
-    return "";
   }
 }

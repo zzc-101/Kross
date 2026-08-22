@@ -13,7 +13,8 @@ describe('WsAgentControlTransport', () => {
     const registered = transport.register();
     await Promise.resolve();
     expect(sockets[0]?.url).toContain('/internal/v2/agents/ws');
-    expect(sockets[0]?.url).toContain('token=short-token');
+    expect(sockets[0]?.url).not.toContain('token=');
+    expect(sockets[0]?.protocols).toEqual(['kross.bearer.short-token']);
     expect(sockets[0]?.url.startsWith('wss://')).toBe(true);
     sockets[0]?.open();
     sockets[0]?.emit({
@@ -92,7 +93,7 @@ class FakeSocket {
   readonly sent: string[] = [];
   private readonly listeners = new Map<string, Set<(event: { data?: string }) => void>>();
 
-  constructor(readonly url: string) {}
+  constructor(readonly url: string, readonly protocols: string[] = []) {}
 
   addEventListener(type: string, listener: (event: { data?: string }) => void): void {
     const bucket = this.listeners.get(type) ?? new Set();
@@ -130,8 +131,8 @@ function fakeWebSocket(sockets: FakeSocket[]): typeof FakeSocket {
     static override readonly CLOSING = 2;
     static override readonly CLOSED = 3;
 
-    constructor(url: string) {
-      super(url);
+    constructor(url: string, protocols?: string | string[]) {
+      super(url, Array.isArray(protocols) ? protocols : protocols ? [protocols] : []);
       sockets.push(this);
     }
   };

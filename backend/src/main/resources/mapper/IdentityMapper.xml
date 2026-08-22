@@ -59,6 +59,10 @@
     SELECT count(*)::int FROM users
   </select>
 
+  <select id="lockBootstrap" resultType="boolean">
+    SELECT pg_try_advisory_xact_lock(872651)
+  </select>
+
   <select id="isRegistrationEnabled" resultType="boolean">
     SELECT registration_enabled FROM platform_settings WHERE id = 'default'
   </select>

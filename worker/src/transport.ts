@@ -221,7 +221,10 @@ export class WsAgentControlTransport implements AgentControlTransport {
   }
 
   private async connect(): Promise<void> {
-    const socket = new this.webSocket(socketUrl(this.options.controlPlaneUrl, this.options.agentToken));
+    const socket = new this.webSocket(
+      socketUrl(this.options.controlPlaneUrl),
+      [`kross.bearer.${this.options.agentToken}`]
+    );
     this.socket = socket;
     socket.addEventListener('message', (event) => this.onMessage(String((event as MessageEvent).data)));
     socket.addEventListener('close', () => {
@@ -358,10 +361,9 @@ type Deferred<T> = {
   reject(error: Error): void;
 };
 
-function socketUrl(controlPlaneUrl: string, token: string): string {
+function socketUrl(controlPlaneUrl: string): string {
   const url = new URL('/internal/v2/agents/ws', controlPlaneUrl);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  url.searchParams.set('token', token);
   return url.toString();
 }
 

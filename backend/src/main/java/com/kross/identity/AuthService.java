@@ -50,6 +50,12 @@ public class AuthService {
   @Transactional
   public MeResponse register(RegisterRequest request) {
     boolean bootstrap = identities.countUsers() == 0;
+    if (bootstrap) {
+      if (!Boolean.TRUE.equals(identities.lockBootstrap())) {
+        throw ApiException.conflict("registration_busy", "Another signup is in progress");
+      }
+      bootstrap = identities.countUsers() == 0;
+    }
     if (!bootstrap && identities.isSsoEnabled()) {
       throw new ApiException("sso_required", "Sign in with SSO", 403);
     }

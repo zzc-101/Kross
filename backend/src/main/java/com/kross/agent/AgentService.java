@@ -32,6 +32,7 @@ import com.kross.orchestrator.ContainerBackend.BackendHandle;
 import com.kross.observability.RequestLogContext;
 import com.kross.orchestrator.ContainerBackend.ResourceLimits;
 import com.kross.support.Tokens;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -210,6 +211,9 @@ public class AgentService {
         tx().executeWithoutResult(status -> markRunning(agent, handle));
         continue;
       }
+      if (stillStarting(agent)) {
+        continue;
+      }
       boolean shouldWake = Boolean.TRUE.equals(tx().execute(status -> {
         agents.requeueInterruptedMessages(agent.getId());
         agent.setStatus("stopped");
@@ -227,6 +231,15 @@ public class AgentService {
         log.warn("Failed to wake agent after interrupt: {}", error.getMessage());
       }
     }
+  }
+
+  private boolean stillStarting(Agent agent) {
+    if (!"starting".equals(agent.getStatus())) {
+      return false;
+    }
+    Instant updated = Optional.ofNullable(agent.getUpdatedAt()).orElse(Instant.EPOCH);
+    Duration grace = Duration.ofMillis(properties.getAgent().getStartTimeoutMs());
+    return updated.isAfter(Instant.now().minus(grace));
   }
 
   private void markRunning(Agent agent, BackendHandle handle) {
@@ -301,6 +314,7 @@ public class AgentService {
               .toList();
       AgentMessage reply = agents.findReplyTo(session.getOrganizationId(), row.getId())
           .filter(existing -> session.getAgentId().equals(existing.getAgentId()))
+          .flatMap(existing -> reusePlaceholder(existing))
           .orElseGet(() -> insertPlaceholder(session, row));
       emitUpsert(row);
       emitUpsert(reply);
@@ -644,6 +658,22 @@ public class AgentService {
     AgentMessage reply = placeholder(session, userMessage, UUID.randomUUID().toString());
     agents.insertMessage(reply);
     return reply;
+  }
+
+  private Optional<AgentMessage> reusePlaceholder(AgentMessage existing) {
+    String status = Optional.ofNullable(existing.getStatus()).orElse("");
+    if ("done".equals(status)) {
+      return Optional.empty();
+    }
+    if (!"processing".equals(status)
+        || Optional.ofNullable(existing.getErrorSummary()).filter(value -> !value.isBlank()).isPresent()) {
+      existing.setStatus("processing");
+      existing.setErrorSummary(null);
+      existing.setContent("");
+      existing.setParts(MessageParts.empty(mapper));
+      agents.updateMessageBody(existing);
+    }
+    return Optional.of(existing);
   }
 
   private AgentMessage placeholder(AgentSession session, AgentMessage userMessage, String id) {

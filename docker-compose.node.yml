@@ -2,7 +2,7 @@
 # Load kross-node:local and kross-worker:local first, then:
 #
 #   export KROSS_CONTROL_PLANE_URL=http://控制面局域网IP:8788
-#   export KROSS_NODE_TOKEN=与控制面相同
+#   export KROSS_NODE_TOKEN=该节点自己的令牌（写入控制面 KROSS_NODE_TOKENS）
 #   export KROSS_NODE_ID=node-2
 #   export KROSS_POSTGRES_PASSWORD=与控制面相同
 #   export KROSS_S3_SECRET_KEY=与控制面相同

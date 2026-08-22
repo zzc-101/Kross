@@ -60,6 +60,8 @@ kross:
   worker-storage: ${KROSS_WORKER_STORAGE:local}
   juicefs-mount: ${KROSS_JUICEFS_MOUNT:}
   node-token: ${KROSS_NODE_TOKEN:}
+  node-id: ${KROSS_NODE_ID:node-1}
+  node-tokens: ${KROSS_NODE_TOKENS:}
   api:
     prefix: ${KROSS_API_PREFIX:/api/v2}
   scheduler:
@@ -68,6 +70,7 @@ kross:
     idle-ms: ${KROSS_AGENT_IDLE_MS:900000}
     token-ttl-ms: ${KROSS_AGENT_TOKEN_TTL_MS:43200000}
     heartbeat-interval-ms: ${KROSS_AGENT_HEARTBEAT_INTERVAL_MS:10000}
+    start-timeout-ms: ${KROSS_AGENT_START_TIMEOUT_MS:120000}
     cpu-millis: ${KROSS_AGENT_CPU_MILLIS:2000}
     memory-bytes: ${KROSS_AGENT_MEMORY_BYTES:1073741824}
     max-pids: ${KROSS_AGENT_MAX_PIDS:512}

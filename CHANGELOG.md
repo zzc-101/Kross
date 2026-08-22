@@ -43,6 +43,14 @@
   `node_modules` 和 Debian 上的 GitHub CLI，方便拷到集群节点。
 - 集群 JuiceFS 改用官方镜像 `juicedata/mount`，`docker-compose.cluster.yml` 会拉起
   本机 `kross-node`；额外 Worker 机用 `docker-compose.node.yml`。
+- 集群节点令牌与 `nodeId` 绑定：`KROSS_NODE_TOKEN` 只认证 `KROSS_NODE_ID`；额外
+  节点写入 `KROSS_NODE_TOKENS=id:token,...`。`node.hello` / `node.heartbeat` 不得
+  改写握手中的节点 ID。
+- Worker 控制面 WebSocket 握手改为 `Sec-WebSocket-Protocol: kross.bearer.<token>`
+  （或 `Authorization: Bearer`），不再把 Agent Token 放进 URL query。
+- 集群内部口 `8788` 默认绑定 `127.0.0.1`；跨机时设置 `KROSS_INTERNAL_BIND` 为内网
+  地址，不要对公网发布。
+- SSO 只按已验证 email 绑定已有账号，不再凭 `preferred_username` 自动接管。
 
 ### Removed
 
@@ -53,5 +61,8 @@
 
 - 新建工作区处于 `creating` 阶段时 Web 不再提前请求会话和模型，避免错误提示
   “工作区不存在”，并在工作区进入 `ready` 后自动加载。
+- 节点握手不再接受共用令牌冒充任意 `nodeId`；中断后 `claimJob` 会把失败占位改回
+  `processing`；reconcile 不再把仍在 `starting` 宽限内的 Agent 当成崩溃。
+- 空库首次注册用事务 advisory lock 与唯一索引保证只有一个 `super_admin`。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

@@ -15,7 +15,10 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 
 ## Worker
 
-路径：`ws://<backend>/internal/v2/agents/ws?token=...`
+路径：`ws://<backend>/internal/v2/agents/ws`
+
+握手使用 `Sec-WebSocket-Protocol: kross.bearer.<token>`，也可带
+`Authorization: Bearer <token>`。不要把 token 放进 URL query。
 
 该路径不经过公网 Nginx。Worker 应连控制面（Compose 别名 `kross-server` 或集群
 内部口），不要连浏览器入口 `:8787`。
@@ -25,7 +28,10 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 
 ## 集群节点
 
-路径：`ws://<control-plane>/internal/v2/nodes/ws`，`Authorization: Bearer <KROSS_NODE_TOKEN>`。
+路径：`ws://<control-plane>/internal/v2/nodes/ws?nodeId=<KROSS_NODE_ID>`，
+`Authorization: Bearer` 必须是该 `nodeId` 绑定的令牌。`KROSS_NODE_TOKEN` 只认证
+`KROSS_NODE_ID`；额外节点把 `id:token` 写入控制面 `KROSS_NODE_TOKENS`。hello 不得
+改写握手中的节点 ID。
 
 同 Compose 用 `http://kross-server:8787`；跨机用内部口（默认 `:8788`），不要走
 公网 Nginx。

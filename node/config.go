@@ -29,6 +29,9 @@ func loadConfig() (config, error) {
 	if cfg.nodeID == "" {
 		cfg.nodeID = envOr("HOSTNAME", "")
 	}
+	if cfg.nodeID == "" {
+		return cfg, fmt.Errorf("KROSS_NODE_ID is required")
+	}
 	if cfg.controlPlaneURL == "" {
 		return cfg, fmt.Errorf("KROSS_CONTROL_PLANE_URL is required")
 	}

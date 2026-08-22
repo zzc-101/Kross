@@ -83,8 +83,9 @@ https://你的域名/api/v2/auth/sso/callback
    跳转到企业 IdP。
 2. IdP 回到 `GET /api/v2/auth/sso/callback`。控制面换票并校验 `id_token`
    （签名、issuer、audience、nonce、过期）。
-3. 用 `issuer + sub` 绑定已有用户；没有则按 `preferred_username` 或邮箱本地部分
-   JIT 创建平台用户（`platform_role=user`，不自动加入组织）。
+3. 用 `issuer + sub` 绑定已有用户；若有已验证 email 则按 email 绑定本地账号；
+   否则按 `preferred_username` 或邮箱本地部分 JIT 创建平台用户（不会仅凭用户名
+   接管已有账号，`platform_role=user`，不自动加入组织）。
 4. 写入现有 `KROSS_SESSION` Cookie，后续与密码登录同一套会话。
 
 启用 SSO 后，普通用户只能走企业账号；超级管理员仍可用密码应急，避免 IdP 故障
@@ -98,6 +99,7 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 |---|---|
 | `KROSS_PORT` | Web 对宿主机暴露的端口，默认 `8787`（仅浏览器；不含 Worker/节点通道） |
 | `KROSS_INTERNAL_PORT` | 集群时控制面内部口映射到宿主机，默认 `8788`；不要对公网开放 |
+| `KROSS_INTERNAL_BIND` | 内部口绑定地址，默认 `127.0.0.1`。跨机节点改成内网 IP（或防火墙后的 `0.0.0.0`） |
 | `KROSS_POSTGRES_PASSWORD` | 本地 PostgreSQL 密码；脚本可自动生成 |
 | `KROSS_CREDENTIAL_MASTER_KEY` | 加密模型 API Key 与 SSO Client Secret，至少 32 字符 |
 | `KROSS_PUBLIC_BASE_URL` | Worker 用来连控制面的地址。单机用 `http://kross-server:8787`；集群用内部口，例如 `http://10.0.0.10:8788` |
@@ -107,9 +109,10 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 | `KROSS_WORKER_STORAGE` | `local`（默认，本机 Docker volume）或 `juicefs` |
 | `KROSS_JUICEFS_MOUNT` | `juicefs` 模式下宿主机挂载点，默认 `/var/lib/kross/jfs` |
 | `KROSS_WORKER_RUNTIME` | `local`（默认，控制面本机 Docker）或 `cluster`（`kross-node` 跨机起容器） |
-| `KROSS_NODE_TOKEN` | `cluster` 节点加入令牌，控制面与 `kross-node` 必须一致 |
+| `KROSS_NODE_TOKEN` | `cluster` 下绑定到 `KROSS_NODE_ID` 的节点令牌；不能拿来冒充其他 `nodeId` |
+| `KROSS_NODE_TOKENS` | 额外节点令牌表，格式 `node-2:令牌2,node-3:令牌3`，写在控制面 |
 | `KROSS_CONTROL_PLANE_URL` | 仅 `kross-node`：控制面可达地址。同 Compose 默认 `http://kross-server:8787`；额外机器用 `http://10.0.0.10:8788` |
-| `KROSS_NODE_ID` | 仅 `kross-node`：节点稳定 ID，默认用容器 hostname |
+| `KROSS_NODE_ID` | 仅 `kross-node`：节点稳定 ID，必须与控制面令牌表中的键一致 |
 | `KROSS_S3_*` | MinIO / S3：产物与（可选）JuiceFS 底仓 |
 | `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | 开发期注入 Worker 默认模型；生产请在管理中心登记组织模型 |
 
@@ -136,8 +139,10 @@ bucket `kross` 分开）。元数据用已有 Postgres。控制面只认宿主�
 
 `.env` 里把 `KROSS_PUBLIC_BASE_URL` 改成 **Worker 容器能访问的控制面内部口**
 （局域网 IP 加 `8788`，不要用浏览器入口 `8787`，也不要用只有 Compose 内网才认识的
-`http://kross-server:8787`）。`./scripts/start-cloud.sh` 生成 `.env` 时会同时写入
-`KROSS_NODE_TOKEN`，集群与额外节点共用这一份。
+`http://kross-server:8787`）。跨机时把 `KROSS_INTERNAL_BIND` 设为该内网 IP。
+`./scripts/start-cloud.sh` 生成 `.env` 时会写入 `KROSS_NODE_TOKEN`，它只认证
+`KROSS_NODE_ID`（默认 `node-1`）。额外节点各自生成令牌，写入控制面
+`KROSS_NODE_TOKENS`。
 
 ```bash
 # 宿主机准备挂载点
@@ -145,6 +150,7 @@ sudo mkdir -p /var/lib/kross/jfs /var/cache/kross-jfs
 
 # 控制面：Postgres、MinIO、Web、JuiceFS、调度，以及本机 kross-node（node-1）
 export KROSS_PUBLIC_BASE_URL=http://控制面局域网IP:8788
+export KROSS_INTERNAL_BIND=控制面局域网IP
 docker compose -f docker-compose.yml -f docker-compose.juicefs.yml -f docker-compose.cluster.yml up -d
 ```
 
@@ -170,7 +176,8 @@ sudo mkdir -p /var/lib/kross/jfs /var/cache/kross-jfs
 export KROSS_CONTROL_PLANE_URL=http://控制面局域网IP:8788
 export KROSS_JUICEFS_META_HOST=控制面局域网IP
 export KROSS_NODE_ID=node-2
-export KROSS_NODE_TOKEN=与控制面.env相同
+export KROSS_NODE_TOKEN=该节点自己的令牌
+# 控制面 .env 增加：KROSS_NODE_TOKENS=node-2:该节点自己的令牌
 export KROSS_POSTGRES_PASSWORD=与控制面相同
 export KROSS_S3_SECRET_KEY=与控制面相同
 docker compose -f docker-compose.node.yml up -d
@@ -178,7 +185,7 @@ docker compose -f docker-compose.node.yml up -d
 
 `kross-node` 日志出现连上 `/internal/v2/nodes/ws` 后，在工作台发一条消息，Worker
 应出现在该节点的 `docker ps`（名称 `kross-agent-...`），而不是控制面本机 Docker。
-加入令牌目前走环境变量，超管 UI 尚未接入。
+加入令牌按节点绑定，写在控制面环境变量；超管 UI 尚未接入。
 
 ## Worker 隔离
 

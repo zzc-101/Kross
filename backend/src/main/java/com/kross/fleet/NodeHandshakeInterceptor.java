@@ -1,5 +1,6 @@
 package com.kross.fleet;
 
+import com.kross.channel.WebSocketTokens;
 import com.kross.config.KrossProperties;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -9,7 +10,6 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
@@ -29,22 +29,15 @@ public class NodeHandshakeInterceptor implements HandshakeInterceptor {
       ServerHttpResponse response,
       WebSocketHandler wsHandler,
       Map<String, Object> attributes) {
-    String expected = Optional.ofNullable(properties.getNodeToken()).filter(value -> !value.isBlank()).orElse("");
-    if (expected.isBlank()) {
-      response.setStatusCode(HttpStatus.UNAUTHORIZED);
-      return false;
-    }
-    String token = bearer(request);
-    if (token.isBlank()) {
-      token = queryValue(request.getURI(), "token");
-    }
-    if (!tokenEquals(expected, token)) {
-      response.setStatusCode(HttpStatus.UNAUTHORIZED);
-      return false;
-    }
     String nodeId = queryValue(request.getURI(), "nodeId");
     if (nodeId.isBlank()) {
       response.setStatusCode(HttpStatus.BAD_REQUEST);
+      return false;
+    }
+    String expected = properties.tokenForNode(nodeId).orElse("");
+    String token = WebSocketTokens.bearer(request);
+    if (expected.isBlank() || !tokenEquals(expected, token)) {
+      response.setStatusCode(HttpStatus.UNAUTHORIZED);
       return false;
     }
     attributes.put(NodeHub.ATTR_NODE_ID, nodeId);
@@ -64,14 +57,6 @@ public class NodeHandshakeInterceptor implements HandshakeInterceptor {
     byte[] left = expected.getBytes(StandardCharsets.UTF_8);
     byte[] right = Optional.ofNullable(actual).orElse("").getBytes(StandardCharsets.UTF_8);
     return MessageDigest.isEqual(left, right);
-  }
-
-  private static String bearer(ServerHttpRequest request) {
-    String header = Optional.ofNullable(request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION)).orElse("");
-    if (!header.startsWith("Bearer ") || header.length() <= 7) {
-      return "";
-    }
-    return header.substring("Bearer ".length());
   }
 
   private static String queryValue(URI uri, String name) {

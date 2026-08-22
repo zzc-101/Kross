@@ -25,6 +25,7 @@ IdP 签发的 `id_token`，不充当身份提供商。
 
 - 启用 SSO 后，普通用户只能走企业账号；超级管理员保留密码作为应急入口。
 - JIT 创建的账号不会自动加入组织，也不能被提成超管。
+- SSO 只按已验证 email 绑定已有本地账号，不会仅凭用户名接管。
 - SSO Client Secret 与模型 API Key 一样，用 `KROSS_CREDENTIAL_MASTER_KEY` 加密存储。
 - `KROSS_DEV_IDENTITY` 允许用请求头冒充用户，只用于本机冒烟，生产必须关闭。
 

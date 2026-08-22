@@ -66,7 +66,10 @@ Nginx 必须关闭 buffering，并且控制面 `spring.mvc.async.request-timeout
 ## 集群节点不上线，或任务起不来
 
 - 控制面必须是 `KROSS_WORKER_RUNTIME=cluster` 且 `KROSS_WORKER_STORAGE=juicefs`。
-- `KROSS_NODE_TOKEN` 在控制面与 `kross-node` 上一致。
+- `KROSS_NODE_TOKEN` 必须对应该节点的 `KROSS_NODE_ID`。额外节点还要出现在控制面
+  `KROSS_NODE_TOKENS` 里，不能拿 `node-1` 的令牌冒充 `node-2`。
+- 跨机时 `KROSS_INTERNAL_BIND` 要能从节点机访问（不要用默认的 `127.0.0.1`），且
+  不要对公网开放 `8788`。
 - `KROSS_PUBLIC_BASE_URL` 必须是 **Worker 容器**能访问的控制面内部口（集群默认
   宿主机 `8788`），不要用浏览器入口 `8787`。
 - 同 Compose 里的 `kross-node` 应连 `http://kross-server:8787`；额外机器上的

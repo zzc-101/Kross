@@ -2,6 +2,7 @@ package com.kross.config;
 
 import com.kross.channel.AgentHandshakeInterceptor;
 import com.kross.channel.AgentWebSocketHandler;
+import com.kross.channel.KrossBearerHandshakeHandler;
 import com.kross.fleet.NodeHandshakeInterceptor;
 import com.kross.fleet.NodeWebSocketHandler;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ public class AgentWebSocketConfig implements WebSocketConfigurer {
   public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
     registry.addHandler(handler, "/internal/v2/agents/ws")
         .addInterceptors(handshake)
+        .setHandshakeHandler(new KrossBearerHandshakeHandler())
         .setAllowedOriginPatterns("*");
     NodeWebSocketHandler nodes = nodeHandler.getIfAvailable();
     NodeHandshakeInterceptor nodeAuth = nodeHandshake.getIfAvailable();

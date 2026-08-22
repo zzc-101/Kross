@@ -1,7 +1,6 @@
 package com.kross.orchestrator;
 
 import com.kross.config.KrossProperties;
-import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
@@ -18,8 +17,9 @@ public class WorkerStorageValidator implements ApplicationListener<ApplicationRe
       if (WorkerStorageMode.from(properties.getWorkerStorage()) != WorkerStorageMode.JUICEFS) {
         throw new IllegalStateException("KROSS_WORKER_RUNTIME=cluster requires KROSS_WORKER_STORAGE=juicefs");
       }
-      if (Optional.ofNullable(properties.getNodeToken()).filter(value -> !value.isBlank()).isEmpty()) {
-        throw new IllegalStateException("KROSS_WORKER_RUNTIME=cluster requires KROSS_NODE_TOKEN");
+      if (!properties.hasNodeTokens()) {
+        throw new IllegalStateException(
+            "KROSS_WORKER_RUNTIME=cluster requires KROSS_NODE_TOKEN bound to KROSS_NODE_ID, or KROSS_NODE_TOKENS");
       }
       return;
     }

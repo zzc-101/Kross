@@ -42,20 +42,26 @@ public class NodeWebSocketHandler extends TextWebSocketHandler {
         .orElse("");
     try (AutoCloseable ignored = RequestLogContext.overlay(
         nodeId.isBlank() ? Map.of() : Map.of(RequestLogContext.NODE_ID, nodeId))) {
+      if (nodeId.isBlank()) {
+        session.close(CloseStatus.POLICY_VIOLATION);
+        return;
+      }
       switch (type) {
         case "node.hello" -> {
           NodeProtocol.Hello hello = mapper.treeToValue(root, NodeProtocol.Hello.class);
-          String id = Optional.ofNullable(hello.nodeId()).filter(value -> !value.isBlank()).orElse(nodeId);
-          RequestLogContext.put(RequestLogContext.NODE_ID, id);
-          hub.attach(id, hello.hostname(), hello.juicefsOk(), hello.runningAgents(), session);
-          session.getAttributes().put(NodeHub.ATTR_NODE_ID, id);
+          if (rewritesNodeId(hello.nodeId(), nodeId)) {
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+          }
+          hub.attach(nodeId, hello.hostname(), hello.juicefsOk(), hello.runningAgents(), session);
         }
         case "node.heartbeat" -> {
           NodeProtocol.Heartbeat heartbeat = mapper.treeToValue(root, NodeProtocol.Heartbeat.class);
-          hub.heartbeat(
-              Optional.ofNullable(heartbeat.nodeId()).filter(value -> !value.isBlank()).orElse(nodeId),
-              heartbeat.juicefsOk(),
-              heartbeat.runningAgents());
+          if (rewritesNodeId(heartbeat.nodeId(), nodeId)) {
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+          }
+          hub.heartbeat(nodeId, heartbeat.juicefsOk(), heartbeat.runningAgents());
         }
         case "node.result" -> hub.complete(mapper.treeToValue(root, NodeProtocol.Result.class));
         default -> log.warn("Unknown node websocket type {}", type);
@@ -71,5 +77,11 @@ public class NodeWebSocketHandler extends TextWebSocketHandler {
   @Override
   public void handleTransportError(WebSocketSession session, Throwable exception) {
     hub.detach(session);
+  }
+
+  private static boolean rewritesNodeId(String claimed, String handshakeId) {
+    return Optional.ofNullable(claimed).filter(value -> !value.isBlank())
+        .filter(value -> !value.equals(handshakeId))
+        .isPresent();
   }
 }

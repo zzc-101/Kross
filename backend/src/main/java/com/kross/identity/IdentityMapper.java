@@ -56,6 +56,8 @@ public interface IdentityMapper {
 
   int countUsers();
 
+  boolean lockBootstrap();
+
   boolean isRegistrationEnabled();
 
   boolean isSsoEnabled();

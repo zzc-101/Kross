@@ -1,6 +1,8 @@
 package com.kross.config;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -19,6 +21,8 @@ public class KrossProperties {
   private String workerStorage = "local";
   private String juicefsMount = "";
   private String nodeToken = "";
+  private String nodeId = "node-1";
+  private String nodeTokens = "";
   private final Api api = new Api();
   private final Scheduler scheduler = new Scheduler();
   private final Agent agent = new Agent();
@@ -132,6 +136,54 @@ public class KrossProperties {
     this.nodeToken = Optional.ofNullable(nodeToken).orElse("");
   }
 
+  public String getNodeId() {
+    return nodeId;
+  }
+
+  public void setNodeId(String nodeId) {
+    this.nodeId = Optional.ofNullable(nodeId).filter(value -> !value.isBlank()).orElse("node-1");
+  }
+
+  public String getNodeTokens() {
+    return nodeTokens;
+  }
+
+  public void setNodeTokens(String nodeTokens) {
+    this.nodeTokens = Optional.ofNullable(nodeTokens).orElse("");
+  }
+
+  public Optional<String> tokenForNode(String id) {
+    String node = Optional.ofNullable(id).map(String::trim).filter(value -> !value.isBlank()).orElse("");
+    if (node.isBlank()) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(nodeTokenMap().get(node)).filter(value -> !value.isBlank());
+  }
+
+  public boolean hasNodeTokens() {
+    return !nodeTokenMap().isEmpty();
+  }
+
+  private Map<String, String> nodeTokenMap() {
+    Map<String, String> tokens = new LinkedHashMap<>();
+    for (String part : Optional.ofNullable(nodeTokens).orElse("").split(",")) {
+      String pair = part.trim();
+      int colon = pair.indexOf(':');
+      if (colon <= 0 || colon >= pair.length() - 1) {
+        continue;
+      }
+      String id = pair.substring(0, colon).trim();
+      String token = pair.substring(colon + 1).trim();
+      if (!id.isBlank() && !token.isBlank()) {
+        tokens.put(id, token);
+      }
+    }
+    String fallbackId = Optional.ofNullable(nodeId).filter(value -> !value.isBlank()).orElse("node-1");
+    Optional.ofNullable(nodeToken).filter(value -> !value.isBlank())
+        .ifPresent(token -> tokens.putIfAbsent(fallbackId, token));
+    return tokens;
+  }
+
   public Api getApi() {
     return api;
   }
@@ -219,6 +271,7 @@ public class KrossProperties {
     private long idleMs = 900_000;
     private long tokenTtlMs = 12 * 60 * 60 * 1_000L;
     private long heartbeatIntervalMs = 10_000;
+    private long startTimeoutMs = 120_000;
     private int cpuMillis = 2_000;
     private long memoryBytes = 1_073_741_824L;
     private int maxPids = 512;
@@ -245,6 +298,14 @@ public class KrossProperties {
 
     public void setHeartbeatIntervalMs(long heartbeatIntervalMs) {
       this.heartbeatIntervalMs = heartbeatIntervalMs;
+    }
+
+    public long getStartTimeoutMs() {
+      return startTimeoutMs;
+    }
+
+    public void setStartTimeoutMs(long startTimeoutMs) {
+      this.startTimeoutMs = Math.max(startTimeoutMs, 1_000);
     }
 
     public int getCpuMillis() {
