@@ -1,3 +1,3 @@
 package com.kross.agent.dto;
 
-public record PatchConversationRequest(String title, Boolean archived) {}
+public record PatchConversationRequest(String title, Boolean archived, String mode, String modelId) {}

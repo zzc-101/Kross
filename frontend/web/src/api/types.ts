@@ -43,9 +43,13 @@ export interface AgentModel {
   model: string;
 }
 
+export type AgentMode = 'auto' | 'plan' | 'conductor';
+
 export interface Conversation {
   id: string;
   title: string;
+  mode: AgentMode;
+  modelId?: string;
   archivedAt?: string;
   lastMessageAt: string;
   createdAt: string;

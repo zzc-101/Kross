@@ -76,6 +76,13 @@ public class AgentService {
     return agents.findUsableModel(context.organizationId()).map(AgentViews::model).orElse(null);
   }
 
+  public List<AgentModelView> listModels(String organizationId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+    return agents.listUsableModels(context.organizationId()).stream()
+        .map(AgentViews::model)
+        .toList();
+  }
+
   public List<ConversationView> listConversations(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
     Agent agent = ensure(context);
@@ -107,6 +114,15 @@ public class AgentService {
         conversation.setArchivedAt(Optional.ofNullable(conversation.getArchivedAt()).orElse(Instant.now()));
       } else {
         conversation.setArchivedAt(null);
+      }
+    });
+    Optional.ofNullable(request.mode()).ifPresent(mode -> conversation.setMode(normalizeMode(mode)));
+    Optional.ofNullable(request.modelId()).ifPresent(modelId -> {
+      String trimmed = modelId.trim();
+      if (trimmed.isEmpty()) {
+        conversation.setModelId(null);
+      } else {
+        conversation.setModelId(requireUsableModel(context.organizationId(), trimmed).getId());
       }
     });
     agents.updateConversation(conversation);
@@ -318,8 +334,22 @@ public class AgentService {
           .orElseGet(() -> insertPlaceholder(session, row));
       emitUpsert(row);
       emitUpsert(reply);
+      AgentConversation conversation = conversationId.isBlank()
+          ? null
+          : agents.findConversation(session.getOrganizationId(), conversationId).orElse(null);
+      String mode = Optional.ofNullable(conversation)
+          .map(AgentConversation::getMode)
+          .filter(value -> !value.isBlank())
+          .map(AgentService::normalizeMode)
+          .orElse("auto");
+      String modelId = Optional.ofNullable(conversation)
+          .map(AgentConversation::getModelId)
+          .filter(value -> !value.isBlank())
+          .flatMap(id -> agents.findUsableModelById(session.getOrganizationId(), id))
+          .map(AgentModel::getId)
+          .orElse(null);
       return new AgentProtocol.Job(
-          row.getId(), conversationId, reply.getId(), row.getContent(), history, row.getCreatedAt());
+          row.getId(), conversationId, reply.getId(), row.getContent(), history, row.getCreatedAt(), mode, modelId);
     });
   }
 
@@ -448,11 +478,11 @@ public class AgentService {
     sleep(requireAgent(session.getAgentId()));
   }
 
-  public AgentProtocol.ModelEnvironment modelEnvironment(String token) {
+  public AgentProtocol.ModelEnvironment modelEnvironment(String token, AgentProtocol.ModelEnvironmentRequest request) {
     AgentSession session = authenticate(token);
-    AgentModel model = agents.findUsableModel(session.getOrganizationId())
-        .orElseThrow(() -> ApiException.conflict(
-            "model_credential_unavailable", "No usable model credential is configured"));
+    AgentModel model = resolveUsableModel(
+        session.getOrganizationId(),
+        Optional.ofNullable(request).map(AgentProtocol.ModelEnvironmentRequest::modelId));
     String ciphertext = Optional.ofNullable(model.getSecretCiphertext()).filter(value -> !value.isBlank())
         .orElseThrow(() -> ApiException.conflict(
             "model_credential_unavailable", "No usable model credential is configured"));
@@ -502,6 +532,7 @@ public class AgentService {
     row.setTitle(clipTitle(Optional.ofNullable(title).orElse("").trim().isEmpty()
         ? DEFAULT_TITLE
         : title.trim()));
+    row.setMode("auto");
     row.setLastMessageAt(now);
     row.setCreatedAt(now);
     row.setUpdatedAt(now);
@@ -517,6 +548,29 @@ public class AgentService {
       throw ApiException.notFound("Conversation");
     }
     return conversation;
+  }
+
+  private AgentModel requireUsableModel(String organizationId, String modelId) {
+    return agents.findUsableModelById(organizationId, modelId)
+        .orElseThrow(() -> ApiException.invalidRequest("Model is not available"));
+  }
+
+  private AgentModel resolveUsableModel(String organizationId, Optional<String> modelId) {
+    return modelId
+        .map(String::trim)
+        .filter(value -> !value.isEmpty())
+        .map(id -> requireUsableModel(organizationId, id))
+        .or(() -> agents.findUsableModel(organizationId))
+        .orElseThrow(() -> ApiException.conflict(
+            "model_credential_unavailable", "No usable model credential is configured"));
+  }
+
+  private static String normalizeMode(String value) {
+    String mode = Optional.ofNullable(value).orElse("").trim().toLowerCase();
+    if (!List.of("auto", "plan", "conductor").contains(mode)) {
+      throw ApiException.invalidRequest("mode must be auto, plan or conductor");
+    }
+    return mode;
   }
 
   private static String clipTitle(String title) {

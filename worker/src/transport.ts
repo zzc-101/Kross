@@ -7,6 +7,8 @@ export interface AgentControlTransport {
     agentMessageId: string;
     content: string;
     history: Array<{ role: string; content: string }>;
+    mode: 'auto' | 'plan' | 'conductor';
+    modelId?: string;
   } | undefined>;
   postEvents(input: {
     userMessageId: string;
@@ -23,7 +25,7 @@ export interface AgentControlTransport {
   }): Promise<void>;
   waitForApproval(approvalId: string): Promise<{ approved: boolean; reason?: string }>;
   sleep(): Promise<void>;
-  mintModelEnvironment(): Promise<Record<string, string | undefined>>;
+  mintModelEnvironment(modelId?: string): Promise<Record<string, string | undefined>>;
   close(): void;
 }
 
@@ -51,6 +53,8 @@ type Job = {
   agentMessageId: string;
   content: string;
   history: Array<{ role: string; content: string }>;
+  mode: 'auto' | 'plan' | 'conductor';
+  modelId?: string;
 };
 
 type SocketMessage = {
@@ -66,6 +70,8 @@ type SocketMessage = {
   agentMessageId?: unknown;
   content?: unknown;
   history?: unknown;
+  mode?: unknown;
+  modelId?: unknown;
   approvalId?: unknown;
   approved?: unknown;
   reason?: unknown;
@@ -181,9 +187,12 @@ export class WsAgentControlTransport implements AgentControlTransport {
     this.close();
   }
 
-  async mintModelEnvironment(): Promise<Record<string, string | undefined>> {
+  async mintModelEnvironment(modelId?: string): Promise<Record<string, string | undefined>> {
     await this.ensureConnected();
-    const body = await this.request('agent.model_environment', { type: 'agent.model_environment' });
+    const body = await this.request('agent.model_environment', {
+      type: 'agent.model_environment',
+      ...(modelId ? { modelId } : {})
+    });
     if (!body.env || typeof body.env !== 'object' || Array.isArray(body.env)) {
       throw new Error('Control plane returned an invalid model environment');
     }
@@ -376,8 +385,14 @@ function parseJob(value: SocketMessage): Job {
     conversationId: typeof value.conversationId === 'string' ? value.conversationId : '',
     agentMessageId: value.agentMessageId,
     content: value.content,
-    history: parseHistory(value.history)
+    history: parseHistory(value.history),
+    mode: parseMode(value.mode),
+    ...(typeof value.modelId === 'string' && value.modelId.trim() ? { modelId: value.modelId } : {})
   };
+}
+
+function parseMode(value: unknown): 'auto' | 'plan' | 'conductor' {
+  return value === 'plan' || value === 'conductor' ? value : 'auto';
 }
 
 function parseHistory(value: unknown): Array<{ role: string; content: string }> {

@@ -69,7 +69,10 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
             agents.sleepFromWorker(token, mapper.treeToValue(root, AgentProtocol.SleepRequest.class));
             session.close(CloseStatus.NORMAL);
           }
-          case "agent.model_environment" -> hub.send(agentId, agents.modelEnvironment(token));
+          case "agent.model_environment" -> hub.send(
+              agentId,
+              agents.modelEnvironment(
+                  token, mapper.treeToValue(root, AgentProtocol.ModelEnvironmentRequest.class)));
           default -> hub.send(
               agentId, AgentProtocol.SocketError.of("unknown_type", "Unsupported websocket message type"));
         }

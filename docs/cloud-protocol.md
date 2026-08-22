@@ -9,6 +9,8 @@ npm Protocol 包。
 - 发消息：`POST /api/v2/agent/conversations/{id}/messages`
 - 直播：`GET /api/v2/agent/conversations/{id}/events`（SSE，`event: channel`）
 - 历史：`GET /api/v2/agent/conversations/{id}/messages`
+- 可用模型：`GET /api/v2/agent/models`
+- 对话模式/模型：`PATCH /api/v2/agent/conversations/{id}`（`mode`、`modelId`）
 
 SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要把每个 token 写入数据库；
 回合结束再写完整快照。
@@ -23,8 +25,9 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 该路径不经过公网 Nginx。Worker 应连控制面（Compose 别名 `kross-server` 或集群
 内部口），不要连浏览器入口 `:8787`。
 
-握手后控制面推送 `agent.job`。生成过程立即推 `agent.events`，结束时用
-`agent.message` 提交完整 `parts`。另有心跳、模型环境和休眠帧。
+握手后控制面推送 `agent.job`（含对话 `mode` 与可选 `modelId`）。Worker 可带
+`modelId` 再要一次 `agent.model_environment`。生成过程立即推 `agent.events`，
+结束时用 `agent.message` 提交完整 `parts`。另有心跳和休眠帧。
 
 ## 集群节点
 

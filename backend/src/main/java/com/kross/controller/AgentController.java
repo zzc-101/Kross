@@ -39,6 +39,11 @@ public class AgentController {
     return Res.ok(agents.currentModel(organizationId));
   }
 
+  @GetMapping("/models")
+  public Res<ItemList<AgentModelView>> models(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
+    return Res.ok(new ItemList<>(agents.listModels(organizationId)));
+  }
+
   @GetMapping("/conversations")
   public Res<ItemList<ConversationView>> conversations(
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {

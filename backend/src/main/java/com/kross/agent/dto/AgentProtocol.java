@@ -43,17 +43,23 @@ public final class AgentProtocol {
       String agentMessageId,
       String content,
       List<HistoryTurn> history,
-      Instant createdAt) {
+      Instant createdAt,
+      String mode,
+      String modelId) {
     public Job(
         String id,
         String conversationId,
         String agentMessageId,
         String content,
         List<HistoryTurn> history,
-        Instant createdAt) {
-      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt);
+        Instant createdAt,
+        String mode,
+        String modelId) {
+      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt, mode, modelId);
     }
   }
+
+  public record ModelEnvironmentRequest(String type, String modelId) {}
 
   public record ReplyRequest(
       String type,

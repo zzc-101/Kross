@@ -69,9 +69,9 @@
 
   <insert id="insertConversation">
     INSERT INTO agent_conversations
-      (id, organization_id, agent_id, title, archived_at, last_message_at)
+      (id, organization_id, agent_id, title, mode, model_id, archived_at, last_message_at)
     VALUES
-      (#{id}, #{organizationId}, #{agentId}, #{title}, #{archivedAt}, #{lastMessageAt})
+      (#{id}, #{organizationId}, #{agentId}, #{title}, #{mode}, #{modelId}, #{archivedAt}, #{lastMessageAt})
   </insert>
 
   <select id="listConversations" resultType="com.kross.agent.entity.AgentConversation">
@@ -90,6 +90,8 @@
   <update id="updateConversation">
     UPDATE agent_conversations
     SET title = #{title},
+        mode = #{mode},
+        model_id = #{modelId},
         archived_at = #{archivedAt},
         last_message_at = #{lastMessageAt},
         updated_at = now()
@@ -207,6 +209,30 @@
       AND ch.secret_ciphertext IS NOT NULL
     ORDER BY mp.created_at ASC
     LIMIT 1
+  </select>
+
+  <select id="listUsableModels" resultType="com.kross.agent.entity.AgentModel">
+    SELECT mp.id, mp.name, mp.provider, mp.model, ch.secret_ciphertext, mp.configuration
+    FROM model_profiles mp
+    JOIN credential_handles ch
+      ON ch.organization_id = mp.organization_id AND ch.id = mp.credential_handle_id
+    WHERE mp.organization_id = #{organizationId}
+      AND mp.status = 'active'
+      AND ch.status = 'active'
+      AND ch.secret_ciphertext IS NOT NULL
+    ORDER BY mp.created_at ASC, mp.id ASC
+  </select>
+
+  <select id="findUsableModelById" resultType="com.kross.agent.entity.AgentModel">
+    SELECT mp.id, mp.name, mp.provider, mp.model, ch.secret_ciphertext, mp.configuration
+    FROM model_profiles mp
+    JOIN credential_handles ch
+      ON ch.organization_id = mp.organization_id AND ch.id = mp.credential_handle_id
+    WHERE mp.organization_id = #{organizationId}
+      AND mp.id = #{id}
+      AND mp.status = 'active'
+      AND ch.status = 'active'
+      AND ch.secret_ciphertext IS NOT NULL
   </select>
 
   <select id="hasQueued" resultType="boolean">

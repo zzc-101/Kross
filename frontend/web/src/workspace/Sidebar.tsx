@@ -1,19 +1,11 @@
 import { useMemo, useState } from 'react';
 import {
   Archive,
-  Bot,
-  Bookmark,
-  BrainCircuit,
   ChevronDown,
   ChevronRight,
-  Folder,
-  FolderPlus,
   MessagesSquare,
-  NotebookPen,
   PanelLeft,
-  Paperclip,
   Pencil,
-  ScrollText,
   SquarePen,
   UserRound
 } from 'lucide-react';
@@ -38,7 +30,6 @@ export function Sidebar({
   onRename,
   onSelectOrganization,
   onLogout,
-  onShowWorkspace,
   onSaveProfile
 }: {
   conversations: Conversation[];
@@ -58,10 +49,9 @@ export function Sidebar({
   onRename(id: string, title: string): void;
   onSelectOrganization(id: string): void;
   onLogout(): void;
-  onShowWorkspace(): void;
   onSaveProfile(input: { displayName: string; avatarUrl: string; gender: string; phone: string }): Promise<void>;
 }) {
-  const [conversationsOpen, setConversationsOpen] = useState(false);
+  const [conversationsOpen, setConversationsOpen] = useState(true);
   const [editingId, setEditingId] = useState<string>();
   const [draft, setDraft] = useState('');
   const [accountOpen, setAccountOpen] = useState(false);
@@ -73,16 +63,6 @@ export function Sidebar({
     [activeId, conversations]
   );
 
-  const railLinks = [
-    { label: '对话', icon: MessagesSquare, active: true, action: () => setConversationsOpen(true) },
-    { label: 'Agents', icon: Bot, action: onShowWorkspace },
-    { label: '提示词', icon: ScrollText, action: onShowWorkspace },
-    { label: '笔记', icon: NotebookPen, action: onShowWorkspace },
-    { label: '记忆', icon: BrainCircuit, action: onShowWorkspace },
-    { label: '书签', icon: Bookmark, action: onShowWorkspace },
-    { label: '文件', icon: Paperclip, action: onShowWorkspace }
-  ];
-
   return (
     <>
       {open && <button type="button" className="sidebar-scrim" aria-label="关闭侧边栏" onClick={onClose} />}
@@ -92,11 +72,15 @@ export function Sidebar({
           <button type="button" className="rail-button" aria-label="新对话" onClick={onNew}><SquarePen /></button>
           <div className="rail-divider" />
           <div className="rail-links">
-            {railLinks.map(({ label, icon: Icon, active, action }) => (
-              <button type="button" key={label} className={active ? 'rail-button active' : 'rail-button'} aria-label={label} aria-pressed={active} onClick={action}>
-                <Icon />
-              </button>
-            ))}
+            <button
+              type="button"
+              className="rail-button active"
+              aria-label="对话"
+              aria-pressed="true"
+              onClick={() => setConversationsOpen(true)}
+            >
+              <MessagesSquare />
+            </button>
           </div>
           <div className="rail-account">
             <button type="button" className="account-avatar" aria-label="账户与工作区" onClick={() => setAccountOpen((value) => !value)}>
@@ -160,16 +144,6 @@ export function Sidebar({
         </div>
 
         <div className="sidebar-panel">
-          <button type="button" className="bookmark-head" aria-label="书签"><Bookmark /></button>
-          <div className="sidebar-section projects-section">
-            <div className="section-heading">
-              <button type="button"><span>Projects</span><ChevronRight /></button>
-              <div>
-                <button type="button" aria-label="打开项目" onClick={onShowWorkspace}><Folder /></button>
-                <button type="button" aria-label="新建项目" onClick={onShowWorkspace}><FolderPlus /></button>
-              </div>
-            </div>
-          </div>
           <div className="sidebar-section conversation-section">
             <button type="button" className="section-toggle" aria-expanded={conversationsOpen} onClick={() => setConversationsOpen((value) => !value)}>
               <span>对话</span>{conversationsOpen ? <ChevronDown /> : <ChevronRight />}

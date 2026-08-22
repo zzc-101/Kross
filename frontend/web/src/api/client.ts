@@ -57,9 +57,11 @@ const agentModelSchema: z.ZodType<AgentModel> = z.object({
   model: id
 });
 
-const conversationSchema: z.ZodType<Conversation> = z.object({
+const conversationSchema = z.object({
   id,
   title: z.string().min(1),
+  mode: z.enum(['auto', 'plan', 'conductor']).default('auto'),
+  modelId: z.string().min(1).optional(),
   archivedAt: instant.optional(),
   lastMessageAt: instant,
   createdAt: instant
@@ -156,6 +158,11 @@ export class AgentApiClient {
     return this.request('/api/v2/agent/model', agentModelSchema.nullable());
   }
 
+  listModels(): Promise<AgentModel[]> {
+    return this.request('/api/v2/agent/models', z.object({ items: z.array(agentModelSchema) }))
+      .then((page) => page.items);
+  }
+
   listConversations(): Promise<Conversation[]> {
     return this.request('/api/v2/agent/conversations', z.object({ items: z.array(conversationSchema) }))
       .then((page) => page.items);
@@ -168,7 +175,12 @@ export class AgentApiClient {
     });
   }
 
-  patchConversation(conversationId: string, patch: { title?: string; archived?: boolean }): Promise<Conversation> {
+  patchConversation(conversationId: string, patch: {
+    title?: string;
+    archived?: boolean;
+    mode?: Conversation['mode'];
+    modelId?: string;
+  }): Promise<Conversation> {
     return this.request(
       `/api/v2/agent/conversations/${encodeURIComponent(conversationId)}`,
       conversationSchema,

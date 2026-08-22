@@ -2,6 +2,7 @@ import { mkdir, writeFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { AgentResult } from '../core/src/domain';
+import type { AgentMode } from '../core/src/domain';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
 import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFactory';
@@ -47,11 +48,12 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   const registered = await options.transport.register();
   log.info('Worker registered', { idleMs: registered.idleMs });
   const minted = await options.transport.mintModelEnvironment();
-  const host: AgentHostHandle = await createPersistentAgentHost({
+  let host: AgentHostHandle = await createPersistentAgentHost({
     workspaceRoot: options.workspaceRoot,
     env: { ...options.processEnv, ...minted },
     executionProfile: createPersonalAgentProfile()
   });
+  let currentModelId: string | undefined;
   const delay = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   let sleeping = false;
   const heartbeats = (async () => {
@@ -73,8 +75,19 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
         break;
       }
       try {
-        log.info('Claimed conversation job', { conversationId: job.conversationId });
-        const reply = await runTurn(host, options.transport, job, formatTurnInput(job.content, job.history));
+        log.info('Claimed conversation job', { conversationId: job.conversationId, mode: job.mode });
+        if (job.modelId && job.modelId !== currentModelId) {
+          const nextEnv = await options.transport.mintModelEnvironment(job.modelId);
+          const nextHost = await createPersistentAgentHost({
+            workspaceRoot: options.workspaceRoot,
+            env: { ...options.processEnv, ...nextEnv },
+            executionProfile: createPersonalAgentProfile()
+          });
+          await host.close();
+          host = nextHost;
+          currentModelId = job.modelId;
+        }
+        const reply = await runTurn(host, options.transport, job, formatTurnInput(job.content, job.history), job.mode);
         await options.transport.postReply({
           userMessageId: job.id,
           agentMessageId: job.agentMessageId,
@@ -110,7 +123,8 @@ async function runTurn(
   host: AgentHostHandle,
   transport: AgentControlTransport,
   job: { id: string; agentMessageId: string },
-  input: string
+  input: string,
+  requestedMode: AgentMode
 ): Promise<{
   content: string;
   status: 'done' | 'failed';
@@ -165,7 +179,7 @@ async function runTurn(
     return streamResult;
   };
 
-  let result = await consume(host.runtime.runStreaming({ input, requestedMode: 'auto' }));
+  let result = await consume(host.runtime.runStreaming({ input, requestedMode }));
   while (result?.status === 'approval-required') {
     const pending = result.pendingApproval;
     if (!pending) {

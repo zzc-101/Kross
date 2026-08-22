@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AgentApiClient, ApiError } from '../api/client';
-import type { AgentModel, Conversation, MeUser, Membership } from '../api/types';
+import type { AgentMode, AgentModel, Conversation, MeUser, Membership } from '../api/types';
 import { AgentRuntimeProvider } from '../assistant/AgentRuntimeProvider';
 import { Thread } from '../assistant/Thread';
 import { useConversationRoute } from '../lib/conversationRoute';
@@ -26,10 +26,9 @@ export function WorkspacePage({
   onUserUpdated(user: MeUser): void;
 }) {
   const { conversationId, setConversationId } = useConversationRoute();
-  const [model, setModel] = useState<AgentModel | null>(null);
+  const [models, setModels] = useState<AgentModel[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [error, setError] = useState<string>();
-  const [workspaceHint, setWorkspaceHint] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const refreshConversations = useCallback(async () => {
@@ -42,9 +41,9 @@ export function WorkspacePage({
     let cancelled = false;
     void (async () => {
       try {
-        const [nextModel, items] = await Promise.all([api.getCurrentModel(), refreshConversations()]);
+        const [nextModels, items] = await Promise.all([api.listModels(), refreshConversations()]);
         if (cancelled) return;
-        setModel(nextModel);
+        setModels(nextModels);
         const requested = new URLSearchParams(window.location.search).get('c') ?? conversationId;
         const selected = items.find((item) => item.id === requested) ?? items[0];
         if (selected) setConversationId(selected.id);
@@ -67,6 +66,19 @@ export function WorkspacePage({
   const onConversationsChange = useCallback(async () => {
     await refreshConversations();
   }, [refreshConversations]);
+
+  const conversation = useMemo(
+    () => conversations.find((item) => item.id === conversationId),
+    [conversationId, conversations]
+  );
+  const mode: AgentMode = conversation?.mode ?? 'auto';
+  const selectedModel = models.find((item) => item.id === conversation?.modelId) ?? models[0] ?? null;
+
+  const patchConversation = useCallback(async (patch: { mode?: AgentMode; modelId?: string }) => {
+    if (!conversationId) return;
+    const next = await api.patchConversation(conversationId, patch);
+    setConversations((current) => current.map((item) => item.id === next.id ? next : item));
+  }, [api, conversationId]);
 
   return (
     <div className="shell">
@@ -113,25 +125,19 @@ export function WorkspacePage({
             onRename={(id, title) => {
               void api.patchConversation(id, { title }).then(() => refreshConversations());
             }}
-            onShowWorkspace={() => setWorkspaceHint(true)}
           />
           <main className="stage">
             <TopBar onOpenSidebar={() => setSidebarOpen(true)} onNew={() => void onCreateConversation()} />
-            <Thread model={model} />
+            <Thread
+              model={selectedModel}
+              models={models}
+              mode={mode}
+              onModeChange={(next) => void patchConversation({ mode: next })}
+              onModelChange={(next) => void patchConversation({ modelId: next.id })}
+            />
           </main>
         </div>
       </AgentRuntimeProvider>
-      {workspaceHint && (
-        <div className="dialog-backdrop" onClick={() => setWorkspaceHint(false)}>
-          <div className="dialog" onClick={(event) => event.stopPropagation()}>
-            <h2>工作区</h2>
-            <p>技能和 MCP 会装进这个 Agent 的持久盘（<code>/work/skills</code>），由容器里的 Worker 加载。安装界面下一期再做。</p>
-            <div className="dialog-actions">
-              <button type="button" className="primary" onClick={() => setWorkspaceHint(false)}>知道了</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

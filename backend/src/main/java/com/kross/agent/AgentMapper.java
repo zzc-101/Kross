@@ -82,6 +82,11 @@ public interface AgentMapper {
 
   Optional<AgentModel> findUsableModel(@Param("organizationId") String organizationId);
 
+  List<AgentModel> listUsableModels(@Param("organizationId") String organizationId);
+
+  Optional<AgentModel> findUsableModelById(
+      @Param("organizationId") String organizationId, @Param("id") String id);
+
   boolean hasProcessing(@Param("agentId") String agentId);
 
   boolean hasQueued(@Param("agentId") String agentId);

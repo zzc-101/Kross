@@ -19,8 +19,10 @@
   启用。
 - 多机 Worker：独立 Go 服务 `kross-node`（`node/`）出站连控制面；
   `KROSS_WORKER_RUNTIME=cluster` 时控制面只调度。JuiceFS 工作区可漂。
-- auto、plan、conductor 三种工作模式及子代理任务编排（由 Runtime 根据话术进入；
-  工作台以 `auto` 开跑，高风险工具用界面确认）。
+- 工作台对话可选 `auto` / `plan` / `conductor`，并在当前对话覆盖组织模型；
+  Worker 按任务使用对应模式，模型变更时重新领取密钥环境。
+- 工作台去掉不可用入口（假工作区、临时对话、附件、语音、政策链接），
+  模式与模型选择改为真实控件。
 - 文件、搜索、Git、Shell、后台进程与 MCP 工具；workspace 边界、审批与
   mutation journal。
 - Provider Capability 与调用指标：Runtime 只消费 Adapter 声明，记录不含正文的

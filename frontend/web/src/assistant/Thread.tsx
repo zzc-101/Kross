@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActionBarPrimitive,
   AuiIf,
@@ -18,16 +19,32 @@ import {
   Copy,
   Lightbulb,
   LoaderCircle,
-  Mic,
-  PencilLine,
-  Plus
+  PencilLine
 } from 'lucide-react';
 
 import { messagePartComponents } from './MessageParts';
-import type { AgentModel } from '../api/types';
+import type { AgentMode, AgentModel } from '../api/types';
 import { ModelBadge, modelLabel } from '../workspace/ModelBadge';
 
-export function Thread({ model }: { model?: AgentModel | null }) {
+const MODE_OPTIONS: Array<{ id: AgentMode; label: string; hint: string }> = [
+  { id: 'auto', label: '自动', hint: '按话术选择工作方式' },
+  { id: 'plan', label: '计划', hint: '先给出计划再动手' },
+  { id: 'conductor', label: '指挥', hint: '拆成多目标并行推进' }
+];
+
+export function Thread({
+  model,
+  models,
+  mode,
+  onModeChange,
+  onModelChange
+}: {
+  model?: AgentModel | null;
+  models: AgentModel[];
+  mode: AgentMode;
+  onModeChange(mode: AgentMode): void;
+  onModelChange(model: AgentModel): void;
+}) {
   return (
     <ThreadPrimitive.Root className="thread">
       <ThreadPrimitive.Viewport className="thread-viewport" autoScroll>
@@ -35,7 +52,14 @@ export function Thread({ model }: { model?: AgentModel | null }) {
           <div className="landing">
             <div className="landing-content">
               <div className="landing-greeting"><h1>How can I help you today?</h1></div>
-              <Composer model={model} landing />
+              <Composer
+                model={model}
+                models={models}
+                mode={mode}
+                onModeChange={onModeChange}
+                onModelChange={onModelChange}
+                landing
+              />
             </div>
             <Footer />
           </div>
@@ -52,7 +76,16 @@ export function Thread({ model }: { model?: AgentModel | null }) {
             <ThreadPrimitive.ScrollToBottom className="scroll-to-bottom" aria-label="滚动到底部">
               <ArrowDown />
             </ThreadPrimitive.ScrollToBottom>
-            <div className="composer-docked"><Composer model={model} /><Footer /></div>
+            <div className="composer-docked">
+              <Composer
+                model={model}
+                models={models}
+                mode={mode}
+                onModeChange={onModeChange}
+                onModelChange={onModelChange}
+              />
+              <Footer />
+            </div>
           </ThreadPrimitive.ViewportFooter>
         </ThreadPrimitive.If>
       </ThreadPrimitive.Viewport>
@@ -70,33 +103,141 @@ function AssistantLoading() {
   );
 }
 
-function Composer({ model, landing = false }: { model?: AgentModel | null; landing?: boolean }) {
+function Composer({
+  model,
+  models,
+  mode,
+  onModeChange,
+  onModelChange,
+  landing = false
+}: {
+  model?: AgentModel | null;
+  models: AgentModel[];
+  mode: AgentMode;
+  onModeChange(mode: AgentMode): void;
+  onModelChange(model: AgentModel): void;
+  landing?: boolean;
+}) {
   return (
     <div className="composer-wrap">
       <ComposerPrimitive.Root className="composer">
         <ComposerPrimitive.Input
           className="composer-input"
-          placeholder="Send a message... (@ to mention, / for commands)"
+          placeholder="发送消息…"
           rows={1}
           autoFocus
           aria-label="消息内容"
         />
         <div className="composer-toolbar">
           <div className="composer-tools">
-            <button type="button" aria-label="添加附件（即将支持）" title="等待 Kross 附件协议支持" disabled><Plus /></button>
-            <button type="button" className="composer-model" aria-label="当前模型">
-              <ModelBadge model={model} />
-              <span>{modelLabel(model)}</span>
-              <ChevronDown />
-            </button>
+            <ModeMenu mode={mode} onChange={onModeChange} />
+            <ModelMenu model={model} models={models} onChange={onModelChange} />
           </div>
           <div className="composer-tools right">
-            <button type="button" aria-label="语音输入（即将支持）" title="等待语音协议支持" disabled><Mic /></button>
             <ComposerPrimitive.Send className="composer-send" aria-label="发送"><ArrowUp /></ComposerPrimitive.Send>
           </div>
         </div>
       </ComposerPrimitive.Root>
       {landing && <QuickActions />}
+    </div>
+  );
+}
+
+function ModeMenu({ mode, onChange }: { mode: AgentMode; onChange(mode: AgentMode): void }) {
+  const current = MODE_OPTIONS.find((item) => item.id === mode) ?? MODE_OPTIONS[0];
+  return (
+    <Dropdown
+      label={current.label}
+      ariaLabel={`工作模式：${current.label}`}
+    >
+      {MODE_OPTIONS.map((item) => (
+        <button
+          type="button"
+          key={item.id}
+          className={item.id === mode ? 'menu-item active' : 'menu-item'}
+          onClick={() => onChange(item.id)}
+        >
+          <strong>{item.label}</strong>
+          <span>{item.hint}</span>
+        </button>
+      ))}
+    </Dropdown>
+  );
+}
+
+function ModelMenu({
+  model,
+  models,
+  onChange
+}: {
+  model?: AgentModel | null;
+  models: AgentModel[];
+  onChange(model: AgentModel): void;
+}) {
+  return (
+    <Dropdown
+      label={modelLabel(model)}
+      ariaLabel="当前模型"
+      leading={<ModelBadge model={model} />}
+      disabled={models.length === 0}
+    >
+      {models.map((item) => (
+        <button
+          type="button"
+          key={item.id}
+          className={item.id === model?.id ? 'menu-item active' : 'menu-item'}
+          onClick={() => onChange(item)}
+        >
+          <ModelBadge model={item} />
+          <span>{modelLabel(item)}</span>
+        </button>
+      ))}
+    </Dropdown>
+  );
+}
+
+function Dropdown({
+  label,
+  ariaLabel,
+  leading,
+  disabled,
+  children
+}: {
+  label: string;
+  ariaLabel: string;
+  leading?: ReactNode;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener('mousedown', onPointer);
+    return () => window.removeEventListener('mousedown', onPointer);
+  }, [open]);
+  return (
+    <div className="composer-menu" ref={root}>
+      <button
+        type="button"
+        className="composer-model"
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {leading}
+        <span>{label}</span>
+        <ChevronDown />
+      </button>
+      {open && (
+        <div className="composer-menu-list" role="menu" onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -125,8 +266,7 @@ function QuickActions() {
 function Footer() {
   return (
     <footer className="libre-footer">
-      <span>Kross Agent – Every AI for Everyone.</span><i />
-      <button type="button">隐私政策</button><button type="button">服务政策</button>
+      <span>Kross Agent – Every AI for Everyone.</span>
     </footer>
   );
 }
