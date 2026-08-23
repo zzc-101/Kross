@@ -9,6 +9,8 @@ import com.kross.catalog.dto.AuditEventView;
 import com.kross.catalog.dto.CreateSkillRequest;
 import com.kross.catalog.dto.OrganizationSkillView;
 import com.kross.catalog.dto.PlatformSkillView;
+import com.kross.catalog.dto.SkillPackageDownloadView;
+import com.kross.catalog.dto.SkillVersionView;
 import com.kross.catalog.dto.UpdateSkillRequest;
 import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
@@ -44,6 +46,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -53,6 +56,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -233,10 +237,12 @@ public class AdminController {
     return Res.ok(skills.listPlatformSkills());
   }
 
-  @PostMapping("/platform/skills")
+  @PostMapping(value = "/platform/skills", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   @ResponseStatus(HttpStatus.CREATED)
-  public Res<PlatformSkillView> createPlatformSkill(@RequestBody CreateSkillRequest request) {
-    return Res.ok(skills.createPlatformSkill(request));
+  public Res<PlatformSkillView> createPlatformSkill(
+      @RequestPart("metadata") CreateSkillRequest request,
+      @RequestPart("package") org.springframework.web.multipart.MultipartFile file) {
+    return Res.ok(skills.createPlatformSkill(request, file));
   }
 
   @PatchMapping("/platform/skills/{skillId}")
@@ -244,6 +250,38 @@ public class AdminController {
       @PathVariable String skillId,
       @RequestBody UpdateSkillRequest request) {
     return Res.ok(skills.updatePlatformSkill(skillId, request));
+  }
+
+  @DeleteMapping("/platform/skills/{skillId}")
+  public Res<Void> deletePlatformSkill(@PathVariable String skillId) {
+    skills.deletePlatformSkill(skillId);
+    return Res.ok();
+  }
+
+  @GetMapping("/platform/skills/{skillId}/versions")
+  public Res<List<SkillVersionView>> skillVersions(@PathVariable String skillId) {
+    return Res.ok(skills.listVersions(skillId));
+  }
+
+  @PostMapping(value = "/platform/skills/{skillId}/versions", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<SkillVersionView> createSkillVersion(
+      @PathVariable String skillId,
+      @RequestPart(value = "changelog", required = false) String changelog,
+      @RequestPart("package") org.springframework.web.multipart.MultipartFile file) {
+    return Res.ok(skills.createVersion(skillId, changelog, file));
+  }
+
+  @PostMapping("/platform/skills/{skillId}/versions/{version}/publish")
+  public Res<PlatformSkillView> publishSkillVersion(
+      @PathVariable String skillId, @PathVariable long version) {
+    return Res.ok(skills.publishVersion(skillId, version));
+  }
+
+  @GetMapping("/platform/skills/{skillId}/versions/{version}/download")
+  public Res<SkillPackageDownloadView> downloadSkillVersion(
+      @PathVariable String skillId, @PathVariable long version) {
+    return Res.ok(skills.downloadVersion(skillId, version));
   }
 
   @GetMapping("/skills")

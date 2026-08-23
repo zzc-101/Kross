@@ -18,9 +18,14 @@ public class PlatformSkill {
   private String icon;
   private String launchMode;
   private String starterPrompt;
+  private String activeVersionId;
   private String content;
   private String contentDigest;
   private long revision;
+  private long latestVersion;
+  private Integer versionCount;
+  private String packageSha256;
+  private Long packageSizeBytes;
   private String status;
   private String createdBy;
   private Instant createdAt;

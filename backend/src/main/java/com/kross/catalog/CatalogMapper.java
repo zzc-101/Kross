@@ -5,6 +5,7 @@ import com.kross.catalog.entity.AuditEvent;
 import com.kross.catalog.entity.CredentialHandle;
 import com.kross.catalog.entity.ModelProfile;
 import com.kross.catalog.entity.PlatformSkill;
+import com.kross.catalog.entity.PlatformSkillVersion;
 import com.kross.catalog.entity.TokenUsageTotals;
 import com.kross.catalog.entity.TokenUsageRankRow;
 import com.kross.catalog.entity.TokenUsageTrendRow;
@@ -22,6 +23,29 @@ public interface CatalogMapper {
   void insertPlatformSkill(PlatformSkill row);
 
   int updatePlatformSkill(PlatformSkill row);
+
+  int deletePlatformSkill(@Param("id") String id);
+
+  long nextSkillVersion(@Param("skillId") String skillId);
+
+  void insertSkillVersion(PlatformSkillVersion row);
+
+  List<PlatformSkillVersion> listSkillVersions(@Param("skillId") String skillId);
+
+  Optional<PlatformSkillVersion> findSkillVersion(
+      @Param("skillId") String skillId, @Param("version") long version);
+
+  int publishSkillVersion(
+      @Param("skillId") String skillId, @Param("versionId") String versionId);
+
+  int markSkillVersionPublished(@Param("versionId") String versionId);
+
+  int updateSkillVersionPackage(
+      @Param("versionId") String versionId,
+      @Param("packageKey") String packageKey,
+      @Param("packageSha256") String packageSha256,
+      @Param("packageSizeBytes") long packageSizeBytes,
+      @Param("manifest") JsonNode manifest);
 
   List<PlatformSkill> listOrganizationSkillCatalog(@Param("organizationId") String organizationId);
 

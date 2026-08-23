@@ -14,6 +14,8 @@ import {
   platformOrganizationSchema,
   platformSchema,
   platformSkillSchema,
+  skillPackageDownloadSchema,
+  skillVersionSchema,
   platformSsoSchema,
   tokenUsageSchema,
   sessionSchema,
@@ -40,7 +42,7 @@ export class AdminApiError extends Error {
   }
 }
 
-type RequestOptions = { method?: string; body?: unknown; organization?: boolean };
+type RequestOptions = { method?: string; body?: unknown | FormData; organization?: boolean };
 
 const envelopeSchema = z.object({
   code: z.number(),
@@ -203,17 +205,58 @@ export class AdminApiClient {
     icon?: string;
     launchMode?: PlatformSkill['launchMode'];
     starterPrompt?: string;
-    content: string;
-  }) {
+    changelog?: string;
+  }, file: File) {
+    const body = new FormData();
+    body.append('metadata', new Blob([JSON.stringify(input)], { type: 'application/json' }));
+    body.append('package', file);
     return this.request('/api/v2/admin/platform/skills', platformSkillSchema, {
-      method: 'POST', body: input, organization: false
+      method: 'POST', body, organization: false
     });
   }
   updatePlatformSkill(skillId: string, input: Partial<Pick<PlatformSkill,
-    'name' | 'description' | 'category' | 'icon' | 'launchMode' | 'starterPrompt' | 'content' | 'status'>>) {
+    'name' | 'description' | 'category' | 'icon' | 'launchMode' | 'starterPrompt' | 'status'>>) {
     return this.request(`/api/v2/admin/platform/skills/${encodeURIComponent(skillId)}`, platformSkillSchema, {
       method: 'PATCH', body: input, organization: false
     });
+  }
+  deletePlatformSkill(skillId: string) {
+    return this.request(
+      `/api/v2/admin/platform/skills/${encodeURIComponent(skillId)}`,
+      z.unknown().optional(),
+      { method: 'DELETE', organization: false }
+    ).then(() => undefined);
+  }
+  skillVersions(skillId: string) {
+    return this.request(
+      `/api/v2/admin/platform/skills/${encodeURIComponent(skillId)}/versions`,
+      z.array(skillVersionSchema),
+      { organization: false }
+    );
+  }
+  createSkillVersion(skillId: string, file: File, changelog?: string) {
+    const body = new FormData();
+    body.append('package', file);
+    if (changelog?.trim()) body.append('changelog', changelog.trim());
+    return this.request(
+      `/api/v2/admin/platform/skills/${encodeURIComponent(skillId)}/versions`,
+      skillVersionSchema,
+      { method: 'POST', body, organization: false }
+    );
+  }
+  publishSkillVersion(skillId: string, version: number) {
+    return this.request(
+      `/api/v2/admin/platform/skills/${encodeURIComponent(skillId)}/versions/${version}/publish`,
+      platformSkillSchema,
+      { method: 'POST', organization: false }
+    );
+  }
+  skillPackageDownload(skillId: string, version: number) {
+    return this.request(
+      `/api/v2/admin/platform/skills/${encodeURIComponent(skillId)}/versions/${version}/download`,
+      skillPackageDownloadSchema,
+      { organization: false }
+    );
   }
   organizationSkills() {
     return this.request('/api/v2/admin/skills', z.array(organizationSkillSchema));
@@ -291,12 +334,15 @@ export class AdminApiClient {
     const headers = new Headers({ accept: 'application/json' });
     if ((options.organization ?? true) && this.organizationId)
       headers.set('x-kross-organization-id', this.organizationId);
-    if (options.body !== undefined) headers.set('content-type', 'application/json');
+    if (options.body !== undefined && !(options.body instanceof FormData))
+      headers.set('content-type', 'application/json');
     const response = await this.fetcher(new URL(path, this.options.baseUrl ?? location.origin), {
       method: options.method ?? 'GET',
       headers,
       credentials: 'include',
-      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+      body: options.body === undefined
+        ? undefined
+        : options.body instanceof FormData ? options.body : JSON.stringify(options.body)
     });
     const json: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {

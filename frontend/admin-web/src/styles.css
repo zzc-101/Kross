@@ -19,9 +19,8 @@ select,
 textarea {
   font: inherit;
 }
-.skill-content-editor {
-  font-family: 'SFMono-Regular', Consolas, monospace;
-  font-size: 13px;
+.skill-version-upload {
+  margin-bottom: 18px;
 }
 .skill-market-card {
   height: 100%;

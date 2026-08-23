@@ -199,9 +199,12 @@ export const platformSkillSchema = z
     icon: z.string().min(1),
     launchMode: z.enum(['instant', 'form', 'file']),
     starterPrompt: z.string(),
-    content: z.string().min(1),
-    revision: z.number().int().positive(),
-    status: z.enum(['active', 'disabled']),
+    revision: z.number().int().nonnegative(),
+    latestVersion: z.number().int().nonnegative(),
+    versionCount: z.number().int().nonnegative(),
+    packageSha256: z.string().length(64).nullish(),
+    packageSizeBytes: z.number().int().nonnegative(),
+    status: z.enum(['draft', 'active', 'disabled']),
     installCount: z.number().int().nonnegative(),
     createdAt: date,
     updatedAt: date
@@ -222,6 +225,23 @@ export const organizationSkillSchema = z
     installed: z.boolean(),
     installedAt: date.nullish()
   })
+  .strict();
+
+export const skillVersionSchema = z
+  .object({
+    version: z.number().int().positive(),
+    packageSha256: z.string().length(64).nullish(),
+    packageSizeBytes: z.number().int().nonnegative(),
+    manifest: z.record(z.unknown()),
+    changelog: z.string(),
+    active: z.boolean(),
+    createdAt: date,
+    publishedAt: date.nullish()
+  })
+  .strict();
+
+export const skillPackageDownloadSchema = z
+  .object({ url: z.string().url(), expiresAt: date })
   .strict();
 
 const tokenUsageTrendSchema = z
@@ -334,6 +354,7 @@ export type CreatedInvite = z.infer<typeof createdInviteSchema>;
 export type Member = z.infer<typeof memberSchema>;
 export type PlatformSkill = z.infer<typeof platformSkillSchema>;
 export type OrganizationSkill = z.infer<typeof organizationSkillSchema>;
+export type SkillVersion = z.infer<typeof skillVersionSchema>;
 export type ModelConfig = z.infer<typeof modelSchema>;
 export type TokenUsage = z.infer<typeof tokenUsageSchema>;
 export type TokenUsageRank = z.infer<typeof tokenUsageRankSchema>;

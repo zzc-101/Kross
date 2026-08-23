@@ -1,5 +1,14 @@
 import { useState } from 'react';
-import { BulbOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  BulbOutlined,
+  CloudUploadOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  HistoryOutlined,
+  PlusOutlined,
+  RocketOutlined
+} from '@ant-design/icons';
 import {
   App,
   Avatar,
@@ -8,15 +17,18 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
   Select,
   Space,
   Switch,
   Table,
   Tag,
-  Typography
+  Typography,
+  Upload
 } from 'antd';
+import type { UploadFile } from 'antd';
 import { AdminApiClient } from '../../../apiClient';
-import type { PlatformSkill } from '../../../contracts';
+import type { PlatformSkill, SkillVersion } from '../../../contracts';
 import { Page } from '../../../components/Page';
 import { RefreshButton } from '../../../components/RefreshButton';
 import { ResourceState } from '../../../components/ResourceState';
@@ -24,43 +36,59 @@ import { useResource } from '../../../hooks/useResource';
 import { formatDate } from '../../../utils/format';
 
 type SkillForm = Pick<PlatformSkill,
-  'id' | 'name' | 'description' | 'category' | 'icon' | 'launchMode' | 'starterPrompt' | 'content'>;
+  'id' | 'name' | 'description' | 'category' | 'icon' | 'launchMode' | 'starterPrompt'> & {
+    changelog?: string;
+  };
 
 export function PlatformSkillsPage({ api }: { api: AdminApiClient }) {
   const state = useResource(() => api.platformSkills(), [api]);
   const [editing, setEditing] = useState<PlatformSkill>();
-  const [open, setOpen] = useState(false);
+  const [metadataOpen, setMetadataOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [packageFile, setPackageFile] = useState<File>();
   const [form] = Form.useForm<SkillForm>();
+  const [versionSkill, setVersionSkill] = useState<PlatformSkill>();
+  const [versions, setVersions] = useState<SkillVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [versionFile, setVersionFile] = useState<File>();
+  const [changelog, setChangelog] = useState('');
+  const [versionSaving, setVersionSaving] = useState(false);
   const { message } = App.useApp();
 
   const openCreate = () => {
     setEditing(undefined);
+    setPackageFile(undefined);
     form.setFieldsValue({
       id: '', name: '', description: '', category: '办公效率', icon: 'sparkles',
-      launchMode: 'instant', starterPrompt: '', content: ''
+      launchMode: 'instant', starterPrompt: '', changelog: '首次发布'
     });
-    setOpen(true);
+    setMetadataOpen(true);
   };
 
   const openEdit = (skill: PlatformSkill) => {
     setEditing(skill);
+    setPackageFile(undefined);
     form.setFieldsValue(skill);
-    setOpen(true);
+    setMetadataOpen(true);
   };
 
   const save = async () => {
     const values = await form.validateFields();
+    if (!editing && !packageFile) {
+      message.error('请选择包含 SKILL.md 的 ZIP 包');
+      return;
+    }
     setSaving(true);
     try {
       if (editing) {
-        await api.updatePlatformSkill(editing.id, values);
-        message.success('Skill 已更新，所有已安装组织将在下一轮任务使用最新版');
+        const { id: _id, changelog: _changelog, ...metadata } = values;
+        await api.updatePlatformSkill(editing.id, metadata);
+        message.success('Skill 基本信息已更新');
       } else {
-        await api.createPlatformSkill(values);
-        message.success('Skill 已创建');
+        await api.createPlatformSkill(values, packageFile!);
+        message.success('Skill 和 v1 草稿已创建，请在版本管理中发布');
       }
-      setOpen(false);
+      setMetadataOpen(false);
       form.resetFields();
       await state.reload();
     } finally {
@@ -74,10 +102,70 @@ export function PlatformSkillsPage({ api }: { api: AdminApiClient }) {
     await state.reload();
   };
 
+  const remove = async (skill: PlatformSkill) => {
+    await api.deletePlatformSkill(skill.id);
+    message.success(`${skill.name} 已删除`);
+    await state.reload();
+  };
+
+  const loadVersions = async (skill: PlatformSkill) => {
+    setVersionSkill(skill);
+    setVersionFile(undefined);
+    setChangelog('');
+    setVersionsLoading(true);
+    try {
+      setVersions(await api.skillVersions(skill.id));
+    } finally {
+      setVersionsLoading(false);
+    }
+  };
+
+  const uploadVersion = async () => {
+    if (!versionSkill || !versionFile) {
+      message.error('请选择新的 Skill ZIP 包');
+      return;
+    }
+    setVersionSaving(true);
+    try {
+      await api.createSkillVersion(versionSkill.id, versionFile, changelog);
+      message.success('新版本已上传为草稿');
+      setVersionFile(undefined);
+      setChangelog('');
+      setVersions(await api.skillVersions(versionSkill.id));
+      await state.reload();
+    } finally {
+      setVersionSaving(false);
+    }
+  };
+
+  const publish = async (version: SkillVersion) => {
+    if (!versionSkill) return;
+    await api.publishSkillVersion(versionSkill.id, version.version);
+    message.success(version.active ? '当前版本未变化' : `v${version.version} 已成为组织使用版本`);
+    const refreshed = await api.platformSkills();
+    const skill = refreshed.find((item) => item.id === versionSkill.id);
+    if (skill) setVersionSkill(skill);
+    setVersions(await api.skillVersions(versionSkill.id));
+    await state.reload();
+  };
+
+  const download = async (version: SkillVersion) => {
+    if (!versionSkill) return;
+    const result = await api.skillPackageDownload(versionSkill.id, version.version);
+    window.open(result.url, '_blank', 'noopener,noreferrer');
+  };
+
+  const createFiles: UploadFile[] = packageFile
+    ? [{ uid: 'skill-package', name: packageFile.name, status: 'done', originFileObj: packageFile as UploadFile['originFileObj'] }]
+    : [];
+  const versionFiles: UploadFile[] = versionFile
+    ? [{ uid: 'skill-version', name: versionFile.name, status: 'done', originFileObj: versionFile as UploadFile['originFileObj'] }]
+    : [];
+
   return (
     <Page
       title="技能库"
-      subtitle="平台 Skill 只有一份，由超级管理员统一维护；更新后所有已安装组织自动使用最新版。"
+      subtitle="上传完整 Agent Skill ZIP，使用不可变版本发布；组织安装关系始终跟随当前发布版本。"
       action={<Space><RefreshButton onClick={state.reload} /><Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>创建 Skill</Button></Space>}
     >
       <Card>
@@ -97,28 +185,47 @@ export function PlatformSkillsPage({ api }: { api: AdminApiClient }) {
                 },
                 { title: '分类', dataIndex: 'category' },
                 { title: '启动方式', dataIndex: 'launchMode', render: launchModeLabel },
-                { title: 'Revision', dataIndex: 'revision', render: (value: number) => <Tag>r{value}</Tag> },
+                {
+                  title: '版本',
+                  render: (_: unknown, record: PlatformSkill) => (
+                    <Space><Tag color={record.revision ? 'blue' : 'default'}>{record.revision ? `v${record.revision}` : '未发布'}</Tag><Typography.Text type="secondary">共 {record.versionCount} 个</Typography.Text></Space>
+                  )
+                },
                 { title: '安装组织', dataIndex: 'installCount', render: (value: number) => `${value} 个` },
                 {
                   title: '状态', dataIndex: 'status',
-                  render: (value: string, record: PlatformSkill) => (
+                  render: (value: PlatformSkill['status'], record: PlatformSkill) => value === 'draft' ? (
+                    <Tag>待发布</Tag>
+                  ) : (
                     <Space><Switch checked={value === 'active'} onChange={() => void toggle(record)} /><Typography.Text type="secondary">{value === 'active' ? '可安装' : '全局禁用'}</Typography.Text></Space>
                   )
                 },
                 { title: '更新时间', dataIndex: 'updatedAt', render: formatDate },
-                { title: '操作', render: (_: unknown, record: PlatformSkill) => <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>编辑</Button> }
+                {
+                  title: '操作',
+                  render: (_: unknown, record: PlatformSkill) => (
+                    <Space size={0}>
+                      <Button type="link" icon={<HistoryOutlined />} onClick={() => void loadVersions(record)}>版本</Button>
+                      <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>编辑</Button>
+                      <Popconfirm title={`删除 ${record.name}？`} description="仅未安装到任何组织的 Skill 可以删除。" okText="删除" cancelText="取消" onConfirm={() => remove(record)}>
+                        <Button type="link" danger icon={<DeleteOutlined />}>删除</Button>
+                      </Popconfirm>
+                    </Space>
+                  )
+                }
               ]}
             />
           )}
         </ResourceState>
       </Card>
+
       <Modal
         title={editing ? `编辑 ${editing.name}` : '创建 Skill'}
-        width={760}
-        open={open}
+        width={720}
+        open={metadataOpen}
         confirmLoading={saving}
-        okText={editing ? '发布更新' : '创建'}
-        onCancel={() => setOpen(false)}
+        okText={editing ? '保存信息' : '创建草稿'}
+        onCancel={() => setMetadataOpen(false)}
         onOk={() => void save()}
         destroyOnHidden
       >
@@ -140,10 +247,71 @@ export function PlatformSkillsPage({ api }: { api: AdminApiClient }) {
             </Form.Item>
           </Space>
           <Form.Item name="starterPrompt" label="输入框引导语"><Input maxLength={1000} placeholder="上传会议记录，或直接粘贴会议内容…" /></Form.Item>
-          <Form.Item name="content" label="SKILL.md 指令" rules={[{ required: true, message: '请输入 Skill 指令' }]} extra="发布后，已安装组织下一轮调用会自动使用新 revision。">
-            <Input.TextArea className="skill-content-editor" rows={14} spellCheck={false} />
-          </Form.Item>
+          {!editing && <>
+            <Form.Item label="Skill ZIP 包" required extra="必须包含根目录 SKILL.md；可以同时包含 scripts、references 和 assets，最大 10 MB。">
+              <Upload.Dragger
+                accept=".zip,application/zip"
+                maxCount={1}
+                fileList={createFiles}
+                beforeUpload={(file) => { setPackageFile(file); return false; }}
+                onRemove={() => { setPackageFile(undefined); return true; }}
+              >
+                <p className="ant-upload-drag-icon"><CloudUploadOutlined /></p>
+                <p>点击或拖拽 Skill ZIP 到这里</p>
+              </Upload.Dragger>
+            </Form.Item>
+            <Form.Item name="changelog" label="v1 版本说明"><Input maxLength={2000} /></Form.Item>
+          </>}
         </Form>
+      </Modal>
+
+      <Modal
+        title={versionSkill ? `${versionSkill.name} · 版本管理` : '版本管理'}
+        width={860}
+        open={Boolean(versionSkill)}
+        footer={null}
+        onCancel={() => setVersionSkill(undefined)}
+        destroyOnHidden
+      >
+        <Card size="small" title="上传新版本" className="skill-version-upload">
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Upload
+              accept=".zip,application/zip"
+              maxCount={1}
+              fileList={versionFiles}
+              beforeUpload={(file) => { setVersionFile(file); return false; }}
+              onRemove={() => { setVersionFile(undefined); return true; }}
+            >
+              <Button icon={<CloudUploadOutlined />}>选择 Skill ZIP</Button>
+            </Upload>
+            <Input.TextArea value={changelog} onChange={(event) => setChangelog(event.target.value)} rows={2} maxLength={2000} showCount placeholder="说明本次更新内容…" />
+            <Button type="primary" loading={versionSaving} onClick={() => void uploadVersion()}>上传为新版本</Button>
+          </Space>
+        </Card>
+        <Table
+          rowKey="version"
+          loading={versionsLoading}
+          dataSource={versions}
+          pagination={false}
+          columns={[
+            { title: '版本', dataIndex: 'version', render: (value: number, record: SkillVersion) => <Space><strong>v{value}</strong>{record.active && <Tag color="green">当前发布</Tag>}</Space> },
+            { title: '版本说明', dataIndex: 'changelog', render: (value: string) => value || '—' },
+            { title: '包大小', dataIndex: 'packageSizeBytes', render: formatBytes },
+            { title: '包含内容', dataIndex: 'manifest', render: capabilities },
+            { title: '创建时间', dataIndex: 'createdAt', render: formatDate },
+            {
+              title: '操作',
+              render: (_: unknown, record: SkillVersion) => (
+                <Space size={0}>
+                  <Button type="link" icon={<DownloadOutlined />} onClick={() => void download(record)}>下载</Button>
+                  {!record.active && <Popconfirm title={record.publishedAt ? `回滚到 v${record.version}？` : `发布 v${record.version}？`} okText="确认" cancelText="取消" onConfirm={() => publish(record)}>
+                    <Button type="link" icon={<RocketOutlined />}>{record.publishedAt ? '回滚' : '发布'}</Button>
+                  </Popconfirm>}
+                </Space>
+              )
+            }
+          ]}
+        />
       </Modal>
     </Page>
   );
@@ -151,4 +319,20 @@ export function PlatformSkillsPage({ api }: { api: AdminApiClient }) {
 
 function launchModeLabel(value: PlatformSkill['launchMode']) {
   return value === 'file' ? '选择文件' : value === 'form' ? '填写参数' : '直接开始';
+}
+
+function formatBytes(value: number) {
+  if (!value) return '待生成';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function capabilities(manifest: Record<string, unknown>) {
+  const values = [
+    manifest.hasScripts && '脚本',
+    manifest.hasReferences && '资料',
+    manifest.hasAssets && '资源'
+  ].filter(Boolean) as string[];
+  return values.length ? <Space size={4}>{values.map((value) => <Tag key={value}>{value}</Tag>)}</Space> : '仅 SKILL.md';
 }

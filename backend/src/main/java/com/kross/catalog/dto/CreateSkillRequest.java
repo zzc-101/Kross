@@ -8,4 +8,4 @@ public record CreateSkillRequest(
     String icon,
     String launchMode,
     String starterPrompt,
-    String content) {}
+    String changelog) {}

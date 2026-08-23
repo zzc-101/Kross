@@ -7,5 +7,4 @@ public record UpdateSkillRequest(
     String icon,
     String launchMode,
     String starterPrompt,
-    String content,
     String status) {}
