@@ -189,10 +189,14 @@ export class AdminApiClient {
       { method: 'DELETE', organization: false }
     ).then(() => undefined);
   }
-  tokenUsage(days = 30) {
-    return this.request(`/api/v2/admin/platform/token-usage?days=${days}`, tokenUsageSchema, {
+  tokenUsage(days = 30, organizationId?: string) {
+    const organization = organizationId ? `&organizationId=${encodeURIComponent(organizationId)}` : '';
+    return this.request(`/api/v2/admin/platform/token-usage?days=${days}${organization}`, tokenUsageSchema, {
       organization: false
     });
+  }
+  organizationTokenUsage(days = 30) {
+    return this.request(`/api/v2/admin/token-usage?days=${days}`, tokenUsageSchema);
   }
   approvalPolicy() {
     return this.request('/api/v2/admin/approval-policy', approvalPolicySchema);

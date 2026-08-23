@@ -5,6 +5,8 @@ import com.kross.catalog.entity.AuditEvent;
 import com.kross.catalog.entity.CredentialHandle;
 import com.kross.catalog.entity.ModelProfile;
 import com.kross.catalog.entity.TokenUsageTotals;
+import com.kross.catalog.entity.TokenUsageRankRow;
+import com.kross.catalog.entity.TokenUsageTrendRow;
 import java.util.List;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
@@ -30,7 +32,19 @@ public interface CatalogMapper {
 
   int deleteModel(@Param("id") String id);
 
-  TokenUsageTotals tokenUsage(@Param("days") int days);
+  TokenUsageTotals tokenUsage(@Param("days") int days, @Param("organizationId") String organizationId);
+
+  List<TokenUsageTrendRow> tokenUsageTrend(
+      @Param("days") int days, @Param("organizationId") String organizationId);
+
+  List<TokenUsageRankRow> tokenUsageByOrganization(
+      @Param("days") int days, @Param("organizationId") String organizationId);
+
+  List<TokenUsageRankRow> tokenUsageByUser(
+      @Param("days") int days, @Param("organizationId") String organizationId);
+
+  List<TokenUsageRankRow> tokenUsageByModel(
+      @Param("days") int days, @Param("organizationId") String organizationId);
 
   Optional<String> findCredentialId(@Param("id") String id);
 

@@ -299,6 +299,48 @@ textarea {
 .section-card {
   margin-top: 20px;
 }
+.chart-empty {
+  min-height: 280px;
+  display: grid;
+  place-content: center;
+}
+.usage-rank-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.usage-rank-name strong,
+.usage-rank-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-rank-name span {
+  color: #98a2b3;
+  font-size: 12px;
+}
+.rank-index {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 7px;
+  color: #667085;
+  background: #f2f4f7;
+  font-weight: 650;
+}
+.rank-1 {
+  color: #b54708;
+  background: #fff3e0;
+}
+.rank-2 {
+  color: #344054;
+  background: #eaecf0;
+}
+.rank-3 {
+  color: #93370d;
+  background: #ffead5;
+}
 .resource-state {
   padding: 24px;
 }

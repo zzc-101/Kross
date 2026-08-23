@@ -190,8 +190,32 @@ export const modelSchema = z
   })
   .strict();
 
+const tokenUsageTrendSchema = z
+  .object({
+    date: z.string().min(1),
+    inputTokens: z.number().nonnegative(),
+    outputTokens: z.number().nonnegative(),
+    totalTokens: z.number().nonnegative(),
+    llmCalls: z.number().nonnegative()
+  })
+  .strict();
+
+const tokenUsageRankSchema = z
+  .object({
+    id,
+    name: z.string().min(1),
+    secondary: z.string(),
+    inputTokens: z.number().nonnegative(),
+    outputTokens: z.number().nonnegative(),
+    totalTokens: z.number().nonnegative(),
+    llmCalls: z.number().nonnegative()
+  })
+  .strict();
+
 export const tokenUsageSchema = z
   .object({
+    scope: z.enum(['platform', 'organization']),
+    organizationId: id.nullable(),
     days: z.number().int().positive(),
     inputTokens: z.number().nonnegative(),
     outputTokens: z.number().nonnegative(),
@@ -200,7 +224,11 @@ export const tokenUsageSchema = z
     cacheWriteTokens: z.number().nonnegative(),
     reasoningTokens: z.number().nonnegative(),
     llmCalls: z.number().nonnegative(),
-    estimatedCostUsd: z.number().nonnegative()
+    estimatedCostUsd: z.number().nonnegative(),
+    trend: z.array(tokenUsageTrendSchema),
+    organizations: z.array(tokenUsageRankSchema),
+    users: z.array(tokenUsageRankSchema),
+    models: z.array(tokenUsageRankSchema)
   })
   .strict();
 
@@ -272,6 +300,7 @@ export type CreatedInvite = z.infer<typeof createdInviteSchema>;
 export type Member = z.infer<typeof memberSchema>;
 export type ModelConfig = z.infer<typeof modelSchema>;
 export type TokenUsage = z.infer<typeof tokenUsageSchema>;
+export type TokenUsageRank = z.infer<typeof tokenUsageRankSchema>;
 export type ApprovalPolicy = z.infer<typeof approvalPolicySchema>;
 export type AuditLog = z.infer<typeof auditLogSchema>;
 export type AuthLoginEvent = z.infer<typeof authLoginEventSchema>;

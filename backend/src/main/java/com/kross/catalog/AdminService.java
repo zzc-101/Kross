@@ -12,8 +12,10 @@ import com.kross.catalog.dto.AuditEventView;
 import com.kross.catalog.dto.CatalogViews;
 import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
-import com.kross.catalog.dto.UpdateModelRequest;
+import com.kross.catalog.dto.TokenUsageRankView;
+import com.kross.catalog.dto.TokenUsageTrendView;
 import com.kross.catalog.dto.TokenUsageView;
+import com.kross.catalog.dto.UpdateModelRequest;
 import com.kross.catalog.entity.AuditEvent;
 import com.kross.catalog.entity.CredentialHandle;
 import com.kross.catalog.entity.ModelProfile;
@@ -370,11 +372,26 @@ public class AdminService {
     }
   }
 
-  public TokenUsageView tokenUsage(int requestedDays) {
+  public TokenUsageView platformTokenUsage(int requestedDays, String requestedOrganizationId) {
     auth.requireSuperAdmin();
+    String organizationId = Optional.ofNullable(requestedOrganizationId)
+        .filter(value -> !value.isBlank())
+        .map(value -> Ids.requireResourceId(value, "Invalid Organization identifier"))
+        .orElse(null);
+    return tokenUsage(requestedDays, organizationId, "platform");
+  }
+
+  public TokenUsageView organizationTokenUsage(String organizationId, int requestedDays) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.TOKEN_USAGE_READ);
+    return tokenUsage(requestedDays, context.organizationId(), "organization");
+  }
+
+  private TokenUsageView tokenUsage(int requestedDays, String organizationId, String scope) {
     int days = Math.min(Math.max(requestedDays, 1), 365);
-    TokenUsageTotals usage = catalog.tokenUsage(days);
+    TokenUsageTotals usage = catalog.tokenUsage(days, organizationId);
     return new TokenUsageView(
+        scope,
+        organizationId,
         days,
         usage.getInputTokens(),
         usage.getOutputTokens(),
@@ -383,7 +400,27 @@ public class AdminService {
         usage.getCacheWriteTokens(),
         usage.getReasoningTokens(),
         usage.getLlmCalls(),
-        Optional.ofNullable(usage.getEstimatedCostUsd()).orElse(java.math.BigDecimal.ZERO));
+        Optional.ofNullable(usage.getEstimatedCostUsd()).orElse(java.math.BigDecimal.ZERO),
+        catalog.tokenUsageTrend(days, organizationId).stream()
+            .map(row -> new TokenUsageTrendView(
+                row.getDate(), row.getInputTokens(), row.getOutputTokens(), row.getTotalTokens(), row.getLlmCalls()))
+            .toList(),
+        "platform".equals(scope)
+            ? catalog.tokenUsageByOrganization(days, organizationId).stream().map(AdminService::tokenRank).toList()
+            : List.of(),
+        catalog.tokenUsageByUser(days, organizationId).stream().map(AdminService::tokenRank).toList(),
+        catalog.tokenUsageByModel(days, organizationId).stream().map(AdminService::tokenRank).toList());
+  }
+
+  private static TokenUsageRankView tokenRank(com.kross.catalog.entity.TokenUsageRankRow row) {
+    return new TokenUsageRankView(
+        row.getId(),
+        row.getName(),
+        row.getSecondary(),
+        row.getInputTokens(),
+        row.getOutputTokens(),
+        row.getTotalTokens(),
+        row.getLlmCalls());
   }
 
   public PageResponse<AuditEventView> listAudit(

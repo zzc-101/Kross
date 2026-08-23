@@ -223,8 +223,17 @@ public class AdminController {
   }
 
   @GetMapping("/platform/token-usage")
-  public Res<TokenUsageView> tokenUsage(@RequestParam(defaultValue = "30") int days) {
-    return Res.ok(admin.tokenUsage(days));
+  public Res<TokenUsageView> platformTokenUsage(
+      @RequestParam(defaultValue = "30") int days,
+      @RequestParam(required = false) String organizationId) {
+    return Res.ok(admin.platformTokenUsage(days, organizationId));
+  }
+
+  @GetMapping("/token-usage")
+  public Res<TokenUsageView> organizationTokenUsage(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestParam(defaultValue = "30") int days) {
+    return Res.ok(admin.organizationTokenUsage(organizationId, days));
   }
 
   @PostMapping("/platform/models")

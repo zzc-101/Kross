@@ -27,6 +27,26 @@ const member = {
   updatedAt: now
 };
 
+const tokenUsage = {
+  scope: 'organization',
+  organizationId: 'org-1',
+  days: 30,
+  inputTokens: 1200,
+  outputTokens: 300,
+  totalTokens: 1500,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  reasoningTokens: 0,
+  llmCalls: 3,
+  estimatedCostUsd: 0,
+  trend: [
+    { date: '2026-08-23', inputTokens: 1200, outputTokens: 300, totalTokens: 1500, llmCalls: 3 }
+  ],
+  organizations: [],
+  users: [],
+  models: []
+};
+
 describe('AdminApiClient', () => {
   it('sends organization header and session cookies', async () => {
     let headers: Headers | undefined;
@@ -141,6 +161,43 @@ describe('AdminApiClient', () => {
     api.selectOrganization('org-1');
     await api.models();
     expect(requestUrl).toContain('/api/v2/admin/platform/models');
+    expect(headers?.has('x-kross-organization-id')).toBe(false);
+  });
+
+  it('keeps organization token statistics inside the selected organization', async () => {
+    let requestUrl = '';
+    let headers: Headers | undefined;
+    const api = new AdminApiClient({
+      baseUrl: 'http://kross.test',
+      fetch: async (url, init) => {
+        requestUrl = String(url);
+        headers = new Headers(init?.headers);
+        return ok(tokenUsage);
+      }
+    });
+    api.selectOrganization('org-1');
+    await expect(api.organizationTokenUsage(30)).resolves.toMatchObject({ totalTokens: 1500 });
+    expect(requestUrl).toContain('/api/v2/admin/token-usage?days=30');
+    expect(headers?.get('x-kross-organization-id')).toBe('org-1');
+  });
+
+  it('lets the platform token dashboard filter organizations without an organization header', async () => {
+    let requestUrl = '';
+    let headers: Headers | undefined;
+    const api = new AdminApiClient({
+      baseUrl: 'http://kross.test',
+      fetch: async (url, init) => {
+        requestUrl = String(url);
+        headers = new Headers(init?.headers);
+        return ok({ ...tokenUsage, scope: 'platform', organizationId: null });
+      }
+    });
+    api.selectOrganization('org-1');
+    await expect(api.tokenUsage(7, 'org-2')).resolves.toMatchObject({
+      scope: 'platform',
+      organizationId: null
+    });
+    expect(requestUrl).toContain('days=7&organizationId=org-2');
     expect(headers?.has('x-kross-organization-id')).toBe(false);
   });
 });

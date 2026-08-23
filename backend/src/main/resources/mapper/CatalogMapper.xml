@@ -66,7 +66,102 @@
     FROM agent_messages
     WHERE role = 'agent'
       AND created_at >= now() - (#{days} * interval '1 day')
+      AND (#{organizationId}::text IS NULL OR organization_id = #{organizationId})
       AND usage &lt;&gt; '{}'::jsonb
+  </select>
+
+  <select id="tokenUsageTrend" resultType="com.kross.catalog.entity.TokenUsageTrendRow">
+    WITH dates AS (
+      SELECT generate_series(
+        current_date - ((#{days} - 1) * interval '1 day'),
+        current_date,
+        interval '1 day'
+      )::date AS day
+    ), daily AS (
+      SELECT
+        (created_at AT TIME ZONE 'UTC')::date AS day,
+        COALESCE(sum((usage ->> 'inputTokens')::bigint), 0)::bigint AS input_tokens,
+        COALESCE(sum((usage ->> 'outputTokens')::bigint), 0)::bigint AS output_tokens,
+        COALESCE(sum((usage ->> 'totalTokens')::bigint), 0)::bigint AS total_tokens,
+        COALESCE(sum((usage ->> 'llmCalls')::bigint), 0)::bigint AS llm_calls
+      FROM agent_messages
+      WHERE role = 'agent'
+        AND created_at >= current_date - ((#{days} - 1) * interval '1 day')
+        AND (#{organizationId}::text IS NULL OR organization_id = #{organizationId})
+        AND usage &lt;&gt; '{}'::jsonb
+      GROUP BY 1
+    )
+    SELECT
+      to_char(dates.day, 'YYYY-MM-DD') AS date,
+      COALESCE(daily.input_tokens, 0)::bigint AS input_tokens,
+      COALESCE(daily.output_tokens, 0)::bigint AS output_tokens,
+      COALESCE(daily.total_tokens, 0)::bigint AS total_tokens,
+      COALESCE(daily.llm_calls, 0)::bigint AS llm_calls
+    FROM dates
+    LEFT JOIN daily ON daily.day = dates.day
+    ORDER BY dates.day
+  </select>
+
+  <select id="tokenUsageByOrganization" resultType="com.kross.catalog.entity.TokenUsageRankRow">
+    SELECT
+      organization.id,
+      organization.name,
+      organization.slug AS secondary,
+      COALESCE(sum((message.usage ->> 'inputTokens')::bigint), 0)::bigint AS input_tokens,
+      COALESCE(sum((message.usage ->> 'outputTokens')::bigint), 0)::bigint AS output_tokens,
+      COALESCE(sum((message.usage ->> 'totalTokens')::bigint), 0)::bigint AS total_tokens,
+      COALESCE(sum((message.usage ->> 'llmCalls')::bigint), 0)::bigint AS llm_calls
+    FROM agent_messages message
+    JOIN organizations organization ON organization.id = message.organization_id
+    WHERE message.role = 'agent'
+      AND message.created_at >= now() - (#{days} * interval '1 day')
+      AND (#{organizationId}::text IS NULL OR message.organization_id = #{organizationId})
+      AND message.usage &lt;&gt; '{}'::jsonb
+    GROUP BY organization.id, organization.name, organization.slug
+    ORDER BY total_tokens DESC, organization.name
+    LIMIT 10
+  </select>
+
+  <select id="tokenUsageByUser" resultType="com.kross.catalog.entity.TokenUsageRankRow">
+    SELECT
+      user_account.id,
+      user_account.display_name AS name,
+      user_account.username AS secondary,
+      COALESCE(sum((message.usage ->> 'inputTokens')::bigint), 0)::bigint AS input_tokens,
+      COALESCE(sum((message.usage ->> 'outputTokens')::bigint), 0)::bigint AS output_tokens,
+      COALESCE(sum((message.usage ->> 'totalTokens')::bigint), 0)::bigint AS total_tokens,
+      COALESCE(sum((message.usage ->> 'llmCalls')::bigint), 0)::bigint AS llm_calls
+    FROM agent_messages message
+    JOIN agents agent ON agent.id = message.agent_id
+    JOIN users user_account ON user_account.id = agent.user_id
+    WHERE message.role = 'agent'
+      AND message.created_at >= now() - (#{days} * interval '1 day')
+      AND (#{organizationId}::text IS NULL OR message.organization_id = #{organizationId})
+      AND message.usage &lt;&gt; '{}'::jsonb
+    GROUP BY user_account.id, user_account.display_name, user_account.username
+    ORDER BY total_tokens DESC, user_account.display_name
+    LIMIT 10
+  </select>
+
+  <select id="tokenUsageByModel" resultType="com.kross.catalog.entity.TokenUsageRankRow">
+    SELECT
+      COALESCE(model.id, 'unassigned') AS id,
+      COALESCE(model.name, '未记录模型') AS name,
+      COALESCE(model.model, '—') AS secondary,
+      COALESCE(sum((message.usage ->> 'inputTokens')::bigint), 0)::bigint AS input_tokens,
+      COALESCE(sum((message.usage ->> 'outputTokens')::bigint), 0)::bigint AS output_tokens,
+      COALESCE(sum((message.usage ->> 'totalTokens')::bigint), 0)::bigint AS total_tokens,
+      COALESCE(sum((message.usage ->> 'llmCalls')::bigint), 0)::bigint AS llm_calls
+    FROM agent_messages message
+    JOIN agent_conversations conversation ON conversation.id = message.conversation_id
+    LEFT JOIN model_profiles model ON model.id = conversation.model_id
+    WHERE message.role = 'agent'
+      AND message.created_at >= now() - (#{days} * interval '1 day')
+      AND (#{organizationId}::text IS NULL OR message.organization_id = #{organizationId})
+      AND message.usage &lt;&gt; '{}'::jsonb
+    GROUP BY model.id, model.name, model.model
+    ORDER BY total_tokens DESC, name
+    LIMIT 10
   </select>
 
   <select id="findCredentialId" resultType="string">

@@ -1,7 +1,6 @@
 import {
   ApartmentOutlined,
   CheckCircleOutlined,
-  DollarOutlined,
   PlusOutlined,
   SafetyCertificateOutlined,
   TeamOutlined,
@@ -82,11 +81,13 @@ export function PlatformOverviewPage({ api }: { api: AdminApiClient }) {
                   note: `输入 ${tokenUsage.inputTokens.toLocaleString()} · 输出 ${tokenUsage.outputTokens.toLocaleString()}`
                 },
                 {
-                  title: '近 30 天模型成本',
-                  value: Number(tokenUsage.estimatedCostUsd.toFixed(4)),
-                  icon: <DollarOutlined />,
+                  title: '近 30 天模型调用',
+                  value: tokenUsage.llmCalls,
+                  icon: <ThunderboltOutlined />,
                   tone: 'green',
-                  note: `${tokenUsage.llmCalls.toLocaleString()} 次模型调用`
+                  note: tokenUsage.llmCalls
+                    ? `平均 ${Math.round(tokenUsage.totalTokens / tokenUsage.llmCalls).toLocaleString()} Token/次`
+                    : '暂无调用'
                 }
               ]}
             />

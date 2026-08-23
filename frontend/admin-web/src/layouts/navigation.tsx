@@ -6,6 +6,7 @@ import {
   DashboardOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
   TeamOutlined
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
@@ -22,6 +23,7 @@ export function createAdminMenu(superAdmin: boolean, current?: Membership): Menu
             label: '平台管理',
             children: [
               { key: '/platform/overview', icon: <DashboardOutlined />, label: '平台概览' },
+              { key: '/platform/token-usage', icon: <ThunderboltOutlined />, label: 'Token 统计' },
               { key: '/platform/organizations', icon: <ApartmentOutlined />, label: '组织管理' },
               { key: '/platform/models', icon: <BuildOutlined />, label: '模型配置' },
               { key: '/platform/settings', icon: <SettingOutlined />, label: '平台设置' },
@@ -45,6 +47,11 @@ export function createAdminMenu(superAdmin: boolean, current?: Membership): Menu
                 key: `/organizations/${current.organizationId}/members`,
                 icon: <TeamOutlined />,
                 label: '成员与角色'
+              },
+              {
+                key: `/organizations/${current.organizationId}/token-usage`,
+                icon: <ThunderboltOutlined />,
+                label: 'Token 统计'
               },
               {
                 key: `/organizations/${current.organizationId}/policy`,
