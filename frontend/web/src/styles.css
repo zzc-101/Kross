@@ -207,8 +207,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .message-markdown table { width: 100%; border-collapse: collapse; margin: 12px 0; }
 .message-markdown th, .message-markdown td { border: 1px solid #dedede; padding: 7px 10px; text-align: left; }
 .message-markdown th { background: #f4f4f4; }
-.message-actions { display: flex; min-height: 28px; align-items: center; gap: 4px; padding-top: 4px; color: #777; }
-.bubble-row.user .message-actions { align-self: center; order: -1; }
+.message-actions-wrap, .message-actions { display: flex; min-height: 28px; align-items: center; gap: 4px; padding-top: 4px; color: #777; }
+.bubble-row.user .message-actions-wrap { align-self: center; order: -1; }
+.bubble-row.user .message-actions { padding-top: 0; }
 .message-action, .inline-copy { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 7px; background: transparent; color: #707070; }
 .message-action:hover, .inline-copy:hover { background: #eeeeef; color: #202020; }
 .message-action svg, .inline-copy svg { width: 15px; height: 15px; }

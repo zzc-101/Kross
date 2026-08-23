@@ -37,11 +37,13 @@ public class AgentMemoryService {
   private static final int MAX_CONTENT_CHARS = 2_000;
   private static final int EXTRACT_MESSAGE_LIMIT = 40;
   private static final int EXTRACT_MESSAGE_CLIP = 1_200;
-  private static final int FORGOTTEN_HINT_LIMIT = 40;
-  private static final Pattern REMEMBER_PREFIX = Pattern.compile(
-      "(?is)^(?:请)?(?:帮我)?记住(?:这个|一下)?[：:,，\\s]*(.+)$");
+  private static final int FORGOTTEN_HINT_LIMIT = 80;
+  private static final Pattern REMEMBER_HELP = Pattern.compile(
+      "(?is)^(?:请)?帮我记住(?:这个|一下)?[：:,，\\s]+(.+)$");
+  private static final Pattern REMEMBER_PLEASE = Pattern.compile(
+      "(?is)^请记住[：:,，\\s]+(.+)$");
   private static final Pattern REMEMBER_ENGLISH = Pattern.compile(
-      "(?is)^(?:please\\s+)?remember(?:\\s+this|\\s+that)?[：:,\\s]+(.+)$");
+      "(?is)^(?:please\\s+)?remember(?:\\s+this|\\s+that)[：:,\\s]+(.+)$");
   private static final Pattern PREFERENCE_HINT = Pattern.compile(
       "(?i)喜欢|偏好|请用|请叫|称呼|语言|风格|习惯|prefer|please (?:use|call|speak)|language");
 
@@ -97,11 +99,12 @@ public class AgentMemoryService {
 
   public MemoryView remember(OrganizationContext context, Agent agent, RememberMemoryRequest request) {
     String content = resolveRememberContent(context, agent, Optional.ofNullable(request));
+    String stored = rememberPayload(content).orElse(content);
     String kind = Optional.ofNullable(request).map(RememberMemoryRequest::kind)
         .flatMap(AgentMemoryService::optionalText)
         .map(value -> requireKind(Optional.of(value)))
-        .orElseGet(() -> inferKind(content));
-    AgentMemory row = insert(context.organizationId(), context.userId(), agent.getId(), kind, content, "remember");
+        .orElseGet(() -> inferKind(stored));
+    AgentMemory row = insert(context.organizationId(), context.userId(), agent.getId(), kind, stored, "remember");
     syncFilesQuietly(agent);
     return toView(row);
   }
@@ -155,20 +158,25 @@ public class AgentMemoryService {
       }
       try {
         List<AgentMemory> active = memories.listActive(agent.getOrganizationId(), agent.getUserId());
-        List<AgentMemory> forgotten = memories.listForgotten(
-            agent.getOrganizationId(), agent.getUserId(), FORGOTTEN_HINT_LIMIT);
+        List<String> forgotten = Optional.ofNullable(
+                memories.listForgottenContents(agent.getOrganizationId(), agent.getUserId()))
+            .orElse(List.of());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("userMessages", messages.stream().map(this::clipUserMessage).toList());
         payload.put("existing", active.stream().map(AgentMemoryService::extractHint).toList());
-        payload.put("forgotten", forgotten.stream().map(AgentMemory::getContent).toList());
+        payload.put("forgotten", forgotten.stream().limit(FORGOTTEN_HINT_LIMIT).toList());
         Map<String, Object> result = sockets.requestCommand(
             agent.getId(), "memory.extract", payload, Duration.ofSeconds(75));
+        if (isExtractSkipped(result)) {
+          log.warn("Memory consolidation skipped for agent {}: worker had no model", agent.getId());
+          return;
+        }
         persistExtracted(agent, active, forgotten, result);
         syncFilesQuietly(agent);
+        lastMessageTime(messages).ifPresent(extractedAt ->
+            agents.touchMemoryExtracted(agent.getId(), agent.getOrganizationId(), extractedAt));
       } catch (RuntimeException error) {
         log.warn("Memory consolidation skipped for agent {}: {}", agent.getId(), error.getMessage());
-      } finally {
-        agents.touchMemoryExtracted(agent.getId(), agent.getOrganizationId(), Instant.now());
       }
     }
   }
@@ -199,7 +207,7 @@ public class AgentMemoryService {
   }
 
   private void persistExtracted(
-      Agent agent, List<AgentMemory> active, List<AgentMemory> forgotten, Map<String, Object> result) {
+      Agent agent, List<AgentMemory> active, List<String> forgotten, Map<String, Object> result) {
     List<Map<String, Object>> items = Optional.ofNullable(result.get("items"))
         .map(value -> mapper.convertValue(value, new TypeReference<List<Map<String, Object>>>() {}))
         .orElse(List.of());
@@ -209,7 +217,7 @@ public class AgentMemoryService {
         continue;
       }
       String kind = inferOrRequireKind(textValue(item.get("kind")), content.get());
-      if (isDuplicate(content.get(), active) || isDuplicate(content.get(), forgotten)) {
+      if (isDuplicate(content.get(), active) || isForgotten(content.get(), forgotten)) {
         continue;
       }
       try {
@@ -285,15 +293,25 @@ public class AgentMemoryService {
     if (text.isEmpty()) {
       return Optional.empty();
     }
-    Matcher chinese = REMEMBER_PREFIX.matcher(text);
-    if (chinese.matches()) {
-      return optionalText(chinese.group(1)).filter(payload -> !payload.equals(text));
-    }
-    Matcher english = REMEMBER_ENGLISH.matcher(text);
-    if (english.matches()) {
-      return optionalText(english.group(1)).filter(payload -> !payload.equalsIgnoreCase(text));
+    for (Pattern pattern : List.of(REMEMBER_HELP, REMEMBER_PLEASE, REMEMBER_ENGLISH)) {
+      Matcher matcher = pattern.matcher(text);
+      if (matcher.matches()) {
+        return optionalText(matcher.group(1));
+      }
     }
     return Optional.empty();
+  }
+
+  private static boolean isExtractSkipped(Map<String, Object> result) {
+    Object skipped = result.get("skipped");
+    return Boolean.TRUE.equals(skipped) || "true".equals(String.valueOf(skipped));
+  }
+
+  private static Optional<Instant> lastMessageTime(List<AgentMessage> messages) {
+    if (messages.isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(messages.get(messages.size() - 1).getCreatedAt());
   }
 
   static String inferKind(String content) {
@@ -332,6 +350,11 @@ public class AgentMemoryService {
   private static boolean isDuplicate(String content, List<AgentMemory> existing) {
     String normalized = normalizeKey(content);
     return existing.stream().anyMatch(item -> normalizeKey(item.getContent()).equals(normalized));
+  }
+
+  private static boolean isForgotten(String content, List<String> forgotten) {
+    String normalized = normalizeKey(content);
+    return forgotten.stream().anyMatch(item -> normalizeKey(item).equals(normalized));
   }
 
   private static String normalizeKey(String content) {

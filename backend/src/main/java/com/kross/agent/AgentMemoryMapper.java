@@ -17,6 +17,9 @@ public interface AgentMemoryMapper {
       @Param("userId") String userId,
       @Param("limit") int limit);
 
+  List<String> listForgottenContents(
+      @Param("organizationId") String organizationId, @Param("userId") String userId);
+
   Optional<AgentMemory> findOwned(
       @Param("organizationId") String organizationId,
       @Param("userId") String userId,

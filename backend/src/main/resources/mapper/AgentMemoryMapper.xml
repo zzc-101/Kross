@@ -18,6 +18,13 @@
     LIMIT #{limit}
   </select>
 
+  <select id="listForgottenContents" resultType="string">
+    SELECT content FROM agent_memories
+    WHERE organization_id = #{organizationId}
+      AND user_id = #{userId}
+      AND forgotten_at IS NOT NULL
+  </select>
+
   <select id="findOwned" resultType="com.kross.agent.entity.AgentMemory">
     SELECT * FROM agent_memories
     WHERE organization_id = #{organizationId}

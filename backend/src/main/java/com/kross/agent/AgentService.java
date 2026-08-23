@@ -369,6 +369,10 @@ public class AgentService {
     Instant idleBefore = Instant.now().minusMillis(properties.getAgent().getIdleMs());
     for (Agent agent : agents.listIdleRunning(idleBefore)) {
       try {
+        if (sockets.isConnected(agent.getId()) && memories.hasPendingExtract(agent)) {
+          memories.consolidateAsync(agent);
+          continue;
+        }
         sleep(agent);
       } catch (RuntimeException ignored) {
         // best-effort idle stop; next tick retries
@@ -885,7 +889,6 @@ public class AgentService {
   }
 
   private void sleep(Agent agent) {
-    memories.consolidateIfDue(agent);
     containers.stop(agent.getId());
     agents.revokeTokens(agent.getId());
     agent.setStatus("stopped");

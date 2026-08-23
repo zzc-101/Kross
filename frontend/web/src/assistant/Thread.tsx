@@ -315,7 +315,10 @@ function ConversationMessage({
       <MessagePrimitive.If user>
         <div className="bubble-row user">
           <div className="bubble-body"><MessagePrimitive.Content components={messagePartComponents} /></div>
-          <MessageActions api={api} conversationId={conversationId} remember />
+          <div className="message-actions-wrap">
+            <RememberButton api={api} conversationId={conversationId} />
+            <MessageActions />
+          </div>
         </div>
       </MessagePrimitive.If>
       <MessagePrimitive.If assistant>
@@ -323,7 +326,7 @@ function ConversationMessage({
           <div className="assistant-message-stack">
             <div className="bubble-body"><MessagePrimitive.Content components={messagePartComponents} /></div>
             <MessageError />
-            <MessageActions api={api} conversationId={conversationId} />
+            <MessageActions />
           </div>
         </div>
       </MessagePrimitive.If>
@@ -331,18 +334,9 @@ function ConversationMessage({
   );
 }
 
-function MessageActions({
-  api,
-  conversationId,
-  remember = false
-}: {
-  api: AgentApiClient;
-  conversationId?: string;
-  remember?: boolean;
-}) {
+function MessageActions() {
   return (
     <ActionBarPrimitive.Root className="message-actions" hideWhenRunning autohide="not-last">
-      {remember && <RememberButton api={api} conversationId={conversationId} />}
       <ActionBarPrimitive.Copy className="message-action" aria-label="复制消息" copiedDuration={2_000}>
         <AuiIf condition={(state) => state.message.isCopied}><Check /></AuiIf>
         <AuiIf condition={(state) => !state.message.isCopied}><Copy /></AuiIf>

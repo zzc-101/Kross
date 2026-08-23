@@ -19,14 +19,14 @@ const EXTRACT_PROMPT = [
 export async function extractMemories(
   env: Record<string, string | undefined>,
   payload: Record<string, unknown>
-): Promise<{ items: ExtractedMemory[] }> {
+): Promise<{ items: ExtractedMemory[]; skipped?: boolean }> {
   const userMessages = stringList(payload.userMessages);
   if (userMessages.length === 0) {
     return { items: [] };
   }
   const client = createLlmClientFromEnv(env);
   if (!client) {
-    return { items: [] };
+    return { items: [], skipped: true };
   }
   const existing = JSON.stringify(payload.existing ?? []);
   const forgotten = JSON.stringify(payload.forgotten ?? []);
