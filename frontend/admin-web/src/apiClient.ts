@@ -257,14 +257,18 @@ export class AdminApiClient {
     });
     const json: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {
-      const error = z
+      const result = envelopeSchema.safeParse(json);
+      if (result.success) {
+        throw new AdminApiError(response.status, String(result.data.code), result.data.message);
+      }
+      const legacyError = z
         .object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }) })
         .safeParse(json);
       throw new AdminApiError(
         response.status,
-        error.success ? (error.data.error.code ?? 'HTTP_ERROR') : 'HTTP_ERROR',
-        error.success
-          ? (error.data.error.message ?? `请求失败 (${response.status})`)
+        legacyError.success ? (legacyError.data.error.code ?? 'HTTP_ERROR') : 'HTTP_ERROR',
+        legacyError.success
+          ? (legacyError.data.error.message ?? `请求失败 (${response.status})`)
           : `请求失败 (${response.status})`
       );
     }

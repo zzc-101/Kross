@@ -70,13 +70,29 @@ describe('AdminApiClient', () => {
   it('surfaces structured server errors', async () => {
     const api = new AdminApiClient({
       baseUrl: 'http://kross.test',
-      fetch: () => failure({ error: { code: 'FORBIDDEN', message: '需要管理员权限' } }, 403)
+      fetch: () => failure({ code: 403, message: '需要管理员权限', data: null }, 403)
     });
     await expect(api.auditLogs()).rejects.toEqual(
       expect.objectContaining<Partial<AdminApiError>>({
         status: 403,
-        code: 'FORBIDDEN',
+        code: '403',
         message: '需要管理员权限'
+      })
+    );
+  });
+
+  it('surfaces member validation errors from the common response envelope', async () => {
+    const api = new AdminApiClient({
+      baseUrl: 'http://kross.test',
+      fetch: () => failure({ code: 400, message: 'Password must be 8-128 characters', data: null }, 400)
+    });
+    await expect(
+      api.inviteMember({ username: 'lin', password: 'short', role: 'member' })
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<AdminApiError>>({
+        status: 400,
+        code: '400',
+        message: 'Password must be 8-128 characters'
       })
     );
   });

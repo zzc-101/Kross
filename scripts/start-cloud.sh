@@ -126,6 +126,8 @@ case "$command" in
     if [ -z "$port" ]; then port=8787; fi
     echo "SaaS Work Agent 用户端已启动：http://localhost:$port"
     echo "SaaS Work Agent 管理端已启动：http://localhost:$port/admin/"
+    echo "Java 控制面日志：$PROJECT_DIR/runs/logs/server/server.log"
+    echo "实时查看全部容器日志：./scripts/start-cloud.sh --logs"
     ;;
   --stop)
     require_docker

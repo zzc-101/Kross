@@ -43,7 +43,4 @@ public class ApiException extends RuntimeException {
     return Optional.ofNullable(details);
   }
 
-  public ApiErrorResponse toResponse() {
-    return new ApiErrorResponse(new ApiError(code, getMessage(), details));
-  }
 }

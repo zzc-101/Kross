@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { AgentApiClient, ApiError } from '../api/client';
+import { AgentApiClient, ApiError, isUnauthorizedError } from '../api/client';
 import type { AgentMode, AgentModel, Conversation, MeUser, Membership } from '../api/types';
 import { AgentRuntimeProvider } from '../assistant/AgentRuntimeProvider';
 import { Thread } from '../assistant/Thread';
@@ -15,6 +15,7 @@ export function WorkspacePage({
   user,
   onSelectOrganization,
   onLogout,
+  onSessionExpired,
   onUserUpdated
 }: {
   api: AgentApiClient;
@@ -23,6 +24,7 @@ export function WorkspacePage({
   user: MeUser;
   onSelectOrganization(id: string): void;
   onLogout(): void;
+  onSessionExpired(): void;
   onUserUpdated(user: MeUser): void;
 }) {
   const { conversationId, setConversationId } = useConversationRoute();
@@ -50,13 +52,18 @@ export function WorkspacePage({
         const selected = items.find((item) => item.id === requested) ?? items[0];
         if (selected) setConversationId(selected.id);
       } catch (cause) {
-        if (!cancelled) setError(cause instanceof ApiError ? cause.message : '无法加载工作区');
+        if (cancelled) return;
+        if (isUnauthorizedError(cause)) {
+          onSessionExpired();
+          return;
+        }
+        setError(cause instanceof ApiError ? cause.message : '无法加载工作区');
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [api, organizationId, refreshConversations, setConversationId]);
+  }, [api, onSessionExpired, organizationId, refreshConversations, setConversationId]);
 
   const onCreateConversation = useCallback(async () => {
     const created = await api.createConversation();
@@ -90,6 +97,7 @@ export function WorkspacePage({
         api={api}
         conversationId={conversationId}
         onConversationsChange={onConversationsChange}
+        onSessionExpired={onSessionExpired}
       >
         <div className="workspace">
           <Sidebar

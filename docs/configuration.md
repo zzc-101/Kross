@@ -6,6 +6,23 @@ Worker 容器的 `/work`。`main` 上的本地 TUI 仍使用 `~/.kross`；不要
 
 安装与基础设施变量见 [Cloud Agent 部署与运维](cloud-agent-deployment.md)。
 
+## 控制面日志
+
+Java 控制面保留两路日志：Docker 标准输出供 `docker compose logs` 或日志平台采集，
+结构化 JSON 文件默认写入宿主机 `runs/logs/server/server.log`。文件会按日期和大小轮转。
+
+| 变量 | 默认值 | 作用 |
+|---|---:|---|
+| `KROSS_LOG_DIR` | `./runs/logs/server` | 宿主机日志目录 |
+| `KROSS_LOG_MAX_FILE_SIZE` | `50MB` | 单个日志文件上限 |
+| `KROSS_LOG_MAX_HISTORY` | `14` | 最长保留天数 |
+| `KROSS_LOG_TOTAL_SIZE_CAP` | `1GB` | 所有归档日志总量上限 |
+
+```bash
+docker compose logs -f server
+tail -f runs/logs/server/server.log
+```
+
 ## 平台模型
 
 超级管理员在管理中心统一登记模型档案：显示名、Provider、模型 ID、上下文长度、

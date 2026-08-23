@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AgentApiClient } from './client';
+import { AgentApiClient, ApiError, isUnauthorizedError } from './client';
 
 describe('AgentApiClient.listMessages', () => {
   it('兼容历史消息的空上下文统计对象', async () => {
@@ -32,5 +32,13 @@ describe('AgentApiClient.listMessages', () => {
       id: 'message-1',
       contextUsage: undefined
     })]);
+  });
+});
+
+describe('isUnauthorizedError', () => {
+  it('只把 401 API 错误识别为登录失效', () => {
+    expect(isUnauthorizedError(new ApiError(401, 'unauthorized', '未登录'))).toBe(true);
+    expect(isUnauthorizedError(new ApiError(500, 'server_error', '失败'))).toBe(false);
+    expect(isUnauthorizedError(new Error('网络错误'))).toBe(false);
   });
 });

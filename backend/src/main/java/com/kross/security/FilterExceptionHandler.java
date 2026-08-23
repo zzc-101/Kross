@@ -2,6 +2,7 @@ package com.kross.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.api.ApiException;
+import com.kross.api.Res;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,7 +36,7 @@ public class FilterExceptionHandler extends OncePerRequestFilter {
       response.resetBuffer();
       response.setStatus(error.getStatus());
       response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-      mapper.writeValue(response.getOutputStream(), error.toResponse());
+      mapper.writeValue(response.getOutputStream(), Res.fail(error.getStatus(), error.getMessage()));
     }
   }
 }

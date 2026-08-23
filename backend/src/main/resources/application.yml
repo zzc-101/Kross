@@ -39,12 +39,22 @@ mybatis:
   mapper-locations: classpath:mapper/*.xml
 
 logging:
+  file:
+    name: ${KROSS_LOG_FILE:}
   structured:
     format:
       console: logstash
+      file: logstash
     json:
       add:
         service: kross-control-plane
+  logback:
+    rollingpolicy:
+      file-name-pattern: ${KROSS_LOG_FILE_PATTERN:/var/log/kross/server.%d{yyyy-MM-dd}.%i.log.gz}
+      max-file-size: ${KROSS_LOG_MAX_FILE_SIZE:50MB}
+      max-history: ${KROSS_LOG_MAX_HISTORY:14}
+      total-size-cap: ${KROSS_LOG_TOTAL_SIZE_CAP:1GB}
+      clean-history-on-start: false
 
 kross:
   dev-identity-enabled: ${KROSS_DEV_IDENTITY:false}

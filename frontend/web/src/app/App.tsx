@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AgentApiClient, ApiError } from '../api/client';
 import type { AuthConfig, Me, Membership } from '../api/types';
@@ -18,6 +18,18 @@ export function App() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [inviteToken, setInviteToken] = useState(() => inviteTokenFromPath(location.pathname));
   const api = useMemo(() => new AgentApiClient(), []);
+
+  const clearSession = useCallback(() => {
+    setMe(undefined);
+    setMemberships([]);
+    setOrganizationId('');
+    localStorage.removeItem(ORG_KEY);
+  }, []);
+
+  const expireSession = useCallback(() => {
+    clearSession();
+    setError('登录状态已失效，请重新登录');
+  }, [clearSession]);
 
   const applyMe = (next: Me) => {
     setMe(next);
@@ -86,10 +98,7 @@ export function App() {
 
   const logout = async () => {
     await api.logout().catch(() => undefined);
-    setMe(undefined);
-    setMemberships([]);
-    setOrganizationId('');
-    localStorage.removeItem(ORG_KEY);
+    clearSession();
   };
 
   if (loading) {
@@ -157,6 +166,7 @@ export function App() {
         setOrganizationId(id);
       }}
       onLogout={() => void logout()}
+      onSessionExpired={expireSession}
       onUserUpdated={(user) => setMe((current) => current ? { ...current, user } : current)}
     />
   );

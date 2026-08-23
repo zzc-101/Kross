@@ -15,7 +15,7 @@ import {
   Tag,
   Typography
 } from 'antd';
-import { AdminApiClient } from '../../../apiClient';
+import { AdminApiClient, AdminApiError } from '../../../apiClient';
 import type { CreatedInvite, Invite, Member } from '../../../contracts';
 import { Page } from '../../../components/Page';
 import { PersonCell } from '../../../components/PersonCell';
@@ -28,32 +28,72 @@ export function MembersPage({ api }: { api: AdminApiClient }) {
   const invites = useResource(() => api.invites(), [api]);
   const [memberOpen, setMemberOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [memberSaving, setMemberSaving] = useState(false);
+  const [inviteSaving, setInviteSaving] = useState(false);
   const [created, setCreated] = useState<CreatedInvite>();
   const [memberForm] = Form.useForm();
   const [inviteForm] = Form.useForm();
   const { message } = App.useApp();
   const createMember = async () => {
-    await api.inviteMember(await memberForm.validateFields());
-    message.success('成员已登记');
-    setMemberOpen(false);
-    memberForm.resetFields();
-    members.reload();
+    let values;
+    try {
+      values = await memberForm.validateFields();
+    } catch {
+      return;
+    }
+    setMemberSaving(true);
+    try {
+      await api.inviteMember(values);
+      message.success('成员已登记');
+      setMemberOpen(false);
+      memberForm.resetFields();
+      await members.reload();
+    } catch (error) {
+      const text = adminErrorMessage(error);
+      if (error instanceof AdminApiError && error.message === 'Password must be 8-128 characters') {
+        memberForm.setFields([{ name: 'password', errors: [text] }]);
+      }
+      message.error(text);
+    } finally {
+      setMemberSaving(false);
+    }
   };
   const createInvite = async () => {
-    const next = await api.createInvite(await inviteForm.validateFields());
-    setCreated(next);
-    message.success('邀请链接已生成');
-    invites.reload();
+    let values;
+    try {
+      values = await inviteForm.validateFields();
+    } catch {
+      return;
+    }
+    setInviteSaving(true);
+    try {
+      const next = await api.createInvite(values);
+      setCreated(next);
+      message.success('邀请链接已生成');
+      await invites.reload();
+    } catch (error) {
+      message.error(adminErrorMessage(error));
+    } finally {
+      setInviteSaving(false);
+    }
   };
   const update = async (record: Member, field: 'role' | 'status', value: string) => {
-    await api.updateMember(record.id, { [field]: value });
-    message.success('成员信息已更新');
-    members.reload();
+    try {
+      await api.updateMember(record.id, { [field]: value });
+      message.success('成员信息已更新');
+      await members.reload();
+    } catch (error) {
+      message.error(adminErrorMessage(error));
+    }
   };
   const revoke = async (record: Invite) => {
-    await api.revokeInvite(record.id);
-    message.success('邀请已撤销');
-    invites.reload();
+    try {
+      await api.revokeInvite(record.id);
+      message.success('邀请已撤销');
+      await invites.reload();
+    } catch (error) {
+      message.error(adminErrorMessage(error));
+    }
   };
   return (
     <Page
@@ -100,15 +140,30 @@ export function MembersPage({ api }: { api: AdminApiClient }) {
         onCancel={() => setMemberOpen(false)}
         onOk={() => void createMember()}
         okText="登记并加入"
+        confirmLoading={memberSaving}
       >
         <Form form={memberForm} layout="vertical" initialValues={{ role: 'member' }}>
-          <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[
+              { required: true, message: '请输入用户名' },
+              {
+                pattern: /^[A-Za-z][A-Za-z0-9_-]{2,31}$/,
+                message: '用户名须为 3–32 位，并以字母开头，仅可包含字母、数字、下划线或连字符'
+              }
+            ]}
+          >
             <Input />
           </Form.Item>
           <Form.Item name="displayName" label="昵称">
             <Input />
           </Form.Item>
-          <Form.Item name="password" label="新账号初始密码">
+          <Form.Item
+            name="password"
+            label="新账号初始密码"
+            rules={[{ min: 8, max: 128, message: '密码长度必须为 8–128 个字符' }]}
+          >
             <Input.Password placeholder="已有账号可留空" />
           </Form.Item>
           <Form.Item name="role" label="角色">
@@ -125,6 +180,7 @@ export function MembersPage({ api }: { api: AdminApiClient }) {
         }}
         onOk={() => void createInvite()}
         okText="生成链接"
+        confirmLoading={inviteSaving}
       >
         <Form form={inviteForm} layout="vertical" initialValues={{ role: 'member', expiresInDays: 14 }}>
           <Form.Item name="role" label="加入后的角色">
@@ -144,6 +200,14 @@ export function MembersPage({ api }: { api: AdminApiClient }) {
       </Modal>
     </Page>
   );
+}
+
+function adminErrorMessage(error: unknown) {
+  if (error instanceof AdminApiError) {
+    if (error.message === 'Password must be 8-128 characters') return '密码长度必须为 8–128 个字符';
+    return error.message;
+  }
+  return error instanceof Error ? error.message : '操作失败，请稍后重试';
 }
 const roleOptions = [
   { value: 'member', label: '成员' },

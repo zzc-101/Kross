@@ -43,6 +43,17 @@ docker compose version
 ./scripts/start-cloud.sh --stop
 ```
 
+Java 控制面的结构化日志会同时写入 Docker 标准输出和宿主机文件。实时查看：
+
+```bash
+docker compose logs -f server
+tail -f runs/logs/server/server.log
+```
+
+文件日志默认保留 14 天，单文件最大 50MB，总量上限 1GB；可在 `.env` 中通过
+`KROSS_LOG_DIR`、`KROSS_LOG_MAX_FILE_SIZE`、`KROSS_LOG_MAX_HISTORY` 和
+`KROSS_LOG_TOTAL_SIZE_CAP` 调整。Docker 标准输出另有限制，最多保留 5 个 20MB 文件。
+
 默认使用账号密码和 `KROSS_SESSION`。`KROSS_DEV_IDENTITY=1` 仅供本机冒烟跳过登录，
 公网必须关闭。配置、安全边界和验收清单见
 [Cloud Agent 部署与运维](cloud-agent-deployment.md)。

@@ -1,9 +1,10 @@
 package com.kross.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kross.api.ApiError;
-import com.kross.api.ApiErrorResponse;
+import com.kross.api.Res;
 import com.kross.config.KrossProperties;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,12 +31,9 @@ public class SecurityConfig {
         .formLogin(AbstractHttpConfigurer::disable)
         .logout(AbstractHttpConfigurer::disable)
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
-        .exceptionHandling(handler -> handler.authenticationEntryPoint((request, response, error) -> {
-          response.setStatus(401);
-          response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-          mapper.writeValue(response.getOutputStream(),
-              new ApiErrorResponse(new ApiError("unauthenticated", "Sign in required")));
-        }))
+        .exceptionHandling(handler -> handler
+            .authenticationEntryPoint((request, response, error) -> writeError(response, 401, "Sign in required"))
+            .accessDeniedHandler((request, response, error) -> writeError(response, 403, "Access denied")))
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/health").permitAll()
             .requestMatchers("/internal/v2/agents/**", "/internal/v2/nodes/**").permitAll()
@@ -49,5 +47,11 @@ public class SecurityConfig {
             .anyRequest().denyAll())
         .addFilterBefore(identityFilter, UsernamePasswordAuthenticationFilter.class)
         .build();
+  }
+
+  private void writeError(HttpServletResponse response, int status, String message) throws IOException {
+    response.setStatus(status);
+    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+    mapper.writeValue(response.getOutputStream(), Res.fail(status, message));
   }
 }

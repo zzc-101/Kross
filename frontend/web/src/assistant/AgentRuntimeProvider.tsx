@@ -7,7 +7,7 @@ import {
 } from '@assistant-ui/react';
 
 import { applyChannelEvent } from '../api/channelEvents';
-import { AgentApiClient } from '../api/client';
+import { AgentApiClient, isUnauthorizedError } from '../api/client';
 import type { AgentMessage, MessagePart } from '../api/types';
 
 type AssistantMessagePart = Exclude<ThreadMessageLike['content'], string>[number];
@@ -70,11 +70,13 @@ export function AgentRuntimeProvider({
   api,
   conversationId,
   onConversationsChange,
+  onSessionExpired,
   children
 }: {
   api: AgentApiClient;
   conversationId?: string;
   onConversationsChange(): Promise<void>;
+  onSessionExpired(): void;
   children: ReactNode;
 }) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -110,8 +112,12 @@ export function AgentRuntimeProvider({
               void onConversationsChange();
             }
           }, abort.signal);
-        } catch {
+        } catch (cause) {
           if (abort.signal.aborted) return;
+          if (isUnauthorizedError(cause)) {
+            onSessionExpired();
+            return;
+          }
         }
         if (abort.signal.aborted) return;
         await new Promise((resolve) => window.setTimeout(resolve, 1_500));
@@ -119,7 +125,7 @@ export function AgentRuntimeProvider({
     };
     void connect();
     return () => abort.abort();
-  }, [api, conversationId, onConversationsChange, refreshMessages]);
+  }, [api, conversationId, onConversationsChange, onSessionExpired, refreshMessages]);
 
   const onNew = useCallback(async (message: AppendMessage) => {
     if (!conversationId) throw new Error('No conversation selected');
