@@ -3,6 +3,7 @@ package com.kross.agent.dto;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public final class AgentProtocol {
@@ -78,9 +79,21 @@ public final class AgentProtocol {
       Map<String, Object> payload,
       String error) {}
 
-  public record WorkerSettings(String type, Map<String, Object> mcpServers) {
+  public record WorkerSettings(
+      String type,
+      Map<String, Object> mcpServers,
+      String userMarkdown,
+      String memoryMarkdown) {
+    public WorkerSettings(Map<String, Object> mcpServers, String userMarkdown, String memoryMarkdown) {
+      this(
+          "agent.settings",
+          mcpServers == null ? Map.of() : mcpServers,
+          Optional.ofNullable(userMarkdown).orElse(""),
+          Optional.ofNullable(memoryMarkdown).orElse(""));
+    }
+
     public WorkerSettings(Map<String, Object> mcpServers) {
-      this("agent.settings", mcpServers == null ? Map.of() : mcpServers);
+      this(mcpServers, "", "");
     }
   }
 

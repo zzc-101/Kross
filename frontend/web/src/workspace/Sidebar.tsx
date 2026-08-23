@@ -22,6 +22,7 @@ import type { Conversation, Membership } from '../api/types';
 import type { AgentApiClient } from '../api/client';
 import { ComingSoonPanel } from './ComingSoonPanel';
 import { FilesPanel } from './FilesPanel';
+import { MemoryPanel } from './MemoryPanel';
 import { SkillsPanel } from './SkillsPanel';
 
 export type SidebarSection =
@@ -195,7 +196,7 @@ export function Sidebar({
           ) : section === 'notes' ? (
             <ComingSoonPanel title="笔记" body="笔记将与对话分开保存、可检索。这一期只恢复入口，实现按你指定的顺序逐项接入。" />
           ) : section === 'memory' ? (
-            <ComingSoonPanel title="记忆" body="永久记忆：属于当前用户，跨对话保留，不随会话结束或 Agent 休眠消失。方案确认后再落库。" />
+            <MemoryPanel api={api} />
           ) : section === 'bookmarks' ? (
             <ComingSoonPanel title="书签" body="书签用来固定对话、文件或网页。入口已恢复，能力尚未接入。" />
           ) : (

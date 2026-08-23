@@ -31,7 +31,11 @@ export interface AgentControlTransport {
   }) => Promise<{ ok: boolean; payload?: Record<string, unknown>; error?: string }>): void;
   sleep(): Promise<void>;
   mintModelEnvironment(modelId?: string): Promise<Record<string, string | undefined>>;
-  fetchSettings(): Promise<{ mcpServers: Record<string, unknown> }>;
+  fetchSettings(): Promise<{
+    mcpServers: Record<string, unknown>;
+    userMarkdown?: string;
+    memoryMarkdown?: string;
+  }>;
   close(): void;
 }
 
@@ -72,6 +76,8 @@ type SocketMessage = {
   shouldSleep?: unknown;
   env?: unknown;
   mcpServers?: unknown;
+  userMarkdown?: unknown;
+  memoryMarkdown?: unknown;
   id?: unknown;
   conversationId?: unknown;
   agentMessageId?: unknown;
@@ -227,12 +233,22 @@ export class WsAgentControlTransport implements AgentControlTransport {
     return env;
   }
 
-  async fetchSettings(): Promise<{ mcpServers: Record<string, unknown> }> {
+  async fetchSettings(): Promise<{
+    mcpServers: Record<string, unknown>;
+    userMarkdown?: string;
+    memoryMarkdown?: string;
+  }> {
     await this.ensureConnected();
     const body = await this.request('agent.settings', { type: 'agent.settings' });
-    const raw = (body as SocketMessage & { mcpServers?: unknown }).mcpServers;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { mcpServers: {} };
-    return { mcpServers: raw as Record<string, unknown> };
+    const raw = body.mcpServers;
+    const mcpServers = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : {};
+    return {
+      mcpServers,
+      ...(typeof body.userMarkdown === 'string' ? { userMarkdown: body.userMarkdown } : {}),
+      ...(typeof body.memoryMarkdown === 'string' ? { memoryMarkdown: body.memoryMarkdown } : {})
+    };
   }
 
   close(): void {

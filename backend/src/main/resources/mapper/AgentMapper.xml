@@ -263,6 +263,7 @@
     <id column="agent_id" property="agentId"/>
     <result column="organization_id" property="organizationId"/>
     <result column="mcp_servers" property="mcpServers" typeHandler="com.kross.support.JsonbTypeHandler"/>
+    <result column="memory_extracted_at" property="memoryExtractedAt"/>
     <result column="updated_at" property="updatedAt"/>
   </resultMap>
 
@@ -278,6 +279,23 @@
       mcp_servers = EXCLUDED.mcp_servers,
       updated_at = now()
   </insert>
+
+  <insert id="touchMemoryExtracted">
+    INSERT INTO agent_settings (agent_id, organization_id, mcp_servers, memory_extracted_at, updated_at)
+    VALUES (#{agentId}, #{organizationId}, '{}'::jsonb, #{extractedAt}, now())
+    ON CONFLICT (agent_id) DO UPDATE SET
+      memory_extracted_at = EXCLUDED.memory_extracted_at,
+      updated_at = now()
+  </insert>
+
+  <select id="listUserMessagesSince" resultMap="AgentMessageMap">
+    SELECT * FROM agent_messages
+    WHERE agent_id = #{agentId}
+      AND role = 'user'
+      AND created_at &gt; #{since}
+    ORDER BY created_at ASC
+    LIMIT #{limit}
+  </select>
 
   <select id="listRuntimes" resultType="com.kross.agent.entity.AgentRuntimeRow">
     SELECT a.id, a.user_id, u.username, u.display_name, a.status, a.node_id, a.last_error, a.last_active_at

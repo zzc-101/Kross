@@ -131,3 +131,15 @@ export interface Skill {
 }
 
 export type McpServers = Record<string, Record<string, unknown>>;
+
+export type MemoryKind = 'preference' | 'fact';
+export type MemorySource = 'manual' | 'remember' | 'extract';
+
+export interface AgentMemory {
+  id: string;
+  kind: MemoryKind;
+  source: MemorySource;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}

@@ -1,6 +1,5 @@
 package com.kross.agent.entity;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -11,10 +10,15 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class AgentSettings {
-  private String agentId;
+public class AgentMemory {
+  private String id;
   private String organizationId;
-  private JsonNode mcpServers;
-  private Instant memoryExtractedAt;
+  private String userId;
+  private String agentId;
+  private String kind;
+  private String source;
+  private String content;
+  private Instant forgottenAt;
+  private Instant createdAt;
   private Instant updatedAt;
 }

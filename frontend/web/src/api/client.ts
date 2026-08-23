@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type {
-  AgentMessage, AgentModel, AuthConfig, CloneResult, Conversation, GitStatus, InvitePreview, Me, MessagePart, Skill, WorkspaceListing
+  AgentMemory, AgentMessage, AgentModel, AuthConfig, CloneResult, Conversation, GitStatus, InvitePreview, Me, MessagePart, Skill, WorkspaceListing
 } from './types';
 import type { ChannelEvent } from './channelEvents';
 
@@ -143,6 +143,15 @@ const skillSchema: z.ZodType<Skill> = z.object({
 
 const mcpConfigSchema = z.object({
   servers: z.record(z.record(z.unknown())).default({})
+});
+
+const memorySchema: z.ZodType<AgentMemory> = z.object({
+  id,
+  kind: z.enum(['preference', 'fact']),
+  source: z.enum(['manual', 'remember', 'extract']),
+  content: z.string().min(1),
+  createdAt: instant,
+  updatedAt: instant
 });
 
 const envelopeSchema = z.object({
@@ -325,6 +334,37 @@ export class AgentApiClient {
 
   updateMcpConfig(servers: Record<string, Record<string, unknown>>): Promise<{ servers: Record<string, Record<string, unknown>> }> {
     return this.request('/api/v2/agent/mcp', mcpConfigSchema, { method: 'PUT', body: { servers } });
+  }
+
+  listMemories(): Promise<AgentMemory[]> {
+    return this.request('/api/v2/agent/memories', z.object({ items: z.array(memorySchema) }))
+      .then((page) => page.items);
+  }
+
+  createMemory(input: { kind: AgentMemory['kind']; content: string }): Promise<AgentMemory> {
+    return this.request('/api/v2/agent/memories', memorySchema, { method: 'POST', body: input });
+  }
+
+  patchMemory(memoryId: string, input: { kind?: AgentMemory['kind']; content?: string }): Promise<AgentMemory> {
+    return this.request(`/api/v2/agent/memories/${encodeURIComponent(memoryId)}`, memorySchema, {
+      method: 'PATCH',
+      body: input
+    });
+  }
+
+  forgetMemory(memoryId: string): Promise<void> {
+    return this.request(`/api/v2/agent/memories/${encodeURIComponent(memoryId)}`, z.unknown().optional(), {
+      method: 'DELETE'
+    }).then(() => undefined);
+  }
+
+  rememberMemory(input: {
+    conversationId?: string;
+    messageId?: string;
+    content?: string;
+    kind?: AgentMemory['kind'];
+  }): Promise<AgentMemory> {
+    return this.request('/api/v2/agent/memories/remember', memorySchema, { method: 'POST', body: input });
   }
 
   async subscribeConversationEvents(

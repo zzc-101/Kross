@@ -8,6 +8,10 @@ import com.kross.agent.dto.CloneWorkspaceRequest;
 import com.kross.agent.dto.CloneWorkspaceView;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
+import com.kross.agent.dto.CreateMemoryRequest;
+import com.kross.agent.dto.MemoryView;
+import com.kross.agent.dto.PatchMemoryRequest;
+import com.kross.agent.dto.RememberMemoryRequest;
 import com.kross.agent.dto.DeleteSkillView;
 import com.kross.agent.dto.GitStatusView;
 import com.kross.agent.dto.McpConfigView;
@@ -162,6 +166,43 @@ public class AgentController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestBody UpdateMcpRequest request) {
     return Res.ok(agents.updateMcpConfig(organizationId, request));
+  }
+
+  @GetMapping("/memories")
+  public Res<ItemList<MemoryView>> memories(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
+    return Res.ok(new ItemList<>(agents.listMemories(organizationId)));
+  }
+
+  @PostMapping("/memories")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<MemoryView> createMemory(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestBody CreateMemoryRequest request) {
+    return Res.ok(agents.createMemory(organizationId, request));
+  }
+
+  @PostMapping("/memories/remember")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<MemoryView> rememberMemory(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestBody RememberMemoryRequest request) {
+    return Res.ok(agents.rememberMemory(organizationId, request));
+  }
+
+  @PatchMapping("/memories/{memoryId}")
+  public Res<MemoryView> patchMemory(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String memoryId,
+      @RequestBody PatchMemoryRequest request) {
+    return Res.ok(agents.patchMemory(organizationId, memoryId, request));
+  }
+
+  @DeleteMapping("/memories/{memoryId}")
+  public Res<Void> forgetMemory(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String memoryId) {
+    agents.forgetMemory(organizationId, memoryId);
+    return Res.ok();
   }
 
   @GetMapping(path = "/conversations/{conversationId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

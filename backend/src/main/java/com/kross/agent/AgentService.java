@@ -12,6 +12,10 @@ import com.kross.agent.dto.CloneWorkspaceRequest;
 import com.kross.agent.dto.CloneWorkspaceView;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
+import com.kross.agent.dto.CreateMemoryRequest;
+import com.kross.agent.dto.MemoryView;
+import com.kross.agent.dto.PatchMemoryRequest;
+import com.kross.agent.dto.RememberMemoryRequest;
 import com.kross.agent.dto.DeleteSkillView;
 import com.kross.agent.dto.GitStatusView;
 import com.kross.agent.dto.McpConfigView;
@@ -84,6 +88,7 @@ public class AgentService {
   private final AgentSocketHub sockets;
   private final ObjectMapper mapper;
   private final PlatformTransactionManager transactionManager;
+  private final AgentMemoryService memories;
 
   public AgentModelView currentModel(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
@@ -178,6 +183,7 @@ public class AgentService {
     }
     agents.touchConversation(conversation.getId());
     agents.touch(agent.getId());
+    memories.captureRememberPhrase(context, agent, content);
     emitUpsert(row);
     RequestLogContext.put(RequestLogContext.CONVERSATION_ID, conversation.getId());
     RequestLogContext.bindAgent(agent);
@@ -315,9 +321,38 @@ public class AgentService {
 
   public AgentProtocol.WorkerSettings workerSettings(String token) {
     AgentSession session = authenticate(token);
-    JsonNode servers = loadMcpServers(session.getAgentId());
+    Agent agent = requireAgent(session.getAgentId());
+    JsonNode servers = loadMcpServers(agent.getId());
     Map<String, Object> map = mapper.convertValue(servers, new TypeReference<Map<String, Object>>() {});
-    return new AgentProtocol.WorkerSettings(Optional.ofNullable(map).orElse(Map.of()));
+    AgentMemoryService.MemoryFiles files = memories.renderFiles(agent.getOrganizationId(), agent.getUserId());
+    return new AgentProtocol.WorkerSettings(
+        Optional.ofNullable(map).orElse(Map.of()), files.userMarkdown(), files.memoryMarkdown());
+  }
+
+  public List<MemoryView> listMemories(String organizationId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+    ensure(context);
+    return memories.list(context);
+  }
+
+  public MemoryView createMemory(String organizationId, CreateMemoryRequest request) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
+    return memories.create(context, ensure(context), request);
+  }
+
+  public MemoryView patchMemory(String organizationId, String memoryId, PatchMemoryRequest request) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
+    return memories.patch(context, ensure(context), memoryId, request);
+  }
+
+  public void forgetMemory(String organizationId, String memoryId) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
+    memories.forget(context, ensure(context), memoryId);
+  }
+
+  public MemoryView rememberMemory(String organizationId, RememberMemoryRequest request) {
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
+    return memories.remember(context, ensure(context), request);
   }
 
   public UsageCounts usageCounts(String organizationId) {
@@ -423,7 +458,12 @@ public class AgentService {
     Agent agent = requireAgent(session.getAgentId());
     Instant idleBefore = Instant.now().minusMillis(properties.getAgent().getIdleMs());
     boolean idle = Optional.ofNullable(agent.getLastActiveAt()).orElse(Instant.EPOCH).isBefore(idleBefore);
-    boolean shouldSleep = idle && !agents.hasProcessing(agent.getId());
+    boolean canSleep = idle && !agents.hasProcessing(agent.getId());
+    boolean shouldSleep = canSleep;
+    if (canSleep && sockets.isConnected(agent.getId()) && memories.hasPendingExtract(agent)) {
+      memories.consolidateAsync(agent);
+      shouldSleep = false;
+    }
     return new AgentProtocol.HeartbeatAck(
         2,
         "agent.heartbeat_ack",
@@ -845,6 +885,7 @@ public class AgentService {
   }
 
   private void sleep(Agent agent) {
+    memories.consolidateIfDue(agent);
     containers.stop(agent.getId());
     agents.revokeTokens(agent.getId());
     agent.setStatus("stopped");

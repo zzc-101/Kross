@@ -7,6 +7,8 @@ import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes'
 
 import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFactory';
 import { createWorkerLogger } from './logger';
+import { extractMemories } from './memoryExtract';
+import { writeMemoryFiles } from './memoryFiles';
 import { createPersonalAgentProfile } from './runtime/workExecutionProfile';
 import type { AgentControlTransport, AgentStreamEvent } from './transport';
 import { handleWorkspaceCommand, writeMcpConfig } from './workspaceCommands';
@@ -50,9 +52,14 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   log.info('Worker registered', { idleMs: registered.idleMs });
   const settings = await options.transport.fetchSettings().catch(() => ({ mcpServers: {} }));
   await writeMcpConfig(options.workspaceRoot, settings.mcpServers);
+  await writeMemoryFiles(options.workspaceRoot, settings.userMarkdown, settings.memoryMarkdown);
   const box: { host?: AgentHostHandle } = {};
+  let modelEnv: Record<string, string | undefined> = { ...options.processEnv };
   options.transport.onCommand(async (command) => {
     try {
+      if (command.name === 'memory.extract') {
+        return { ok: true, payload: await extractMemories(modelEnv, command.payload) };
+      }
       const payload = await handleWorkspaceCommand(options.workspaceRoot, command);
       if (command.name === 'mcp.save') {
         await box.host?.reloadMcp();
@@ -63,9 +70,10 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
     }
   });
   const minted = await options.transport.mintModelEnvironment();
+  modelEnv = { ...options.processEnv, ...minted };
   let host: AgentHostHandle = await createPersistentAgentHost({
     workspaceRoot: options.workspaceRoot,
-    env: { ...options.processEnv, ...minted },
+    env: modelEnv,
     executionProfile: createPersonalAgentProfile()
   });
   box.host = host;
@@ -94,9 +102,10 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
         log.info('Claimed conversation job', { conversationId: job.conversationId, mode: job.mode });
         if (job.modelId && job.modelId !== currentModelId) {
           const nextEnv = await options.transport.mintModelEnvironment(job.modelId);
+          modelEnv = { ...options.processEnv, ...nextEnv };
           const nextHost = await createPersistentAgentHost({
             workspaceRoot: options.workspaceRoot,
-            env: { ...options.processEnv, ...nextEnv },
+            env: modelEnv,
             executionProfile: createPersonalAgentProfile()
           });
           await host.close();

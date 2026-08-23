@@ -25,6 +25,8 @@
   模式与模型选择改为真实控件。
 - 工作台侧栏恢复 Agents / 提示词 / 笔记 / 记忆 / 书签等入口，未实现项会说明
   尚未接入；文件与提示词（Skills/MCP）仍走已实现面板。
+- 用户永久记忆：库表为真相，偏好写入 `USER.md`、事实写入 `MEMORY.md`；
+  面板可记/改/忘记，对话「记住这个」立刻落库，Worker 休眠前从用户发言巩固。
 - 工作区浏览器：列出 `/work`、查看 Git 状态、克隆远程仓库（Agent 离线时先唤醒）。
 - Skills / MCP 安装界面：Skill 写入 `/work/skills`；MCP 配置存库并同步到
   `/work/.kross/mcp.json`，Worker 启动时加载。

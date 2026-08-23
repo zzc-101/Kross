@@ -142,6 +142,8 @@ export function WorkspacePage({
               })}
             />
             <Thread
+              api={api}
+              conversationId={conversationId}
               model={selectedModel}
               models={models}
               mode={mode}

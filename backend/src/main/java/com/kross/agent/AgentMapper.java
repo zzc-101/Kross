@@ -100,6 +100,16 @@ public interface AgentMapper {
 
   void upsertSettings(AgentSettings row);
 
+  void touchMemoryExtracted(
+      @Param("agentId") String agentId,
+      @Param("organizationId") String organizationId,
+      @Param("extractedAt") Instant extractedAt);
+
+  List<AgentMessage> listUserMessagesSince(
+      @Param("agentId") String agentId,
+      @Param("since") Instant since,
+      @Param("limit") int limit);
+
   List<AgentRuntimeRow> listRuntimes(@Param("organizationId") String organizationId);
 
   UsageCounts usageCounts(@Param("organizationId") String organizationId);
