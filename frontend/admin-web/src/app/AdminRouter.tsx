@@ -27,6 +27,12 @@ const ModelsPage = lazyNamed(() => import('../pages/platform/models/ModelsPage')
 const PolicyPage = lazyNamed(() => import('../pages/organization/policy/PolicyPage'), 'PolicyPage');
 const AuditPage = lazyNamed(() => import('../pages/organization/audit/AuditPage'), 'AuditPage');
 const TokenUsagePage = lazyNamed(() => import('../pages/token-usage/TokenUsagePage'), 'TokenUsagePage');
+const PlatformSkillsPage = lazyNamed(
+  () => import('../pages/platform/skills/PlatformSkillsPage'), 'PlatformSkillsPage'
+);
+const OrganizationSkillsPage = lazyNamed(
+  () => import('../pages/organization/skills/OrganizationSkillsPage'), 'OrganizationSkillsPage'
+);
 
 export function AdminRouter({
   api,
@@ -69,6 +75,7 @@ export function AdminRouter({
                 element={<OrganizationsPage api={api} currentUsername={session.user.username} />}
               />
               <Route path="models" element={<ModelsPage api={api} />} />
+              <Route path="skills" element={<PlatformSkillsPage api={api} />} />
               <Route path="settings" element={<PlatformSettingsPage api={api} />} />
               <Route path="logins" element={<AuthLogsPage api={api} />} />
             </Route>
@@ -81,6 +88,7 @@ export function AdminRouter({
             <Route path="overview" element={<OrganizationOverviewPage api={api} />} />
             <Route path="members" element={<MembersPage api={api} />} />
             <Route path="token-usage" element={<TokenUsagePage api={api} />} />
+            <Route path="skills" element={<OrganizationSkillsPage api={api} />} />
             <Route path="policy" element={<PolicyPage api={api} />} />
             <Route path="audit" element={<AuditPage api={api} />} />
           </Route>

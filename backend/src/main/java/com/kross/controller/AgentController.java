@@ -12,14 +12,12 @@ import com.kross.agent.dto.CreateMemoryRequest;
 import com.kross.agent.dto.MemoryView;
 import com.kross.agent.dto.PatchMemoryRequest;
 import com.kross.agent.dto.RememberMemoryRequest;
-import com.kross.agent.dto.DeleteSkillView;
 import com.kross.agent.dto.GitStatusView;
 import com.kross.agent.dto.McpConfigView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.dto.SkillView;
 import com.kross.agent.dto.UpdateMcpRequest;
-import com.kross.agent.dto.UpsertSkillRequest;
 import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.api.ApiHeaders;
 import com.kross.api.ItemList;
@@ -71,7 +69,7 @@ public class AgentController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestBody(required = false) CreateConversationRequest request) {
     return Res.ok(agents.createConversation(
-        organizationId, Optional.ofNullable(request).orElse(new CreateConversationRequest(null))));
+        organizationId, Optional.ofNullable(request).orElse(new CreateConversationRequest(null, null))));
   }
 
   @PatchMapping("/conversations/{conversationId}")
@@ -133,27 +131,6 @@ public class AgentController {
   @GetMapping("/skills")
   public Res<ItemList<SkillView>> skills(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
     return Res.ok(new ItemList<>(agents.listSkills(organizationId)));
-  }
-
-  @PutMapping("/skills/{skillId}")
-  public Res<SkillView> upsertSkill(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
-      @PathVariable String skillId,
-      @RequestBody UpsertSkillRequest request) {
-    return Res.ok(agents.upsertSkill(
-        organizationId,
-        new UpsertSkillRequest(
-            Optional.ofNullable(request.id()).orElse(skillId),
-            request.name(),
-            request.description(),
-            request.content())));
-  }
-
-  @DeleteMapping("/skills/{skillId}")
-  public Res<DeleteSkillView> deleteSkill(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
-      @PathVariable String skillId) {
-    return Res.ok(agents.deleteSkill(organizationId, skillId));
   }
 
   @GetMapping("/mcp")

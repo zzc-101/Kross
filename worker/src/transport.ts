@@ -9,6 +9,7 @@ export interface AgentControlTransport {
     history: Array<{ role: string; content: string }>;
     mode: 'auto' | 'plan' | 'conductor';
     modelId?: string;
+    skill?: ActiveSkill;
   } | undefined>;
   postEvents(input: {
     userMessageId: string;
@@ -40,6 +41,14 @@ export interface AgentControlTransport {
   }>;
   close(): void;
 }
+
+export type ActiveSkill = {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+  revision: number;
+};
 
 export type AgentTokenUsage = {
   inputTokens: number;
@@ -85,6 +94,7 @@ type Job = {
   history: Array<{ role: string; content: string }>;
   mode: 'auto' | 'plan' | 'conductor';
   modelId?: string;
+  skill?: ActiveSkill;
 };
 
 type SocketMessage = {
@@ -105,6 +115,7 @@ type SocketMessage = {
   history?: unknown;
   mode?: unknown;
   modelId?: unknown;
+  skill?: unknown;
   commandId?: unknown;
   name?: unknown;
   payload?: unknown;
@@ -489,6 +500,7 @@ function parseJob(value: SocketMessage): Job {
   if (typeof value.id !== 'string' || typeof value.content !== 'string' || typeof value.agentMessageId !== 'string') {
     throw new Error('Control plane returned an invalid job');
   }
+  const skill = parseSkill(value.skill);
   return {
     id: value.id,
     conversationId: typeof value.conversationId === 'string' ? value.conversationId : '',
@@ -496,7 +508,27 @@ function parseJob(value: SocketMessage): Job {
     content: value.content,
     history: parseHistory(value.history),
     mode: parseMode(value.mode),
-    ...(typeof value.modelId === 'string' && value.modelId.trim() ? { modelId: value.modelId } : {})
+    ...(typeof value.modelId === 'string' && value.modelId.trim() ? { modelId: value.modelId } : {}),
+    ...(skill ? { skill } : {})
+  };
+}
+
+function parseSkill(value: unknown): ActiveSkill | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const skill = value as Record<string, unknown>;
+  if (
+    typeof skill.id !== 'string'
+    || typeof skill.name !== 'string'
+    || typeof skill.description !== 'string'
+    || typeof skill.content !== 'string'
+    || typeof skill.revision !== 'number'
+  ) return undefined;
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    content: skill.content,
+    revision: skill.revision
   };
 }
 

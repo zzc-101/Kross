@@ -7,6 +7,7 @@ public record ConversationView(
     String title,
     String mode,
     String modelId,
+    String skillId,
     Instant archivedAt,
     Instant lastMessageAt,
     Instant createdAt) {}

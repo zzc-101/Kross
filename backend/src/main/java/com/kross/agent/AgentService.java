@@ -16,14 +16,12 @@ import com.kross.agent.dto.CreateMemoryRequest;
 import com.kross.agent.dto.MemoryView;
 import com.kross.agent.dto.PatchMemoryRequest;
 import com.kross.agent.dto.RememberMemoryRequest;
-import com.kross.agent.dto.DeleteSkillView;
 import com.kross.agent.dto.GitStatusView;
 import com.kross.agent.dto.McpConfigView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.dto.SkillView;
 import com.kross.agent.dto.UpdateMcpRequest;
-import com.kross.agent.dto.UpsertSkillRequest;
 import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.agent.entity.Agent;
 import com.kross.agent.entity.AgentConversation;
@@ -35,6 +33,8 @@ import com.kross.agent.entity.UsageCounts;
 import com.kross.agent.entity.AgentRuntimeRow;
 import com.kross.api.ApiException;
 import com.kross.catalog.CredentialVault;
+import com.kross.catalog.SkillCatalogService;
+import com.kross.catalog.entity.PlatformSkill;
 import com.kross.channel.AgentSocketHub;
 import com.kross.channel.ChannelEvent;
 import com.kross.channel.ChannelEventBus;
@@ -89,6 +89,7 @@ public class AgentService {
   private final ObjectMapper mapper;
   private final PlatformTransactionManager transactionManager;
   private final AgentMemoryService memories;
+  private final SkillCatalogService skills;
 
   public AgentModelView currentModel(String organizationId) {
     access.require(organizationId, OrganizationAction.AGENT_READ);
@@ -115,7 +116,16 @@ public class AgentService {
   public ConversationView createConversation(String organizationId, CreateConversationRequest request) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
     Agent agent = ensure(context);
-    return AgentViews.conversation(insertConversation(context.organizationId(), agent, request.title()));
+    PlatformSkill skill = Optional.ofNullable(request.skillId())
+        .map(String::trim)
+        .filter(value -> !value.isEmpty())
+        .map(value -> skills.findInstalledSkill(context.organizationId(), value)
+            .orElseThrow(() -> ApiException.notFound("Installed Skill")))
+        .orElse(null);
+    String title = Optional.ofNullable(request.title()).map(String::trim).filter(value -> !value.isEmpty())
+        .orElseGet(() -> skill == null ? DEFAULT_TITLE : skill.getName());
+    return AgentViews.conversation(insertConversation(context.organizationId(), agent, title,
+        skill == null ? null : skill.getId()));
   }
 
   @Transactional
@@ -269,33 +279,11 @@ public class AgentService {
   }
 
   public List<SkillView> listSkills(String organizationId) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
-    Agent agent = ensure(context);
-    Map<String, Object> payload = runWorkspaceCommand(agent, "skills.list", Map.of(), Duration.ofSeconds(30));
-    List<SkillView> items = mapper.convertValue(
-        payload.get("items"), new TypeReference<List<SkillView>>() {});
-    return Optional.ofNullable(items).orElse(List.of());
-  }
-
-  public SkillView upsertSkill(String organizationId, UpsertSkillRequest request) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
-    String id = requireResourceName(request.id(), "Skill id");
-    Agent agent = ensure(context);
-    Map<String, Object> payload = new LinkedHashMap<>();
-    payload.put("id", id);
-    payload.put("name", Optional.ofNullable(request.name()).map(String::trim).filter(value -> !value.isEmpty()).orElse(id));
-    payload.put("description", Optional.ofNullable(request.description()).map(String::trim).orElse(""));
-    payload.put("content", Optional.ofNullable(request.content()).orElse(""));
-    Map<String, Object> result = runWorkspaceCommand(agent, "skills.upsert", payload, Duration.ofSeconds(30));
-    return mapper.convertValue(result, SkillView.class);
-  }
-
-  public DeleteSkillView deleteSkill(String organizationId, String skillId) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
-    String id = requireResourceName(skillId, "Skill id");
-    Agent agent = ensure(context);
-    runWorkspaceCommand(agent, "skills.remove", Map.of("id", id), Duration.ofSeconds(30));
-    return new DeleteSkillView(id);
+    return skills.listInstalledSkills(organizationId).stream()
+        .map(row -> new SkillView(
+            row.getId(), row.getName(), row.getDescription(), row.getCategory(), row.getIcon(),
+            row.getLaunchMode(), row.getStarterPrompt(), row.getRevision()))
+        .toList();
   }
 
   public McpConfigView mcpConfig(String organizationId) {
@@ -515,8 +503,16 @@ public class AgentService {
           .flatMap(agents::findUsableModelById)
           .map(AgentModel::getId)
           .orElse(null);
+      AgentProtocol.ActiveSkill activeSkill = Optional.ofNullable(conversation)
+          .map(AgentConversation::getSkillId)
+          .filter(value -> !value.isBlank())
+          .flatMap(skillId -> skills.findInstalledSkill(session.getOrganizationId(), skillId))
+          .map(skill -> new AgentProtocol.ActiveSkill(
+              skill.getId(), skill.getName(), skill.getDescription(), skill.getContent(), skill.getRevision()))
+          .orElse(null);
       return new AgentProtocol.Job(
-          row.getId(), conversationId, reply.getId(), row.getContent(), history, row.getCreatedAt(), mode, modelId);
+          row.getId(), conversationId, reply.getId(), row.getContent(), history, row.getCreatedAt(), mode, modelId,
+          activeSkill);
     });
   }
 
@@ -675,7 +671,7 @@ public class AgentService {
     if (existing.isPresent()) {
       Agent agent = existing.get();
       if (agents.listConversations(organizationId, agent.getId()).isEmpty()) {
-        insertConversation(organizationId, agent, DEFAULT_TITLE);
+        insertConversation(organizationId, agent, DEFAULT_TITLE, null);
       }
       return agent;
     }
@@ -695,11 +691,11 @@ public class AgentService {
           .orElseThrow(() -> ApiException.conflict("agent_create_race", "Agent creation raced"));
     }
     containers.ensureVolume(id);
-    insertConversation(organizationId, row, DEFAULT_TITLE);
+    insertConversation(organizationId, row, DEFAULT_TITLE, null);
     return row;
   }
 
-  private AgentConversation insertConversation(String organizationId, Agent agent, String title) {
+  private AgentConversation insertConversation(String organizationId, Agent agent, String title, String skillId) {
     Instant now = Instant.now();
     AgentConversation row = new AgentConversation();
     row.setId(UUID.randomUUID().toString());
@@ -709,6 +705,7 @@ public class AgentService {
         ? DEFAULT_TITLE
         : title.trim()));
     row.setMode("auto");
+    row.setSkillId(skillId);
     row.setLastMessageAt(now);
     row.setCreatedAt(now);
     row.setUpdatedAt(now);

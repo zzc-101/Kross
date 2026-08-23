@@ -37,6 +37,13 @@ public final class AgentProtocol {
 
   public record HistoryTurn(String role, String content) {}
 
+  public record ActiveSkill(
+      String id,
+      String name,
+      String description,
+      String content,
+      long revision) {}
+
   public record Job(
       String type,
       String id,
@@ -46,7 +53,8 @@ public final class AgentProtocol {
       List<HistoryTurn> history,
       Instant createdAt,
       String mode,
-      String modelId) {
+      String modelId,
+      ActiveSkill skill) {
     public Job(
         String id,
         String conversationId,
@@ -55,8 +63,9 @@ public final class AgentProtocol {
         List<HistoryTurn> history,
         Instant createdAt,
         String mode,
-        String modelId) {
-      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt, mode, modelId);
+        String modelId,
+        ActiveSkill skill) {
+      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt, mode, modelId, skill);
     }
   }
 

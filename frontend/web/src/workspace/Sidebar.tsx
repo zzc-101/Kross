@@ -13,7 +13,7 @@ import {
   PanelLeft,
   Paperclip,
   Pencil,
-  ScrollText,
+  Sparkles,
   SquarePen,
   UserRound
 } from 'lucide-react';
@@ -28,7 +28,7 @@ import { SkillsPanel } from './SkillsPanel';
 export type SidebarSection =
   | 'conversations'
   | 'agents'
-  | 'prompts'
+  | 'skills'
   | 'notes'
   | 'memory'
   | 'bookmarks'
@@ -37,7 +37,7 @@ export type SidebarSection =
 const RAIL: Array<{ id: SidebarSection; label: string; icon: typeof MessagesSquare }> = [
   { id: 'conversations', label: '对话', icon: MessagesSquare },
   { id: 'agents', label: 'Agents', icon: Bot },
-  { id: 'prompts', label: '提示词', icon: ScrollText },
+  { id: 'skills', label: '技能', icon: Sparkles },
   { id: 'notes', label: '笔记', icon: NotebookPen },
   { id: 'memory', label: '记忆', icon: BrainCircuit },
   { id: 'bookmarks', label: '书签', icon: Bookmark },
@@ -64,6 +64,7 @@ export function Sidebar({
   onLogout,
   onSaveProfile,
   onPlaceholder,
+  onApplySkill,
   api,
   section,
   onSection
@@ -87,6 +88,7 @@ export function Sidebar({
   onLogout(): void;
   onSaveProfile(input: { displayName: string; avatarUrl: string; gender: string; phone: string }): Promise<void>;
   onPlaceholder(title: string, body: string): void;
+  onApplySkill(skill: import('../api/types').Skill): void;
   api: AgentApiClient;
   section: SidebarSection;
   onSection(section: SidebarSection): void;
@@ -189,8 +191,8 @@ export function Sidebar({
         <div className="sidebar-panel">
           {section === 'files' ? (
             <FilesPanel api={api} />
-          ) : section === 'prompts' ? (
-            <SkillsPanel api={api} />
+          ) : section === 'skills' ? (
+            <SkillsPanel api={api} onApply={onApplySkill} />
           ) : section === 'agents' ? (
             <ComingSoonPanel title="Agents" body="每人目前只有一个长期 Agent 工作区。多 Agent 切换会作为后续入口单独接入，不会再跳到空页面。" />
           ) : section === 'notes' ? (

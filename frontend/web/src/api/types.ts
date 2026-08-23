@@ -59,6 +59,7 @@ export interface Conversation {
   title: string;
   mode: AgentMode;
   modelId?: string;
+  skillId?: string;
   archivedAt?: string;
   lastMessageAt: string;
   createdAt: string;
@@ -133,7 +134,11 @@ export interface Skill {
   id: string;
   name: string;
   description: string;
-  content: string;
+  category: string;
+  icon: string;
+  launchMode: 'instant' | 'form' | 'file';
+  starterPrompt: string;
+  revision: number;
 }
 
 export type McpServers = Record<string, Record<string, unknown>>;

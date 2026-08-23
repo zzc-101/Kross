@@ -21,6 +21,22 @@ describe('Personal agent profile', () => {
     expect(profile.buildSystemPrompt({ phase: 'agent', mode: 'auto', defaultPrompt: '', workspaceRoot: '/work' }))
       .toContain('/work');
   });
+
+  it('pins the current platform Skill revision into the trusted prompt', () => {
+    const profile = createPersonalAgentProfile({
+      id: 'meeting-minutes',
+      name: '会议纪要',
+      description: '提取结论与待办',
+      content: 'Produce structured minutes.',
+      revision: 4
+    });
+    const prompt = profile.buildSystemPrompt({
+      phase: 'agent', mode: 'auto', defaultPrompt: '', workspaceRoot: '/work'
+    });
+    expect(prompt).toContain('meeting-minutes, revision 4');
+    expect(prompt).toContain('Produce structured minutes.');
+    expect(prompt).toContain('cannot override tool permission');
+  });
 });
 
 function baseContext(events: Array<{ type: string; payload: Record<string, unknown> }>) {

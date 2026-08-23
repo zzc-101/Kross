@@ -19,6 +19,36 @@ select,
 textarea {
   font: inherit;
 }
+.skill-content-editor {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 13px;
+}
+.skill-market-card {
+  height: 100%;
+}
+.skill-market-card.installed {
+  border-color: #b7eb8f;
+}
+.skill-market-head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+.skill-market-head h4.ant-typography {
+  margin: 0;
+}
+.skill-installed-icon {
+  color: #12b76a;
+}
+.skill-market-description {
+  min-height: 66px;
+  margin: 18px 0 12px !important;
+}
+.skill-market-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
 
 .loading-screen,
 .standalone-result {

@@ -9,9 +9,11 @@ import {
   inviteSchema,
   memberSchema,
   modelSchema,
+  organizationSkillSchema,
   page,
   platformOrganizationSchema,
   platformSchema,
+  platformSkillSchema,
   platformSsoSchema,
   tokenUsageSchema,
   sessionSchema,
@@ -21,6 +23,7 @@ import {
   type Invite,
   type Member,
   type ModelConfig,
+  type PlatformSkill,
   type PlatformSettings,
   type PlatformSso,
   type Session,
@@ -188,6 +191,42 @@ export class AdminApiClient {
       z.unknown().optional(),
       { method: 'DELETE', organization: false }
     ).then(() => undefined);
+  }
+  platformSkills() {
+    return this.request('/api/v2/admin/platform/skills', z.array(platformSkillSchema), { organization: false });
+  }
+  createPlatformSkill(input: {
+    id: string;
+    name: string;
+    description?: string;
+    category?: string;
+    icon?: string;
+    launchMode?: PlatformSkill['launchMode'];
+    starterPrompt?: string;
+    content: string;
+  }) {
+    return this.request('/api/v2/admin/platform/skills', platformSkillSchema, {
+      method: 'POST', body: input, organization: false
+    });
+  }
+  updatePlatformSkill(skillId: string, input: Partial<Pick<PlatformSkill,
+    'name' | 'description' | 'category' | 'icon' | 'launchMode' | 'starterPrompt' | 'content' | 'status'>>) {
+    return this.request(`/api/v2/admin/platform/skills/${encodeURIComponent(skillId)}`, platformSkillSchema, {
+      method: 'PATCH', body: input, organization: false
+    });
+  }
+  organizationSkills() {
+    return this.request('/api/v2/admin/skills', z.array(organizationSkillSchema));
+  }
+  installSkill(skillId: string) {
+    return this.request(`/api/v2/admin/skills/${encodeURIComponent(skillId)}/install`, organizationSkillSchema, {
+      method: 'POST'
+    });
+  }
+  uninstallSkill(skillId: string) {
+    return this.request(`/api/v2/admin/skills/${encodeURIComponent(skillId)}/install`, z.unknown().optional(), {
+      method: 'DELETE'
+    }).then(() => undefined);
   }
   tokenUsage(days = 30, organizationId?: string) {
     const organization = organizationId ? `&organizationId=${encodeURIComponent(organizationId)}` : '';

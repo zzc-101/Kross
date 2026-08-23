@@ -21,6 +21,7 @@ public final class Rbac {
       OrganizationAction.CREDENTIAL_MANAGE,
       OrganizationAction.MODEL_PROFILE_MANAGE,
       OrganizationAction.AGENT_MANAGE,
+      OrganizationAction.SKILL_MANAGE,
       OrganizationAction.TOKEN_USAGE_READ,
       OrganizationAction.AUDIT_READ);
 

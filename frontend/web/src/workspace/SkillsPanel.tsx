@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { FileText, Plus, Sparkles, Trash2 } from 'lucide-react';
 
 import { AgentApiClient, ApiError } from '../api/client';
 import type { Skill } from '../api/types';
@@ -7,7 +7,7 @@ import type { Skill } from '../api/types';
 type McpKind = 'stdio' | 'http';
 type McpDraft = { id: string; kind: McpKind; command: string; args: string; url: string; disabled: boolean };
 
-export function SkillsPanel({ api }: { api: AgentApiClient }) {
+export function SkillsPanel({ api, onApply }: { api: AgentApiClient; onApply(skill: Skill): void }) {
   const [tab, setTab] = useState<'skills' | 'mcp'>('skills');
   return (
     <div className="skills-panel">
@@ -18,17 +18,15 @@ export function SkillsPanel({ api }: { api: AgentApiClient }) {
           <button type="button" className={tab === 'mcp' ? 'active' : ''} onClick={() => setTab('mcp')}>MCP</button>
         </div>
       </div>
-      {tab === 'skills' ? <SkillsTab api={api} /> : <McpTab api={api} />}
+      {tab === 'skills' ? <SkillsTab api={api} onApply={onApply} /> : <McpTab api={api} />}
     </div>
   );
 }
 
-function SkillsTab({ api }: { api: AgentApiClient }) {
+function SkillsTab({ api, onApply }: { api: AgentApiClient; onApply(skill: Skill): void }) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ id: '', name: '', description: '', content: '' });
-  const [saving, setSaving] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -44,60 +42,25 @@ function SkillsTab({ api }: { api: AgentApiClient }) {
 
   useEffect(() => { void reload(); }, [api]);
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!form.id.trim()) return;
-    setSaving(true);
-    setError('');
-    try {
-      await api.upsertSkill(form.id.trim(), {
-        name: form.name.trim() || form.id.trim(),
-        description: form.description,
-        content: form.content
-      });
-      setForm({ id: '', name: '', description: '', content: '' });
-      await reload();
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <>
+      <p className="files-hint">选择一个组织已安装的 Skill，将以新对话开始。</p>
       {error && <p className="files-error">{error}</p>}
       {loading && <p className="files-hint">正在读取 Skills…</p>}
-      <div className="files-list">
+      <div className="files-list skill-catalog-list">
         {skills.map((skill) => (
-          <div key={skill.id} className="skill-row">
-            <div>
+          <button key={skill.id} type="button" className="skill-launch-card" onClick={() => onApply(skill)}>
+            <span className="skill-launch-icon">{skill.launchMode === 'file' ? <FileText /> : <Sparkles />}</span>
+            <span className="skill-launch-copy">
               <strong>{skill.name}</strong>
-              <small>{skill.id}</small>
-              {skill.description && <p>{skill.description}</p>}
-            </div>
-            <button
-              type="button"
-              aria-label={`删除 ${skill.id}`}
-              onClick={() => {
-                void api.deleteSkill(skill.id).then(reload).catch((cause) => {
-                  setError(cause instanceof Error ? cause.message : '删除失败');
-                });
-              }}
-            >
-              <Trash2 size={14} />
+              <small>{skill.category} · r{skill.revision}</small>
+              {skill.description && <span>{skill.description}</span>}
+            </span>
+            <span className="skill-launch-action">应用</span>
             </button>
-          </div>
         ))}
-        {!loading && skills.length === 0 && <p className="files-hint">还没有 Skill。会写到 /work/skills。</p>}
+        {!loading && skills.length === 0 && <p className="files-hint">当前组织还没有安装 Skill，请联系组织管理员。</p>}
       </div>
-      <form className="clone-form" onSubmit={submit}>
-        <label><span>标识</span><input required pattern="[A-Za-z][A-Za-z0-9_-]{0,63}" value={form.id} onChange={(event) => setForm({ ...form, id: event.target.value })} placeholder="summarize" /></label>
-        <label><span>名称</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Summarize" /></label>
-        <label><span>说明</span><input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-        <label><span>SKILL.md 正文</span><textarea value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} rows={5} /></label>
-        <button type="submit" disabled={saving}>{saving ? '保存中…' : '保存 Skill'}</button>
-      </form>
     </>
   );
 }

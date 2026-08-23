@@ -3,6 +3,7 @@ import {
   AppstoreOutlined,
   AuditOutlined,
   BuildOutlined,
+  BulbOutlined,
   DashboardOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
@@ -26,6 +27,7 @@ export function createAdminMenu(superAdmin: boolean, current?: Membership): Menu
               { key: '/platform/token-usage', icon: <ThunderboltOutlined />, label: 'Token 统计' },
               { key: '/platform/organizations', icon: <ApartmentOutlined />, label: '组织管理' },
               { key: '/platform/models', icon: <BuildOutlined />, label: '模型配置' },
+              { key: '/platform/skills', icon: <BulbOutlined />, label: '技能库' },
               { key: '/platform/settings', icon: <SettingOutlined />, label: '平台设置' },
               { key: '/platform/logins', icon: <AuditOutlined />, label: '登录日志' }
             ]
@@ -52,6 +54,11 @@ export function createAdminMenu(superAdmin: boolean, current?: Membership): Menu
                 key: `/organizations/${current.organizationId}/token-usage`,
                 icon: <ThunderboltOutlined />,
                 label: 'Token 统计'
+              },
+              {
+                key: `/organizations/${current.organizationId}/skills`,
+                icon: <BulbOutlined />,
+                label: '组织技能'
               },
               {
                 key: `/organizations/${current.organizationId}/policy`,

@@ -13,6 +13,7 @@ public enum OrganizationAction {
   AGENT_READ("agent.read"),
   AGENT_CHAT("agent.chat"),
   AGENT_MANAGE("agent.manage"),
+  SKILL_MANAGE("skill.manage"),
   TOKEN_USAGE_READ("token_usage.read"),
   AUDIT_READ("audit.read");
 

@@ -1,11 +1,11 @@
-package com.kross.agent.dto;
+package com.kross.catalog.dto;
 
-public record SkillView(
-    String id,
+public record UpdateSkillRequest(
     String name,
     String description,
     String category,
     String icon,
     String launchMode,
     String starterPrompt,
-    long revision) {}
+    String content,
+    String status) {}

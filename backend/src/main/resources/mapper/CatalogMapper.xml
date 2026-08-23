@@ -1,6 +1,96 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.kross.catalog.CatalogMapper">
+  <select id="listPlatformSkills" resultType="com.kross.catalog.entity.PlatformSkill">
+    SELECT skill.*,
+           (SELECT count(*)::integer FROM organization_skill_installations installation
+            WHERE installation.skill_id = skill.id) AS install_count
+    FROM platform_skills skill
+    ORDER BY skill.category, skill.name, skill.id
+  </select>
+
+  <select id="findPlatformSkill" resultType="com.kross.catalog.entity.PlatformSkill">
+    SELECT skill.*,
+           (SELECT count(*)::integer FROM organization_skill_installations installation
+            WHERE installation.skill_id = skill.id) AS install_count
+    FROM platform_skills skill
+    WHERE skill.id = #{id}
+  </select>
+
+  <insert id="insertPlatformSkill">
+    INSERT INTO platform_skills
+      (id, name, description, category, icon, launch_mode, starter_prompt, content,
+       content_digest, revision, status, created_by)
+    VALUES
+      (#{id}, #{name}, #{description}, #{category}, #{icon}, #{launchMode}, #{starterPrompt}, #{content},
+       #{contentDigest}, #{revision}, #{status}, #{createdBy})
+  </insert>
+
+  <update id="updatePlatformSkill">
+    UPDATE platform_skills
+    SET name = #{name},
+        description = #{description},
+        category = #{category},
+        icon = #{icon},
+        launch_mode = #{launchMode},
+        starter_prompt = #{starterPrompt},
+        content = #{content},
+        content_digest = #{contentDigest},
+        status = #{status},
+        revision = revision + 1,
+        updated_at = now()
+    WHERE id = #{id}
+  </update>
+
+  <select id="listOrganizationSkillCatalog" resultType="com.kross.catalog.entity.PlatformSkill">
+    SELECT skill.*,
+           (installation.skill_id IS NOT NULL) AS installed,
+           installation.installed_at
+    FROM platform_skills skill
+    LEFT JOIN organization_skill_installations installation
+      ON installation.skill_id = skill.id AND installation.organization_id = #{organizationId}
+    ORDER BY (installation.skill_id IS NOT NULL) DESC, skill.category, skill.name, skill.id
+  </select>
+
+  <select id="findOrganizationSkill" resultType="com.kross.catalog.entity.PlatformSkill">
+    SELECT skill.*, true AS installed, installation.installed_at
+    FROM platform_skills skill
+    JOIN organization_skill_installations installation ON installation.skill_id = skill.id
+    WHERE installation.organization_id = #{organizationId} AND skill.id = #{skillId}
+  </select>
+
+  <insert id="installOrganizationSkill">
+    INSERT INTO organization_skill_installations
+      (organization_id, skill_id, installed_by, configuration)
+    VALUES
+      (#{organizationId}, #{skillId}, #{installedBy},
+       #{configuration, typeHandler=com.kross.support.JsonbTypeHandler})
+    ON CONFLICT (organization_id, skill_id) DO NOTHING
+  </insert>
+
+  <delete id="uninstallOrganizationSkill">
+    DELETE FROM organization_skill_installations
+    WHERE organization_id = #{organizationId} AND skill_id = #{skillId}
+  </delete>
+
+  <select id="listInstalledSkills" resultType="com.kross.catalog.entity.PlatformSkill">
+    SELECT skill.*
+    FROM organization_skill_installations installation
+    JOIN platform_skills skill ON skill.id = installation.skill_id
+    WHERE installation.organization_id = #{organizationId}
+      AND skill.status = 'active'
+    ORDER BY installation.display_order, installation.installed_at, skill.name, skill.id
+  </select>
+
+  <select id="findInstalledSkill" resultType="com.kross.catalog.entity.PlatformSkill">
+    SELECT skill.*
+    FROM organization_skill_installations installation
+    JOIN platform_skills skill ON skill.id = installation.skill_id
+    WHERE installation.organization_id = #{organizationId}
+      AND skill.id = #{skillId}
+      AND skill.status = 'active'
+  </select>
+
   <select id="listCredentials" resultType="com.kross.catalog.entity.CredentialHandle">
     SELECT *, count(*) OVER()::integer AS total FROM credential_handles
     ORDER BY created_at DESC, id DESC LIMIT #{limit} OFFSET #{offset}

@@ -55,6 +55,40 @@ describe('WsAgentControlTransport', () => {
     });
   });
 
+  it('parses the platform-managed Skill bound to a job', async () => {
+    const sockets: FakeSocket[] = [];
+    const transport = new WsAgentControlTransport({
+      agentId: 'agent1',
+      agentToken: 'short-token',
+      controlPlaneUrl: 'http://control.example.test',
+      webSocket: fakeWebSocket(sockets) as unknown as typeof WebSocket
+    });
+    const registered = transport.register();
+    await Promise.resolve();
+    sockets[0]?.open();
+    sockets[0]?.emit({ type: 'agent.registered', heartbeatIntervalMs: 10_000, idleMs: 900_000 });
+    await registered;
+    const claimed = transport.claimJob();
+    sockets[0]?.emit({
+      type: 'agent.job',
+      id: 'user-1',
+      conversationId: 'conv-1',
+      agentMessageId: 'agent-1',
+      content: '整理这份会议记录',
+      history: [],
+      skill: {
+        id: 'meeting-minutes',
+        name: '会议纪要',
+        description: '提取结论与待办',
+        content: 'Always produce structured minutes.',
+        revision: 3
+      }
+    });
+    await expect(claimed).resolves.toMatchObject({
+      skill: { id: 'meeting-minutes', name: '会议纪要', revision: 3 }
+    });
+  });
+
   it('delivers a pushed approval decision to the pending run', async () => {
     const sockets: FakeSocket[] = [];
     const transport = new WsAgentControlTransport({

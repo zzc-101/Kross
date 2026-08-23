@@ -25,6 +25,7 @@ public final class AgentViews {
         row.getTitle(),
         Optional.ofNullable(row.getMode()).filter(value -> !value.isBlank()).orElse("auto"),
         row.getModelId(),
+        row.getSkillId(),
         row.getArchivedAt(),
         row.getLastMessageAt(),
         row.getCreatedAt());

@@ -20,6 +20,8 @@ describe('管理端角色菜单', () => {
     expect(labels).toContain('平台概览');
     expect(labels).toContain('平台设置');
     expect(labels).toContain('模型配置');
+    expect(labels).toContain('技能库');
+    expect(labels).toContain('组织技能');
     expect(labels).toContain('组织概览');
     expect(labels.filter((label) => label === 'Token 统计')).toHaveLength(2);
   });
@@ -28,10 +30,12 @@ describe('管理端角色菜单', () => {
     const labels = menuLabels(createAdminMenu(false, membership));
     expect(labels).toContain('组织概览');
     expect(labels).toContain('成员与角色');
+    expect(labels).toContain('组织技能');
     expect(labels.filter((label) => label === 'Token 统计')).toHaveLength(1);
     expect(labels).not.toContain('平台概览');
     expect(labels).not.toContain('平台设置');
     expect(labels).not.toContain('登录日志');
     expect(labels).not.toContain('模型配置');
+    expect(labels).not.toContain('技能库');
   });
 });

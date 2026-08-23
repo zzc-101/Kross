@@ -1,6 +1,6 @@
-package com.kross.agent.dto;
+package com.kross.catalog.dto;
 
-public record SkillView(
+public record CreateSkillRequest(
     String id,
     String name,
     String description,
@@ -8,4 +8,4 @@ public record SkillView(
     String icon,
     String launchMode,
     String starterPrompt,
-    long revision) {}
+    String content) {}

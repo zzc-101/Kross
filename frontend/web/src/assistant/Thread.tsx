@@ -23,12 +23,13 @@ import {
   LoaderCircle,
   Mic,
   PencilLine,
-  Plus
+  Plus,
+  Sparkles
 } from 'lucide-react';
 
 import { messagePartComponents } from './MessageParts';
 import { AgentApiClient, ApiError } from '../api/client';
-import type { AgentMode, AgentModel } from '../api/types';
+import type { AgentMode, AgentModel, Skill } from '../api/types';
 import { ModelBadge, modelLabel } from '../workspace/ModelBadge';
 import { AgentContextUsageContext } from './AgentRuntimeProvider';
 import { ContextUsageRing } from './ContextUsageRing';
@@ -45,6 +46,7 @@ export function Thread({
   model,
   models,
   mode,
+  skill,
   onModeChange,
   onModelChange
 }: {
@@ -53,6 +55,7 @@ export function Thread({
   model?: AgentModel | null;
   models: AgentModel[];
   mode: AgentMode;
+  skill?: Skill;
   onModeChange(mode: AgentMode): void;
   onModelChange(model: AgentModel): void;
 }) {
@@ -62,11 +65,12 @@ export function Thread({
         <ThreadPrimitive.If empty>
           <div className="landing">
             <div className="landing-content">
-              <div className="landing-greeting"><h1>How can I help you today?</h1></div>
+              <div className="landing-greeting"><h1>{skill ? skill.name : 'How can I help you today?'}</h1></div>
               <Composer
                 model={model}
                 models={models}
                 mode={mode}
+                skill={skill}
                 onModeChange={onModeChange}
                 onModelChange={onModelChange}
                 landing
@@ -94,6 +98,7 @@ export function Thread({
                 model={model}
                 models={models}
                 mode={mode}
+                skill={skill}
                 onModeChange={onModeChange}
                 onModelChange={onModelChange}
               />
@@ -120,6 +125,7 @@ function Composer({
   model,
   models,
   mode,
+  skill,
   onModeChange,
   onModelChange,
   landing = false
@@ -127,6 +133,7 @@ function Composer({
   model?: AgentModel | null;
   models: AgentModel[];
   mode: AgentMode;
+  skill?: Skill;
   onModeChange(mode: AgentMode): void;
   onModelChange(model: AgentModel): void;
   landing?: boolean;
@@ -138,9 +145,10 @@ function Composer({
   return (
     <div className="composer-wrap">
       <ComposerPrimitive.Root className="composer">
+        {skill && <div className="composer-skill-chip"><Sparkles />已应用：{skill.name}<span>r{skill.revision}</span></div>}
         <ComposerPrimitive.Input
           className="composer-input"
-          placeholder="发送消息…"
+          placeholder={skill?.starterPrompt || '发送消息…'}
           rows={1}
           autoFocus
           aria-label="消息内容"

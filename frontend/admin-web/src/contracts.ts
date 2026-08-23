@@ -190,6 +190,40 @@ export const modelSchema = z
   })
   .strict();
 
+export const platformSkillSchema = z
+  .object({
+    id,
+    name: z.string().min(1),
+    description: z.string(),
+    category: z.string().min(1),
+    icon: z.string().min(1),
+    launchMode: z.enum(['instant', 'form', 'file']),
+    starterPrompt: z.string(),
+    content: z.string().min(1),
+    revision: z.number().int().positive(),
+    status: z.enum(['active', 'disabled']),
+    installCount: z.number().int().nonnegative(),
+    createdAt: date,
+    updatedAt: date
+  })
+  .strict();
+
+export const organizationSkillSchema = z
+  .object({
+    id,
+    name: z.string().min(1),
+    description: z.string(),
+    category: z.string().min(1),
+    icon: z.string().min(1),
+    launchMode: z.enum(['instant', 'form', 'file']),
+    starterPrompt: z.string(),
+    revision: z.number().int().positive(),
+    status: z.enum(['active', 'disabled']),
+    installed: z.boolean(),
+    installedAt: date.nullish()
+  })
+  .strict();
+
 const tokenUsageTrendSchema = z
   .object({
     date: z.string().min(1),
@@ -298,6 +332,8 @@ export type NodeHealth = z.infer<typeof nodeHealthSchema>;
 export type Invite = z.infer<typeof inviteSchema>;
 export type CreatedInvite = z.infer<typeof createdInviteSchema>;
 export type Member = z.infer<typeof memberSchema>;
+export type PlatformSkill = z.infer<typeof platformSkillSchema>;
+export type OrganizationSkill = z.infer<typeof organizationSkillSchema>;
 export type ModelConfig = z.infer<typeof modelSchema>;
 export type TokenUsage = z.infer<typeof tokenUsageSchema>;
 export type TokenUsageRank = z.infer<typeof tokenUsageRankSchema>;

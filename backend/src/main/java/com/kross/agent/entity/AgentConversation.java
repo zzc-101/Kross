@@ -17,6 +17,7 @@ public class AgentConversation {
   private String title;
   private String mode;
   private String modelId;
+  private String skillId;
   private Instant archivedAt;
   private Instant lastMessageAt;
   private Instant createdAt;

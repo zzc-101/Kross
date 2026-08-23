@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.kross.catalog.entity.AuditEvent;
 import com.kross.catalog.entity.CredentialHandle;
 import com.kross.catalog.entity.ModelProfile;
+import com.kross.catalog.entity.PlatformSkill;
 import com.kross.catalog.entity.TokenUsageTotals;
 import com.kross.catalog.entity.TokenUsageRankRow;
 import com.kross.catalog.entity.TokenUsageTrendRow;
@@ -14,6 +15,33 @@ import org.apache.ibatis.annotations.Param;
 
 @Mapper
 public interface CatalogMapper {
+  List<PlatformSkill> listPlatformSkills();
+
+  Optional<PlatformSkill> findPlatformSkill(@Param("id") String id);
+
+  void insertPlatformSkill(PlatformSkill row);
+
+  int updatePlatformSkill(PlatformSkill row);
+
+  List<PlatformSkill> listOrganizationSkillCatalog(@Param("organizationId") String organizationId);
+
+  Optional<PlatformSkill> findOrganizationSkill(
+      @Param("organizationId") String organizationId, @Param("skillId") String skillId);
+
+  void installOrganizationSkill(
+      @Param("organizationId") String organizationId,
+      @Param("skillId") String skillId,
+      @Param("installedBy") String installedBy,
+      @Param("configuration") JsonNode configuration);
+
+  int uninstallOrganizationSkill(
+      @Param("organizationId") String organizationId, @Param("skillId") String skillId);
+
+  List<PlatformSkill> listInstalledSkills(@Param("organizationId") String organizationId);
+
+  Optional<PlatformSkill> findInstalledSkill(
+      @Param("organizationId") String organizationId, @Param("skillId") String skillId);
+
   List<CredentialHandle> listCredentials(@Param("limit") int limit, @Param("offset") int offset);
 
   void insertCredential(CredentialHandle row);

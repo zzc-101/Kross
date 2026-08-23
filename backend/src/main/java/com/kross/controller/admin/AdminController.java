@@ -4,7 +4,12 @@ import com.kross.api.ApiHeaders;
 import com.kross.api.PageResponse;
 import com.kross.api.Res;
 import com.kross.catalog.AdminService;
+import com.kross.catalog.SkillCatalogService;
 import com.kross.catalog.dto.AuditEventView;
+import com.kross.catalog.dto.CreateSkillRequest;
+import com.kross.catalog.dto.OrganizationSkillView;
+import com.kross.catalog.dto.PlatformSkillView;
+import com.kross.catalog.dto.UpdateSkillRequest;
 import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
 import com.kross.catalog.dto.UpdateModelRequest;
@@ -56,6 +61,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/admin")
 public class AdminController {
   private final AdminService admin;
+  private final SkillCatalogService skills;
   private final AuthService auth;
   private final AuthLogService authLogs;
   private final PlatformService platform;
@@ -220,6 +226,46 @@ public class AdminController {
       @RequestParam(defaultValue = "1") int page,
       @RequestParam(defaultValue = "20") int pageSize) {
     return Res.ok(admin.listModels(page, pageSize));
+  }
+
+  @GetMapping("/platform/skills")
+  public Res<List<PlatformSkillView>> platformSkills() {
+    return Res.ok(skills.listPlatformSkills());
+  }
+
+  @PostMapping("/platform/skills")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<PlatformSkillView> createPlatformSkill(@RequestBody CreateSkillRequest request) {
+    return Res.ok(skills.createPlatformSkill(request));
+  }
+
+  @PatchMapping("/platform/skills/{skillId}")
+  public Res<PlatformSkillView> updatePlatformSkill(
+      @PathVariable String skillId,
+      @RequestBody UpdateSkillRequest request) {
+    return Res.ok(skills.updatePlatformSkill(skillId, request));
+  }
+
+  @GetMapping("/skills")
+  public Res<List<OrganizationSkillView>> organizationSkills(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
+    return Res.ok(skills.listOrganizationCatalog(organizationId));
+  }
+
+  @PostMapping("/skills/{skillId}/install")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<OrganizationSkillView> installSkill(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String skillId) {
+    return Res.ok(skills.install(organizationId, skillId));
+  }
+
+  @DeleteMapping("/skills/{skillId}/install")
+  public Res<Void> uninstallSkill(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String skillId) {
+    skills.uninstall(organizationId, skillId);
+    return Res.ok();
   }
 
   @GetMapping("/platform/token-usage")

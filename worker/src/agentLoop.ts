@@ -87,6 +87,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   });
   box.host = host;
   let currentModelId: string | undefined;
+  let currentSkillKey = '';
   const delay = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   let sleeping = false;
   const heartbeats = (async () => {
@@ -109,18 +110,24 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
       }
       try {
         log.info('Claimed conversation job', { conversationId: job.conversationId, mode: job.mode });
-        if (job.modelId && job.modelId !== currentModelId) {
+        const nextSkillKey = job.skill ? `${job.skill.id}@${job.skill.revision}` : '';
+        const modelChanged = Boolean(job.modelId && job.modelId !== currentModelId);
+        const skillChanged = nextSkillKey !== currentSkillKey;
+        if (modelChanged) {
           const nextEnv = await options.transport.mintModelEnvironment(job.modelId);
           modelEnv = { ...options.processEnv, ...nextEnv };
+        }
+        if (modelChanged || skillChanged) {
           const nextHost = await createPersistentAgentHost({
             workspaceRoot: options.workspaceRoot,
             env: modelEnv,
-            executionProfile: createPersonalAgentProfile()
+            executionProfile: createPersonalAgentProfile(job.skill)
           });
           await host.close();
           host = nextHost;
           box.host = host;
           currentModelId = job.modelId;
+          currentSkillKey = nextSkillKey;
         }
         const reply = await runTurn(host, options.transport, job, formatTurnInput(job.content, job.history), job.mode);
         await options.transport.postReply({

@@ -77,6 +77,7 @@ const conversationSchema: z.ZodType<Conversation, z.ZodTypeDef, unknown> = z.obj
   title: z.string().min(1),
   mode: z.enum(['auto', 'plan', 'conductor']).default('auto'),
   modelId: z.string().min(1).optional(),
+  skillId: z.string().min(1).optional(),
   archivedAt: instant.optional(),
   lastMessageAt: instant,
   createdAt: instant
@@ -163,7 +164,11 @@ const skillSchema: z.ZodType<Skill> = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string(),
-  content: z.string()
+  category: z.string().min(1),
+  icon: z.string().min(1),
+  launchMode: z.enum(['instant', 'form', 'file']),
+  starterPrompt: z.string(),
+  revision: z.number().int().positive()
 });
 
 const mcpConfigSchema: z.ZodType<
@@ -269,10 +274,10 @@ export class AgentApiClient {
       .then((page) => page.items);
   }
 
-  createConversation(title?: string): Promise<Conversation> {
+  createConversation(input?: { title?: string; skillId?: string }): Promise<Conversation> {
     return this.request('/api/v2/agent/conversations', conversationSchema, {
       method: 'POST',
-      body: title ? { title } : {}
+      body: input ?? {}
     });
   }
 
@@ -340,21 +345,6 @@ export class AgentApiClient {
   listSkills(): Promise<Skill[]> {
     return this.request('/api/v2/agent/skills', z.object({ items: z.array(skillSchema) }))
       .then((page) => page.items);
-  }
-
-  upsertSkill(skillId: string, input: { name?: string; description?: string; content?: string }): Promise<Skill> {
-    return this.request(`/api/v2/agent/skills/${encodeURIComponent(skillId)}`, skillSchema, {
-      method: 'PUT',
-      body: { id: skillId, ...input }
-    });
-  }
-
-  deleteSkill(skillId: string): Promise<void> {
-    return this.request(
-      `/api/v2/agent/skills/${encodeURIComponent(skillId)}`,
-      z.object({ id: z.string() }),
-      { method: 'DELETE' }
-    ).then(() => undefined);
   }
 
   mcpConfig(): Promise<{ servers: Record<string, Record<string, unknown>> }> {

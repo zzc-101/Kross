@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AgentApiClient, ApiError, isUnauthorizedError } from '../api/client';
-import type { AgentMode, AgentModel, Conversation, MeUser, Membership } from '../api/types';
+import type { AgentMode, AgentModel, Conversation, MeUser, Membership, Skill } from '../api/types';
 import { AgentRuntimeProvider } from '../assistant/AgentRuntimeProvider';
 import { Thread } from '../assistant/Thread';
 import { useConversationRoute } from '../lib/conversationRoute';
@@ -29,6 +29,7 @@ export function WorkspacePage({
 }) {
   const { conversationId, setConversationId } = useConversationRoute();
   const [models, setModels] = useState<AgentModel[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [error, setError] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -45,9 +46,10 @@ export function WorkspacePage({
     let cancelled = false;
     void (async () => {
       try {
-        const [nextModels, items] = await Promise.all([api.listModels(), refreshConversations()]);
+        const [nextModels, nextSkills, items] = await Promise.all([api.listModels(), api.listSkills(), refreshConversations()]);
         if (cancelled) return;
         setModels(nextModels);
+        setSkills(nextSkills);
         const requested = new URLSearchParams(window.location.search).get('c') ?? conversationId;
         const selected = items.find((item) => item.id === requested) ?? items[0];
         if (selected) setConversationId(selected.id);
@@ -65,8 +67,8 @@ export function WorkspacePage({
     };
   }, [api, onSessionExpired, organizationId, refreshConversations, setConversationId]);
 
-  const onCreateConversation = useCallback(async () => {
-    const created = await api.createConversation();
+  const onCreateConversation = useCallback(async (skillId?: string) => {
+    const created = await api.createConversation(skillId ? { skillId } : undefined);
     await refreshConversations();
     setConversationId(created.id);
     return created.id;
@@ -82,6 +84,7 @@ export function WorkspacePage({
   );
   const mode: AgentMode = conversation?.mode ?? 'auto';
   const selectedModel = models.find((item) => item.id === conversation?.modelId) ?? models[0] ?? null;
+  const activeSkill = skills.find((item) => item.id === conversation?.skillId);
 
   const patchConversation = useCallback(async (patch: { mode?: AgentMode; modelId?: string }) => {
     if (!conversationId) return;
@@ -121,6 +124,10 @@ export function WorkspacePage({
             onSelectOrganization={onSelectOrganization}
             onLogout={onLogout}
             onPlaceholder={(title, body) => setPlaceholder({ title, body })}
+            onApplySkill={(skill) => {
+              void onCreateConversation(skill.id);
+              setSidebarOpen(false);
+            }}
             onArchive={(id) => {
               void api.patchConversation(id, { archived: true }).then(async () => {
                 const items = await refreshConversations();
@@ -153,6 +160,7 @@ export function WorkspacePage({
               model={selectedModel}
               models={models}
               mode={mode}
+              skill={activeSkill}
               onModeChange={(next) => void patchConversation({ mode: next })}
               onModelChange={(next) => void patchConversation({ modelId: next.id })}
             />

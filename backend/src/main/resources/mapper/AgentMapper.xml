@@ -71,9 +71,9 @@
 
   <insert id="insertConversation">
     INSERT INTO agent_conversations
-      (id, organization_id, agent_id, title, mode, model_id, archived_at, last_message_at)
+      (id, organization_id, agent_id, title, mode, model_id, skill_id, archived_at, last_message_at)
     VALUES
-      (#{id}, #{organizationId}, #{agentId}, #{title}, #{mode}, #{modelId}, #{archivedAt}, #{lastMessageAt})
+      (#{id}, #{organizationId}, #{agentId}, #{title}, #{mode}, #{modelId}, #{skillId}, #{archivedAt}, #{lastMessageAt})
   </insert>
 
   <select id="listConversations" resultType="com.kross.agent.entity.AgentConversation">
@@ -94,6 +94,7 @@
     SET title = #{title},
         mode = #{mode},
         model_id = #{modelId},
+        skill_id = #{skillId},
         archived_at = #{archivedAt},
         last_message_at = #{lastMessageAt},
         updated_at = now()
