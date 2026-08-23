@@ -9,6 +9,7 @@ public record AgentMessageView(
     String role,
     String content,
     JsonNode parts,
+    JsonNode contextUsage,
     String status,
     String errorSummary,
     Instant createdAt) {}

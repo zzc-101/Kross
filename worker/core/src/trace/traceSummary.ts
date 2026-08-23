@@ -50,9 +50,12 @@ export interface RunLlmStats {
   aborted: number;
   rateLimited: number;
   durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
   totalTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  reasoningTokens: number;
   estimatedCostUsd: number;
   pricedCalls: number;
   lastErrorCategory?: string;
@@ -78,9 +81,12 @@ const EMPTY_LLM_STATS: RunLlmStats = {
   aborted: 0,
   rateLimited: 0,
   durationMs: 0,
+  inputTokens: 0,
+  outputTokens: 0,
   totalTokens: 0,
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
+  reasoningTokens: 0,
   estimatedCostUsd: 0,
   pricedCalls: 0
 };
@@ -479,9 +485,12 @@ function collectLlmMetrics(stats: RunLlmStats, value: unknown): void {
   const errorCategory = asString(metrics.errorCategory);
   if (errorCategory) stats.lastErrorCategory = errorCategory;
   const usage = asRecord(metrics.usage);
+  stats.inputTokens += asNumber(usage?.inputTokens) ?? 0;
+  stats.outputTokens += asNumber(usage?.outputTokens) ?? 0;
   stats.totalTokens += asNumber(usage?.totalTokens) ?? 0;
   stats.cacheReadTokens += asNumber(usage?.cacheReadTokens) ?? 0;
   stats.cacheWriteTokens += asNumber(usage?.cacheWriteTokens) ?? 0;
+  stats.reasoningTokens += asNumber(usage?.reasoningTokens) ?? 0;
   const cost = asNumber(usage?.estimatedCostUsd);
   if (cost !== undefined) {
     stats.estimatedCostUsd += cost;

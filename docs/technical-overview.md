@@ -158,7 +158,7 @@ Cloud 把用户可见状态和执行磁盘分开：
 
 | 数据 | 位置 |
 |---|---|
-| 对话 `parts`、账号、组织模型、Agent 元数据 | 控制面 PostgreSQL |
+| 对话 `parts`、账号、平台模型、Agent 元数据 | 控制面 PostgreSQL |
 | 工作区文件 | `/work`（本机 volume 或 JuiceFS） |
 | Runtime Thread / Work State / Trace / Mutation | Worker `$HOME/.kross`，默认不随工作区卷备份 |
 

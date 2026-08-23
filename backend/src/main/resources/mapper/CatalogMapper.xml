@@ -3,42 +3,40 @@
 <mapper namespace="com.kross.catalog.CatalogMapper">
   <select id="listCredentials" resultType="com.kross.catalog.entity.CredentialHandle">
     SELECT *, count(*) OVER()::integer AS total FROM credential_handles
-    WHERE organization_id = #{organizationId}
     ORDER BY created_at DESC, id DESC LIMIT #{limit} OFFSET #{offset}
   </select>
 
   <insert id="insertCredential">
     INSERT INTO credential_handles
-      (id, organization_id, name, provider, handle, metadata, secret_ciphertext, created_by)
-    VALUES (#{id}, #{organizationId}, #{name}, #{provider}, #{handle},
+      (id, name, provider, handle, metadata, secret_ciphertext, created_by)
+    VALUES (#{id}, #{name}, #{provider}, #{handle},
             #{metadata, typeHandler=com.kross.support.JsonbTypeHandler}, #{secretCiphertext}, #{createdBy})
   </insert>
 
   <update id="updateCredential">
     UPDATE credential_handles SET name = COALESCE(#{name}, name), status = COALESCE(#{status}, status),
       metadata = COALESCE(#{metadata, typeHandler=com.kross.support.JsonbTypeHandler}, metadata), updated_at = now()
-    WHERE organization_id = #{organizationId} AND id = #{id}
+    WHERE id = #{id}
   </update>
 
   <delete id="deleteCredential">
-    DELETE FROM credential_handles WHERE organization_id = #{organizationId} AND id = #{id}
+    DELETE FROM credential_handles WHERE id = #{id}
   </delete>
 
   <select id="listModels" resultType="com.kross.catalog.entity.ModelProfile">
     SELECT *, count(*) OVER()::integer AS total FROM model_profiles
-    WHERE organization_id = #{organizationId}
     ORDER BY created_at DESC, id DESC LIMIT #{limit} OFFSET #{offset}
   </select>
 
   <select id="findModel" resultType="com.kross.catalog.entity.ModelProfile">
     SELECT * FROM model_profiles
-    WHERE organization_id = #{organizationId} AND id = #{id}
+    WHERE id = #{id}
   </select>
 
   <insert id="insertModel">
     INSERT INTO model_profiles
-      (id, organization_id, name, provider, model, credential_handle_id, configuration, created_by)
-    VALUES (#{id}, #{organizationId}, #{name}, #{provider}, #{model}, #{credentialHandleId},
+      (id, name, provider, model, credential_handle_id, configuration, created_by)
+    VALUES (#{id}, #{name}, #{provider}, #{model}, #{credentialHandleId},
             #{configuration, typeHandler=com.kross.support.JsonbTypeHandler}, #{createdBy})
   </insert>
 
@@ -48,15 +46,31 @@
       credential_handle_id = CASE WHEN #{credentialHandleId} IS NOT NULL OR #{status} IS NOT NULL THEN COALESCE(#{credentialHandleId}, credential_handle_id) ELSE credential_handle_id END,
       configuration = COALESCE(#{configuration, typeHandler=com.kross.support.JsonbTypeHandler}, configuration),
       status = COALESCE(#{status}, status), updated_at = now()
-    WHERE organization_id = #{organizationId} AND id = #{id}
+    WHERE id = #{id}
   </update>
 
   <delete id="deleteModel">
-    DELETE FROM model_profiles WHERE organization_id = #{organizationId} AND id = #{id}
+    DELETE FROM model_profiles WHERE id = #{id}
   </delete>
 
+  <select id="tokenUsage" resultType="com.kross.catalog.entity.TokenUsageTotals">
+    SELECT
+      COALESCE(sum((usage ->> 'inputTokens')::bigint), 0)::bigint AS input_tokens,
+      COALESCE(sum((usage ->> 'outputTokens')::bigint), 0)::bigint AS output_tokens,
+      COALESCE(sum((usage ->> 'totalTokens')::bigint), 0)::bigint AS total_tokens,
+      COALESCE(sum((usage ->> 'cacheReadTokens')::bigint), 0)::bigint AS cache_read_tokens,
+      COALESCE(sum((usage ->> 'cacheWriteTokens')::bigint), 0)::bigint AS cache_write_tokens,
+      COALESCE(sum((usage ->> 'reasoningTokens')::bigint), 0)::bigint AS reasoning_tokens,
+      COALESCE(sum((usage ->> 'llmCalls')::bigint), 0)::bigint AS llm_calls,
+      COALESCE(sum((usage ->> 'estimatedCostUsd')::numeric), 0)::numeric AS estimated_cost_usd
+    FROM agent_messages
+    WHERE role = 'agent'
+      AND created_at >= now() - (#{days} * interval '1 day')
+      AND usage &lt;&gt; '{}'::jsonb
+  </select>
+
   <select id="findCredentialId" resultType="string">
-    SELECT id FROM credential_handles WHERE organization_id = #{organizationId} AND id = #{id}
+    SELECT id FROM credential_handles WHERE id = #{id}
   </select>
 
   <select id="listAudit" resultType="com.kross.catalog.entity.AuditEvent">

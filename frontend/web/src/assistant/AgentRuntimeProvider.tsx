@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
   type AppendMessage,
-  type ExternalStoreThreadListAdapter,
   type ThreadMessageLike
 } from '@assistant-ui/react';
 
 import { applyChannelEvent } from '../api/channelEvents';
 import { AgentApiClient } from '../api/client';
-import type { AgentMessage, Conversation, MessagePart } from '../api/types';
+import type { AgentMessage, MessagePart } from '../api/types';
 
 type AssistantMessagePart = Exclude<ThreadMessageLike['content'], string>[number];
+
+export type AgentContextUsage = NonNullable<AgentMessage['contextUsage']>;
+export const AgentContextUsageContext = createContext<AgentContextUsage | undefined>(undefined);
 
 function toThreadMessage(message: AgentMessage): ThreadMessageLike {
   const role = message.role === 'agent' ? 'assistant' : message.role;
@@ -66,19 +68,13 @@ function toAssistantPart(part: MessagePart): AssistantMessagePart {
 
 export function AgentRuntimeProvider({
   api,
-  conversations,
   conversationId,
   onConversationsChange,
-  onSelectConversation,
-  onCreateConversation,
   children
 }: {
   api: AgentApiClient;
-  conversations: Conversation[];
   conversationId?: string;
   onConversationsChange(): Promise<void>;
-  onSelectConversation(id: string): void;
-  onCreateConversation(): Promise<string>;
   children: ReactNode;
 }) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -96,6 +92,8 @@ export function AgentRuntimeProvider({
       setIsRunning(false);
       return;
     }
+    setMessages([]);
+    setIsRunning(false);
     const abort = new AbortController();
     const connect = async () => {
       while (!abort.signal.aborted) {
@@ -140,33 +138,6 @@ export function AgentRuntimeProvider({
     await onConversationsChange();
   }, [api, conversationId, onConversationsChange]);
 
-  const threadListAdapter = useMemo<ExternalStoreThreadListAdapter>(() => ({
-    threadId: conversationId,
-    threads: conversations.map((item) => ({
-      id: item.id,
-      status: 'regular' as const,
-      title: item.title
-    })),
-    archivedThreads: [],
-    onSwitchToNewThread: () => {
-      void onCreateConversation().then((id) => onSelectConversation(id));
-    },
-    onSwitchToThread: (id) => onSelectConversation(id),
-    onRename: (id, title) => {
-      void api.patchConversation(id, { title }).then(() => onConversationsChange());
-    },
-    onArchive: (id) => {
-      void api.patchConversation(id, { archived: true }).then(async () => {
-        await onConversationsChange();
-        if (id === conversationId) {
-          const next = conversations.find((item) => item.id !== id);
-          if (next) onSelectConversation(next.id);
-          else onSelectConversation(await onCreateConversation());
-        }
-      });
-    }
-  }), [api, conversationId, conversations, onConversationsChange, onCreateConversation, onSelectConversation]);
-
   const runtime = useExternalStoreRuntime({
     isRunning,
     isSendDisabled: isRunning,
@@ -178,11 +149,19 @@ export function AgentRuntimeProvider({
       if (!conversationId) throw new Error('No conversation selected');
       await api.resolveApproval(conversationId, approvalId, { approved, reason });
     },
-    unstable_capabilities: { copy: true },
-    adapters: { threadList: threadListAdapter }
+    unstable_capabilities: { copy: true }
   });
 
-  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+  const contextUsage = useMemo(
+    () => [...messages].reverse().find((message) => message.contextUsage)?.contextUsage,
+    [messages]
+  );
+
+  return (
+    <AgentContextUsageContext.Provider value={contextUsage}>
+      <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+    </AgentContextUsageContext.Provider>
+  );
 }
 
 export function reconcileMessageSnapshot(current: AgentMessage[], incoming: AgentMessage[]): AgentMessage[] {
@@ -197,7 +176,8 @@ export function reconcileMessageSnapshot(current: AgentMessage[], incoming: Agen
       return {
         ...message,
         content: streamed.content,
-        parts: streamed.parts
+        parts: streamed.parts,
+        contextUsage: message.contextUsage ?? streamed.contextUsage
       };
     }
     return message;

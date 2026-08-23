@@ -104,7 +104,7 @@ journal 位于 Worker 容器 `$HOME/.kross/mutations`，可能包含历史文件
 
 ## Secrets
 
-- 组织模型 API Key 与 SSO Client Secret 由控制面加密存储，不要写入仓库或对话。
+- 平台模型 API Key 与 SSO Client Secret 由控制面加密存储，不要写入仓库或对话。
 - 不要在 prompt、Skill 或仓库规则中硬编码长期密钥。
 - 分享故障信息前先检查路径、源码、工具参数和业务数据。
 - Trace 不是公开日志。

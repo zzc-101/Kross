@@ -8,6 +8,7 @@ import com.kross.catalog.dto.AuditEventView;
 import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
 import com.kross.catalog.dto.UpdateModelRequest;
+import com.kross.catalog.dto.TokenUsageView;
 import com.kross.identity.AuthLogService;
 import com.kross.identity.AuthService;
 import com.kross.identity.PlatformService;
@@ -214,27 +215,34 @@ public class AdminController {
     return Res.ok(admin.listAudit(organizationId, page, pageSize, action, resourceType));
   }
 
-  @GetMapping("/models")
+  @GetMapping("/platform/models")
   public Res<PageResponse<ModelProfileView>> models(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestParam(defaultValue = "1") int page,
       @RequestParam(defaultValue = "20") int pageSize) {
-    return Res.ok(admin.listModels(organizationId, page, pageSize));
+    return Res.ok(admin.listModels(page, pageSize));
   }
 
-  @PostMapping("/models")
+  @GetMapping("/platform/token-usage")
+  public Res<TokenUsageView> tokenUsage(@RequestParam(defaultValue = "30") int days) {
+    return Res.ok(admin.tokenUsage(days));
+  }
+
+  @PostMapping("/platform/models")
   @ResponseStatus(HttpStatus.CREATED)
-  public Res<ModelProfileView> createModel(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
-      @RequestBody CreateModelRequest request) {
-    return Res.ok(admin.createModel(organizationId, request));
+  public Res<ModelProfileView> createModel(@RequestBody CreateModelRequest request) {
+    return Res.ok(admin.createModel(request));
   }
 
-  @PatchMapping("/models/{modelId}")
+  @PatchMapping("/platform/models/{modelId}")
   public Res<ModelProfileView> updateModel(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @PathVariable String modelId,
       @RequestBody UpdateModelRequest request) {
-    return Res.ok(admin.updateModel(organizationId, modelId, request));
+    return Res.ok(admin.updateModel(modelId, request));
+  }
+
+  @DeleteMapping("/platform/models/{modelId}")
+  public Res<Void> deleteModel(@PathVariable String modelId) {
+    admin.deleteModel(modelId);
+    return Res.ok();
   }
 }

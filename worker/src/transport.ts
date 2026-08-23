@@ -22,6 +22,8 @@ export interface AgentControlTransport {
     status: 'processing' | 'done' | 'failed';
     errorSummary?: string;
     parts?: unknown[];
+    usage?: AgentTokenUsage;
+    contextUsage?: AgentContextUsage;
   }): Promise<void>;
   waitForApproval(approvalId: string): Promise<{ approved: boolean; reason?: string }>;
   onCommand(handler: (command: {
@@ -38,6 +40,24 @@ export interface AgentControlTransport {
   }>;
   close(): void;
 }
+
+export type AgentTokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  estimatedCostUsd: number;
+  llmCalls: number;
+  durationMs: number;
+};
+
+export type AgentContextUsage = {
+  usedTokens: number;
+  contextWindow: number;
+  ratio: number;
+};
 
 export type AgentStreamEvent = {
   type: string;
@@ -177,6 +197,8 @@ export class WsAgentControlTransport implements AgentControlTransport {
     status: 'processing' | 'done' | 'failed';
     errorSummary?: string;
     parts?: unknown[];
+    usage?: AgentTokenUsage;
+    contextUsage?: AgentContextUsage;
   }): Promise<void> {
     this.send({
       type: 'agent.message',
@@ -185,7 +207,9 @@ export class WsAgentControlTransport implements AgentControlTransport {
       status: input.status,
       ...(input.agentMessageId ? { agentMessageId: input.agentMessageId } : {}),
       ...(input.errorSummary ? { errorSummary: input.errorSummary } : {}),
-      ...(input.parts ? { parts: input.parts } : {})
+      ...(input.parts ? { parts: input.parts } : {}),
+      ...(input.usage ? { usage: input.usage } : {}),
+      ...(input.contextUsage ? { contextUsage: input.contextUsage } : {})
     });
   }
 

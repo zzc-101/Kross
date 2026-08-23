@@ -10,6 +10,7 @@ public record ModelProfileView(
     String name,
     String provider,
     String model,
+    int contextWindow,
     String credentialHandleId,
     JsonNode configuration,
     String status,

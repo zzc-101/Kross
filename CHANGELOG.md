@@ -69,6 +69,8 @@
 
 - Ink TUI、`kross` CLI、`kross exec` Headless Host、Harness Eval workspace，以及
   对应的 npm 打包和 Headless / TUI 文档。本地终端产品仍保留在 `main`。
+- Cloud Core 中已无生产调用的 SQLite Session / Trace Store、对应测试和
+  `better-sqlite3` 依赖；Cloud Worker 继续使用内存 Trace，历史对话由控制面持久化。
 
 ### Fixed
 

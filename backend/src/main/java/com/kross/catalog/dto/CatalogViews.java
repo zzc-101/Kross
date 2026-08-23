@@ -12,6 +12,7 @@ public final class CatalogViews {
         row.getName(),
         row.getProvider(),
         row.getModel(),
+        row.getConfiguration().path("contextWindow").asInt(256_000),
         row.getCredentialHandleId(),
         row.getConfiguration(),
         row.getStatus(),

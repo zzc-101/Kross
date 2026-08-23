@@ -154,15 +154,6 @@ export {
 } from '../tools/builtin';
 
 export {
-  HybridSessionStore,
-  type HybridSessionStoreOptions,
-  type SessionSummary,
-  type StoredSession,
-  type StoredSessionMessage,
-  type StoredSessionMessageFrom
-} from '../session/sessionStore';
-
-export {
   sessionWorkStateSchema,
   type SessionWorkStateV1
 } from '../session/sessionWorkState';
@@ -185,10 +176,6 @@ export {
   type ListRunsOptions,
   type TraceStore
 } from '../trace/traceStore';
-export {
-  SessionTraceStore,
-  type SessionTraceStoreOptions
-} from '../trace/sessionTraceStore';
 export { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 
 export {

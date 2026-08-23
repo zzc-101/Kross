@@ -1,4 +1,4 @@
-export interface WorkerLogFields {
+export interface WorkerLogFields extends Record<string, unknown> {
   conversationId?: string;
   agentId?: string;
   nodeId?: string;

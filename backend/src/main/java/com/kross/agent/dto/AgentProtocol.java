@@ -104,7 +104,9 @@ public final class AgentProtocol {
       String content,
       String status,
       String errorSummary,
-      com.fasterxml.jackson.databind.JsonNode parts) {}
+      com.fasterxml.jackson.databind.JsonNode parts,
+      com.fasterxml.jackson.databind.JsonNode usage,
+      com.fasterxml.jackson.databind.JsonNode contextUsage) {}
 
   public record StreamEventsRequest(
       String type,

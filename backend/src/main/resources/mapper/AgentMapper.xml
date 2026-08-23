@@ -10,6 +10,8 @@
     <result column="role" property="role"/>
     <result column="content" property="content"/>
     <result column="parts" property="parts" typeHandler="com.kross.support.JsonbTypeHandler"/>
+    <result column="usage" property="usage" typeHandler="com.kross.support.JsonbTypeHandler"/>
+    <result column="context_usage" property="contextUsage" typeHandler="com.kross.support.JsonbTypeHandler"/>
     <result column="status" property="status"/>
     <result column="error_summary" property="errorSummary"/>
     <result column="created_by" property="createdBy"/>
@@ -106,10 +108,14 @@
 
   <insert id="insertMessage">
     INSERT INTO agent_messages
-      (id, organization_id, agent_id, conversation_id, reply_to, role, content, parts, status, error_summary, created_by)
+      (id, organization_id, agent_id, conversation_id, reply_to, role, content, parts, usage, context_usage,
+       status, error_summary, created_by)
     VALUES
       (#{id}, #{organizationId}, #{agentId}, #{conversationId}, #{replyTo}, #{role}, #{content},
-       #{parts, typeHandler=com.kross.support.JsonbTypeHandler}, #{status}, #{errorSummary}, #{createdBy})
+       #{parts, typeHandler=com.kross.support.JsonbTypeHandler},
+       COALESCE(#{usage, typeHandler=com.kross.support.JsonbTypeHandler}, '{}'::jsonb),
+       COALESCE(#{contextUsage, typeHandler=com.kross.support.JsonbTypeHandler}, '{}'::jsonb),
+       #{status}, #{errorSummary}, #{createdBy})
   </insert>
 
   <select id="listMessages" resultMap="AgentMessageMap">
@@ -172,6 +178,8 @@
     SET status = #{status},
         content = #{content},
         parts = #{parts, typeHandler=com.kross.support.JsonbTypeHandler},
+        usage = COALESCE(#{usage, typeHandler=com.kross.support.JsonbTypeHandler}, usage),
+        context_usage = COALESCE(#{contextUsage, typeHandler=com.kross.support.JsonbTypeHandler}, context_usage),
         error_summary = #{errorSummary}
     WHERE id = #{id}
   </update>
@@ -201,10 +209,8 @@
   <select id="findUsableModel" resultType="com.kross.agent.entity.AgentModel">
     SELECT mp.id, mp.name, mp.provider, mp.model, ch.secret_ciphertext, mp.configuration
     FROM model_profiles mp
-    JOIN credential_handles ch
-      ON ch.organization_id = mp.organization_id AND ch.id = mp.credential_handle_id
-    WHERE mp.organization_id = #{organizationId}
-      AND mp.status = 'active'
+    JOIN credential_handles ch ON ch.id = mp.credential_handle_id
+    WHERE mp.status = 'active'
       AND ch.status = 'active'
       AND ch.secret_ciphertext IS NOT NULL
     ORDER BY mp.created_at ASC
@@ -214,10 +220,8 @@
   <select id="listUsableModels" resultType="com.kross.agent.entity.AgentModel">
     SELECT mp.id, mp.name, mp.provider, mp.model, ch.secret_ciphertext, mp.configuration
     FROM model_profiles mp
-    JOIN credential_handles ch
-      ON ch.organization_id = mp.organization_id AND ch.id = mp.credential_handle_id
-    WHERE mp.organization_id = #{organizationId}
-      AND mp.status = 'active'
+    JOIN credential_handles ch ON ch.id = mp.credential_handle_id
+    WHERE mp.status = 'active'
       AND ch.status = 'active'
       AND ch.secret_ciphertext IS NOT NULL
     ORDER BY mp.created_at ASC, mp.id ASC
@@ -226,10 +230,8 @@
   <select id="findUsableModelById" resultType="com.kross.agent.entity.AgentModel">
     SELECT mp.id, mp.name, mp.provider, mp.model, ch.secret_ciphertext, mp.configuration
     FROM model_profiles mp
-    JOIN credential_handles ch
-      ON ch.organization_id = mp.organization_id AND ch.id = mp.credential_handle_id
-    WHERE mp.organization_id = #{organizationId}
-      AND mp.id = #{id}
+    JOIN credential_handles ch ON ch.id = mp.credential_handle_id
+    WHERE mp.id = #{id}
       AND mp.status = 'active'
       AND ch.status = 'active'
       AND ch.secret_ciphertext IS NOT NULL

@@ -6,6 +6,20 @@ import type { AgentMode } from '../core/src/domain';
 import type { AgentExecutionProfile } from '../core/src/runtime/agentExecutionProfile';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
+interface RunTraceDetail {
+  llmStats: {
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    reasoningTokens: number;
+    estimatedCostUsd: number;
+    durationMs: number;
+  };
+}
+
 export interface AgentRuntimeHandle {
   runStreaming(input: {
     input: string;
@@ -18,6 +32,12 @@ export interface AgentRuntimeHandle {
     reason?: string;
     signal?: AbortSignal;
   }): AsyncIterable<AgentRunStreamEvent>;
+  inspectTrace(runId: string): Promise<RunTraceDetail | null>;
+  getContextUsage(input: { requestedMode: AgentMode; currentUserInput?: string }): {
+    usedTokens: number;
+    contextWindow: number;
+    headerRatio: number;
+  };
 }
 
 export interface AgentHostHandle {

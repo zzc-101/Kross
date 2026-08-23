@@ -13,7 +13,6 @@ import java.time.Instant;
 @AllArgsConstructor
 public class ModelProfile {
   private String id;
-  private String organizationId;
   private String name;
   private String provider;
   private String model;

@@ -8,7 +8,7 @@
 | 组件 | 职责 |
 |---|---|
 | `web` | 同源 Nginx：工作台 `/`，管理中心 `/admin/`，`/api/` 反代控制面。不反代 `/internal/` |
-| `server` | Java 控制面：账号 / SSO、组织模型、对话、Agent 生命周期 |
+| `server` | Java 控制面：账号 / SSO、平台模型、对话、Agent 生命周期 |
 | `postgres` | 控制面权威数据（用户、组织、对话 `parts`、Agent 运行时状态） |
 | `minio` | 对象存储：产物 bucket 默认 `kross`；集群 JuiceFS 底仓建议另用 `kross-jfs` |
 | `worker` | 按人拉起的持久容器，在 `/work` 跑 Agent Runtime |
@@ -58,7 +58,7 @@ Kross 不做身份提供商。默认是平台账号密码；企业 SSO 由超级
 1. **超级管理员**（`users.platform_role = super_admin`）：管整站，包括注册开关、
    组织生命周期和平台 SSO。第一个注册的用户自动成为超管。默认不必是组织成员，
    也不能查看该组织对话。
-2. **组织管理员**（`membership.role = admin`）：管本组织成员和模型档案。
+2. **组织管理员**（`membership.role = admin`）：管理本组织成员与组织级策略，不管理平台模型档案。
 3. **普通用户**（`membership.role = member`）：只用工作台。
 
 空实例第一次注册始终允许。之后是否开放自助注册由超管决定，默认关闭。
@@ -114,9 +114,9 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 | `KROSS_CONTROL_PLANE_URL` | 仅 `kross-node`：控制面可达地址。同 Compose 默认 `http://kross-server:8787`；额外机器用 `http://10.0.0.10:8788` |
 | `KROSS_NODE_ID` | 仅 `kross-node`：节点稳定 ID，必须与控制面令牌表中的键一致 |
 | `KROSS_S3_*` | MinIO / S3：产物与（可选）JuiceFS 底仓 |
-| `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | 开发期注入 Worker 默认模型；生产请在管理中心登记组织模型 |
+| `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | 开发期注入 Worker 默认模型；生产请由超级管理员在管理中心登记平台模型 |
 
-生产环境不要把 Provider 密钥写入 Run 事件、审计、容器标签或 URL。组织模型密钥
+生产环境不要把 Provider 密钥写入 Run 事件、审计、容器标签或 URL。平台模型密钥
 由控制面加密存储，Worker 领任务时再下发为进程环境变量。
 
 ## 工作区存储：单机与集群

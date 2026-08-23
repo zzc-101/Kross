@@ -86,12 +86,10 @@ export function WorkspacePage({
     <div className="shell">
       {error && <div className="error-banner" role="alert">{error}</div>}
       <AgentRuntimeProvider
+        key={conversationId ?? 'no-conversation'}
         api={api}
-        conversations={conversations}
         conversationId={conversationId}
         onConversationsChange={onConversationsChange}
-        onSelectConversation={setConversationId}
-        onCreateConversation={onCreateConversation}
       >
         <div className="workspace">
           <Sidebar

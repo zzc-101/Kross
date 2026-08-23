@@ -91,13 +91,13 @@ public class AgentService {
   private final AgentMemoryService memories;
 
   public AgentModelView currentModel(String organizationId) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
-    return agents.findUsableModel(context.organizationId()).map(AgentViews::model).orElse(null);
+    access.require(organizationId, OrganizationAction.AGENT_READ);
+    return agents.findUsableModel().map(AgentViews::model).orElse(null);
   }
 
   public List<AgentModelView> listModels(String organizationId) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
-    return agents.listUsableModels(context.organizationId()).stream()
+    access.require(organizationId, OrganizationAction.AGENT_READ);
+    return agents.listUsableModels().stream()
         .map(AgentViews::model)
         .toList();
   }
@@ -141,7 +141,7 @@ public class AgentService {
       if (trimmed.isEmpty()) {
         conversation.setModelId(null);
       } else {
-        conversation.setModelId(requireUsableModel(context.organizationId(), trimmed).getId());
+        conversation.setModelId(requireUsableModel(trimmed).getId());
       }
     });
     agents.updateConversation(conversation);
@@ -512,7 +512,7 @@ public class AgentService {
       String modelId = Optional.ofNullable(conversation)
           .map(AgentConversation::getModelId)
           .filter(value -> !value.isBlank())
-          .flatMap(id -> agents.findUsableModelById(session.getOrganizationId(), id))
+          .flatMap(agents::findUsableModelById)
           .map(AgentModel::getId)
           .orElse(null);
       return new AgentProtocol.Job(
@@ -557,6 +557,12 @@ public class AgentService {
         });
     reply.setContent(body);
     reply.setParts(parts);
+    if (request.usage() != null && request.usage().isObject()) {
+      reply.setUsage(request.usage());
+    }
+    if (request.contextUsage() != null && request.contextUsage().isObject()) {
+      reply.setContextUsage(request.contextUsage());
+    }
     reply.setStatus(status);
     reply.setErrorSummary(request.errorSummary());
     agents.updateMessageBody(reply);
@@ -648,13 +654,16 @@ public class AgentService {
   public AgentProtocol.ModelEnvironment modelEnvironment(String token, AgentProtocol.ModelEnvironmentRequest request) {
     AgentSession session = authenticate(token);
     AgentModel model = resolveUsableModel(
-        session.getOrganizationId(),
         Optional.ofNullable(request).map(AgentProtocol.ModelEnvironmentRequest::modelId));
     String ciphertext = Optional.ofNullable(model.getSecretCiphertext()).filter(value -> !value.isBlank())
         .orElseThrow(() -> ApiException.conflict(
             "model_credential_unavailable", "No usable model credential is configured"));
-    return new AgentProtocol.ModelEnvironment(
+    Map<String, String> environment = new LinkedHashMap<>(
         vault.modelEnvironment(model.getProvider(), model.getModel(), vault.decrypt(ciphertext)));
+    environment.put(
+        "AGENT_CONTEXT_WINDOW",
+        Integer.toString(model.getConfiguration().path("contextWindow").asInt(256_000)));
+    return new AgentProtocol.ModelEnvironment(environment);
   }
 
   private Agent ensure(OrganizationContext context) {
@@ -736,17 +745,17 @@ public class AgentService {
     }
   }
 
-  private AgentModel requireUsableModel(String organizationId, String modelId) {
-    return agents.findUsableModelById(organizationId, modelId)
+  private AgentModel requireUsableModel(String modelId) {
+    return agents.findUsableModelById(modelId)
         .orElseThrow(() -> ApiException.invalidRequest("Model is not available"));
   }
 
-  private AgentModel resolveUsableModel(String organizationId, Optional<String> modelId) {
+  private AgentModel resolveUsableModel(Optional<String> modelId) {
     return modelId
         .map(String::trim)
         .filter(value -> !value.isEmpty())
-        .map(id -> requireUsableModel(organizationId, id))
-        .or(() -> agents.findUsableModel(organizationId))
+        .map(this::requireUsableModel)
+        .or(agents::findUsableModel)
         .orElseThrow(() -> ApiException.conflict(
             "model_credential_unavailable", "No usable model credential is configured"));
   }

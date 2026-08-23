@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActionBarPrimitive,
   AuiIf,
@@ -30,6 +30,8 @@ import { messagePartComponents } from './MessageParts';
 import { AgentApiClient, ApiError } from '../api/client';
 import type { AgentMode, AgentModel } from '../api/types';
 import { ModelBadge, modelLabel } from '../workspace/ModelBadge';
+import { AgentContextUsageContext } from './AgentRuntimeProvider';
+import { ContextUsageRing } from './ContextUsageRing';
 
 const MODE_OPTIONS: Array<{ id: AgentMode; label: string; hint: string }> = [
   { id: 'auto', label: '自动', hint: '按话术选择工作方式' },
@@ -129,6 +131,10 @@ function Composer({
   onModelChange(model: AgentModel): void;
   landing?: boolean;
 }) {
+  const latestContextUsage = useContext(AgentContextUsageContext);
+  const contextWindow = latestContextUsage?.contextWindow ?? model?.contextWindow ?? 256_000;
+  const usedTokens = latestContextUsage?.usedTokens ?? 0;
+
   return (
     <div className="composer-wrap">
       <ComposerPrimitive.Root className="composer">
@@ -148,6 +154,7 @@ function Composer({
             <ModelMenu model={model} models={models} onChange={onModelChange} />
           </div>
           <div className="composer-tools right">
+            <ContextUsageRing usedTokens={usedTokens} contextWindow={contextWindow} />
             <button type="button" aria-label="语音输入（即将支持）" title="等待语音协议支持" disabled>
               <Mic />
             </button>
@@ -161,7 +168,7 @@ function Composer({
 }
 
 function ModeMenu({ mode, onChange }: { mode: AgentMode; onChange(mode: AgentMode): void }) {
-  const current = MODE_OPTIONS.find((item) => item.id === mode) ?? MODE_OPTIONS[0];
+  const current = MODE_OPTIONS.find((item) => item.id === mode) ?? MODE_OPTIONS[0]!;
   return (
     <Dropdown
       label={current.label}

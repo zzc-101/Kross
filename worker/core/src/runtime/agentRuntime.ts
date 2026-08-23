@@ -697,6 +697,7 @@ export class AgentRuntime extends EventEmitter {
     ratio: number;
     headerLabel: string;
     headerRatio: number;
+    contextWindow: number;
   } {
     const snapshot = this.inspectContext({
       requestedMode: input.requestedMode,
@@ -717,7 +718,8 @@ export class AgentRuntime extends EventEmitter {
       label: formatContextUsage(usedTokens, maxTokens),
       ratio: usedTokens / Math.max(1, compactThreshold),
       headerLabel: formatContextUsage(usedTokens, contextWindow),
-      headerRatio: usedTokens / Math.max(1, contextWindow)
+      headerRatio: usedTokens / Math.max(1, contextWindow),
+      contextWindow
     };
   }
 

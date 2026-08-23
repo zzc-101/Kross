@@ -64,10 +64,11 @@ const agentModelSchema: z.ZodType<AgentModel> = z.object({
   id,
   name: id,
   provider: id,
-  model: id
+  model: id,
+  contextWindow: z.number().int().positive()
 });
 
-const conversationSchema = z.object({
+const conversationSchema: z.ZodType<Conversation, z.ZodTypeDef, unknown> = z.object({
   id,
   title: z.string().min(1),
   mode: z.enum(['auto', 'plan', 'conductor']).default('auto'),
@@ -97,7 +98,26 @@ const partSchema: z.ZodType<MessagePart> = z.union([
   })
 ]);
 
-const messageSchema: z.ZodType<AgentMessage> = z.object({
+const contextUsageSchema = z.preprocess(
+  (value) => {
+    if (value == null) return undefined;
+    if (
+      typeof value === 'object'
+      && !Array.isArray(value)
+      && Object.keys(value as Record<string, unknown>).length === 0
+    ) {
+      return undefined;
+    }
+    return value;
+  },
+  z.object({
+    usedTokens: z.number().int().nonnegative(),
+    contextWindow: z.number().int().positive(),
+    ratio: z.number().nonnegative()
+  }).optional()
+);
+
+const messageSchema: z.ZodType<AgentMessage, z.ZodTypeDef, unknown> = z.object({
   id,
   conversationId: id,
   role: z.enum(['user', 'agent', 'system']),
@@ -105,6 +125,7 @@ const messageSchema: z.ZodType<AgentMessage> = z.object({
   parts: z.array(partSchema).optional(),
   status: z.enum(['queued', 'processing', 'done', 'failed']),
   errorSummary: z.string().optional(),
+  contextUsage: contextUsageSchema,
   createdAt: instant
 });
 
@@ -118,7 +139,7 @@ const workspaceListingSchema: z.ZodType<WorkspaceListing> = z.object({
   }))
 });
 
-const gitStatusSchema: z.ZodType<GitStatus> = z.object({
+const gitStatusSchema: z.ZodType<GitStatus, z.ZodTypeDef, unknown> = z.object({
   path: z.string().min(1),
   repository: z.boolean(),
   branch: z.string().min(1).optional(),
@@ -141,7 +162,11 @@ const skillSchema: z.ZodType<Skill> = z.object({
   content: z.string()
 });
 
-const mcpConfigSchema = z.object({
+const mcpConfigSchema: z.ZodType<
+  { servers: Record<string, Record<string, unknown>> },
+  z.ZodTypeDef,
+  unknown
+> = z.object({
   servers: z.record(z.record(z.unknown())).default({})
 });
 
@@ -400,7 +425,7 @@ export class AgentApiClient {
     }
   }
 
-  private async request<T>(path: string, schema: z.ZodType<T>, init: {
+  private async request<T, Input = T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, Input>, init: {
     method?: string;
     body?: unknown;
     organization?: boolean;

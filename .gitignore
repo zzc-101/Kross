@@ -6,6 +6,7 @@ backend/target/
 node/kross-node
 node/kross-node.exe
 coverage/
+frontend/admin-web/.design-qa/
 .DS_Store
 __pycache__/
 *.py[cod]

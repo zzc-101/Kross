@@ -11,7 +11,12 @@ public final class AgentViews {
   public static AgentModelView model(AgentModel row) {
     return row == null
         ? null
-        : new AgentModelView(row.getId(), row.getName(), row.getProvider(), row.getModel());
+        : new AgentModelView(
+            row.getId(),
+            row.getName(),
+            row.getProvider(),
+            row.getModel(),
+            row.getConfiguration().path("contextWindow").asInt(256_000));
   }
 
   public static ConversationView conversation(AgentConversation row) {
@@ -32,6 +37,9 @@ public final class AgentViews {
         row.getRole(),
         row.getContent(),
         row.getParts(),
+        row.getContextUsage() != null && row.getContextUsage().isObject() && row.getContextUsage().isEmpty()
+            ? null
+            : row.getContextUsage(),
         row.getStatus(),
         row.getErrorSummary(),
         row.getCreatedAt());

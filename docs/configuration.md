@@ -6,12 +6,12 @@ Worker 容器的 `/work`。`main` 上的本地 TUI 仍使用 `~/.kross`；不要
 
 安装与基础设施变量见 [Cloud Agent 部署与运维](cloud-agent-deployment.md)。
 
-## 组织模型
+## 平台模型
 
-组织管理员在管理中心登记模型档案：显示名、Provider、模型 ID、API Key、可选
-Base URL。密钥用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后入库，接口不回显明文。
-Worker 领取任务时，控制面把当前可用模型下发为进程环境变量。会话只保存模型配置
-引用，不复制 API Key。
+超级管理员在管理中心统一登记模型档案：显示名、Provider、模型 ID、上下文长度、
+API Key、可选 Base URL。模型档案不隶属于组织，所有组织共享已启用的模型。密钥用
+`KROSS_CREDENTIAL_MASTER_KEY` 加密后入库，接口不回显明文。Worker 领取任务时，
+控制面把当前可用模型下发为进程环境变量。会话只保存模型配置引用，不复制 API Key。
 
 未配置可用模型时，工作台可以打开，但 Worker 无法产生真实回复。
 
@@ -116,10 +116,10 @@ Cloud 上这份配置同样不随 `/work` 持久化。需要长期 MCP 时，把
 
 | 数据 | 位置 |
 |---|---|
-| 账号、SSO、组织模型、对话 `parts` | 控制面 PostgreSQL |
+| 账号、SSO、平台模型、对话 `parts` | 控制面 PostgreSQL |
 | 工作区文件、项目 Skills、仓库 | `/work`（volume 或 JuiceFS） |
 | 产物对象 | MinIO / S3 |
 | mutation journal、trace、个人 Skills、MCP | Worker `$HOME/.kross`，默认不随工作区卷备份 |
 
 子代理 `Task` 若指定 `modelProfileId`，只在 Worker 进程内已加载的模型档案中解析；
-Cloud 默认下发的是当前组织模型环境，未指定时子代理继承主模型。
+Cloud 默认下发的是会话选中的平台模型环境，未指定时子代理继承主模型。

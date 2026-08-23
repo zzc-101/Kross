@@ -116,9 +116,12 @@ describe('traceSummary', () => {
           aborted: 0,
           rateLimited: 0,
           durationMs: 0,
+          inputTokens: 0,
+          outputTokens: 0,
           totalTokens: 0,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          reasoningTokens: 0,
           estimatedCostUsd: 0,
           pricedCalls: 0
         },
@@ -208,8 +211,11 @@ describe('traceSummary', () => {
             durationMs: 800,
             rateLimited: false,
             usage: {
+              inputTokens: 900,
+              outputTokens: 300,
               totalTokens: 1200,
               cacheReadTokens: 300,
+              reasoningTokens: 50,
               estimatedCostUsd: 0.004
             }
           }
@@ -239,9 +245,12 @@ describe('traceSummary', () => {
       aborted: 0,
       rateLimited: 1,
       durationMs: 1000,
+      inputTokens: 900,
+      outputTokens: 300,
       totalTokens: 1200,
       cacheReadTokens: 300,
       cacheWriteTokens: 0,
+      reasoningTokens: 50,
       estimatedCostUsd: 0.004,
       pricedCalls: 1,
       lastErrorCategory: 'rate-limit'

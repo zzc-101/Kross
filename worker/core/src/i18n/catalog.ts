@@ -209,10 +209,6 @@ export const zhCatalog = {
   'session.empty': '当前工作区还没有可恢复的历史会话。',
   'session.notFound': '未找到唯一匹配的会话：{target}',
   'session.resumeFailed': '恢复会话失败',
-  'session.storeInitNodeMismatch':
-    '会话存储初始化失败：better-sqlite3 与当前 Node.js {version}{abi} 不兼容。',
-  'session.storeInitNodeHint':
-    'Kross 要求 Node.js >=22.19；请执行 `nvm use` 后运行 `npm rebuild better-sqlite3`。',
   'session.storeInitNoPersist': '当前内容不会保存。',
   'session.storeInitGeneric': '会话存储初始化失败，当前内容不会保存：{detail}',
   'session.errorDetail': '{prefix}：{detail}',
@@ -522,10 +518,6 @@ export const enCatalog: Record<MessageKey, string> = {
   'session.empty': 'No resumable sessions in this workspace yet.',
   'session.notFound': 'No unique session match for: {target}',
   'session.resumeFailed': 'Failed to resume session',
-  'session.storeInitNodeMismatch':
-    'Session store init failed: better-sqlite3 is incompatible with Node.js {version}{abi}.',
-  'session.storeInitNodeHint':
-    'Kross requires Node.js >=22.19; run `nvm use` then `npm rebuild better-sqlite3`.',
   'session.storeInitNoPersist': 'Current content will not be saved.',
   'session.storeInitGeneric':
     'Session store init failed; current content will not be saved: {detail}',

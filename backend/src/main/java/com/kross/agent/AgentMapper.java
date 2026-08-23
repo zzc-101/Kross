@@ -83,12 +83,11 @@ public interface AgentMapper {
 
   Optional<AgentSession> authenticateToken(@Param("tokenHash") String tokenHash);
 
-  Optional<AgentModel> findUsableModel(@Param("organizationId") String organizationId);
+  Optional<AgentModel> findUsableModel();
 
-  List<AgentModel> listUsableModels(@Param("organizationId") String organizationId);
+  List<AgentModel> listUsableModels();
 
-  Optional<AgentModel> findUsableModelById(
-      @Param("organizationId") String organizationId, @Param("id") String id);
+  Optional<AgentModel> findUsableModelById(@Param("id") String id);
 
   boolean hasProcessing(@Param("agentId") String agentId);
 

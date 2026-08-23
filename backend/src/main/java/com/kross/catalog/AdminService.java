@@ -1,6 +1,8 @@
 package com.kross.catalog;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.kross.agent.AgentService;
 import com.kross.agent.entity.AgentRuntimeRow;
 import com.kross.agent.entity.UsageCounts;
@@ -11,9 +13,11 @@ import com.kross.catalog.dto.CatalogViews;
 import com.kross.catalog.dto.CreateModelRequest;
 import com.kross.catalog.dto.ModelProfileView;
 import com.kross.catalog.dto.UpdateModelRequest;
+import com.kross.catalog.dto.TokenUsageView;
 import com.kross.catalog.entity.AuditEvent;
 import com.kross.catalog.entity.CredentialHandle;
 import com.kross.catalog.entity.ModelProfile;
+import com.kross.catalog.entity.TokenUsageTotals;
 import com.kross.channel.AgentSocketHub;
 import com.kross.fleet.WorkerNode;
 import com.kross.fleet.WorkerNodeMapper;
@@ -264,30 +268,32 @@ public class AdminService {
     return getPolicy(organizationId);
   }
 
-  public PageResponse<ModelProfileView> listModels(String organizationId, int page, int pageSize) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.MODEL_PROFILE_MANAGE);
-    List<ModelProfile> rows = catalog.listModels(context.organizationId(), pageSize, (page - 1) * pageSize);
+  public PageResponse<ModelProfileView> listModels(int page, int pageSize) {
+    auth.requireSuperAdmin();
+    int size = Math.min(Math.max(pageSize, 1), 100);
+    int normalizedPage = Math.max(page, 1);
+    List<ModelProfile> rows = catalog.listModels(size, (normalizedPage - 1) * size);
     int total = rows.isEmpty() ? 0 : Optional.ofNullable(rows.getFirst().getTotal()).orElse(0);
-    return new PageResponse<>(rows.stream().map(CatalogViews::model).toList(), page, pageSize, total);
+    return new PageResponse<>(rows.stream().map(CatalogViews::model).toList(), normalizedPage, size, total);
   }
 
   @Transactional
-  public ModelProfileView createModel(String organizationId, CreateModelRequest request) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.MODEL_PROFILE_MANAGE);
+  public ModelProfileView createModel(CreateModelRequest request) {
+    auth.requireSuperAdmin();
+    String userId = access.currentIdentity().userId();
     String credentialId = request.credentialHandleId();
     Instant now = Instant.now();
     if (request.apiKey() != null && !request.apiKey().isBlank()) {
       credentialId = UUID.randomUUID().toString();
       catalog.insertCredential(new CredentialHandle(
           credentialId,
-          context.organizationId(),
           required(request.name(), "name") + " credential",
           required(request.provider(), "provider"),
           "local:" + credentialId,
           mapper.createObjectNode(),
           vault.encrypt(request.apiKey(), Optional.ofNullable(request.baseUrl())),
           "active",
-          context.userId(),
+          userId,
           now,
           now,
           1));
@@ -295,38 +301,89 @@ public class AdminService {
     String id = UUID.randomUUID().toString();
     catalog.insertModel(new ModelProfile(
         id,
-        context.organizationId(),
         required(request.name(), "name"),
         required(request.provider(), "provider"),
         required(request.model(), "model"),
         credentialId,
-        Optional.ofNullable(request.configuration()).orElseGet(mapper::createObjectNode),
+        configurationWithContextWindow(request.configuration(), request.contextWindow(), 256_000),
         "active",
-        context.userId(),
+        userId,
         now,
         now,
         1));
-    return catalog.listModels(context.organizationId(), 1, 0).stream()
-        .filter(row -> id.equals(row.getId()))
-        .findFirst()
+    return catalog.findModel(id)
         .map(CatalogViews::model)
         .orElseThrow();
   }
 
   @Transactional
-  public ModelProfileView updateModel(String organizationId, String modelId, UpdateModelRequest request) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.MODEL_PROFILE_MANAGE);
-    ModelProfile row = catalog.findModel(context.organizationId(), modelId)
+  public ModelProfileView updateModel(String modelId, UpdateModelRequest request) {
+    auth.requireSuperAdmin();
+    ModelProfile row = catalog.findModel(modelId)
         .orElseThrow(() -> ApiException.notFound("Model"));
-    String status = Optional.ofNullable(request.status()).orElse("").trim();
-    if (!List.of("active", "disabled").contains(status)) {
-      throw ApiException.invalidRequest("status must be active or disabled");
+    if (request.status() != null) {
+      String status = request.status().trim();
+      if (!List.of("active", "disabled").contains(status)) {
+        throw ApiException.invalidRequest("status must be active or disabled");
+      }
+      row.setStatus(status);
     }
-    row.setStatus(status);
+    Optional.ofNullable(request.name()).map(String::trim).filter(value -> !value.isBlank()).ifPresent(row::setName);
+    Optional.ofNullable(request.provider()).map(String::trim).filter(value -> !value.isBlank()).ifPresent(row::setProvider);
+    Optional.ofNullable(request.model()).map(String::trim).filter(value -> !value.isBlank()).ifPresent(row::setModel);
+    if (request.configuration() != null || request.contextWindow() != null) {
+      row.setConfiguration(configurationWithContextWindow(
+          Optional.ofNullable(request.configuration()).orElse(row.getConfiguration()),
+          request.contextWindow(),
+          row.getConfiguration().path("contextWindow").asInt(256_000)));
+    }
+    if (request.apiKey() != null && !request.apiKey().isBlank()) {
+      String credentialId = UUID.randomUUID().toString();
+      Instant now = Instant.now();
+      catalog.insertCredential(new CredentialHandle(
+          credentialId,
+          row.getName() + " credential",
+          row.getProvider(),
+          "local:" + credentialId,
+          mapper.createObjectNode(),
+          vault.encrypt(request.apiKey(), Optional.ofNullable(request.baseUrl())),
+          "active",
+          access.currentIdentity().userId(),
+          now,
+          now,
+          1));
+      row.setCredentialHandleId(credentialId);
+    }
     catalog.updateModel(row);
-    return catalog.findModel(context.organizationId(), modelId)
+    return catalog.findModel(modelId)
         .map(CatalogViews::model)
         .orElseThrow();
+  }
+
+  @Transactional
+  public void deleteModel(String modelId) {
+    auth.requireSuperAdmin();
+    ModelProfile row = catalog.findModel(modelId)
+        .orElseThrow(() -> ApiException.notFound("Model"));
+    if (catalog.deleteModel(row.getId()) == 0) {
+      throw ApiException.notFound("Model");
+    }
+  }
+
+  public TokenUsageView tokenUsage(int requestedDays) {
+    auth.requireSuperAdmin();
+    int days = Math.min(Math.max(requestedDays, 1), 365);
+    TokenUsageTotals usage = catalog.tokenUsage(days);
+    return new TokenUsageView(
+        days,
+        usage.getInputTokens(),
+        usage.getOutputTokens(),
+        usage.getTotalTokens(),
+        usage.getCacheReadTokens(),
+        usage.getCacheWriteTokens(),
+        usage.getReasoningTokens(),
+        usage.getLlmCalls(),
+        Optional.ofNullable(usage.getEstimatedCostUsd()).orElse(java.math.BigDecimal.ZERO));
   }
 
   public PageResponse<AuditEventView> listAudit(
@@ -343,5 +400,17 @@ public class AdminService {
       throw ApiException.invalidRequest("Missing " + field);
     }
     return value.trim();
+  }
+
+  private ObjectNode configurationWithContextWindow(JsonNode source, Integer requested, int fallback) {
+    int contextWindow = Optional.ofNullable(requested).orElse(fallback);
+    if (contextWindow < 4_096 || contextWindow > 2_000_000) {
+      throw ApiException.invalidRequest("contextWindow must be between 4096 and 2000000");
+    }
+    ObjectNode configuration = source != null && source.isObject()
+        ? (ObjectNode) source.deepCopy()
+        : mapper.createObjectNode();
+    configuration.put("contextWindow", contextWindow);
+    return configuration;
   }
 }

@@ -49,6 +49,7 @@ export interface AgentModel {
   name: string;
   provider: string;
   model: string;
+  contextWindow: number;
 }
 
 export type AgentMode = 'auto' | 'plan' | 'conductor';
@@ -90,6 +91,11 @@ export interface AgentMessage {
   parts?: MessagePart[];
   status: MessageStatus;
   errorSummary?: string;
+  contextUsage?: {
+    usedTokens: number;
+    contextWindow: number;
+    ratio: number;
+  };
   createdAt: string;
 }
 

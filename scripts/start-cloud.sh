@@ -79,6 +79,18 @@ ensure_env() {
   ensure_secret KROSS_NODE_TOKEN
 }
 
+validate_single_node_env() {
+  runtime=$(read_env_value KROSS_WORKER_RUNTIME)
+  storage=$(read_env_value KROSS_WORKER_STORAGE)
+  if [ -z "$runtime" ]; then runtime=local; fi
+  if [ -z "$storage" ]; then storage=local; fi
+  if [ "$runtime" != "local" ] || [ "$storage" != "local" ]; then
+    echo "错误：start-cloud.sh 启动的是单机 Compose，但 .env 当前为 KROSS_WORKER_RUNTIME=$runtime、KROSS_WORKER_STORAGE=$storage。" >&2
+    echo "请改为 KROSS_WORKER_RUNTIME=local、KROSS_WORKER_STORAGE=local；多节点 JuiceFS 集群请按集群部署文档启动控制面与 kross-node。" >&2
+    exit 1
+  fi
+}
+
 wait_for_web() {
   port=$(read_env_value KROSS_PORT)
   if [ -z "$port" ]; then port=8787; fi
@@ -101,6 +113,7 @@ case "$command" in
   start | --no-build)
     require_docker
     ensure_env
+    validate_single_node_env
     cd "$PROJECT_DIR"
     if [ "$command" = "start" ]; then
       echo "正在构建用户端、管理端、Java 控制面和 Worker 镜像……"
@@ -130,6 +143,7 @@ case "$command" in
   --migrate | --migrate-apply)
     require_docker
     ensure_env
+    validate_single_node_env
     cd "$PROJECT_DIR"
     docker compose up -d postgres minio
     docker compose up -d --force-recreate --no-deps server

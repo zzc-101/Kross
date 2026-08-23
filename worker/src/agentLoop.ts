@@ -10,7 +10,12 @@ import { createWorkerLogger } from './logger';
 import { extractMemories } from './memoryExtract';
 import { writeMemoryFiles } from './memoryFiles';
 import { createPersonalAgentProfile } from './runtime/workExecutionProfile';
-import type { AgentControlTransport, AgentStreamEvent } from './transport';
+import type {
+  AgentContextUsage,
+  AgentControlTransport,
+  AgentStreamEvent,
+  AgentTokenUsage
+} from './transport';
 import { handleWorkspaceCommand, writeMcpConfig } from './workspaceCommands';
 
 const TOOL_CLIP_CHARS = 8_000;
@@ -50,7 +55,11 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   });
   const registered = await options.transport.register();
   log.info('Worker registered', { idleMs: registered.idleMs });
-  const settings = await options.transport.fetchSettings().catch(() => ({ mcpServers: {} }));
+  const settings = await options.transport.fetchSettings().catch((): {
+    mcpServers: Record<string, unknown>;
+    userMarkdown?: string;
+    memoryMarkdown?: string;
+  } => ({ mcpServers: {} }));
   await writeMcpConfig(options.workspaceRoot, settings.mcpServers);
   await writeMemoryFiles(options.workspaceRoot, settings.userMarkdown, settings.memoryMarkdown);
   const box: { host?: AgentHostHandle } = {};
@@ -120,6 +129,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
           content: reply.content,
           status: reply.status,
           parts: reply.parts,
+          ...(reply.usage ? { usage: reply.usage } : {}),
+          ...(reply.contextUsage ? { contextUsage: reply.contextUsage } : {}),
           ...(reply.errorSummary ? { errorSummary: reply.errorSummary } : {})
         });
         log.info('Finished conversation job', {
@@ -156,6 +167,8 @@ async function runTurn(
   status: 'done' | 'failed';
   errorSummary?: string;
   parts: MessagePart[];
+  usage?: AgentTokenUsage;
+  contextUsage?: AgentContextUsage;
 }> {
   const parts: MessagePart[] = [];
   const emit = async (event: AgentStreamEvent) => {
@@ -247,13 +260,47 @@ async function runTurn(
     };
   }
   if (result.status === 'completed' || result.status === 'cancelled') {
-    return { content: (result.summary || text).trim(), status: 'done', parts };
+    return {
+      content: (result.summary || text).trim(),
+      status: 'done',
+      parts,
+      usage: await readUsage(host, result.runId),
+      contextUsage: readContextUsage(host, requestedMode)
+    };
   }
   return {
     content: (result.summary || text).trim(),
     status: 'failed',
     errorSummary: result.summary || 'Agent turn failed',
-    parts
+    parts,
+    usage: await readUsage(host, result.runId),
+    contextUsage: readContextUsage(host, requestedMode)
+  };
+}
+
+function readContextUsage(host: AgentHostHandle, requestedMode: AgentMode): AgentContextUsage {
+  const usage = host.runtime.getContextUsage({ requestedMode });
+  return {
+    usedTokens: usage.usedTokens,
+    contextWindow: usage.contextWindow,
+    ratio: usage.headerRatio
+  };
+}
+
+async function readUsage(host: AgentHostHandle, runId: string): Promise<AgentTokenUsage | undefined> {
+  const trace = await host.runtime.inspectTrace(runId).catch(() => null);
+  if (!trace || trace.llmStats.calls === 0) return undefined;
+  const usage = trace.llmStats;
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+    cacheReadTokens: usage.cacheReadTokens,
+    cacheWriteTokens: usage.cacheWriteTokens,
+    reasoningTokens: usage.reasoningTokens,
+    estimatedCostUsd: usage.estimatedCostUsd,
+    llmCalls: usage.calls,
+    durationMs: usage.durationMs
   };
 }
 

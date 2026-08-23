@@ -20,6 +20,8 @@ public class AgentMessage {
   private String role;
   private String content;
   private JsonNode parts;
+  private JsonNode usage;
+  private JsonNode contextUsage;
   private String status;
   private String errorSummary;
   private String createdBy;
