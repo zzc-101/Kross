@@ -57,6 +57,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -90,6 +92,7 @@ public class AgentService {
   private final PlatformTransactionManager transactionManager;
   private final AgentMemoryService memories;
   private final SkillCatalogService skills;
+  private final ConcurrentHashMap<String, ReentrantLock> runtimeLocks = new ConcurrentHashMap<>();
 
   public AgentModelView currentModel(String organizationId) {
     access.require(organizationId, OrganizationAction.AGENT_READ);
@@ -747,7 +750,7 @@ public class AgentService {
       return agents.findByUser(organizationId, userId)
           .orElseThrow(() -> ApiException.conflict("agent_create_race", "Agent creation raced"));
     }
-    containers.ensureVolume(id);
+    withRuntimeLock(id, () -> containers.ensureVolume(id));
     insertConversation(organizationId, row, DEFAULT_TITLE, null);
     return row;
   }
@@ -906,6 +909,10 @@ public class AgentService {
   }
 
   private void wake(Agent agent) {
+    withRuntimeLock(agent.getId(), () -> wakeLocked(agent));
+  }
+
+  private void wakeLocked(Agent agent) {
     RequestLogContext.bindAgent(agent);
     Optional<ContainerBackend.BackendInspection> inspection = containers.inspect(agent.getId());
     if (inspection.filter(state -> "running".equals(state.state())).isPresent()) {
@@ -952,11 +959,23 @@ public class AgentService {
   }
 
   private void sleep(Agent agent) {
-    containers.stop(agent.getId());
-    agents.revokeTokens(agent.getId());
-    agent.setStatus("stopped");
-    agent.setLastError(null);
-    agents.updateRuntime(agent);
+    withRuntimeLock(agent.getId(), () -> {
+      containers.stop(agent.getId());
+      agents.revokeTokens(agent.getId());
+      agent.setStatus("stopped");
+      agent.setLastError(null);
+      agents.updateRuntime(agent);
+    });
+  }
+
+  private void withRuntimeLock(String agentId, Runnable action) {
+    ReentrantLock lock = runtimeLocks.computeIfAbsent(agentId, ignored -> new ReentrantLock());
+    lock.lock();
+    try {
+      action.run();
+    } finally {
+      lock.unlock();
+    }
   }
 
   private String issueToken(Agent agent) {

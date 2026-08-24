@@ -37,12 +37,16 @@ public class NodeFleetBackend implements ContainerBackend {
     String nodeId = pickNode(request.agentId());
     RequestLogContext.put(RequestLogContext.NODE_ID, nodeId);
     log.info("Dispatching agent start to node");
-    previous.filter(id -> !id.equals(nodeId)).filter(hub::isOnline).ifPresent(oldNode -> {
-      try {
-        hub.request(oldNode, new NodeProtocol.StopCommand(UUID.randomUUID().toString(), request.agentId()));
-      } catch (RuntimeException ignored) {
-        // best-effort stop on the previous node before the workspace floats
+    previous.filter(id -> !id.equals(nodeId)).ifPresent(oldNode -> {
+      if (!hub.isOnline(oldNode)) {
+        throw new ApiException(
+            "agent_fencing_required",
+            "Previous worker node is offline; refusing to start a second workspace instance",
+            503);
       }
+      NodeProtocol.Result stopped = hub.request(
+          oldNode, new NodeProtocol.StopCommand(UUID.randomUUID().toString(), request.agentId()));
+      requireOk(stopped);
     });
     NodeProtocol.Result result = hub.request(nodeId, NodeProtocol.StartCommand.of(UUID.randomUUID().toString(), request));
     requireOk(result);

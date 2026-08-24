@@ -63,7 +63,7 @@ public class NodeWebSocketHandler extends TextWebSocketHandler {
           }
           hub.heartbeat(nodeId, heartbeat.juicefsOk(), heartbeat.runningAgents());
         }
-        case "node.result" -> hub.complete(mapper.treeToValue(root, NodeProtocol.Result.class));
+        case "node.result" -> hub.complete(nodeId, mapper.treeToValue(root, NodeProtocol.Result.class));
         default -> log.warn("Unknown node websocket type {}", type);
       }
     }

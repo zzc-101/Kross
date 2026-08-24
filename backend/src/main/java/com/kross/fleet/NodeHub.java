@@ -29,7 +29,7 @@ public class NodeHub {
   private final WorkerNodeMapper nodes;
   private final ConcurrentHashMap<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, String> sessionToNode = new ConcurrentHashMap<>();
-  private final ConcurrentHashMap<String, CompletableFuture<NodeProtocol.Result>> pending = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, PendingRequest> pending = new ConcurrentHashMap<>();
 
   public NodeHub(ObjectMapper mapper, WorkerNodeMapper nodes) {
     this.mapper = mapper;
@@ -80,7 +80,9 @@ public class NodeHub {
     if (nodeId == null) {
       return;
     }
-    sessions.remove(nodeId, session);
+    if (!sessions.remove(nodeId, session)) {
+      return;
+    }
     nodes.markOffline(nodeId);
     RequestLogContext.put(RequestLogContext.NODE_ID, nodeId);
     log.info("Node disconnected");
@@ -117,7 +119,7 @@ public class NodeHub {
       default -> UUID.randomUUID().toString();
     };
     CompletableFuture<NodeProtocol.Result> future = new CompletableFuture<>();
-    pending.put(requestId, future);
+    pending.put(requestId, new PendingRequest(nodeId, future));
     try {
       send(nodeId, payload);
       return future.get(60, TimeUnit.SECONDS);
@@ -132,8 +134,10 @@ public class NodeHub {
     }
   }
 
-  public void complete(NodeProtocol.Result result) {
-    Optional.ofNullable(pending.get(result.requestId())).ifPresent(future -> future.complete(result));
+  public void complete(String nodeId, NodeProtocol.Result result) {
+    Optional.ofNullable(pending.get(result.requestId()))
+        .filter(request -> request.nodeId().equals(nodeId))
+        .ifPresent(request -> request.future().complete(result));
   }
 
   public void markStaleOffline() {
@@ -157,4 +161,6 @@ public class NodeHub {
       throw new ApiException("node_unavailable", "Worker node is unreachable", 503);
     }
   }
+
+  private record PendingRequest(String nodeId, CompletableFuture<NodeProtocol.Result> future) {}
 }
