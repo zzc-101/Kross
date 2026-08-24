@@ -44,6 +44,37 @@ export interface StdioJsonRpcClientOptions {
   spawnImpl?: typeof spawn;
 }
 
+const INHERITED_ENV_NAMES = [
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'NO_COLOR',
+  'PATH',
+  'SHELL',
+  'SYSTEMROOT',
+  'TEMP',
+  'TMP',
+  'TMPDIR',
+  'USERPROFILE'
+] as const;
+
+/** Build a minimal subprocess environment without leaking model credentials. */
+export function buildStdioProcessEnv(
+  inherited: NodeJS.ProcessEnv = process.env,
+  configured: Record<string, string | undefined> = {}
+): NodeJS.ProcessEnv {
+  const safe: NodeJS.ProcessEnv = {};
+  for (const name of INHERITED_ENV_NAMES) {
+    const value = inherited[name];
+    if (value !== undefined) safe[name] = value;
+  }
+  for (const [name, value] of Object.entries(configured)) {
+    if (value !== undefined) safe[name] = value;
+  }
+  return safe;
+}
+
 /**
  * Minimal MCP-compatible stdio JSON-RPC client.
  * Framing: `Content-Length: N\r\n\r\n<body>` (same as MCP TypeScript SDK).
@@ -87,10 +118,7 @@ export class StdioJsonRpcClient extends EventEmitter implements McpTransport {
     }
     const child = this.spawnImpl(this.options.command, this.options.args ?? [], {
       cwd: this.options.cwd,
-      env: {
-        ...process.env,
-        ...this.options.env
-      },
+      env: buildStdioProcessEnv(process.env, this.options.env),
       stdio: ['pipe', 'pipe', 'pipe']
     }) as ChildProcessWithoutNullStreams;
 

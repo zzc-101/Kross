@@ -6,6 +6,7 @@ import type { AgentMode } from '../core/src/domain';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
 import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFactory';
+import { ConversationRuntimeRegistry } from './conversationRuntimeRegistry';
 import { createWorkerLogger } from './logger';
 import { extractMemories } from './memoryExtract';
 import { writeMemoryFiles } from './memoryFiles';
@@ -26,6 +27,7 @@ export interface AgentLoopOptions {
   transport: AgentControlTransport;
   sleep?: (ms: number) => Promise<void>;
   shouldStop?: () => boolean;
+  signal?: AbortSignal;
 }
 
 type MessagePart =
@@ -62,7 +64,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   } => ({ mcpServers: {} }));
   await writeMcpConfig(options.workspaceRoot, settings.mcpServers);
   await writeMemoryFiles(options.workspaceRoot, settings.userMarkdown, settings.memoryMarkdown);
-  const box: { host?: AgentHostHandle } = {};
+  const runtimes = new ConversationRuntimeRegistry();
   let modelEnv: Record<string, string | undefined> = { ...options.processEnv };
   options.transport.onCommand(async (command) => {
     try {
@@ -71,7 +73,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
       }
       const payload = await handleWorkspaceCommand(options.workspaceRoot, command);
       if (command.name === 'mcp.save') {
-        await box.host?.reloadMcp();
+        await runtimes.reloadMcp();
       }
       return { ok: true, payload };
     } catch (error) {
@@ -80,20 +82,21 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   });
   const minted = await options.transport.mintModelEnvironment();
   modelEnv = { ...options.processEnv, ...minted };
-  let host: AgentHostHandle = await createPersistentAgentHost({
-    workspaceRoot: options.workspaceRoot,
-    env: modelEnv,
-    executionProfile: createPersonalAgentProfile()
-  });
-  box.host = host;
-  let currentModelId: string | undefined;
-  let currentSkillKey = '';
+  const modelEnvironments = new Map<string, Record<string, string | undefined>>([
+    ['', modelEnv]
+  ]);
   const delay = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   let sleeping = false;
+  let inFlightJobs = 0;
   const heartbeats = (async () => {
     while (!options.shouldStop?.() && !sleeping) {
       const heartbeat = await options.transport.heartbeat();
       if (heartbeat.shouldSleep) {
+        if (inFlightJobs > 0) {
+          log.info('Ignoring idle sleep request while a job is in flight', { inFlightJobs });
+          await delay(heartbeat.heartbeatIntervalMs);
+          continue;
+        }
         sleeping = true;
         log.info('Worker sleeping due to idle timeout');
         await options.transport.sleep();
@@ -108,28 +111,38 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
       if (!job) {
         break;
       }
+      inFlightJobs += 1;
       try {
         log.info('Claimed conversation job', { conversationId: job.conversationId, mode: job.mode });
         const nextSkillKey = job.skill ? `${job.skill.id}@${job.skill.revision}` : '';
-        const modelChanged = Boolean(job.modelId && job.modelId !== currentModelId);
-        const skillChanged = nextSkillKey !== currentSkillKey;
-        if (modelChanged) {
+        const modelKey = job.modelId ?? '';
+        const signature = `${modelKey}\u0000${nextSkillKey}`;
+        let jobModelEnv = modelEnvironments.get(modelKey);
+        if (!jobModelEnv) {
           const nextEnv = await options.transport.mintModelEnvironment(job.modelId);
-          modelEnv = { ...options.processEnv, ...nextEnv };
+          jobModelEnv = { ...options.processEnv, ...nextEnv };
+          modelEnvironments.set(modelKey, jobModelEnv);
         }
-        if (modelChanged || skillChanged) {
-          const nextHost = await createPersistentAgentHost({
-            workspaceRoot: options.workspaceRoot,
-            env: modelEnv,
-            executionProfile: createPersonalAgentProfile(job.skill)
-          });
-          await host.close();
-          host = nextHost;
-          box.host = host;
-          currentModelId = job.modelId;
-          currentSkillKey = nextSkillKey;
-        }
-        const reply = await runTurn(host, options.transport, job, formatTurnInput(job.content, job.history), job.mode);
+        modelEnv = jobModelEnv;
+        const host = await runtimes.acquire({
+          conversationId: job.conversationId,
+          signature,
+          history: job.history,
+          create: () =>
+            createPersistentAgentHost({
+              workspaceRoot: options.workspaceRoot,
+              env: jobModelEnv,
+              executionProfile: createPersonalAgentProfile(job.skill)
+            })
+        });
+        const reply = await runTurn(
+          host,
+          options.transport,
+          job,
+          job.content,
+          job.mode,
+          options.signal
+        );
         await options.transport.postReply({
           userMessageId: job.id,
           agentMessageId: job.agentMessageId,
@@ -154,12 +167,14 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
           status: 'failed',
           errorSummary: summary
         });
+      } finally {
+        inFlightJobs -= 1;
       }
     }
   } finally {
     options.transport.close();
     await heartbeats.catch(() => undefined);
-    await host.close();
+    await runtimes.close();
   }
 }
 
@@ -168,7 +183,8 @@ async function runTurn(
   transport: AgentControlTransport,
   job: { id: string; agentMessageId: string },
   input: string,
-  requestedMode: AgentMode
+  requestedMode: AgentMode,
+  signal?: AbortSignal
 ): Promise<{
   content: string;
   status: 'done' | 'failed';
@@ -225,7 +241,7 @@ async function runTurn(
     return streamResult;
   };
 
-  let result = await consume(host.runtime.runStreaming({ input, requestedMode }));
+  let result = await consume(host.runtime.runStreaming({ input, requestedMode, signal }));
   while (result?.status === 'approval-required') {
     const pending = result.pendingApproval;
     if (!pending) {
@@ -254,7 +270,8 @@ async function runTurn(
     result = await consume(host.runtime.resolveToolApprovalStreaming({
       runId: result.runId,
       approved: decision.approved,
-      ...(decision.reason ? { reason: decision.reason } : {})
+      ...(decision.reason ? { reason: decision.reason } : {}),
+      signal
     }));
   }
 
@@ -309,17 +326,6 @@ async function readUsage(host: AgentHostHandle, runId: string): Promise<AgentTok
     llmCalls: usage.calls,
     durationMs: usage.durationMs
   };
-}
-
-function formatTurnInput(
-  content: string,
-  history: Array<{ role: string; content: string }>
-): string {
-  if (history.length === 0) return content;
-  const prior = history
-    .map((turn) => `${turn.role === 'agent' ? 'assistant' : turn.role}: ${turn.content}`)
-    .join('\n\n');
-  return `Conversation so far:\n\n${prior}\n\nCurrent user message:\n${content}`;
 }
 
 function appendText(parts: MessagePart[], text: string): void {

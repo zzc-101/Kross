@@ -140,6 +140,24 @@ describe('additional read-only builtin tools', () => {
     expect(result.summary).toBe('0 commits');
   });
 
+  it('Git rejects option-like revisions, branches, and remotes', async () => {
+    await initializeRepository();
+    const schema = findTool('Git').inputSchema;
+
+    expect(() => schema.parse({
+      action: 'show',
+      revision: '--output=/tmp/kross-git-injection'
+    })).toThrow('不能以 - 开头');
+    expect(() => schema.parse({
+      action: 'checkout',
+      branch: '--detach'
+    })).toThrow('不能以 - 开头');
+    expect(() => schema.parse({
+      action: 'fetch',
+      remote: '--upload-pack=touch /tmp/kross-git-injection'
+    })).toThrow('不能以 - 开头');
+  });
+
   it('Git stages and commits through structured write actions', async () => {
     await initializeRepository();
     await writeFile(join(root, 'note.txt'), 'committed through tool\n');

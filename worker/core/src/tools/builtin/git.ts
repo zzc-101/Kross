@@ -36,6 +36,13 @@ const gitActionSchema = z.enum([
   'push'
 ]);
 
+const gitRefSchema = z
+  .string()
+  .min(1)
+  .refine((value) => !value.startsWith('-'), {
+    message: 'Git revision/branch/remote 不能以 - 开头'
+  });
+
 const gitInputSchema = z.object({
   action: gitActionSchema,
   cwd: z.string().optional(),
@@ -43,11 +50,11 @@ const gitInputSchema = z.object({
   staged: z.boolean().optional(),
   context: z.number().int().min(0).max(20).optional(),
   limit: z.number().int().min(1).max(100).optional(),
-  revision: z.string().min(1).optional(),
+  revision: gitRefSchema.optional(),
   message: z.string().min(1).max(20_000).optional(),
-  branch: z.string().min(1).optional(),
+  branch: gitRefSchema.optional(),
   create: z.boolean().optional(),
-  remote: z.string().min(1).optional(),
+  remote: gitRefSchema.optional(),
   setUpstream: z.boolean().optional(),
   includeUntracked: z.boolean().optional(),
   stashAction: z.enum(['list', 'push', 'pop']).optional()

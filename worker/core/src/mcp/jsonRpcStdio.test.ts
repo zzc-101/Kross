@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
-import { tryReadFramedMessage } from './jsonRpcStdio';
+import { buildStdioProcessEnv, tryReadFramedMessage } from './jsonRpcStdio';
+
+describe('buildStdioProcessEnv', () => {
+  it('inherits only process essentials and explicit server variables', () => {
+    expect(buildStdioProcessEnv(
+      {
+        PATH: '/bin',
+        HOME: '/work',
+        OPENAI_API_KEY: 'must-not-leak',
+        KROSS_AGENT_TOKEN: 'must-not-leak'
+      },
+      { MCP_TOKEN: 'explicit', HOME: '/custom-home' }
+    )).toEqual({
+      PATH: '/bin',
+      HOME: '/custom-home',
+      MCP_TOKEN: 'explicit'
+    });
+  });
+});
 
 describe('tryReadFramedMessage', () => {
   it('parses a single Content-Length framed JSON message', () => {

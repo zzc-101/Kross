@@ -29,8 +29,10 @@ export async function runWorkerMain(env: Record<string, string | undefined> = pr
     controlPlaneUrl: config.controlPlaneUrl
   });
   let stopping = false;
+  const shutdown = new AbortController();
   const onStop = () => {
     stopping = true;
+    shutdown.abort(new Error('Worker is shutting down'));
     transport.close();
   };
   process.once('SIGTERM', onStop);
@@ -40,7 +42,8 @@ export async function runWorkerMain(env: Record<string, string | undefined> = pr
       workspaceRoot: config.physicalWorkRoot,
       processEnv: env,
       transport,
-      shouldStop: () => stopping
+      shouldStop: () => stopping,
+      signal: shutdown.signal
     });
     return 0;
   } finally {

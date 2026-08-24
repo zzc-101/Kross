@@ -235,7 +235,15 @@ export async function runSubagent(
   const childGateway = new ToolGateway({
     traceStore: deps.traceStore,
     defaultTimeoutMs: 120_000,
-    approvalPolicy: () => ({ action: 'allow' }),
+    approvalPolicy: ({ tool }) =>
+      mode === 'explore' || request.role === 'validator'
+        ? tool.risk === 'read' || (request.role === 'validator' && tool.name === 'Verify')
+          ? { action: 'allow' }
+          : {
+              action: 'deny',
+              reason: `${request.role ?? 'explore'} 子代理只允许只读工具调用`
+            }
+        : { action: 'allow' },
     tracePayloadExtras: {
       isSubagent: true,
       subRunId,

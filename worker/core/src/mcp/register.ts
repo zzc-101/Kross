@@ -535,10 +535,7 @@ function createConfiguredClient(
   return new McpStdioClient({
     command: config.command,
     args: config.args,
-    env: {
-      ...options.env,
-      ...config.env
-    },
+    env: config.env,
     cwd: config.cwd ?? options.workspaceRoot,
     requestTimeoutMs: config.connectTimeoutMs ?? 12_000
   });

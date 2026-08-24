@@ -13,6 +13,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -22,10 +24,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class IdentityFilter extends OncePerRequestFilter {
   private final KrossProperties properties;
   private final AuthService auth;
+  private final Environment environment;
 
-  public IdentityFilter(KrossProperties properties, AuthService auth) {
+  public IdentityFilter(KrossProperties properties, AuthService auth, Environment environment) {
     this.properties = properties;
     this.auth = auth;
+    this.environment = environment;
   }
 
   @Override
@@ -49,7 +53,8 @@ public class IdentityFilter extends OncePerRequestFilter {
   }
 
   private Optional<Identity> developmentIdentity(HttpServletRequest request) {
-    if (!properties.isDevIdentityEnabled()) {
+    if (!properties.isDevIdentityEnabled()
+        || !environment.acceptsProfiles(Profiles.of("dev"))) {
       return Optional.empty();
     }
     String userId = Optional.ofNullable(request.getHeader("x-kross-user-id")).orElse("");

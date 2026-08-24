@@ -21,6 +21,10 @@ interface RunTraceDetail {
 }
 
 export interface AgentRuntimeHandle {
+  restoreConversation(messages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+  }>): unknown;
   runStreaming(input: {
     input: string;
     requestedMode: AgentMode;

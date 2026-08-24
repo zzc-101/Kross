@@ -1,6 +1,11 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, basename } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { spawn } from 'node:child_process';
+
+import {
+  resolveExistingPathWithinWorkspace,
+  resolveWritablePathWithinWorkspace
+} from '../core/src/tools/builtin/paths';
 
 const MAX_LIST_ENTRIES = 400;
 const MAX_READ_BYTES = 256 * 1024;
@@ -49,7 +54,7 @@ export async function handleWorkspaceCommand(
 }
 
 async function listWorkspace(root: string, inputPath: string): Promise<Record<string, unknown>> {
-  const target = resolveWorkPath(root, inputPath);
+  const target = await resolveExistingPathWithinWorkspace(root, inputPath);
   const info = await stat(target);
   if (!info.isDirectory()) {
     throw new Error('Path is not a directory');
@@ -73,7 +78,7 @@ async function listWorkspace(root: string, inputPath: string): Promise<Record<st
 }
 
 async function readWorkspaceFile(root: string, inputPath: string): Promise<Record<string, unknown>> {
-  const target = resolveWorkPath(root, inputPath);
+  const target = await resolveExistingPathWithinWorkspace(root, inputPath);
   const info = await stat(target);
   if (!info.isFile()) {
     throw new Error('Path is not a file');
@@ -93,14 +98,14 @@ async function writeWorkspaceFile(
   if (Buffer.byteLength(content, 'utf8') > MAX_WRITE_BYTES) {
     throw new Error('File content is too large');
   }
-  const target = resolveWorkPath(root, inputPath);
+  const target = await resolveWritablePathWithinWorkspace(root, inputPath);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, content, { encoding: 'utf8', mode: 0o600 });
   return { path: toRelative(root, target) };
 }
 
 async function gitStatus(root: string, inputPath: string): Promise<Record<string, unknown>> {
-  const target = resolveWorkPath(root, inputPath);
+  const target = await resolveExistingPathWithinWorkspace(root, inputPath);
   const repo = await findGitRoot(target, root);
   if (!repo) {
     return { path: toRelative(root, target), repository: false, dirty: false, files: [] };
@@ -131,7 +136,7 @@ async function gitClone(
 ): Promise<Record<string, unknown>> {
   const safeUrl = assertGitUrl(url);
   const relativeDir = directory?.trim() || join('files', repoNameFromUrl(safeUrl));
-  const target = resolveWorkPath(root, relativeDir);
+  const target = await resolveWritablePathWithinWorkspace(root, relativeDir);
   try {
     await stat(target);
     throw new Error('Clone directory already exists');
@@ -147,7 +152,7 @@ async function gitClone(
 }
 
 async function listSkills(root: string): Promise<Record<string, unknown>> {
-  const skillsDir = resolveWorkPath(root, 'skills');
+  const skillsDir = await resolveWritablePathWithinWorkspace(root, 'skills');
   await mkdir(skillsDir, { recursive: true });
   const names = (await readdir(skillsDir)).sort((left, right) => left.localeCompare(right));
   const items: Array<Record<string, unknown>> = [];
@@ -155,7 +160,10 @@ async function listSkills(root: string): Promise<Record<string, unknown>> {
     try {
       const info = await stat(join(skillsDir, id));
       if (!info.isDirectory()) continue;
-      const entry = join(skillsDir, id, 'SKILL.md');
+      const entry = await resolveExistingPathWithinWorkspace(
+        root,
+        join('skills', id, 'SKILL.md')
+      );
       const content = await readFile(entry, 'utf8');
       const meta = parseSkillMarkdown(id, content);
       items.push({ id, ...meta, content });
@@ -179,7 +187,10 @@ async function upsertSkill(root: string, payload: Record<string, unknown>): Prom
     '',
     body.replace(/^\uFEFF/, '')
   ].join('\n');
-  const target = resolveWorkPath(root, join('skills', id, 'SKILL.md'));
+  const target = await resolveWritablePathWithinWorkspace(
+    root,
+    join('skills', id, 'SKILL.md')
+  );
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, content, { encoding: 'utf8', mode: 0o600 });
   return { id, name, description, content };
@@ -187,17 +198,18 @@ async function upsertSkill(root: string, payload: Record<string, unknown>): Prom
 
 async function removeSkill(root: string, id: string): Promise<Record<string, unknown>> {
   const safeId = assertResourceId(id, 'Skill id');
-  const target = resolveWorkPath(root, join('skills', safeId));
+  const target = await resolveWritablePathWithinWorkspace(root, join('skills', safeId));
   await rm(target, { recursive: true, force: true });
   return { id: safeId };
 }
 
 export async function writeMcpConfig(root: string, servers: unknown): Promise<Record<string, unknown>> {
   const map = normalizeMcpServers(servers);
-  const krossHome = join(root, '.kross');
+  const target = await resolveWritablePathWithinWorkspace(root, join('.kross', 'mcp.json'));
+  const krossHome = dirname(target);
   await mkdir(krossHome, { recursive: true });
   await writeFile(
-    join(krossHome, 'mcp.json'),
+    target,
     `${JSON.stringify({ mcpServers: map }, null, 2)}\n`,
     { encoding: 'utf8', mode: 0o600 }
   );
@@ -267,16 +279,6 @@ async function findGitRoot(start: string, workspaceRoot: string): Promise<string
     if (rel.startsWith('..') || isAbsolute(rel)) return undefined;
     current = parent;
   }
-}
-
-function resolveWorkPath(root: string, inputPath: string): string {
-  const trimmed = (inputPath || '.').trim() || '.';
-  const target = resolve(root, trimmed);
-  const rel = relative(root, target);
-  if (rel.startsWith('..') || isAbsolute(rel)) {
-    throw new Error('Path is outside the workspace');
-  }
-  return target;
 }
 
 function toRelative(root: string, target: string): string {

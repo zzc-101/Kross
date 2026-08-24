@@ -1028,7 +1028,7 @@ export class AgentRuntime extends EventEmitter {
             })
           );
           await this.record(runId, 'run.completed', { ...failed });
-          this.sessionContext.abortTurn(message);
+          this.sessionContext.interruptTurn(message);
           return failed;
         },
         onCancelled: async ({ reason, stage }) =>

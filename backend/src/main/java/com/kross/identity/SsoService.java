@@ -144,7 +144,7 @@ public class SsoService {
     String subject = Optional.ofNullable(claims.getSubject()).filter(value -> !value.isBlank())
         .orElseThrow(() -> new ApiException("sso_token_failed", "ID token is missing subject", 401));
     Optional<String> email = AuthCredentials.optionalEmail(stringClaim(claims, "email"))
-        .filter(value -> !Boolean.FALSE.equals(booleanClaim(claims, "email_verified")));
+        .filter(value -> Boolean.TRUE.equals(booleanClaim(claims, "email_verified")));
     String displayName = Optional.ofNullable(stringClaim(claims, "name")).filter(value -> !value.isBlank())
         .or(() -> email)
         .orElse(subject);
