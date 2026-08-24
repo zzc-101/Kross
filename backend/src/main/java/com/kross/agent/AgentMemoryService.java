@@ -27,6 +27,8 @@ import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Slf4j
 @Service
@@ -231,6 +233,20 @@ public class AgentMemoryService {
   }
 
   private void syncFilesQuietly(Agent agent) {
+    Runnable sync = () -> Thread.ofVirtual().start(() -> syncFilesNow(agent));
+    if (TransactionSynchronizationManager.isSynchronizationActive()) {
+      TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+        @Override
+        public void afterCommit() {
+          sync.run();
+        }
+      });
+      return;
+    }
+    sync.run();
+  }
+
+  private void syncFilesNow(Agent agent) {
     try {
       if (sockets.isConnected(agent.getId())) {
         MemoryFiles files = renderFiles(agent.getOrganizationId(), agent.getUserId());

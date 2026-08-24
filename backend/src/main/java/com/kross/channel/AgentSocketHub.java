@@ -16,6 +16,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.ReentrantLock;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -44,7 +45,8 @@ public class AgentSocketHub {
 
   public void attach(String agentId, String token, WebSocketSession session) {
     SocketState state = byAgent.computeIfAbsent(agentId, key -> new SocketState());
-    synchronized (state.lock) {
+    state.lock.lock();
+    try {
       if (state.session != null
           && state.session.isOpen()
           && !state.session.getId().equals(session.getId())) {
@@ -56,6 +58,8 @@ public class AgentSocketHub {
       }
       state.session = session;
       state.token = token;
+    } finally {
+      state.lock.unlock();
     }
     sessionToAgent.put(session.getId(), agentId);
     signalConnected(agentId);
@@ -70,11 +74,14 @@ public class AgentSocketHub {
     if (state == null) {
       return;
     }
-    synchronized (state.lock) {
+    state.lock.lock();
+    try {
       if (state.session != null && state.session.getId().equals(session.getId())) {
         byAgent.remove(agentId, state);
         failPending(agentId, "Agent worker disconnected");
       }
+    } finally {
+      state.lock.unlock();
     }
   }
 
@@ -83,8 +90,11 @@ public class AgentSocketHub {
     if (state == null) {
       return false;
     }
-    synchronized (state.lock) {
+    state.lock.lock();
+    try {
       return state.session != null && state.session.isOpen();
+    } finally {
+      state.lock.unlock();
     }
   }
 
@@ -123,8 +133,11 @@ public class AgentSocketHub {
     if (state == null) {
       return;
     }
-    synchronized (state.lock) {
+    state.lock.lock();
+    try {
       state.busy = false;
+    } finally {
+      state.lock.unlock();
     }
   }
 
@@ -133,22 +146,37 @@ public class AgentSocketHub {
     if (state == null) {
       return;
     }
-    synchronized (state.lock) {
-      if (state.session == null || !state.session.isOpen() || state.busy) {
+    String token;
+    state.lock.lock();
+    try {
+      if (state.session == null || !state.session.isOpen() || state.busy || state.claiming) {
         return;
       }
-      Optional<AgentProtocol.Job> job;
-      try {
-        job = agents.claimIfIdle(state.token);
-      } catch (RuntimeException error) {
-        log.warn("Failed to claim a job for agent {}", agentId, error);
-        return;
-      }
+      state.claiming = true;
+      token = state.token;
+    } finally {
+      state.lock.unlock();
+    }
+    Optional<AgentProtocol.Job> job;
+    try {
+      job = agents.claimIfIdle(token);
+    } catch (RuntimeException error) {
+      log.warn("Failed to claim a job for agent {}", agentId, error);
+      job = Optional.empty();
+    }
+    state.lock.lock();
+    try {
+      state.claiming = false;
       if (job.isEmpty()) {
+        return;
+      }
+      if (state.session == null || !state.session.isOpen() || state.busy) {
         return;
       }
       state.busy = true;
       sendLocked(state, job.get());
+    } finally {
+      state.lock.unlock();
     }
   }
 
@@ -157,8 +185,11 @@ public class AgentSocketHub {
     if (state == null) {
       return;
     }
-    synchronized (state.lock) {
+    state.lock.lock();
+    try {
       sendLocked(state, payload);
+    } finally {
+      state.lock.unlock();
     }
   }
 
@@ -167,13 +198,16 @@ public class AgentSocketHub {
     if (state == null) {
       throw ApiException.conflict("agent_offline", "Agent worker is not connected");
     }
-    synchronized (state.lock) {
+    state.lock.lock();
+    try {
       if (state.session == null || !state.session.isOpen()) {
         throw ApiException.conflict("agent_offline", "Agent worker is not connected");
       }
       if (!sendLocked(state, payload)) {
         throw ApiException.conflict("agent_offline", "Agent worker did not accept the message");
       }
+    } finally {
+      state.lock.unlock();
     }
   }
 
@@ -187,12 +221,15 @@ public class AgentSocketHub {
       pending.remove(commandId);
       throw ApiException.conflict("agent_offline", "Agent worker is not connected");
     }
-    synchronized (state.lock) {
+    state.lock.lock();
+    try {
       if (state.session == null || !state.session.isOpen()) {
         pending.remove(commandId);
         throw ApiException.conflict("agent_offline", "Agent worker is not connected");
       }
       sendLocked(state, new AgentProtocol.Command(commandId, name, payload));
+    } finally {
+      state.lock.unlock();
     }
     try {
       AgentProtocol.CommandResult result = future.get(Math.max(timeout.toMillis(), 1), TimeUnit.MILLISECONDS);
@@ -269,10 +306,11 @@ public class AgentSocketHub {
   }
 
   private static final class SocketState {
-    private final Object lock = new Object();
+    private final ReentrantLock lock = new ReentrantLock();
     private WebSocketSession session;
     private String token;
     private boolean busy;
+    private boolean claiming;
   }
 
   private record PendingCommand(String agentId, CompletableFuture<AgentProtocol.CommandResult> future) {}

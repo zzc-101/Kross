@@ -11,12 +11,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Component
 public class ChannelEventBus {
-  private static final long NO_TIMEOUT = 0L;
+  private static final long CONNECTION_TIMEOUT_MS = 5 * 60_000L;
   private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> subscribers =
       new ConcurrentHashMap<>();
 
   public SseEmitter subscribe(String conversationId) {
-    SseEmitter emitter = new SseEmitter(NO_TIMEOUT);
+    SseEmitter emitter = new SseEmitter(CONNECTION_TIMEOUT_MS);
     subscribers.computeIfAbsent(conversationId, key -> new CopyOnWriteArrayList<>()).add(emitter);
     Runnable drop = () -> remove(conversationId, emitter);
     emitter.onCompletion(drop);
@@ -47,13 +47,9 @@ public class ChannelEventBus {
   }
 
   private void remove(String conversationId, SseEmitter emitter) {
-    CopyOnWriteArrayList<SseEmitter> emitters = subscribers.get(conversationId);
-    if (emitters == null) {
-      return;
-    }
-    emitters.remove(emitter);
-    if (emitters.isEmpty()) {
-      subscribers.remove(conversationId, emitters);
-    }
+    subscribers.computeIfPresent(conversationId, (ignored, emitters) -> {
+      emitters.remove(emitter);
+      return emitters.isEmpty() ? null : emitters;
+    });
   }
 }

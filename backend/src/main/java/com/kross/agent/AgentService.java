@@ -306,7 +306,13 @@ public class AgentService {
     agents.upsertSettings(settings);
     Map<String, Object> payload = new LinkedHashMap<>();
     payload.put("servers", mapper.convertValue(servers, new TypeReference<Map<String, Object>>() {}));
-    runWorkspaceCommand(agent, "mcp.save", payload, Duration.ofSeconds(45));
+    Thread.ofVirtual().start(RequestLogContext.propagate(() -> {
+      try {
+        runWorkspaceCommand(agent, "mcp.save", payload, Duration.ofSeconds(45));
+      } catch (RuntimeException error) {
+        log.warn("Failed to sync MCP settings to agent {}: {}", agent.getId(), error.getMessage());
+      }
+    }));
     return new McpConfigView(servers);
   }
 
