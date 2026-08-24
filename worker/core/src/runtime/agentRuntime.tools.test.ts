@@ -251,7 +251,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         llmClient.requests[1]?.messages.find(
           (message) => message.role === 'system'
         )?.content
-      ).toContain('Auto 模式：');
+      ).toContain('Auto mode:');
       expect(traceStore.events.map((event) => event.type)).toEqual(
         expect.arrayContaining([
           'tool_call.approval_required',

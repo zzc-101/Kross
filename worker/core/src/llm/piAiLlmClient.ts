@@ -56,7 +56,6 @@ const STREAM_IDLE_MS = 180_000;
  */
 export class PiAiLlmClient implements LlmClient {
   readonly provider: LlmProvider;
-  readonly publicModelId: string | undefined;
   private _model: string;
   private _thinkingEffort: ThinkingEffort;
   private _lastUsage: LlmUsage | undefined;
@@ -69,7 +68,6 @@ export class PiAiLlmClient implements LlmClient {
 
   constructor(private readonly config: LlmClientConfig) {
     this.provider = config.provider;
-    this.publicModelId = config.publicModelId;
     this._model = config.model;
     this._thinkingEffort = config.thinkingEffort ?? DEFAULT_THINKING_EFFORT;
     this.apiKey = config.apiKey;
@@ -121,9 +119,6 @@ export class PiAiLlmClient implements LlmClient {
     const next = model.trim();
     if (!next) {
       throw new Error('model 不能为空');
-    }
-    if (this.publicModelId && next !== this._model) {
-      throw new Error('公益模型不支持修改底层 model id，请从 /model 面板切换模型');
     }
     this._model = next;
     this.piModel = this.resolveModel(next);

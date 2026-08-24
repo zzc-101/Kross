@@ -2,8 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import type { ConfigPersistenceOptions } from '../config/configImport';
-import { loadKrossConfig, resolveKrossConfigPath } from '../config/configImport';
+import type { KrossHomeOptions } from '../config/krossPaths';
 import type { McpServerConfig, McpServersConfig } from './types';
 import type { ToolRisk } from '../tools/toolGateway';
 
@@ -21,26 +20,19 @@ const RESERVED_HTTP_HEADERS = new Set([
   'mcp-session-id'
 ]);
 
-export interface LoadMcpConfigOptions extends ConfigPersistenceOptions {
+export interface LoadMcpConfigOptions extends KrossHomeOptions {
   /** Optional absolute path override for mcp.json */
   mcpConfigPath?: string;
 }
 
 /**
- * Load MCP server map.
- * Merge order (later wins on same server id):
- * 1. `~/.kross/mcp.json` → `{ mcpServers }` or bare map
- * 2. `~/.kross/config.json` → `mcpServers`
+ * Load MCP server map from `~/.kross/mcp.json`
+ * (`{ mcpServers }` wrapper or bare map).
  */
 export function loadMcpServersConfig(
   options: LoadMcpConfigOptions = {}
 ): McpServersConfig {
-  const fromFile = readMcpJson(options);
-  const fromKross = loadKrossConfig(options)?.mcpServers;
-  return {
-    ...normalizeServersMap(fromFile),
-    ...normalizeServersMap(fromKross)
-  };
+  return normalizeServersMap(readMcpJson(options));
 }
 
 export function resolveMcpConfigPath(
@@ -235,11 +227,4 @@ function isHttpUrl(value: string): boolean {
 
 function isHttpHeaderName(value: string): boolean {
   return /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value);
-}
-
-/** Exposed for tests: which config path would be used for kross config. */
-export function resolveKrossConfigPathForMcp(
-  options: ConfigPersistenceOptions = {}
-): string {
-  return resolveKrossConfigPath(options);
 }

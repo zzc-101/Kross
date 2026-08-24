@@ -1,6 +1,5 @@
 export {
   getPromptTemplate,
-  promptCatalogs,
   type PromptCatalog,
   type PromptKey
 } from './promptCatalog';

@@ -3,14 +3,6 @@ import { join } from 'node:path';
 
 import { createSessionContext } from '../context/sessionContext';
 import { createContextPolicy } from '../context/contextPolicy';
-import {
-  createLlmClientFromKrossConfig,
-  createLlmClientFromKrossModelProfile,
-  getActiveKrossModelProfile,
-  listKrossModelProfiles,
-  loadKrossConfig
-} from '../config/configImport';
-import type { ProjectRegistry } from '../domain';
 import { createLlmClientFromEnv } from '../llm/createLlmClient';
 import type { LlmClient, LlmFetch } from '../llm/types';
 import {
@@ -32,11 +24,6 @@ import { createBuiltinTools } from '../tools/builtin';
 import { ToolGateway } from '../tools/toolGateway';
 import { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 import { ObservableTraceStore } from '../trace/observableTraceStore';
-import {
-  collectAllowedWorkspaceRoots,
-  loadProjectRegistry,
-  selectActiveProject
-} from '../workspace/projectRegistry';
 import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { SkillRegistry } from '../skills/skillRegistry';
 import { MutationCoordinator } from '../mutations/mutationService';
@@ -171,46 +158,13 @@ export function createRuntimeOptionsFromEnv(
     | 'mcpManager'
   > & Partial<Pick<AgentHostTooling, 'processManager'>>
 ): AgentRuntimeOptions {
-  const savedConfig = loadKrossConfig(options);
-  const savedLlm = getActiveKrossModelProfile(savedConfig);
-  const envClient = createLlmClientFromEnv(
-    env,
-    fetch,
-    savedLlm?.contextWindow
-  );
-  const llmClient =
-    envClient ?? createLlmClientFromKrossConfig(savedConfig, fetch);
-  const summarizerClient = savedConfig?.context?.summarizer
-    ? createLlmClientFromKrossModelProfile(
-        savedConfig.context.summarizer,
-        fetch
-      )
-    : undefined;
+  const llmClient = createLlmClientFromEnv(env, fetch);
   const sessionContext = createSessionContext({
     client: llmClient,
-    summarizerClient,
-    compactionInstructions: savedConfig?.context?.compactionInstructions,
     policy: createContextPolicy({
-      contextWindow: llmClient?.contextWindow,
-      preserveFullTurns: nonNegativeInteger(
-        savedConfig?.context?.preserveFullTurns
-      ),
-      preserveRecentTokens: positiveInteger(
-        savedConfig?.context?.preserveRecentTokens
-      )
+      contextWindow: llmClient?.contextWindow
     })
   });
-
-  const loadedRegistry = loadProjectRegistry({
-    homeDir: options.homeDir,
-    krossHome: options.krossHome,
-    workspaceRoot: cwd
-  });
-  const projectRegistry = loadedRegistry?.registry;
-  const projectRegistryPath = loadedRegistry?.sourcePath;
-  const activeSelection = projectRegistry
-    ? selectActiveProject(projectRegistry, { workspaceRoot: cwd })
-    : undefined;
 
   let toolGateway = tooling?.toolGateway;
   let traceStore = tooling?.traceStore;
@@ -229,13 +183,7 @@ export function createRuntimeOptionsFromEnv(
     !skillRegistry ||
     !mutationCoordinator
   ) {
-    const created = createLocalTooling(
-      cwd,
-      llmClient,
-      options,
-      projectRegistry,
-      fetch
-    );
+    const created = createLocalTooling(cwd, llmClient, options);
     toolGateway = toolGateway ?? created.toolGateway;
     traceStore = traceStore ?? created.traceStore;
     todoStore = todoStore ?? created.todoStore;
@@ -245,21 +193,6 @@ export function createRuntimeOptionsFromEnv(
     mutationCoordinator = mutationCoordinator ?? created.mutationCoordinator;
   } else {
     tooling?.setLlmClient?.(llmClient);
-  }
-
-  // Seed workspace roots from registry paths (if not already added)
-  if (projectRegistry && workspaceRoots) {
-    for (const project of Object.values(projectRegistry.projects)) {
-      for (const repo of project.repos) {
-        try {
-          if (repo.path !== cwd) {
-            workspaceRoots.add(repo.path, repo.id);
-          }
-        } catch {
-          // ignore missing paths at startup
-        }
-      }
-    }
   }
 
   return {
@@ -275,35 +208,11 @@ export function createRuntimeOptionsFromEnv(
     mcpManager: tooling?.mcpManager,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
-    getModelProfiles: () =>
-      listKrossModelProfiles(loadKrossConfig(options)).map((profile) => ({
-        id: profile.id,
-        name: profile.name,
-        provider: profile.provider,
-        model: profile.model,
-        contextWindow: profile.contextWindow
-      })),
     onLlmClientChanged: tooling?.setLlmClient,
     sessionContext,
     subagentDepth: 0,
-    projectRegistry,
-    projectRegistryPath,
-    activeProjectId: activeSelection?.projectId,
-    runSubagent,
-    workerLlmClient: llmClient
+    runSubagent
   };
-}
-
-function positiveInteger(value: number | undefined): number | undefined {
-  return Number.isFinite(value) && value !== undefined && value > 0
-    ? Math.floor(value)
-    : undefined;
-}
-
-function nonNegativeInteger(value: number | undefined): number | undefined {
-  return Number.isFinite(value) && value !== undefined && value >= 0
-    ? Math.floor(value)
-    : undefined;
 }
 
 /**
@@ -316,23 +225,8 @@ export async function bootstrapRuntimeTooling(
   options: CreateAgentHostConfigOptions = {},
   fetch?: LlmFetch
 ): Promise<AgentHostTooling> {
-  const savedConfig = loadKrossConfig(options);
-  const savedLlm = getActiveKrossModelProfile(savedConfig);
-  const llmClient =
-    createLlmClientFromEnv(env, undefined, savedLlm?.contextWindow) ??
-    createLlmClientFromKrossConfig(savedConfig);
-  const loadedRegistry = loadProjectRegistry({
-    homeDir: options.homeDir,
-    krossHome: options.krossHome,
-    workspaceRoot: cwd
-  });
-  const created = createLocalTooling(
-    cwd,
-    llmClient,
-    options,
-    loadedRegistry?.registry,
-    fetch
-  );
+  const llmClient = createLlmClientFromEnv(env);
+  const created = createLocalTooling(cwd, llmClient, options);
   const mcpManager = await connectReloadableMcpManager(created.toolGateway, {
     workspaceRoot: cwd,
     env,
@@ -371,9 +265,7 @@ export async function bootstrapRuntimeTooling(
 function createLocalTooling(
   cwd: string,
   initialLlmClient?: LlmClient,
-  options: CreateAgentHostConfigOptions = {},
-  projectRegistry?: ProjectRegistry,
-  fetch?: LlmFetch
+  options: CreateAgentHostConfigOptions = {}
 ): {
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
@@ -403,30 +295,11 @@ function createLocalTooling(
 
   const subagentDeps: SubagentRunDeps = {
     workspaceRoot: cwd,
-    getAllowedWorkspaceRoots: () => {
-      const fromRoots = workspaceRoots.allowedRoots();
-      const fromRegistry = collectAllowedWorkspaceRoots(projectRegistry, cwd);
-      return [...new Set([...fromRoots, ...fromRegistry])];
-    },
+    getAllowedWorkspaceRoots: () => workspaceRoots.allowedRoots(),
     traceStore,
     llmClient: initialLlmClient,
     // worker 默认与主模型相同；后续可从 config 注入更便宜的 workerLlmClient
     workerLlmClient: initialLlmClient,
-    resolveModelProfile: (profileId) => {
-      const profiles = listKrossModelProfiles(loadKrossConfig(options));
-      const profile = profiles.find((item) => item.id === profileId);
-      if (!profile) {
-        const available = profiles.map((item) => item.id).join(', ') || '（无）';
-        throw new Error(
-          `未知模型档案 "${profileId}"；可用档案：${available}`
-        );
-      }
-      const client = createLlmClientFromKrossModelProfile(profile, fetch);
-      if (!client) {
-        throw new Error(`模型档案 "${profileId}" 无法创建 LLM client`);
-      }
-      return { client, profile };
-    },
     maxDepth: 1,
     maxToolIterations: 40,
     personalSkillsDir: resolvePersonalSkillsDir(options),
@@ -435,28 +308,10 @@ function createLocalTooling(
 
   const runSubagent = createDefaultSubagentRunner(subagentDeps);
 
-  const resolveRepoPath = (repoId: string): string | undefined => {
-    const fromRoots = workspaceRoots.resolveById(repoId);
-    if (fromRoots) {
-      return fromRoots;
-    }
-    if (!projectRegistry) {
-      return undefined;
-    }
-    for (const project of Object.values(projectRegistry.projects)) {
-      const repo = project.repos.find((item) => item.id === repoId);
-      if (repo) {
-        return repo.path;
-      }
-    }
-    return undefined;
-  };
-
   for (const tool of createBuiltinTools(cwd, {
     includeTask: true,
     parentDepth: 0,
     runSubagent,
-    resolveRepoPath,
     todoStore,
     skillRegistry,
     mutationService: mutationCoordinator.forWorkspace(cwd),

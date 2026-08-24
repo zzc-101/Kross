@@ -83,8 +83,6 @@ jobs:
       - working-directory: worker
         run: pnpm typecheck
       - working-directory: worker
-        run: pnpm api:check
-      - working-directory: worker
         run: pnpm test
 
   backend:

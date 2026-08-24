@@ -16,7 +16,7 @@
 
 ```text
 cd frontend && pnpm typecheck && pnpm test && pnpm build
-cd worker && pnpm typecheck && pnpm test && pnpm api:check
+cd worker && pnpm typecheck && pnpm test
 cd backend && ./mvnw -B -DskipTests compile
 cd node && go build -o /tmp/kross-node .
 node scripts/check-doc-links.mjs

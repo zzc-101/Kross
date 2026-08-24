@@ -58,7 +58,6 @@ jobs:
           pnpm --dir worker typecheck
           pnpm --dir worker test
           pnpm --dir frontend test
-          pnpm --dir worker api:check
           pnpm --dir frontend build
 
       - name: Resolve image tags

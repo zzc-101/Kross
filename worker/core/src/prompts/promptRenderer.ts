@@ -1,5 +1,3 @@
-import { getLocale } from '../i18n/locale';
-import type { AppLocale, MessageParams } from '../i18n/types';
 import type { AgentMode } from '../domain';
 import {
   getPromptTemplate,
@@ -55,10 +53,9 @@ export const SUBAGENT_MODE_PROMPT_KEYS = {
 
 export function renderPrompt(
   key: PromptKey,
-  params: MessageParams = {},
-  locale: AppLocale = getLocale()
+  params: Record<string, string | number> = {}
 ): string {
-  const template = getPromptTemplate(key, locale);
+  const template = getPromptTemplate(key);
   const text = Array.isArray(template) ? template.join('\n') : template;
 
   return text.replace(PLACEHOLDER, (_match, name: string) => {
@@ -73,15 +70,11 @@ export function renderPrompt(
 export function renderAgentExecutionPrompt(input: {
   sessionMode?: string;
   mode?: AgentMode;
-  locale?: AppLocale;
 } = {}): string {
-  const locale = input.locale ?? getLocale();
-  const parts = AGENT_EXECUTION_PROMPT_KEYS.map((key) =>
-    renderPrompt(key, {}, locale)
-  );
+  const parts = AGENT_EXECUTION_PROMPT_KEYS.map((key) => renderPrompt(key));
 
   if (input.mode !== undefined) {
-    parts.push(renderAgentModeOverlay(input.mode, locale));
+    parts.push(renderAgentModeOverlay(input.mode));
   }
 
   if (input.sessionMode !== undefined) {
@@ -89,45 +82,38 @@ export function renderAgentExecutionPrompt(input: {
       throw new Error('mode is required when sessionMode is provided');
     }
     parts.push(
-      renderPrompt(
-        'agent.execution.modeContext',
-        { sessionMode: input.sessionMode, mode: input.mode },
-        locale
-      )
+      renderPrompt('agent.execution.modeContext', {
+        sessionMode: input.sessionMode,
+        mode: input.mode
+      })
     );
   }
 
   return parts.join('\n');
 }
 
-export function renderAgentModeOverlay(
-  mode: AgentMode,
-  locale: AppLocale = getLocale()
-): string {
-  return renderPrompt(AGENT_MODE_PROMPT_KEYS[mode], {}, locale);
+export function renderAgentModeOverlay(mode: AgentMode): string {
+  return renderPrompt(AGENT_MODE_PROMPT_KEYS[mode]);
 }
 
 export function renderModePhasePrompt(
   key: PromptKey,
-  mode: AgentMode,
-  locale: AppLocale = getLocale()
+  mode: AgentMode
 ): string {
   const phaseOverlayKey: PromptKey | undefined = MODE_PHASE_PROMPT_KEYS[key];
   return [
-    renderAgentModeOverlay(mode, locale),
-    ...(phaseOverlayKey ? [renderPrompt(phaseOverlayKey, {}, locale)] : []),
-    renderPrompt(key, {}, locale)
+    renderAgentModeOverlay(mode),
+    ...(phaseOverlayKey ? [renderPrompt(phaseOverlayKey)] : []),
+    renderPrompt(key)
   ].join('\n');
 }
 
 export function renderSubagentExecutionPrompt(input: {
   mode: 'explore' | 'general';
-  locale?: AppLocale;
 }): string {
-  const locale = input.locale ?? getLocale();
   return [
-    renderPrompt('subagent.execution', {}, locale),
-    ...SUBAGENT_SHARED_PROMPT_KEYS.map((key) => renderPrompt(key, {}, locale)),
-    renderPrompt(SUBAGENT_MODE_PROMPT_KEYS[input.mode], {}, locale)
+    renderPrompt('subagent.execution'),
+    ...SUBAGENT_SHARED_PROMPT_KEYS.map((key) => renderPrompt(key)),
+    renderPrompt(SUBAGENT_MODE_PROMPT_KEYS[input.mode])
   ].join('\n');
 }

@@ -111,7 +111,7 @@ describe('AgentRuntime observability', () => {
       expect(snapshot.mode).toBe('auto');
       expect(
         snapshot.messages.find((message) => message.role === 'system')?.content
-      ).toContain('Auto 模式：');
+      ).toContain('Auto mode:');
       expect(snapshot.report.sections.history).toBeGreaterThan(0);
       expect(snapshot.report.sections.tools).toBeGreaterThan(0);
       expect(snapshot.report.contributors).toEqual(
@@ -403,7 +403,7 @@ describe('AgentRuntime observability', () => {
     expect(
       llmClient.requests[2]?.messages.find((message) => message.role === 'system')
         ?.content
-    ).toContain('Harness 验证指令');
+    ).toContain('[Harness verification instruction]');
     expect(result).toMatchObject({
       status: 'failed',
       summary: expect.stringContaining('无法确认任务完成'),

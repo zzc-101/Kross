@@ -130,10 +130,6 @@ class ObservableLlmClient implements LlmClient {
     return this.inner.provider;
   }
 
-  get publicModelId(): string | undefined {
-    return this.inner.publicModelId;
-  }
-
   get model(): string | undefined {
     return this.inner.model;
   }

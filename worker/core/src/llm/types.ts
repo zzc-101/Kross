@@ -99,8 +99,6 @@ export interface LlmClient {
   readonly provider: LlmProvider;
   /** End-to-end features declared by the active Provider Adapter/model. */
   readonly capabilities?: LlmCapabilities;
-  /** Repository-managed public model identity, when applicable. */
-  readonly publicModelId?: string;
   /** 当前默认模型名，供 TUI 状态栏展示。 */
   readonly model?: string;
   /** 默认思考强度（状态栏与请求共用）。 */
@@ -131,7 +129,6 @@ export interface BaseLlmClientConfig {
   fetch?: LlmFetch;
   thinkingEffort?: ThinkingEffort;
   contextWindow?: number;
-  publicModelId?: string;
   /** Explicit protocol for custom OpenAI-compatible endpoints. */
   wireApi?: OpenAiWireApi;
 }

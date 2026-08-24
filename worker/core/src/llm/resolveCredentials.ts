@@ -1,11 +1,9 @@
-import type { ImportedLlmConfig } from '../config/configImport';
 import {
   getLlmProviderDefinition,
   type LlmProvider,
   type ResolvedProviderCredentials
 } from './llmProviders';
 import type { ThinkingEffort } from './thinkingEffort';
-import { getPublicModel } from './publicModels';
 
 export interface ResolvedLlmCredentials extends ResolvedProviderCredentials {
   thinkingEffort?: ThinkingEffort;
@@ -13,38 +11,23 @@ export interface ResolvedLlmCredentials extends ResolvedProviderCredentials {
 }
 
 /**
- * Soft credential resolve: env wins per-field, then saved kross config for the
- * same provider. An explicit model wins over env/saved values. Returns undefined
- * when model or secret is still missing.
- * Never throws for incomplete config (callers decide whether to error).
+ * Env-only credential resolve. Returns undefined when model or secret is
+ * still missing. Never throws for incomplete config (callers decide whether
+ * to error).
  */
 export function resolveProviderCredentials(
   provider: LlmProvider,
   env: Record<string, string | undefined> = {},
-  saved?: ImportedLlmConfig,
   explicitModel?: string
 ): ResolvedLlmCredentials | undefined {
   const def = getLlmProviderDefinition(provider);
-  const savedMatch =
-    saved?.provider === provider && !saved.publicModelId ? saved : undefined;
 
-  const apiKey = firstNonEmpty(
-    firstEnv(env, def.apiKeyEnv),
-    savedMatch?.apiKey
-  );
-  const authToken = firstNonEmpty(
-    def.authTokenEnv ? firstEnv(env, def.authTokenEnv) : undefined,
-    savedMatch?.authToken
-  );
-  const model = firstNonEmpty(
-    explicitModel,
-    firstEnv(env, def.modelEnv),
-    savedMatch?.model
-  );
-  const baseUrl = firstNonEmpty(
-    def.baseUrlEnv ? env[def.baseUrlEnv] : undefined,
-    savedMatch?.baseUrl
-  );
+  const apiKey = firstEnv(env, def.apiKeyEnv);
+  const authToken = def.authTokenEnv
+    ? firstEnv(env, def.authTokenEnv)
+    : undefined;
+  const model = firstNonEmpty(explicitModel, firstEnv(env, def.modelEnv));
+  const baseUrl = def.baseUrlEnv ? env[def.baseUrlEnv] : undefined;
 
   if (!model || !(apiKey || authToken)) {
     return undefined;
@@ -57,30 +40,12 @@ export function resolveProviderCredentials(
     model,
     baseUrl,
     anthropicVersion:
-      provider === 'anthropic'
-        ? firstNonEmpty(env.ANTHROPIC_VERSION, savedMatch?.anthropicVersion)
-        : undefined,
-    thinkingEffort: savedMatch?.thinkingEffort,
+      provider === 'anthropic' ? firstNonEmpty(env.ANTHROPIC_VERSION) : undefined,
+    thinkingEffort: undefined,
     contextWindow: parsePositiveInt(
       env.AGENT_CONTEXT_WINDOW ?? env.KROSS_CONTEXT_WINDOW
-    ) ?? savedMatch?.contextWindow
+    )
   };
-}
-
-/** Whether a saved llm block can construct a client. */
-export function isUsableLlmConfig(
-  config: ImportedLlmConfig | undefined
-): config is ImportedLlmConfig {
-  if (config?.publicModelId && getPublicModel(config.publicModelId)) {
-    return true;
-  }
-  if (!config?.model || !config.provider) {
-    return false;
-  }
-  if (config.provider === 'anthropic') {
-    return Boolean(config.apiKey || config.authToken);
-  }
-  return Boolean(config.apiKey);
 }
 
 function firstEnv(

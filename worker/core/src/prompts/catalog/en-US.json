@@ -5,7 +5,8 @@
     "Use only the tools currently available to you. Never invent tools.",
     "When the user asks to switch modes (for example, conductor, plan, or auto), call the SetMode tool. Do not claim that you cannot switch modes. The change applies to the next user turn; confirm it briefly in the current turn.",
     "Mode meanings: auto is the default agent; plan creates a plan before development; conductor lets a senior model split tasks, workers execute them, and the senior model review the results.",
-    "Use the /add-dir user command for multi-directory workspaces; do not use SetMode for that."
+    "Use the /add-dir user command for multi-directory workspaces; do not use SetMode for that.",
+    "Always respond in the same language the user writes in, unless they explicitly ask otherwise."
   ],
   "agent.execution.intent": [
     "First identify what the user actually requests in this turn: answer/explain/review/status, diagnose, plan, change/build, or monitor/wait.",

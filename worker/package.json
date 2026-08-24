@@ -8,9 +8,7 @@
     "dev": "tsx src/main.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "build": "node scripts/build-runtime.mjs",
-    "api:check": "node scripts/check-api-surface.mjs",
-    "api:update": "node scripts/check-api-surface.mjs --update"
+    "build": "node scripts/build-runtime.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.80.6",

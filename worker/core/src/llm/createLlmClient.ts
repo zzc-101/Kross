@@ -1,4 +1,3 @@
-import type { ImportedLlmConfig } from '../config/configImport';
 import { AnthropicProtocolClient } from './anthropicProtocolClient';
 import {
   getLlmProviderDefinition,
@@ -8,7 +7,6 @@ import {
 } from './llmProviders';
 import { OpenAiProtocolClient } from './openAiProtocolClient';
 import { PiAiLlmClient } from './piAiLlmClient';
-import { getPublicModel } from './publicModels';
 import { resolveProviderCredentials } from './resolveCredentials';
 import {
   DEFAULT_THINKING_EFFORT,
@@ -48,8 +46,8 @@ export function createLlmClient(
 
 /**
  * Build client from env when AGENT_LLM_PROVIDER is fully configured.
- * Incomplete env (missing key/model) returns undefined so callers can fall
- * back to ~/.kross/config.json — never throw on incomplete env at startup.
+ * Incomplete env (missing key/model) returns undefined so callers can decide
+ * how to surface the misconfiguration — never throw on incomplete env.
  */
 export function createLlmClientFromEnv(
   env: Record<string, string | undefined>,
@@ -80,73 +78,6 @@ export function createLlmClientFromEnv(
     env,
     fetch
   );
-}
-
-/**
- * Create a client for an explicit provider+model.
- * Credentials: env first, then optional saved kross llm block for same provider.
- */
-export function createLlmClientForProvider(
-  provider: LlmProvider,
-  model: string,
-  env: Record<string, string | undefined>,
-  fetch?: LlmFetch,
-  saved?: ImportedLlmConfig
-): LlmClient {
-  const credentials = resolveProviderCredentials(provider, env, saved, model);
-  if (!credentials) {
-    const def = getLlmProviderDefinition(provider);
-    throw new Error(
-      `${def.name} 未配置密钥。请设置 ${[...def.apiKeyEnv, ...(def.authTokenEnv ?? [])].join(' 或 ')}，或先 /import 导入配置`
-    );
-  }
-
-  return createLlmClientFromCredentials(
-    {
-      ...credentials,
-      model: model.trim() || credentials.model,
-      contextWindow: credentials.contextWindow ?? saved?.contextWindow
-    },
-    env,
-    fetch
-  );
-}
-
-export function createLlmClientForPublicModel(
-  publicModelId: string,
-  options: { thinkingEffort?: ThinkingEffort } = {}
-): LlmClient {
-  const definition = getPublicModel(publicModelId);
-  if (!definition) {
-    throw new Error(`未知公益模型：${publicModelId}`);
-  }
-
-  const common = {
-    model: definition.model,
-    baseUrl: definition.baseUrl,
-    contextWindow: definition.contextWindow,
-    thinkingEffort: options.thinkingEffort ?? DEFAULT_THINKING_EFFORT,
-    publicModelId: definition.id,
-    wireApi: definition.wireApi,
-    backend: 'pi' as const
-  };
-
-  if (definition.provider === 'anthropic') {
-    return createLlmClient({
-      ...common,
-      provider: 'anthropic',
-      apiKey: definition.apiKey,
-      authToken: definition.authToken
-    });
-  }
-  if (!definition.apiKey) {
-    throw new Error(`公益模型 ${definition.id} 缺少 API key`);
-  }
-  return createLlmClient({
-    ...common,
-    provider: definition.provider,
-    apiKey: definition.apiKey
-  });
 }
 
 function createLlmClientFromCredentials(
