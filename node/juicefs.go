@@ -16,22 +16,31 @@ func (d *dockerRuntime) observeJuicefs(ctx context.Context) bool {
 	if d.cfg.workerStorage != "juicefs" {
 		return true
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	info, ok := d.findJuicefs(ctx)
 	if !ok || !juicefsContainerHealthy(info) {
+		d.mu.Lock()
+		wasHealthy := d.juicefsToken != ""
 		d.juicefsToken = ""
+		d.mu.Unlock()
+		if wasHealthy {
+			slog.Warn("juicefs became unhealthy")
+		} else {
+			slog.Debug("juicefs still unhealthy")
+		}
 		return false
 	}
 	token := juicefsInstanceToken(info)
-	if d.juicefsToken != "" && token != d.juicefsToken {
-		d.recycleWorkersLocked(ctx)
-	}
+	d.mu.Lock()
+	stale := d.juicefsToken != "" && token != d.juicefsToken
 	d.juicefsToken = token
+	d.mu.Unlock()
+	if stale {
+		d.recycleWorkers(ctx)
+	}
 	return true
 }
 
-func (d *dockerRuntime) juicefsHealthyLocked(ctx context.Context) bool {
+func (d *dockerRuntime) juicefsHealthy(ctx context.Context) bool {
 	if d.cfg.workerStorage != "juicefs" {
 		return true
 	}
@@ -85,7 +94,7 @@ func juicefsInstanceToken(info types.ContainerJSON) string {
 	return info.ID + ":" + started
 }
 
-func (d *dockerRuntime) recycleWorkersLocked(ctx context.Context) {
+func (d *dockerRuntime) recycleWorkers(ctx context.Context) {
 	listed, err := d.cli.ContainerList(ctx, container.ListOptions{
 		Filters: filters.NewArgs(
 			filters.Arg("status", "running"),
@@ -93,10 +102,16 @@ func (d *dockerRuntime) recycleWorkersLocked(ctx context.Context) {
 		),
 	})
 	if err != nil || len(listed) == 0 {
+		if err != nil {
+			slog.Warn("failed to list workers for recycling", "error", err.Error())
+		}
 		return
 	}
 	slog.Warn("JuiceFS remounted; recycling local workers", "count", len(listed))
 	for _, item := range listed {
-		_ = d.cli.ContainerRemove(ctx, item.ID, container.RemoveOptions{Force: true})
+		if err := d.cli.ContainerRemove(ctx, item.ID, container.RemoveOptions{Force: true}); err != nil {
+			slog.Warn("failed to recycle worker container",
+				"containerId", item.ID, "error", err.Error())
+		}
 	}
 }

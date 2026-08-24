@@ -28,7 +28,7 @@ const (
 type dockerRuntime struct {
 	cli          *client.Client
 	cfg          config
-	mu           sync.Mutex
+	mu           sync.Mutex // guards juicefsToken; kept short-lived so heartbeats never block on container operations
 	juicefsToken string
 }
 
@@ -53,17 +53,24 @@ func newDockerRuntime(cfg config) (*dockerRuntime, error) {
 }
 
 func (d *dockerRuntime) start(ctx context.Context, cmd startCommand) (handle, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if !d.juicefsHealthyLocked(ctx) {
+	begin := time.Now()
+	names := agentNames(cmd.AgentID)
+	if !d.juicefsHealthy(ctx) {
+		slog.Warn("juicefs health check failed before start", "agentId", cmd.AgentID)
 		return handle{}, fmt.Errorf("JuiceFS is not healthy on this node")
 	}
-	names := agentNames(cmd.AgentID)
 	if err := d.ensureVolume(ctx, cmd.AgentID, names.volumeName); err != nil {
+		slog.Warn("failed to ensure volume", "agentId", cmd.AgentID, "volumeName", names.volumeName, "error", err.Error())
 		return handle{}, err
 	}
 	if existing, err := d.inspect(ctx, names.containerName); err == nil {
-		_ = d.cli.ContainerRemove(ctx, existing.ID, container.RemoveOptions{Force: true})
+		slog.Warn("removing existing container before start",
+			"agentId", cmd.AgentID, "containerId", existing.ID,
+			"state", containerState(existing))
+		if err := d.cli.ContainerRemove(ctx, existing.ID, container.RemoveOptions{Force: true}); err != nil {
+			slog.Warn("failed to remove existing container",
+				"agentId", cmd.AgentID, "containerId", existing.ID, "error", err.Error())
+		}
 	}
 	memory := cmd.MemoryBytes
 	pids := int64(cmd.MaxPids)
@@ -85,32 +92,57 @@ func (d *dockerRuntime) start(ctx context.Context, cmd startCommand) (handle, er
 	}
 	resp, err := d.createWorker(ctx, cmd, names.containerName, host)
 	if err != nil && d.cfg.workerStorage == "juicefs" && isSharedMountError(err) {
+		slog.Info("retrying worker create without rshared propagation", "agentId", cmd.AgentID)
 		host.Mounts = []mount.Mount{d.workMount(cmd.AgentID, names.volumeName, false)}
 		resp, err = d.createWorker(ctx, cmd, names.containerName, host)
 	}
 	if err != nil {
+		slog.Warn("failed to create worker container", "agentId", cmd.AgentID, "error", err.Error())
 		return handle{}, err
 	}
 	if err := d.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		slog.Warn("failed to start worker container",
+			"agentId", cmd.AgentID, "containerId", resp.ID,
+			"elapsedMs", time.Since(begin).Milliseconds(), "error", err.Error())
 		return handle{}, err
 	}
+	slog.Info("worker container started",
+		"agentId", cmd.AgentID, "containerId", resp.ID,
+		"containerName", names.containerName, "volumeName", names.volumeName,
+		"elapsedMs", time.Since(begin).Milliseconds())
 	return handle{containerID: resp.ID, containerName: names.containerName, volumeName: names.volumeName}, nil
 }
 
+func containerState(info types.ContainerJSON) string {
+	if info.State == nil {
+		return "unknown"
+	}
+	return info.State.Status
+}
+
 func (d *dockerRuntime) stop(ctx context.Context, agentID string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	begin := time.Now()
 	names := agentNames(agentID)
 	info, err := d.inspect(ctx, names.containerName)
 	if err != nil {
 		if errdefs.IsNotFound(err) {
+			slog.Debug("agent workspace container not found; nothing to stop", "agentId", agentID)
 			return nil
 		}
+		slog.Warn("failed to inspect container for stop", "agentId", agentID, "error", err.Error())
 		return err
 	}
 	if info.State != nil && info.State.Running {
 		timeout := 15
-		return d.cli.ContainerStop(ctx, info.ID, container.StopOptions{Timeout: &timeout})
+		if err := d.cli.ContainerStop(ctx, info.ID, container.StopOptions{Timeout: &timeout}); err != nil {
+			slog.Warn("failed to stop worker container",
+				"agentId", agentID, "containerId", info.ID,
+				"elapsedMs", time.Since(begin).Milliseconds(), "error", err.Error())
+			return err
+		}
+		slog.Info("worker container stopped",
+			"agentId", agentID, "containerId", info.ID,
+			"elapsedMs", time.Since(begin).Milliseconds())
 	}
 	return nil
 }
@@ -151,6 +183,7 @@ func (d *dockerRuntime) runningAgents(ctx context.Context) int {
 		),
 	})
 	if err != nil {
+		slog.Warn("failed to list running agents", "error", err.Error())
 		return 0
 	}
 	return len(out)
@@ -179,7 +212,12 @@ func (d *dockerRuntime) ensureVolume(ctx context.Context, agentID, volumeName st
 			volumeLabel:  "true",
 		},
 	})
-	return err
+	if err != nil {
+		slog.Warn("failed to create volume", "agentId", agentID, "volumeName", volumeName, "error", err.Error())
+		return err
+	}
+	slog.Info("volume created", "agentId", agentID, "volumeName", volumeName)
+	return nil
 }
 
 func (d *dockerRuntime) createWorker(ctx context.Context, cmd startCommand, name string, host *container.HostConfig) (container.CreateResponse, error) {
