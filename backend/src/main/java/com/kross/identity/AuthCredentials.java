@@ -1,6 +1,7 @@
 package com.kross.identity;
 
 import com.kross.api.ApiException;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -28,6 +29,14 @@ public final class AuthCredentials {
     String password = Optional.ofNullable(raw).orElse("");
     if (password.length() < MIN_PASSWORD || password.length() > MAX_PASSWORD) {
       throw ApiException.invalidRequest("Password must be 8-128 characters");
+    }
+    return password;
+  }
+
+  static String requireBcryptPassword(String raw) {
+    String password = requirePassword(raw);
+    if (password.getBytes(StandardCharsets.UTF_8).length > 72) {
+      throw ApiException.invalidRequest("Password must not exceed 72 UTF-8 bytes");
     }
     return password;
   }

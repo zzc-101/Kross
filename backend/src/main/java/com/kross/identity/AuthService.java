@@ -38,6 +38,7 @@ public class AuthService {
   private final OrganizationAccess access;
   private final PasswordEncoder passwords;
   private final AgentService agents;
+  private final String dummyPasswordHash;
 
   public AuthService(
       IdentityMapper identities,
@@ -50,6 +51,7 @@ public class AuthService {
     this.access = access;
     this.passwords = passwords;
     this.agents = agents;
+    this.dummyPasswordHash = passwords.encode("kross-dummy-password-not-valid");
   }
 
   public AuthConfigView config() {
@@ -96,18 +98,20 @@ public class AuthService {
   public MeResponse login(LoginRequest request) {
     String username = AuthCredentials.requireUsername(request.username());
     String password = AuthCredentials.requirePassword(request.password());
-    User user = identities.findUserByUsername(username)
-        .orElseThrow(AuthService::invalidCredentials);
+    Optional<User> candidate = identities.findUserByUsername(username);
+    String hash = candidate
+        .map(User::getPasswordHash)
+        .filter(value -> !value.isBlank())
+        .orElse(dummyPasswordHash);
+    if (!passwords.matches(password, hash)) {
+      throw invalidCredentials();
+    }
+    User user = candidate.orElseThrow(AuthService::invalidCredentials);
     if (!"active".equals(Optional.ofNullable(user.getStatus()).orElse(""))) {
       throw new ApiException("account_disabled", "This account is disabled", 403);
     }
     if (identities.isSsoEnabled() && !"super_admin".equals(user.getPlatformRole())) {
       throw new ApiException("sso_required", "Sign in with SSO", 403);
-    }
-    String hash = Optional.ofNullable(user.getPasswordHash()).filter(value -> !value.isBlank())
-        .orElseThrow(AuthService::invalidCredentials);
-    if (!passwords.matches(password, hash)) {
-      throw invalidCredentials();
     }
     bind(user);
     return identityService.me();
@@ -197,6 +201,7 @@ public class AuthService {
   }
 
   private void insertAccount(String username, String displayName, String password, String platformRole) {
+    AuthCredentials.requireBcryptPassword(password);
     try {
       identities.insertUser(
           UUID.randomUUID().toString(),

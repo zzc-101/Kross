@@ -5,6 +5,7 @@ import com.kross.config.KrossProperties;
 import com.kross.identity.AuthCredentials;
 import com.kross.identity.AuthService;
 import com.kross.identity.Identity;
+import com.kross.identity.IdentityMapper;
 import com.kross.support.Ids;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -24,11 +25,17 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class IdentityFilter extends OncePerRequestFilter {
   private final KrossProperties properties;
   private final AuthService auth;
+  private final IdentityMapper identities;
   private final Environment environment;
 
-  public IdentityFilter(KrossProperties properties, AuthService auth, Environment environment) {
+  public IdentityFilter(
+      KrossProperties properties,
+      AuthService auth,
+      IdentityMapper identities,
+      Environment environment) {
     this.properties = properties;
     this.auth = auth;
+    this.identities = identities;
     this.environment = environment;
   }
 
@@ -42,14 +49,30 @@ public class IdentityFilter extends OncePerRequestFilter {
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
       throws ServletException, IOException {
-    if (SecurityContextHolder.getContext().getAuthentication() == null
-        || !(SecurityContextHolder.getContext().getAuthentication().getPrincipal() instanceof Identity)) {
-      AuthSessions.current(request)
-          .or(() -> developmentIdentity(request))
-          .ifPresent(identity -> SecurityContextHolder.getContext().setAuthentication(
-              new UsernamePasswordAuthenticationToken(identity, null, List.of())));
-    }
+    SecurityContextHolder.clearContext();
+    Optional<Identity> identity = currentIdentity(request).or(() -> developmentIdentity(request));
+    identity.ifPresent(value -> SecurityContextHolder.getContext().setAuthentication(
+        new UsernamePasswordAuthenticationToken(value, null, List.of())));
     filterChain.doFilter(request, response);
+  }
+
+  private Optional<Identity> currentIdentity(HttpServletRequest request) {
+    Optional<Identity> stored = AuthSessions.current(request);
+    if (stored.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<Identity> current = identities.findUserById(stored.get().userId())
+        .filter(user -> "active".equals(user.getStatus()))
+        .map(user -> new Identity(
+            user.getId(), user.getUsername(), user.getDisplayName(), user.getPlatformRole()));
+    if (current.isEmpty()) {
+      AuthSessions.clear(request);
+      return Optional.empty();
+    }
+    if (!current.get().equals(stored.get())) {
+      AuthSessions.refresh(request, current.get());
+    }
+    return current;
   }
 
   private Optional<Identity> developmentIdentity(HttpServletRequest request) {
