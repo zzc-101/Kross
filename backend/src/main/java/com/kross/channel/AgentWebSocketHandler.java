@@ -61,10 +61,17 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
           case "agent.heartbeat" -> hub.send(
               agentId,
               agents.heartbeat(token, mapper.treeToValue(root, AgentProtocol.HeartbeatRequest.class)));
-          case "agent.events" -> agents.ingestEvents(
-              token, mapper.treeToValue(root, AgentProtocol.StreamEventsRequest.class));
-          case "agent.message" -> agents.postReply(
-              token, mapper.treeToValue(root, AgentProtocol.ReplyRequest.class));
+          case "agent.events" -> {
+            AgentProtocol.StreamEventsRequest request =
+                mapper.treeToValue(root, AgentProtocol.StreamEventsRequest.class);
+            agents.ingestEvents(token, request);
+            hub.send(agentId, AgentProtocol.DeliveryAck.events(request.deliveryId()));
+          }
+          case "agent.message" -> {
+            AgentProtocol.ReplyRequest request = mapper.treeToValue(root, AgentProtocol.ReplyRequest.class);
+            agents.postReply(token, request);
+            hub.send(agentId, AgentProtocol.DeliveryAck.message(request.deliveryId()));
+          }
           case "agent.sleep" -> {
             agents.sleepFromWorker(token, mapper.treeToValue(root, AgentProtocol.SleepRequest.class));
             session.close(CloseStatus.NORMAL);

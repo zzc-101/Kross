@@ -19,6 +19,7 @@ public class AgentScheduler {
       return;
     }
     try {
+      agents.recoverExpiredJobLeases();
       agents.reconcileRuntimeAgents();
       agents.sleepIdleAgents();
     } catch (RuntimeException error) {

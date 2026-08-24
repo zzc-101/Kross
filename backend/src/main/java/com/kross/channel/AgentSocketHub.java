@@ -56,7 +56,6 @@ public class AgentSocketHub {
       }
       state.session = session;
       state.token = token;
-      state.busy = false;
     }
     sessionToAgent.put(session.getId(), agentId);
     signalConnected(agentId);
@@ -163,6 +162,21 @@ public class AgentSocketHub {
     }
   }
 
+  public void sendRequired(String agentId, Object payload) {
+    SocketState state = byAgent.get(agentId);
+    if (state == null) {
+      throw ApiException.conflict("agent_offline", "Agent worker is not connected");
+    }
+    synchronized (state.lock) {
+      if (state.session == null || !state.session.isOpen()) {
+        throw ApiException.conflict("agent_offline", "Agent worker is not connected");
+      }
+      if (!sendLocked(state, payload)) {
+        throw ApiException.conflict("agent_offline", "Agent worker did not accept the message");
+      }
+    }
+  }
+
   public Map<String, Object> requestCommand(
       String agentId, String name, Map<String, Object> payload, Duration timeout) {
     String commandId = UUID.randomUUID().toString();
@@ -236,12 +250,13 @@ public class AgentSocketHub {
     });
   }
 
-  private void sendLocked(SocketState state, Object payload) {
+  private boolean sendLocked(SocketState state, Object payload) {
     if (state.session == null || !state.session.isOpen()) {
-      return;
+      return false;
     }
     try {
       state.session.sendMessage(new TextMessage(mapper.writeValueAsString(payload)));
+      return true;
     } catch (IOException error) {
       log.warn("Failed to send a websocket frame to agent {}", sessionToAgent.get(state.session.getId()), error);
       try {
@@ -249,6 +264,7 @@ public class AgentSocketHub {
       } catch (IOException ignored) {
         // close is best-effort
       }
+      return false;
     }
   }
 

@@ -24,6 +24,10 @@ public class AgentMessage {
   private JsonNode contextUsage;
   private String status;
   private String errorSummary;
+  private String leaseId;
+  private Instant leaseExpiresAt;
+  private Instant processingStartedAt;
+  private int attemptCount;
   private String createdBy;
   private Instant createdAt;
 }

@@ -88,9 +88,22 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   const delay = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   let sleeping = false;
   let inFlightJobs = 0;
+  let activeJob: { id: string; leaseId: string; abort: AbortController } | undefined;
   const heartbeats = (async () => {
     while (!options.shouldStop?.() && !sleeping) {
-      const heartbeat = await options.transport.heartbeat();
+      let heartbeat: Awaited<ReturnType<AgentControlTransport['heartbeat']>>;
+      try {
+        heartbeat = await options.transport.heartbeat(activeJob);
+      } catch (error) {
+        log.warn('Agent heartbeat failed; transport will reconnect', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        await delay(1_000);
+        continue;
+      }
+      if (activeJob && !heartbeat.leaseValid) {
+        activeJob.abort.abort(new Error('Agent job lease is no longer active'));
+      }
       if (heartbeat.shouldSleep) {
         if (inFlightJobs > 0) {
           log.info('Ignoring idle sleep request while a job is in flight', { inFlightJobs });
@@ -112,6 +125,11 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
         break;
       }
       inFlightJobs += 1;
+      const jobAbort = new AbortController();
+      activeJob = { id: job.id, leaseId: job.leaseId, abort: jobAbort };
+      const runSignal = options.signal
+        ? AbortSignal.any([options.signal, jobAbort.signal])
+        : jobAbort.signal;
       try {
         log.info('Claimed conversation job', { conversationId: job.conversationId, mode: job.mode });
         const nextSkillKey = job.skill ? `${job.skill.id}@${job.skill.revision}` : '';
@@ -141,11 +159,12 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
           job,
           job.content,
           job.mode,
-          options.signal
+          runSignal
         );
         await options.transport.postReply({
           userMessageId: job.id,
           agentMessageId: job.agentMessageId,
+          leaseId: job.leaseId,
           content: reply.content,
           status: reply.status,
           parts: reply.parts,
@@ -160,14 +179,20 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
       } catch (error) {
         const summary = error instanceof Error ? error.message : String(error);
         log.warn('Agent turn failed', { conversationId: job.conversationId, error: summary });
+        if (jobAbort.signal.aborted) {
+          log.warn('Discarding stale job result after lease loss', { conversationId: job.conversationId });
+          continue;
+        }
         await options.transport.postReply({
           userMessageId: job.id,
           agentMessageId: job.agentMessageId,
+          leaseId: job.leaseId,
           content: '',
           status: 'failed',
           errorSummary: summary
         });
       } finally {
+        activeJob = undefined;
         inFlightJobs -= 1;
       }
     }
@@ -181,7 +206,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
 async function runTurn(
   host: AgentHostHandle,
   transport: AgentControlTransport,
-  job: { id: string; agentMessageId: string },
+  job: { id: string; agentMessageId: string; leaseId: string },
   input: string,
   requestedMode: AgentMode,
   signal?: AbortSignal
@@ -198,6 +223,7 @@ async function runTurn(
     await transport.postEvents({
       userMessageId: job.id,
       agentMessageId: job.agentMessageId,
+      leaseId: job.leaseId,
       events: [event]
     });
   };
@@ -261,6 +287,7 @@ async function runTurn(
     await transport.postReply({
       userMessageId: job.id,
       agentMessageId: job.agentMessageId,
+      leaseId: job.leaseId,
       content: text.trim(),
       status: 'processing',
       parts

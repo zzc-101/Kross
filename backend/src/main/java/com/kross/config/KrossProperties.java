@@ -265,12 +265,15 @@ public class KrossProperties {
     public void setHeartbeatIntervalMs(long heartbeatIntervalMs) {
       this.heartbeatIntervalMs = heartbeatIntervalMs;
     }
+
   }
 
   public static class Agent {
     private long idleMs = 900_000;
     private long tokenTtlMs = 12 * 60 * 60 * 1_000L;
     private long heartbeatIntervalMs = 10_000;
+    private long jobLeaseMs = 90_000;
+    private int jobMaxAttempts = 2;
     private long startTimeoutMs = 120_000;
     private int cpuMillis = 2_000;
     private long memoryBytes = 1_073_741_824L;
@@ -298,6 +301,22 @@ public class KrossProperties {
 
     public void setHeartbeatIntervalMs(long heartbeatIntervalMs) {
       this.heartbeatIntervalMs = heartbeatIntervalMs;
+    }
+
+    public long getJobLeaseMs() {
+      return jobLeaseMs;
+    }
+
+    public void setJobLeaseMs(long jobLeaseMs) {
+      this.jobLeaseMs = Math.max(jobLeaseMs, 30_000);
+    }
+
+    public int getJobMaxAttempts() {
+      return jobMaxAttempts;
+    }
+
+    public void setJobMaxAttempts(int jobMaxAttempts) {
+      this.jobMaxAttempts = Math.max(jobMaxAttempts, 1);
     }
 
     public long getStartTimeoutMs() {

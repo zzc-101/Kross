@@ -1,8 +1,15 @@
+import { randomUUID } from 'node:crypto';
+
 export interface AgentControlTransport {
   register(): Promise<{ heartbeatIntervalMs: number; idleMs: number }>;
-  heartbeat(): Promise<{ shouldSleep: boolean; heartbeatIntervalMs: number }>;
+  heartbeat(activeJob?: { id: string; leaseId: string }): Promise<{
+    shouldSleep: boolean;
+    leaseValid: boolean;
+    heartbeatIntervalMs: number;
+  }>;
   claimJob(): Promise<{
     id: string;
+    leaseId: string;
     conversationId: string;
     agentMessageId: string;
     content: string;
@@ -14,11 +21,13 @@ export interface AgentControlTransport {
   postEvents(input: {
     userMessageId: string;
     agentMessageId: string;
+    leaseId: string;
     events: AgentStreamEvent[];
   }): Promise<void>;
   postReply(input: {
     userMessageId: string;
     agentMessageId?: string;
+    leaseId: string;
     content: string;
     status: 'processing' | 'done' | 'failed';
     errorSummary?: string;
@@ -84,10 +93,12 @@ export interface WsAgentControlTransportOptions {
   controlPlaneUrl: string;
   webSocket?: typeof WebSocket;
   timeoutMs?: number;
+  reconnectDelayMs?: number;
 }
 
 type Job = {
   id: string;
+  leaseId: string;
   conversationId: string;
   agentMessageId: string;
   content: string;
@@ -122,15 +133,20 @@ type SocketMessage = {
   approvalId?: unknown;
   approved?: unknown;
   reason?: unknown;
+  leaseId?: unknown;
+  leaseValid?: unknown;
+  deliveryId?: unknown;
 };
 
 export class WsAgentControlTransport implements AgentControlTransport {
   private readonly webSocket: typeof WebSocket;
   private readonly timeoutMs: number;
+  private readonly reconnectDelayMs: number;
   private socket?: WebSocket;
   private closed = false;
   private opening?: Promise<void>;
   private readonly pending = new Map<string, Deferred<SocketMessage>[]>();
+  private readonly pendingDeliveries = new Map<string, Deferred<void>>();
   private readonly jobs: Job[] = [];
   private readonly jobWaiters: Array<(job: Job | undefined) => void> = [];
   private readonly approvalWaiters = new Map<string, Deferred<{ approved: boolean; reason?: string }>>();
@@ -147,6 +163,7 @@ export class WsAgentControlTransport implements AgentControlTransport {
     if (!options.agentToken.trim()) throw new Error('Agent token is required');
     this.webSocket = options.webSocket ?? WebSocket;
     this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.reconnectDelayMs = options.reconnectDelayMs ?? 250;
   }
 
   async register(): Promise<{ heartbeatIntervalMs: number; idleMs: number }> {
@@ -165,14 +182,20 @@ export class WsAgentControlTransport implements AgentControlTransport {
     }
   }
 
-  async heartbeat(): Promise<{ shouldSleep: boolean; heartbeatIntervalMs: number }> {
+  async heartbeat(activeJob?: { id: string; leaseId: string }): Promise<{
+    shouldSleep: boolean;
+    leaseValid: boolean;
+    heartbeatIntervalMs: number;
+  }> {
     await this.ensureConnected();
     const body = await this.request('agent.heartbeat_ack', {
       type: 'agent.heartbeat',
-      agentId: this.options.agentId
+      agentId: this.options.agentId,
+      ...(activeJob ? { jobId: activeJob.id, leaseId: activeJob.leaseId } : {})
     });
     return {
       shouldSleep: Boolean(body.shouldSleep),
+      leaseValid: body.leaseValid !== false,
       heartbeatIntervalMs: numberField(body, 'heartbeatIntervalMs')
     };
   }
@@ -190,13 +213,15 @@ export class WsAgentControlTransport implements AgentControlTransport {
   async postEvents(input: {
     userMessageId: string;
     agentMessageId: string;
+    leaseId: string;
     events: AgentStreamEvent[];
   }): Promise<void> {
     if (input.events.length === 0) return;
-    this.send({
+    await this.deliver('agent.events_ack', {
       type: 'agent.events',
       userMessageId: input.userMessageId,
       agentMessageId: input.agentMessageId,
+      leaseId: input.leaseId,
       events: input.events
     });
   }
@@ -204,6 +229,7 @@ export class WsAgentControlTransport implements AgentControlTransport {
   async postReply(input: {
     userMessageId: string;
     agentMessageId?: string;
+    leaseId: string;
     content: string;
     status: 'processing' | 'done' | 'failed';
     errorSummary?: string;
@@ -211,9 +237,10 @@ export class WsAgentControlTransport implements AgentControlTransport {
     usage?: AgentTokenUsage;
     contextUsage?: AgentContextUsage;
   }): Promise<void> {
-    this.send({
+    await this.deliver('agent.message_ack', {
       type: 'agent.message',
       userMessageId: input.userMessageId,
+      leaseId: input.leaseId,
       content: input.content,
       status: input.status,
       ...(input.agentMessageId ? { agentMessageId: input.agentMessageId } : {}),
@@ -321,13 +348,12 @@ export class WsAgentControlTransport implements AgentControlTransport {
     socket.addEventListener('close', () => {
       if (this.socket === socket) {
         this.socket = undefined;
-        this.flushJobWaiters();
-        this.rejectAll(new Error('Agent control websocket closed'));
+        this.rejectTransient(new Error('Agent control websocket closed'));
       }
     });
     socket.addEventListener('error', () => {
       if (this.socket === socket) {
-        this.rejectAll(new Error('Agent control websocket error'));
+        this.rejectTransient(new Error('Agent control websocket error'));
       }
     });
     if (socket.readyState === this.webSocket.OPEN) return;
@@ -384,6 +410,15 @@ export class WsAgentControlTransport implements AgentControlTransport {
       void this.dispatchCommand(parsed);
       return;
     }
+    if (type === 'agent.events_ack' || type === 'agent.message_ack') {
+      const deliveryId = typeof parsed.deliveryId === 'string' ? parsed.deliveryId : '';
+      const delivery = this.pendingDeliveries.get(deliveryId);
+      if (delivery) {
+        this.pendingDeliveries.delete(deliveryId);
+        delivery.resolve();
+      }
+      return;
+    }
     const waiters = this.pending.get(type);
     const waiter = waiters?.shift();
     if (waiter) waiter.resolve(parsed);
@@ -393,6 +428,56 @@ export class WsAgentControlTransport implements AgentControlTransport {
     const wait = this.waitFor(responseType);
     this.send(body);
     return wait;
+  }
+
+  private async deliver(
+    _responseType: 'agent.events_ack' | 'agent.message_ack',
+    body: Record<string, unknown>
+  ): Promise<void> {
+    const deliveryId = randomUUID();
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt < 5 && !this.closed; attempt += 1) {
+      try {
+        await this.ensureConnected();
+        const acknowledgement = this.waitForDelivery(deliveryId);
+        try {
+          this.send({ ...body, deliveryId });
+        } catch (error) {
+          const sendError = error instanceof Error ? error : new Error(String(error));
+          this.pendingDeliveries.get(deliveryId)?.reject(sendError);
+        }
+        await acknowledgement;
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        this.pendingDeliveries.delete(deliveryId);
+        if (attempt < 4 && !this.closed) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(this.reconnectDelayMs * 2 ** attempt, 2_000))
+          );
+        }
+      }
+    }
+    throw lastError ?? new Error('Agent delivery failed');
+  }
+
+  private waitForDelivery(deliveryId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingDeliveries.delete(deliveryId);
+        reject(new Error(`Control plane delivery acknowledgement timed out: ${deliveryId}`));
+      }, this.timeoutMs);
+      this.pendingDeliveries.set(deliveryId, {
+        resolve: () => {
+          clearTimeout(timeout);
+          resolve();
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        }
+      });
+    });
   }
 
   private waitFor(type: string): Promise<SocketMessage> {
@@ -434,13 +519,19 @@ export class WsAgentControlTransport implements AgentControlTransport {
   }
 
   private rejectAll(error: Error): void {
+    this.rejectTransient(error);
+    for (const waiter of this.approvalWaiters.values()) waiter.reject(error);
+    this.approvalWaiters.clear();
+    this.approvalQueue.clear();
+  }
+
+  private rejectTransient(error: Error): void {
     for (const waiters of this.pending.values()) {
       for (const waiter of waiters) waiter.reject(error);
     }
     this.pending.clear();
-    for (const waiter of this.approvalWaiters.values()) waiter.reject(error);
-    this.approvalWaiters.clear();
-    this.approvalQueue.clear();
+    for (const waiter of this.pendingDeliveries.values()) waiter.reject(error);
+    this.pendingDeliveries.clear();
   }
 
   private flushJobWaiters(): void {
@@ -497,12 +588,19 @@ function socketUrl(controlPlaneUrl: string): string {
 }
 
 function parseJob(value: SocketMessage): Job {
-  if (typeof value.id !== 'string' || typeof value.content !== 'string' || typeof value.agentMessageId !== 'string') {
+  if (
+    typeof value.id !== 'string'
+    || typeof value.leaseId !== 'string'
+    || !value.leaseId.trim()
+    || typeof value.content !== 'string'
+    || typeof value.agentMessageId !== 'string'
+  ) {
     throw new Error('Control plane returned an invalid job');
   }
   const skill = parseSkill(value.skill);
   return {
     id: value.id,
+    leaseId: value.leaseId,
     conversationId: typeof value.conversationId === 'string' ? value.conversationId : '',
     agentMessageId: value.agentMessageId,
     content: value.content,

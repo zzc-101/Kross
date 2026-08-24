@@ -231,7 +231,7 @@ public class AgentService {
     if (approvalId == null || approvalId.isBlank()) {
       throw ApiException.invalidRequest("approvalId is required");
     }
-    sockets.send(agent.getId(), new AgentProtocol.ApprovalDecision(
+    sockets.sendRequired(agent.getId(), new AgentProtocol.ApprovalDecision(
         approvalId,
         request.approved(),
         Optional.ofNullable(request.reason()).map(String::trim).filter(value -> !value.isEmpty()).orElse(null)));
@@ -399,6 +399,16 @@ public class AgentService {
     }
   }
 
+  @Transactional
+  public void recoverExpiredJobLeases() {
+    int recovered = agents.recoverExpiredLeases(
+        Instant.now(), properties.getAgent().getJobMaxAttempts());
+    agents.deleteDeliveryReceiptsBefore(Instant.now().minus(Duration.ofDays(1)));
+    if (recovered > 0) {
+      log.warn("Recovered {} expired agent job leases", recovered);
+    }
+  }
+
   private boolean stillStarting(Agent agent) {
     if (!"starting".equals(agent.getStatus())) {
       return false;
@@ -428,14 +438,13 @@ public class AgentService {
     assertAgent(session, Optional.ofNullable(request.agentId()));
     Agent agent = requireAgent(session.getAgentId());
     RequestLogContext.bindAgent(agent);
-    agents.requeueInterruptedMessages(agent.getId());
     agent.setStatus("running");
     agent.setLastError(null);
     agent.setLastActiveAt(Instant.now());
     agents.updateRuntime(agent);
     log.info("Agent worker registered");
     return new AgentProtocol.Registered(
-        2,
+        3,
         "agent.registered",
         AgentProtocol.messageId(),
         Instant.now(),
@@ -452,24 +461,41 @@ public class AgentService {
     boolean idle = Optional.ofNullable(agent.getLastActiveAt()).orElse(Instant.EPOCH).isBefore(idleBefore);
     boolean canSleep = idle && !agents.hasProcessing(agent.getId());
     boolean shouldSleep = canSleep;
+    boolean leaseValid = true;
+    String jobId = Optional.ofNullable(request.jobId()).orElse("").trim();
+    String leaseId = Optional.ofNullable(request.leaseId()).orElse("").trim();
+    if (!jobId.isEmpty() || !leaseId.isEmpty()) {
+      leaseValid = !jobId.isEmpty()
+          && !leaseId.isEmpty()
+          && agents.renewJobLease(
+              agent.getId(),
+              jobId,
+              leaseId,
+              Instant.now().plusMillis(properties.getAgent().getJobLeaseMs())) == 1;
+    }
     if (canSleep && sockets.isConnected(agent.getId()) && memories.hasPendingExtract(agent)) {
       memories.consolidateAsync(agent);
       shouldSleep = false;
     }
     return new AgentProtocol.HeartbeatAck(
-        2,
+        3,
         "agent.heartbeat_ack",
         AgentProtocol.messageId(),
         Instant.now(),
         agent.getId(),
         shouldSleep,
+        leaseValid,
         (int) properties.getAgent().getHeartbeatIntervalMs());
   }
 
   @Transactional
   public Optional<AgentProtocol.Job> claimJob(String token) {
     AgentSession session = authenticate(token);
-    Optional<AgentMessage> claimed = agents.claimJob(session.getAgentId());
+    String leaseId = UUID.randomUUID().toString();
+    Optional<AgentMessage> claimed = agents.claimJob(
+        session.getAgentId(),
+        leaseId,
+        Instant.now().plusMillis(properties.getAgent().getJobLeaseMs()));
     claimed.ifPresent(row -> {
       agents.touch(session.getAgentId());
       RequestLogContext.put(RequestLogContext.AGENT_ID, session.getAgentId());
@@ -512,7 +538,7 @@ public class AgentService {
           .orElse(null);
       return new AgentProtocol.Job(
           row.getId(), conversationId, reply.getId(), row.getContent(), history, row.getCreatedAt(), mode, modelId,
-          activeSkill);
+          row.getLeaseId(), activeSkill);
     });
   }
 
@@ -521,6 +547,12 @@ public class AgentService {
     AgentSession session = authenticate(token);
     String userMessageId = Optional.ofNullable(request.userMessageId()).filter(value -> !value.isBlank())
         .orElseThrow(() -> ApiException.invalidRequest("userMessageId is required"));
+    String deliveryId = requireProtocolId(request.deliveryId(), "deliveryId");
+    String leaseId = requireProtocolId(request.leaseId(), "leaseId");
+    if (agents.recordDelivery(deliveryId, session.getAgentId(), userMessageId, "message") == 0) {
+      return;
+    }
+    requireActiveLease(session.getAgentId(), userMessageId, leaseId);
     String status = Optional.ofNullable(request.status()).orElse("done");
     if (!List.of("processing", "done", "failed").contains(status)) {
       throw ApiException.invalidRequest("status must be processing, done, or failed");
@@ -562,7 +594,9 @@ public class AgentService {
     reply.setStatus(status);
     reply.setErrorSummary(request.errorSummary());
     agents.updateMessageBody(reply);
-    agents.completeMessage(userMessageId, status, request.errorSummary());
+    if (agents.completeLeasedMessage(userMessageId, leaseId, status, request.errorSummary()) != 1) {
+      throw ApiException.conflict("job_lease_lost", "Agent job lease is no longer active");
+    }
     agents.touchConversation(conversationId);
     agents.touch(session.getAgentId());
     emitUpsert(agents.findMessage(session.getOrganizationId(), userMessageId).orElse(userMessage));
@@ -577,8 +611,17 @@ public class AgentService {
     });
   }
 
+  @Transactional
   public void ingestEvents(String token, AgentProtocol.StreamEventsRequest request) {
     AgentSession session = authenticate(token);
+    String userMessageId = Optional.ofNullable(request.userMessageId()).filter(value -> !value.isBlank())
+        .orElseThrow(() -> ApiException.invalidRequest("userMessageId is required"));
+    String deliveryId = requireProtocolId(request.deliveryId(), "deliveryId");
+    String leaseId = requireProtocolId(request.leaseId(), "leaseId");
+    if (agents.recordDelivery(deliveryId, session.getAgentId(), userMessageId, "events") == 0) {
+      return;
+    }
+    requireActiveLease(session.getAgentId(), userMessageId, leaseId);
     String agentMessageId = Optional.ofNullable(request.agentMessageId()).filter(value -> !value.isBlank())
         .orElseThrow(() -> ApiException.invalidRequest("agentMessageId is required"));
     AgentMessage reply = agents.findMessage(session.getOrganizationId(), agentMessageId)
@@ -615,6 +658,20 @@ public class AgentService {
       emit(ChannelEvent.of(event.type(), conversationId, reply.getId(), data));
     }
     agents.touch(session.getAgentId());
+  }
+
+  private void requireActiveLease(String agentId, String messageId, String leaseId) {
+    if (!agents.hasActiveLease(agentId, messageId, leaseId)) {
+      throw ApiException.conflict("job_lease_lost", "Agent job lease is no longer active");
+    }
+  }
+
+  private static String requireProtocolId(String value, String label) {
+    String normalized = Optional.ofNullable(value).orElse("").trim();
+    if (normalized.isEmpty() || normalized.length() > 128) {
+      throw ApiException.invalidRequest(label + " is required");
+    }
+    return normalized;
   }
 
   public SseEmitter subscribe(String organizationId, String conversationId) {

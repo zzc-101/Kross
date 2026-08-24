@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { WsAgentControlTransport } from './transport';
 
 describe('WsAgentControlTransport', () => {
@@ -43,6 +43,7 @@ describe('WsAgentControlTransport', () => {
     sockets[0]?.emit({
       type: 'agent.job',
       id: 'user-1',
+      leaseId: 'lease-1',
       conversationId: 'conv-1',
       agentMessageId: 'agent-1',
       content: 'hello',
@@ -50,6 +51,7 @@ describe('WsAgentControlTransport', () => {
     });
     await expect(claimed).resolves.toMatchObject({
       id: 'user-1',
+      leaseId: 'lease-1',
       agentMessageId: 'agent-1',
       content: 'hello'
     });
@@ -72,6 +74,7 @@ describe('WsAgentControlTransport', () => {
     sockets[0]?.emit({
       type: 'agent.job',
       id: 'user-1',
+      leaseId: 'lease-1',
       conversationId: 'conv-1',
       agentMessageId: 'agent-1',
       content: '整理这份会议记录',
@@ -107,6 +110,50 @@ describe('WsAgentControlTransport', () => {
     sockets[0]?.emit({ type: 'agent.approval', approvalId: 'run-1', approved: true });
 
     await expect(decision).resolves.toEqual({ approved: true });
+  });
+
+  it('waits for delivery acknowledgement and reconnects before retrying', async () => {
+    const sockets: FakeSocket[] = [];
+    const transport = new WsAgentControlTransport({
+      agentId: 'agent1',
+      agentToken: 'short-token',
+      controlPlaneUrl: 'http://control.example.test',
+      webSocket: fakeWebSocket(sockets) as unknown as typeof WebSocket,
+      reconnectDelayMs: 1,
+      timeoutMs: 100
+    });
+    const registered = transport.register();
+    await Promise.resolve();
+    sockets[0]?.open();
+    sockets[0]?.emit({ type: 'agent.registered', heartbeatIntervalMs: 10_000, idleMs: 900_000 });
+    await registered;
+
+    const events = transport.postEvents({
+      userMessageId: 'user-1',
+      agentMessageId: 'agent-1',
+      leaseId: 'lease-1',
+      events: [{ type: 'text-delta', text: 'hello' }]
+    });
+    await Promise.resolve();
+    const eventFrame = JSON.parse(sockets[0]!.sent.at(-1)!) as { deliveryId: string };
+    sockets[0]?.emit({ type: 'agent.events_ack', deliveryId: eventFrame.deliveryId });
+    await expect(events).resolves.toBeUndefined();
+
+    sockets[0]?.close();
+    const reply = transport.postReply({
+      userMessageId: 'user-1',
+      agentMessageId: 'agent-1',
+      leaseId: 'lease-1',
+      content: 'done',
+      status: 'done'
+    });
+    await Promise.resolve();
+    expect(sockets).toHaveLength(2);
+    sockets[1]?.open();
+    await vi.waitFor(() => expect(sockets[1]?.sent).toHaveLength(1));
+    const replyFrame = JSON.parse(sockets[1]!.sent.at(-1)!) as { deliveryId: string };
+    sockets[1]?.emit({ type: 'agent.message_ack', deliveryId: replyFrame.deliveryId });
+    await expect(reply).resolves.toBeUndefined();
   });
 
   it('rejects a missing agent token', () => {

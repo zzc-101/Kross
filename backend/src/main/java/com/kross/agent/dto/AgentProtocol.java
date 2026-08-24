@@ -24,7 +24,7 @@ public final class AgentProtocol {
       int heartbeatIntervalMs,
       long idleMs) {}
 
-  public record HeartbeatRequest(String type, String agentId) {}
+  public record HeartbeatRequest(String type, String agentId, String jobId, String leaseId) {}
 
   public record HeartbeatAck(
       int protocolVersion,
@@ -33,6 +33,7 @@ public final class AgentProtocol {
       Instant sentAt,
       String agentId,
       boolean shouldSleep,
+      boolean leaseValid,
       int heartbeatIntervalMs) {}
 
   public record HistoryTurn(String role, String content) {}
@@ -54,6 +55,7 @@ public final class AgentProtocol {
       Instant createdAt,
       String mode,
       String modelId,
+      String leaseId,
       ActiveSkill skill) {
     public Job(
         String id,
@@ -64,8 +66,9 @@ public final class AgentProtocol {
         Instant createdAt,
         String mode,
         String modelId,
+        String leaseId,
         ActiveSkill skill) {
-      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt, mode, modelId, skill);
+      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt, mode, modelId, leaseId, skill);
     }
   }
 
@@ -112,6 +115,8 @@ public final class AgentProtocol {
       String agentMessageId,
       String content,
       String status,
+      String deliveryId,
+      String leaseId,
       String errorSummary,
       com.fasterxml.jackson.databind.JsonNode parts,
       com.fasterxml.jackson.databind.JsonNode usage,
@@ -121,7 +126,19 @@ public final class AgentProtocol {
       String type,
       String userMessageId,
       String agentMessageId,
+      String deliveryId,
+      String leaseId,
       List<StreamEvent> events) {}
+
+  public record DeliveryAck(String type, String deliveryId) {
+    public static DeliveryAck events(String deliveryId) {
+      return new DeliveryAck("agent.events_ack", deliveryId);
+    }
+
+    public static DeliveryAck message(String deliveryId) {
+      return new DeliveryAck("agent.message_ack", deliveryId);
+    }
+  }
 
   public record StreamEvent(
       String type,

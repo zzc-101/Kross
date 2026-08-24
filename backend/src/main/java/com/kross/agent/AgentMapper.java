@@ -64,7 +64,39 @@ public interface AgentMapper {
   Optional<AgentMessage> findReplyTo(
       @Param("organizationId") String organizationId, @Param("replyTo") String replyTo);
 
-  Optional<AgentMessage> claimJob(@Param("agentId") String agentId);
+  Optional<AgentMessage> claimJob(
+      @Param("agentId") String agentId,
+      @Param("leaseId") String leaseId,
+      @Param("leaseExpiresAt") Instant leaseExpiresAt);
+
+  int renewJobLease(
+      @Param("agentId") String agentId,
+      @Param("messageId") String messageId,
+      @Param("leaseId") String leaseId,
+      @Param("leaseExpiresAt") Instant leaseExpiresAt);
+
+  boolean hasActiveLease(
+      @Param("agentId") String agentId,
+      @Param("messageId") String messageId,
+      @Param("leaseId") String leaseId);
+
+  int completeLeasedMessage(
+      @Param("id") String id,
+      @Param("leaseId") String leaseId,
+      @Param("status") String status,
+      @Param("errorSummary") String errorSummary);
+
+  int recoverExpiredLeases(
+      @Param("now") Instant now,
+      @Param("maxAttempts") int maxAttempts);
+
+  int recordDelivery(
+      @Param("deliveryId") String deliveryId,
+      @Param("agentId") String agentId,
+      @Param("messageId") String messageId,
+      @Param("deliveryType") String deliveryType);
+
+  int deleteDeliveryReceiptsBefore(@Param("before") Instant before);
 
   int completeMessage(
       @Param("id") String id,

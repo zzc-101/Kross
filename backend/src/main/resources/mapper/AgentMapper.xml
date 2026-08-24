@@ -14,6 +14,10 @@
     <result column="context_usage" property="contextUsage" typeHandler="com.kross.support.JsonbTypeHandler"/>
     <result column="status" property="status"/>
     <result column="error_summary" property="errorSummary"/>
+    <result column="lease_id" property="leaseId"/>
+    <result column="lease_expires_at" property="leaseExpiresAt"/>
+    <result column="processing_started_at" property="processingStartedAt"/>
+    <result column="attempt_count" property="attemptCount"/>
     <result column="created_by" property="createdBy"/>
     <result column="created_at" property="createdAt"/>
   </resultMap>
@@ -162,11 +166,91 @@
       LIMIT 1
     )
     UPDATE agent_messages m
-    SET status = 'processing'
+    SET status = 'processing',
+        lease_id = #{leaseId},
+        lease_expires_at = #{leaseExpiresAt},
+        processing_started_at = now(),
+        attempt_count = attempt_count + 1,
+        error_summary = NULL
     FROM next_job
     WHERE m.id = next_job.id
     RETURNING m.*
   </select>
+
+  <update id="renewJobLease">
+    UPDATE agent_messages
+    SET lease_expires_at = #{leaseExpiresAt}
+    WHERE id = #{messageId}
+      AND agent_id = #{agentId}
+      AND role = 'user'
+      AND status = 'processing'
+      AND lease_id = #{leaseId}
+      AND lease_expires_at &gt; now()
+  </update>
+
+  <select id="hasActiveLease" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1 FROM agent_messages
+      WHERE id = #{messageId}
+        AND agent_id = #{agentId}
+        AND role = 'user'
+        AND status = 'processing'
+        AND lease_id = #{leaseId}
+        AND lease_expires_at &gt; now()
+    )
+  </select>
+
+  <update id="completeLeasedMessage">
+    UPDATE agent_messages
+    SET status = #{status},
+        error_summary = #{errorSummary},
+        lease_id = CASE WHEN #{status} = 'processing' THEN lease_id ELSE NULL END,
+        lease_expires_at = CASE WHEN #{status} = 'processing' THEN lease_expires_at ELSE NULL END
+    WHERE id = #{id}
+      AND role = 'user'
+      AND status = 'processing'
+      AND lease_id = #{leaseId}
+      AND lease_expires_at &gt; now()
+  </update>
+
+  <update id="recoverExpiredLeases">
+    WITH expired AS MATERIALIZED (
+      SELECT id, attempt_count
+      FROM agent_messages
+      WHERE role = 'user'
+        AND status = 'processing'
+        AND lease_expires_at &lt;= #{now}
+      FOR UPDATE SKIP LOCKED
+    ), failed_replies AS (
+      UPDATE agent_messages reply
+      SET status = 'failed', error_summary = 'Worker lease expired'
+      FROM expired
+      WHERE reply.reply_to = expired.id
+        AND reply.role = 'agent'
+        AND reply.status = 'processing'
+      RETURNING reply.id
+    )
+    UPDATE agent_messages message
+    SET status = CASE WHEN expired.attempt_count &gt;= #{maxAttempts} THEN 'failed' ELSE 'queued' END,
+        error_summary = CASE
+          WHEN expired.attempt_count &gt;= #{maxAttempts} THEN 'Worker lease expired after maximum attempts'
+          ELSE NULL
+        END,
+        lease_id = NULL,
+        lease_expires_at = NULL
+    FROM expired
+    WHERE message.id = expired.id
+  </update>
+
+  <insert id="recordDelivery">
+    INSERT INTO agent_delivery_receipts (delivery_id, agent_id, message_id, delivery_type)
+    VALUES (#{deliveryId}, #{agentId}, #{messageId}, #{deliveryType})
+    ON CONFLICT (delivery_id) DO NOTHING
+  </insert>
+
+  <delete id="deleteDeliveryReceiptsBefore">
+    DELETE FROM agent_delivery_receipts WHERE created_at &lt; #{before}
+  </delete>
 
   <update id="completeMessage">
     UPDATE agent_messages

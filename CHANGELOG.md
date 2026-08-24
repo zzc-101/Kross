@@ -64,6 +64,8 @@
 - 集群内部口 `8788` 默认绑定 `127.0.0.1`；跨机时设置 `KROSS_INTERNAL_BIND` 为内网
   地址，不要对公网发布。
 - SSO 只按已验证 email 绑定已有账号，不再凭 `preferred_username` 自动接管。
+- Worker 控制面协议升级到 v3：任务带可续租 lease，事件与最终消息通过稳定
+  `deliveryId`、持久去重记录及 ACK 实现断线重投。
 
 ### Removed
 
@@ -79,5 +81,7 @@
 - 节点握手不再接受共用令牌冒充任意 `nodeId`；中断后 `claimJob` 会把失败占位改回
   `processing`；reconcile 不再把仍在 `starting` 宽限内的 Agent 当成崩溃。
 - 空库首次注册用事务 advisory lock 与唯一索引保证只有一个 `super_admin`。
+- Worker 短暂重连不再把处理中任务直接重排或清空忙碌状态；过期任务由租约恢复，
+  且离线审批会明确失败而不是静默丢失。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main
