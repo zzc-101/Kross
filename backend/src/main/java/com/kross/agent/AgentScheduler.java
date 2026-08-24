@@ -28,4 +28,9 @@ public class AgentScheduler {
       running.set(false);
     }
   }
+
+  @Scheduled(fixedDelay = 60 * 60 * 1000L)
+  public void cleanupDeliveryReceipts() {
+    agents.cleanupDeliveryReceipts();
+  }
 }

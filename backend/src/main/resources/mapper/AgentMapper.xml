@@ -214,9 +214,19 @@
       AND lease_expires_at &gt; now()
   </update>
 
-  <update id="recoverExpiredLeases">
+  <update id="releaseLeasedMessage">
+    UPDATE agent_messages
+    SET status = 'queued', error_summary = NULL, lease_id = NULL, lease_expires_at = NULL
+    WHERE agent_id = #{agentId}
+      AND id = #{id}
+      AND role = 'user'
+      AND status = 'processing'
+      AND lease_id = #{leaseId}
+  </update>
+
+  <select id="recoverExpiredLeases" resultType="string">
     WITH expired AS MATERIALIZED (
-      SELECT id, attempt_count
+      SELECT id, agent_id, attempt_count
       FROM agent_messages
       WHERE role = 'user'
         AND status = 'processing'
@@ -230,22 +240,25 @@
         AND reply.role = 'agent'
         AND reply.status = 'processing'
       RETURNING reply.id
+    ), recovered AS (
+      UPDATE agent_messages message
+      SET status = CASE WHEN expired.attempt_count &gt;= #{maxAttempts} THEN 'failed' ELSE 'queued' END,
+          error_summary = CASE
+            WHEN expired.attempt_count &gt;= #{maxAttempts} THEN 'Worker lease expired after maximum attempts'
+            ELSE NULL
+          END,
+          lease_id = NULL,
+          lease_expires_at = NULL
+      FROM expired
+      WHERE message.id = expired.id
+      RETURNING message.agent_id, message.status
     )
-    UPDATE agent_messages message
-    SET status = CASE WHEN expired.attempt_count &gt;= #{maxAttempts} THEN 'failed' ELSE 'queued' END,
-        error_summary = CASE
-          WHEN expired.attempt_count &gt;= #{maxAttempts} THEN 'Worker lease expired after maximum attempts'
-          ELSE NULL
-        END,
-        lease_id = NULL,
-        lease_expires_at = NULL
-    FROM expired
-    WHERE message.id = expired.id
-  </update>
+    SELECT DISTINCT agent_id FROM recovered WHERE status = 'queued'
+  </select>
 
   <insert id="recordDelivery">
-    INSERT INTO agent_delivery_receipts (delivery_id, agent_id, message_id, delivery_type)
-    VALUES (#{deliveryId}, #{agentId}, #{messageId}, #{deliveryType})
+    INSERT INTO agent_delivery_receipts (delivery_id, agent_id, message_id)
+    VALUES (#{deliveryId}, #{agentId}, #{messageId})
     ON CONFLICT (delivery_id) DO NOTHING
   </insert>
 
@@ -396,8 +409,10 @@
   <select id="usageCounts" resultType="com.kross.agent.entity.UsageCounts">
     SELECT
       count(*) FILTER (WHERE created_at &gt;= now() - interval '1 day')::integer AS messages1d,
-      count(*) FILTER (WHERE created_at &gt;= now() - interval '7 day')::integer AS messages7d
+      count(*)::integer AS messages7d
     FROM agent_messages
-    WHERE organization_id = #{organizationId} AND role = 'user'
+    WHERE organization_id = #{organizationId}
+      AND role = 'user'
+      AND created_at &gt;= now() - interval '7 day'
   </select>
 </mapper>

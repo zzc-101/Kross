@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 
 class NodeFleetBackendTest {
   @Test
-  void refusesFailoverWhenPreviousNodeCannotBeFenced() {
+  void doesNotAttemptAutomaticFailoverForAssignedAgent() {
     NodeHub hub = mock(NodeHub.class);
     AgentMapper agents = mock(AgentMapper.class);
     Agent agent = new Agent();
@@ -26,8 +26,6 @@ class NodeFleetBackendTest {
     agent.setNodeId("node-old");
     when(agents.findByIdOnly("agent-1")).thenReturn(Optional.of(agent));
     when(hub.isHealthy("node-old", false)).thenReturn(false);
-    when(hub.pickLeastLoaded(false)).thenReturn(Optional.of("node-new"));
-    when(hub.isOnline("node-old")).thenReturn(false);
     NodeFleetBackend backend = new NodeFleetBackend(hub, agents, new KrossProperties());
 
     ApiException error = catchThrowableOfType(
@@ -35,7 +33,8 @@ class NodeFleetBackendTest {
         () -> backend.start(new ContainerBackend.StartRequest(
             "agent-1", "token", "http://control", new ContainerBackend.ResourceLimits(1000, 1024, 64))));
 
-    assertThat(error.getCode()).isEqualTo("agent_fencing_required");
-    verify(hub, never()).request(org.mockito.ArgumentMatchers.eq("node-new"), any());
+    assertThat(error.getCode()).isEqualTo("assigned_node_unavailable");
+    verify(hub, never()).pickLeastLoaded(false);
+    verify(hub, never()).request(any(), any());
   }
 }

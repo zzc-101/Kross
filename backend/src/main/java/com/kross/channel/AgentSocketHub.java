@@ -165,18 +165,30 @@ public class AgentSocketHub {
       job = Optional.empty();
     }
     state.lock.lock();
+    boolean release = false;
     try {
       state.claiming = false;
       if (job.isEmpty()) {
         return;
       }
-      if (state.session == null || !state.session.isOpen() || state.busy) {
-        return;
+      if (byAgent.get(agentId) != state
+          || state.session == null
+          || !state.session.isOpen()
+          || state.busy) {
+        release = true;
+      } else {
+        state.busy = true;
+        if (!sendLocked(state, job.get())) {
+          state.busy = false;
+          release = true;
+        }
       }
-      state.busy = true;
-      sendLocked(state, job.get());
     } finally {
       state.lock.unlock();
+    }
+    if (release) {
+      AgentProtocol.Job claimed = job.orElseThrow();
+      agents.releaseClaimedJob(agentId, claimed.id(), claimed.leaseId());
     }
   }
 

@@ -33,21 +33,9 @@ public class NodeFleetBackend implements ContainerBackend {
   @Override
   public BackendHandle start(StartRequest request) {
     RequestLogContext.put(RequestLogContext.AGENT_ID, request.agentId());
-    Optional<String> previous = currentNode(request.agentId());
     String nodeId = pickNode(request.agentId());
     RequestLogContext.put(RequestLogContext.NODE_ID, nodeId);
     log.info("Dispatching agent start to node");
-    previous.filter(id -> !id.equals(nodeId)).ifPresent(oldNode -> {
-      if (!hub.isOnline(oldNode)) {
-        throw new ApiException(
-            "agent_fencing_required",
-            "Previous worker node is offline; refusing to start a second workspace instance",
-            503);
-      }
-      NodeProtocol.Result stopped = hub.request(
-          oldNode, new NodeProtocol.StopCommand(UUID.randomUUID().toString(), request.agentId()));
-      requireOk(stopped);
-    });
     NodeProtocol.Result result = hub.request(nodeId, NodeProtocol.StartCommand.of(UUID.randomUUID().toString(), request));
     requireOk(result);
     return new BackendHandle(
@@ -92,9 +80,18 @@ public class NodeFleetBackend implements ContainerBackend {
 
   private String pickNode(String agentId) {
     boolean juicefs = requiresJuicefs();
-    return currentNode(agentId)
-        .filter(nodeId -> hub.isHealthy(nodeId, juicefs))
-        .or(() -> hub.pickLeastLoaded(juicefs))
+    Optional<String> assigned = currentNode(agentId);
+    if (assigned.isPresent()) {
+      String nodeId = assigned.get();
+      if (hub.isHealthy(nodeId, juicefs)) {
+        return nodeId;
+      }
+      throw new ApiException(
+          "assigned_node_unavailable",
+          "The assigned worker node is unavailable; automatic failover is disabled to prevent workspace split-brain",
+          503);
+    }
+    return hub.pickLeastLoaded(juicefs)
         .orElseThrow(() -> {
           log.warn("No healthy worker node is available juicefsRequired={}", juicefs);
           return new ApiException(

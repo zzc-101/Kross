@@ -29,9 +29,9 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 `leaseId` 与可选 `modelId`）。Worker 在心跳里续租当前任务；租约失效时必须中止
 本地生成，控制面会按最大尝试次数重新排队或标记失败。Worker 可带
 `modelId` 再要一次 `agent.model_environment`。生成过程立即推 `agent.events`，
-结束时用 `agent.message` 提交完整 `parts`。两类上行帧都携带稳定的 `deliveryId`
-和任务 `leaseId`，控制面落库后分别回复 `agent.events_ack` / `agent.message_ack`；
-断线重发必须复用原 `deliveryId`，以获得幂等投递。另有心跳和休眠帧。
+结束时用 `agent.message` 提交完整 `parts`。`agent.events` 只用于即时直播，采用
+best-effort 投递；最终消息携带稳定的 `deliveryId` 和任务 `leaseId`，控制面落库后
+回复 `agent.message_ack`，断线重发必须复用原 `deliveryId`。另有心跳和休眠帧。
 
 工具审批只在 Worker 在线时接受；如果控制面返回 `agent_offline`，调用方应保留
 当前审批状态并允许用户重试，不能把决定显示为已送达。

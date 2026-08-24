@@ -57,7 +57,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -80,6 +79,7 @@ public class AgentService {
   private static final int MAX_CONTENT_CHARS = 32_768;
   private static final int MAX_TITLE_CHARS = 80;
   private static final String DEFAULT_TITLE = "新对话";
+  private static final int RUNTIME_LOCK_STRIPES = 64;
 
   private final AgentMapper agents;
   private final OrganizationAccess access;
@@ -92,7 +92,7 @@ public class AgentService {
   private final PlatformTransactionManager transactionManager;
   private final AgentMemoryService memories;
   private final SkillCatalogService skills;
-  private final ConcurrentHashMap<String, ReentrantLock> runtimeLocks = new ConcurrentHashMap<>();
+  private final ReentrantLock[] runtimeLocks = createLocks(RUNTIME_LOCK_STRIPES);
 
   public AgentModelView currentModel(String organizationId) {
     access.require(organizationId, OrganizationAction.AGENT_READ);
@@ -304,11 +304,14 @@ public class AgentService {
     settings.setOrganizationId(context.organizationId());
     settings.setMcpServers(servers);
     agents.upsertSettings(settings);
-    Map<String, Object> payload = new LinkedHashMap<>();
-    payload.put("servers", mapper.convertValue(servers, new TypeReference<Map<String, Object>>() {}));
     Thread.ofVirtual().start(RequestLogContext.propagate(() -> {
       try {
-        runWorkspaceCommand(agent, "mcp.save", payload, Duration.ofSeconds(45));
+        withRuntimeLock(agent.getId(), () -> {
+          JsonNode latest = loadMcpServers(agent.getId());
+          Map<String, Object> payload = new LinkedHashMap<>();
+          payload.put("servers", mapper.convertValue(latest, new TypeReference<Map<String, Object>>() {}));
+          runWorkspaceCommand(agent, "mcp.save", payload, Duration.ofSeconds(45));
+        });
       } catch (RuntimeException error) {
         log.warn("Failed to sync MCP settings to agent {}: {}", agent.getId(), error.getMessage());
       }
@@ -410,11 +413,23 @@ public class AgentService {
 
   @Transactional
   public void recoverExpiredJobLeases() {
-    int recovered = agents.recoverExpiredLeases(
+    List<String> recoveredAgents = agents.recoverExpiredLeases(
         Instant.now(), properties.getAgent().getJobMaxAttempts());
+    if (!recoveredAgents.isEmpty()) {
+      log.warn("Recovered expired job leases for {} agents", recoveredAgents.size());
+      afterCommit(() -> recoveredAgents.forEach(this::offerJobToWorker));
+    }
+  }
+
+  @Transactional
+  public void cleanupDeliveryReceipts() {
     agents.deleteDeliveryReceiptsBefore(Instant.now().minus(Duration.ofDays(1)));
-    if (recovered > 0) {
-      log.warn("Recovered {} expired agent job leases", recovered);
+  }
+
+  @Transactional
+  public void releaseClaimedJob(String agentId, String messageId, String leaseId) {
+    if (agents.releaseLeasedMessage(agentId, messageId, leaseId) == 1) {
+      afterCommit(() -> offerJobToWorker(agentId));
     }
   }
 
@@ -563,7 +578,7 @@ public class AgentService {
       throw ApiException.invalidRequest("status must be processing, done, or failed");
     }
     WorkerPayloadValidator.validateReply(mapper, request);
-    if (agents.recordDelivery(deliveryId, session.getAgentId(), userMessageId, "message") == 0) {
+    if (agents.recordDelivery(deliveryId, session.getAgentId(), userMessageId) == 0) {
       return;
     }
     requireActiveLease(session.getAgentId(), userMessageId, leaseId);
@@ -572,6 +587,7 @@ public class AgentService {
     if (content.isEmpty()) {
       content = MessageParts.textSnapshot(parts);
     }
+    WorkerPayloadValidator.validateContent(content);
     AgentMessage userMessage = agents.findMessage(session.getOrganizationId(), userMessageId)
         .filter(row -> session.getAgentId().equals(row.getAgentId()))
         .orElseThrow(() -> ApiException.notFound("Message"));
@@ -631,12 +647,8 @@ public class AgentService {
     AgentSession session = authenticate(token);
     String userMessageId = Optional.ofNullable(request.userMessageId()).filter(value -> !value.isBlank())
         .orElseThrow(() -> ApiException.invalidRequest("userMessageId is required"));
-    String deliveryId = requireProtocolId(request.deliveryId(), "deliveryId");
     String leaseId = requireProtocolId(request.leaseId(), "leaseId");
     List<AgentProtocol.StreamEvent> events = WorkerPayloadValidator.validateEvents(mapper, request.events());
-    if (agents.recordDelivery(deliveryId, session.getAgentId(), userMessageId, "events") == 0) {
-      return;
-    }
     requireActiveLease(session.getAgentId(), userMessageId, leaseId);
     String agentMessageId = Optional.ofNullable(request.agentMessageId()).filter(value -> !value.isBlank())
         .orElseThrow(() -> ApiException.invalidRequest("agentMessageId is required"));
@@ -989,13 +1001,21 @@ public class AgentService {
   }
 
   private void withRuntimeLock(String agentId, Runnable action) {
-    ReentrantLock lock = runtimeLocks.computeIfAbsent(agentId, ignored -> new ReentrantLock());
+    ReentrantLock lock = runtimeLocks[Math.floorMod(agentId.hashCode(), runtimeLocks.length)];
     lock.lock();
     try {
       action.run();
     } finally {
       lock.unlock();
     }
+  }
+
+  private static ReentrantLock[] createLocks(int count) {
+    ReentrantLock[] locks = new ReentrantLock[count];
+    for (int index = 0; index < count; index += 1) {
+      locks[index] = new ReentrantLock();
+    }
+    return locks;
   }
 
   private String issueToken(Agent agent) {

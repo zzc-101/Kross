@@ -41,4 +41,11 @@ class WorkerPayloadValidatorTest {
 
     assertThat(WorkerPayloadValidator.validateEvents(mapper, List.of(event))).containsExactly(event);
   }
+
+  @Test
+  void rejectsDerivedReplyContentBeyondLimit() {
+    assertThatThrownBy(() -> WorkerPayloadValidator.validateContent("x".repeat(64_001)))
+        .isInstanceOf(ApiException.class)
+        .hasMessageContaining("Reply content");
+  }
 }

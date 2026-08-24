@@ -17,9 +17,13 @@ final class WorkerPayloadValidator {
   private WorkerPayloadValidator() {}
 
   static void validateReply(ObjectMapper mapper, AgentProtocol.ReplyRequest request) {
-    requireLength(request.content(), MAX_CONTENT_CHARS, "Reply content");
+    validateContent(request.content());
     requireLength(request.errorSummary(), MAX_ERROR_SUMMARY_CHARS, "Error summary");
     requireJsonSize(mapper, request.parts(), MAX_PARTS_BYTES, "Reply parts");
+  }
+
+  static void validateContent(String content) {
+    requireLength(content, MAX_CONTENT_CHARS, "Reply content");
   }
 
   static List<AgentProtocol.StreamEvent> validateEvents(

@@ -112,7 +112,7 @@ describe('WsAgentControlTransport', () => {
     await expect(decision).resolves.toEqual({ approved: true });
   });
 
-  it('waits for delivery acknowledgement and reconnects before retrying', async () => {
+  it('streams best-effort and waits for final delivery acknowledgement', async () => {
     const sockets: FakeSocket[] = [];
     const transport = new WsAgentControlTransport({
       agentId: 'agent1',
@@ -128,16 +128,14 @@ describe('WsAgentControlTransport', () => {
     sockets[0]?.emit({ type: 'agent.registered', heartbeatIntervalMs: 10_000, idleMs: 900_000 });
     await registered;
 
-    const events = transport.postEvents({
+    await transport.postEvents({
       userMessageId: 'user-1',
       agentMessageId: 'agent-1',
       leaseId: 'lease-1',
       events: [{ type: 'text-delta', text: 'hello' }]
     });
-    await Promise.resolve();
-    const eventFrame = JSON.parse(sockets[0]!.sent.at(-1)!) as { deliveryId: string };
-    sockets[0]?.emit({ type: 'agent.events_ack', deliveryId: eventFrame.deliveryId });
-    await expect(events).resolves.toBeUndefined();
+    const eventFrame = JSON.parse(sockets[0]!.sent.at(-1)!) as { deliveryId?: string };
+    expect(eventFrame.deliveryId).toBeUndefined();
 
     sockets[0]?.close();
     const reply = transport.postReply({

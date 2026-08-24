@@ -82,9 +82,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   });
   const minted = await options.transport.mintModelEnvironment();
   modelEnv = { ...options.processEnv, ...minted };
-  const modelEnvironments = new Map<string, Record<string, string | undefined>>([
-    ['', modelEnv]
-  ]);
+  let currentModelId = '';
   const delay = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   let sleeping = false;
   let inFlightJobs = 0;
@@ -135,13 +133,12 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
         const nextSkillKey = job.skill ? `${job.skill.id}@${job.skill.revision}` : '';
         const modelKey = job.modelId ?? '';
         const signature = `${modelKey}\u0000${nextSkillKey}`;
-        let jobModelEnv = modelEnvironments.get(modelKey);
-        if (!jobModelEnv) {
+        if (modelKey !== currentModelId) {
           const nextEnv = await options.transport.mintModelEnvironment(job.modelId);
-          jobModelEnv = { ...options.processEnv, ...nextEnv };
-          modelEnvironments.set(modelKey, jobModelEnv);
+          modelEnv = { ...options.processEnv, ...nextEnv };
+          currentModelId = modelKey;
         }
-        modelEnv = jobModelEnv;
+        const jobModelEnv = modelEnv;
         const host = await runtimes.acquire({
           conversationId: job.conversationId,
           signature,

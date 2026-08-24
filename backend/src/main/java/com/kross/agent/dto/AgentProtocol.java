@@ -126,15 +126,10 @@ public final class AgentProtocol {
       String type,
       String userMessageId,
       String agentMessageId,
-      String deliveryId,
       String leaseId,
       List<StreamEvent> events) {}
 
   public record DeliveryAck(String type, String deliveryId) {
-    public static DeliveryAck events(String deliveryId) {
-      return new DeliveryAck("agent.events_ack", deliveryId);
-    }
-
     public static DeliveryAck message(String deliveryId) {
       return new DeliveryAck("agent.message_ack", deliveryId);
     }

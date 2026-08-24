@@ -21,7 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -48,12 +48,14 @@ public class AgentMemoryService {
       "(?is)^(?:please\\s+)?remember(?:\\s+this|\\s+that)[：:,\\s]+(.+)$");
   private static final Pattern PREFERENCE_HINT = Pattern.compile(
       "(?i)喜欢|偏好|请用|请叫|称呼|语言|风格|习惯|prefer|please (?:use|call|speak)|language");
+  private static final int LOCK_STRIPES = 64;
 
   private final AgentMapper agents;
   private final AgentMemoryMapper memories;
   private final AgentSocketHub sockets;
   private final ObjectMapper mapper;
-  private final ConcurrentHashMap<String, Object> extractLocks = new ConcurrentHashMap<>();
+  private final ReentrantLock[] extractLocks = createLocks(LOCK_STRIPES);
+  private final ReentrantLock[] syncLocks = createLocks(LOCK_STRIPES);
 
   public List<MemoryView> list(OrganizationContext context) {
     return memories.listActive(context.organizationId(), context.userId()).stream()
@@ -146,8 +148,9 @@ public class AgentMemoryService {
     if (agent == null) {
       return;
     }
-    Object lock = extractLocks.computeIfAbsent(agent.getId(), id -> new Object());
-    synchronized (lock) {
+    ReentrantLock lock = extractLocks[Math.floorMod(agent.getId().hashCode(), extractLocks.length)];
+    lock.lock();
+    try {
       if (!sockets.isConnected(agent.getId())) {
         return;
       }
@@ -180,6 +183,8 @@ public class AgentMemoryService {
       } catch (RuntimeException error) {
         log.warn("Memory consolidation skipped for agent {}: {}", agent.getId(), error.getMessage());
       }
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -247,6 +252,8 @@ public class AgentMemoryService {
   }
 
   private void syncFilesNow(Agent agent) {
+    ReentrantLock lock = syncLocks[Math.floorMod(agent.getId().hashCode(), syncLocks.length)];
+    lock.lock();
     try {
       if (sockets.isConnected(agent.getId())) {
         MemoryFiles files = renderFiles(agent.getOrganizationId(), agent.getUserId());
@@ -263,7 +270,17 @@ public class AgentMemoryService {
       }
     } catch (RuntimeException error) {
       log.warn("Failed to sync memory files for agent {}: {}", agent.getId(), error.getMessage());
+    } finally {
+      lock.unlock();
     }
+  }
+
+  private static ReentrantLock[] createLocks(int count) {
+    ReentrantLock[] locks = new ReentrantLock[count];
+    for (int index = 0; index < count; index += 1) {
+      locks[index] = new ReentrantLock();
+    }
+    return locks;
   }
 
   private String resolveRememberContent(

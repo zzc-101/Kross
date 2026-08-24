@@ -51,10 +51,11 @@ describe('ConversationRuntimeRegistry', () => {
       { role: 'user', content: 'question' },
       { role: 'assistant', content: 'answer' }
     ]);
+    expect(first.close).toHaveBeenCalledOnce();
   });
 
-  it('replaces changed profiles and evicts the least recently used runtime', async () => {
-    const registry = new ConversationRuntimeRegistry(2);
+  it('closes the previous runtime when profile or conversation changes', async () => {
+    const registry = new ConversationRuntimeRegistry();
     const a1 = fakeHost();
     const a2 = fakeHost();
     const b = fakeHost();
@@ -67,7 +68,7 @@ describe('ConversationRuntimeRegistry', () => {
 
     expect(a1.close).toHaveBeenCalledOnce();
     expect(a2.close).toHaveBeenCalledOnce();
-    expect(b.close).not.toHaveBeenCalled();
+    expect(b.close).toHaveBeenCalledOnce();
     expect(c.close).not.toHaveBeenCalled();
   });
 });

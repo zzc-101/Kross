@@ -87,15 +87,19 @@ public interface AgentMapper {
       @Param("status") String status,
       @Param("errorSummary") String errorSummary);
 
-  int recoverExpiredLeases(
+  int releaseLeasedMessage(
+      @Param("agentId") String agentId,
+      @Param("id") String id,
+      @Param("leaseId") String leaseId);
+
+  List<String> recoverExpiredLeases(
       @Param("now") Instant now,
       @Param("maxAttempts") int maxAttempts);
 
   int recordDelivery(
       @Param("deliveryId") String deliveryId,
       @Param("agentId") String agentId,
-      @Param("messageId") String messageId,
-      @Param("deliveryType") String deliveryType);
+      @Param("messageId") String messageId);
 
   int deleteDeliveryReceiptsBefore(@Param("before") Instant before);
 

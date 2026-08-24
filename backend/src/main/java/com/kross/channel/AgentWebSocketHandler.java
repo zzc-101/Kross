@@ -65,7 +65,6 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
             AgentProtocol.StreamEventsRequest request =
                 mapper.treeToValue(root, AgentProtocol.StreamEventsRequest.class);
             agents.ingestEvents(token, request);
-            hub.send(agentId, AgentProtocol.DeliveryAck.events(request.deliveryId()));
           }
           case "agent.message" -> {
             AgentProtocol.ReplyRequest request = mapper.treeToValue(root, AgentProtocol.ReplyRequest.class);

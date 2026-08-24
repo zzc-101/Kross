@@ -217,13 +217,18 @@ export class WsAgentControlTransport implements AgentControlTransport {
     events: AgentStreamEvent[];
   }): Promise<void> {
     if (input.events.length === 0) return;
-    await this.deliver('agent.events_ack', {
-      type: 'agent.events',
-      userMessageId: input.userMessageId,
-      agentMessageId: input.agentMessageId,
-      leaseId: input.leaseId,
-      events: input.events
-    });
+    try {
+      await this.ensureConnected();
+      this.send({
+        type: 'agent.events',
+        userMessageId: input.userMessageId,
+        agentMessageId: input.agentMessageId,
+        leaseId: input.leaseId,
+        events: input.events
+      });
+    } catch {
+      // Streaming is transient; the final message remains the persisted source of truth.
+    }
   }
 
   async postReply(input: {
@@ -237,7 +242,7 @@ export class WsAgentControlTransport implements AgentControlTransport {
     usage?: AgentTokenUsage;
     contextUsage?: AgentContextUsage;
   }): Promise<void> {
-    await this.deliver('agent.message_ack', {
+    await this.deliver({
       type: 'agent.message',
       userMessageId: input.userMessageId,
       leaseId: input.leaseId,
@@ -410,7 +415,7 @@ export class WsAgentControlTransport implements AgentControlTransport {
       void this.dispatchCommand(parsed);
       return;
     }
-    if (type === 'agent.events_ack' || type === 'agent.message_ack') {
+    if (type === 'agent.message_ack') {
       const deliveryId = typeof parsed.deliveryId === 'string' ? parsed.deliveryId : '';
       const delivery = this.pendingDeliveries.get(deliveryId);
       if (delivery) {
@@ -430,10 +435,7 @@ export class WsAgentControlTransport implements AgentControlTransport {
     return wait;
   }
 
-  private async deliver(
-    _responseType: 'agent.events_ack' | 'agent.message_ack',
-    body: Record<string, unknown>
-  ): Promise<void> {
+  private async deliver(body: Record<string, unknown>): Promise<void> {
     const deliveryId = randomUUID();
     let lastError: Error | undefined;
     for (let attempt = 0; attempt < 5 && !this.closed; attempt += 1) {
