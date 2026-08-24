@@ -1,0 +1,44 @@
+package com.kross.agent;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kross.agent.dto.AgentProtocol;
+import com.kross.api.ApiException;
+import java.util.Collections;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+class WorkerPayloadValidatorTest {
+  private final ObjectMapper mapper = new ObjectMapper();
+
+  @Test
+  void rejectsTooManyStreamEvents() {
+    AgentProtocol.StreamEvent event = new AgentProtocol.StreamEvent(
+        "text-delta", "x", null, null, null, null, null);
+
+    assertThatThrownBy(() -> WorkerPayloadValidator.validateEvents(
+        mapper, Collections.nCopies(101, event)))
+        .isInstanceOf(ApiException.class)
+        .hasMessageContaining("Too many");
+  }
+
+  @Test
+  void rejectsOversizedStreamText() {
+    AgentProtocol.StreamEvent event = new AgentProtocol.StreamEvent(
+        "text-delta", "x".repeat(32_001), null, null, null, null, null);
+
+    assertThatThrownBy(() -> WorkerPayloadValidator.validateEvents(mapper, List.of(event)))
+        .isInstanceOf(ApiException.class)
+        .hasMessageContaining("text");
+  }
+
+  @Test
+  void acceptsBoundedStreamEvents() {
+    AgentProtocol.StreamEvent event = new AgentProtocol.StreamEvent(
+        "text-delta", "hello", null, null, null, null, null);
+
+    assertThat(WorkerPayloadValidator.validateEvents(mapper, List.of(event))).containsExactly(event);
+  }
+}

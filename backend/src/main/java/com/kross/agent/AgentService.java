@@ -515,7 +515,7 @@ public class AgentService {
       String conversationId = Optional.ofNullable(row.getConversationId()).orElse("");
       List<AgentProtocol.HistoryTurn> history = conversationId.isBlank()
           ? List.of()
-          : agents.listHistory(conversationId, row.getId(), HISTORY_LIMIT).stream()
+          : agents.listHistory(session.getOrganizationId(), conversationId, row.getId(), HISTORY_LIMIT).stream()
               .map(item -> new AgentProtocol.HistoryTurn(item.getRole(), item.getContent()))
               .toList();
       AgentMessage reply = agents.findReplyTo(session.getOrganizationId(), row.getId())
@@ -558,14 +558,15 @@ public class AgentService {
         .orElseThrow(() -> ApiException.invalidRequest("userMessageId is required"));
     String deliveryId = requireProtocolId(request.deliveryId(), "deliveryId");
     String leaseId = requireProtocolId(request.leaseId(), "leaseId");
-    if (agents.recordDelivery(deliveryId, session.getAgentId(), userMessageId, "message") == 0) {
-      return;
-    }
-    requireActiveLease(session.getAgentId(), userMessageId, leaseId);
     String status = Optional.ofNullable(request.status()).orElse("done");
     if (!List.of("processing", "done", "failed").contains(status)) {
       throw ApiException.invalidRequest("status must be processing, done, or failed");
     }
+    WorkerPayloadValidator.validateReply(mapper, request);
+    if (agents.recordDelivery(deliveryId, session.getAgentId(), userMessageId, "message") == 0) {
+      return;
+    }
+    requireActiveLease(session.getAgentId(), userMessageId, leaseId);
     JsonNode parts = MessageParts.copyOrEmpty(mapper, request.parts());
     String content = Optional.ofNullable(request.content()).orElse("").trim();
     if (content.isEmpty()) {
@@ -592,6 +593,11 @@ public class AgentService {
           agents.insertMessage(created);
           return created;
         });
+    if (!conversationId.equals(reply.getConversationId())
+        || !userMessageId.equals(reply.getReplyTo())
+        || !"agent".equals(reply.getRole())) {
+      throw ApiException.invalidRequest("Agent reply does not belong to the claimed conversation");
+    }
     reply.setContent(body);
     reply.setParts(parts);
     if (request.usage() != null && request.usage().isObject()) {
@@ -627,20 +633,28 @@ public class AgentService {
         .orElseThrow(() -> ApiException.invalidRequest("userMessageId is required"));
     String deliveryId = requireProtocolId(request.deliveryId(), "deliveryId");
     String leaseId = requireProtocolId(request.leaseId(), "leaseId");
+    List<AgentProtocol.StreamEvent> events = WorkerPayloadValidator.validateEvents(mapper, request.events());
     if (agents.recordDelivery(deliveryId, session.getAgentId(), userMessageId, "events") == 0) {
       return;
     }
     requireActiveLease(session.getAgentId(), userMessageId, leaseId);
     String agentMessageId = Optional.ofNullable(request.agentMessageId()).filter(value -> !value.isBlank())
         .orElseThrow(() -> ApiException.invalidRequest("agentMessageId is required"));
+    AgentMessage userMessage = agents.findMessage(session.getOrganizationId(), userMessageId)
+        .filter(row -> session.getAgentId().equals(row.getAgentId()))
+        .filter(row -> "user".equals(row.getRole()))
+        .orElseThrow(() -> ApiException.notFound("Message"));
     AgentMessage reply = agents.findMessage(session.getOrganizationId(), agentMessageId)
         .filter(row -> session.getAgentId().equals(row.getAgentId()))
+        .filter(row -> "agent".equals(row.getRole()))
+        .filter(row -> userMessageId.equals(row.getReplyTo()))
+        .filter(row -> Optional.ofNullable(userMessage.getConversationId()).orElse("")
+            .equals(Optional.ofNullable(row.getConversationId()).orElse("")))
         .orElseThrow(() -> ApiException.notFound("Message"));
     String conversationId = Optional.ofNullable(reply.getConversationId()).orElse("");
     RequestLogContext.put(RequestLogContext.AGENT_ID, session.getAgentId());
     RequestLogContext.put(RequestLogContext.ORGANIZATION_ID, session.getOrganizationId());
     RequestLogContext.put(RequestLogContext.CONVERSATION_ID, conversationId);
-    List<AgentProtocol.StreamEvent> events = Optional.ofNullable(request.events()).orElse(List.of());
     for (AgentProtocol.StreamEvent event : events) {
       if (event == null || event.type() == null || event.type().isBlank()) {
         continue;

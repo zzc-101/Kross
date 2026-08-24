@@ -136,7 +136,8 @@
   <select id="listHistory" resultMap="AgentMessageMap">
     SELECT * FROM (
       SELECT * FROM agent_messages
-      WHERE conversation_id = #{conversationId}
+      WHERE organization_id = #{organizationId}
+        AND conversation_id = #{conversationId}
         AND id &lt;&gt; #{excludeId}
         AND status IN ('done', 'failed')
       ORDER BY created_at DESC, id DESC

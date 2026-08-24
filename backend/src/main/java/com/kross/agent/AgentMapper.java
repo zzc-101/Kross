@@ -54,6 +54,7 @@ public interface AgentMapper {
       @Param("limit") int limit);
 
   List<AgentMessage> listHistory(
+      @Param("organizationId") String organizationId,
       @Param("conversationId") String conversationId,
       @Param("excludeId") String excludeId,
       @Param("limit") int limit);

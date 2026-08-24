@@ -89,5 +89,7 @@
   实例，节点命令结果也必须来自原目标节点，避免重连和漂移造成双活。
 - SSE 订阅清理改为原子更新并设置连接超时；Agent WebSocket 不再持锁执行数据库
   认领，记忆文件与 MCP 配置同步移到提交后的异步任务，避免占用事务连接和请求线程。
+- Worker WebSocket 帧和事件/回复增加数量、文本与 JSON 体积上限；流事件和最终回复
+  必须属于同一用户消息及会话，并为 processing、记忆抽取和组织用量查询补充索引。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main
