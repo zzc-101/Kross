@@ -1,6 +1,5 @@
 import type { ContextSource } from '../context/sessionContext';
 import type {
-  AgentMode,
   AgentResult,
   TraceEvent,
   VerificationReport
@@ -15,11 +14,7 @@ import {
 } from '../verification';
 import type { ToolCallPhaseClassification } from './runPhase';
 
-export type AgentExecutionPromptPhase =
-  | 'agent'
-  | 'plan'
-  | 'conductor-plan'
-  | 'conductor-review';
+export type AgentExecutionPromptPhase = 'agent';
 
 /** Stable construction-time inputs available to profile policy factories. */
 export interface AgentExecutionProfileContext {
@@ -33,16 +28,12 @@ export interface AgentExecutionProfileContext {
  */
 export interface AgentSystemPromptContext {
   phase: AgentExecutionPromptPhase;
-  mode: AgentMode;
-  sessionMode?: AgentMode;
   workspaceRoot?: string;
   defaultPrompt: string;
 }
 
 export interface AgentContextSourceContext {
   phase: AgentExecutionPromptPhase;
-  mode: AgentMode;
-  sessionMode: AgentMode;
   workspaceRoot?: string;
 }
 
@@ -152,27 +143,12 @@ export interface AgentCompletionPolicy {
   ): string | undefined;
 }
 
-/**
- * Coding-compatibility gate for the current Git-diff Conductor only. It is not
- * a generic review contract. Non-Coding profiles should leave this disabled
- * until Core gains a separate, profile-driven Conductor implementation.
- */
-export interface AgentReviewPolicy {
-  supportsConductor: boolean;
-  unsupportedReason?: string;
-}
-
 export interface AgentExecutionProfile {
   readonly id: string;
-  /** Whether this product exposes plan/conductor selection to the session. */
-  readonly supportsModeSelection?: boolean;
   buildSystemPrompt(context: AgentSystemPromptContext): string;
   createCompletionPolicy(
     context: AgentExecutionProfileContext
   ): AgentCompletionPolicy;
-  createReviewPolicy?(
-    context: AgentExecutionProfileContext
-  ): AgentReviewPolicy;
   getContextSources?(
     context: AgentContextSourceContext
   ): AgentContextSourceOverlay | undefined;
@@ -190,7 +166,6 @@ export function createCodingAgentExecutionProfile(): AgentExecutionProfile {
     id: 'coding',
     buildSystemPrompt: ({ defaultPrompt }) => defaultPrompt,
     createCompletionPolicy: () => createCodingCompletionPolicy(),
-    createReviewPolicy: () => ({ supportsConductor: true }),
     describeProgress: () => undefined,
     getToolPolicy: () => ({ observeCodingVerificationLifecycle: true })
   };

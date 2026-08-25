@@ -64,7 +64,7 @@ export interface SubagentRunDeps {
   getAllowedWorkspaceRoots?: () => string[];
   /** Default / senior model client */
   llmClient?: LlmClient;
-  /** Cheaper/faster worker model for conductor-spawned subagents */
+  /** Optional cheaper/faster model for delegated subagents. */
   workerLlmClient?: LlmClient;
   /** Resolve a configured model profile at spawn time. */
   resolveModelProfile?: (profileId: string) => {
@@ -295,7 +295,6 @@ export async function runSubagent(
       prompt,
       systemPrompt:
         request.systemPrompt ?? renderSubagentExecutionPrompt({ mode }),
-      mode: 'auto',
       llmClient,
       gateway: childGateway,
       tools: toolMeta,

@@ -143,7 +143,7 @@ export class WorkspaceRoots {
   }
 
   /**
-   * Impact map from current roots only (no registry). Used by conductor mode.
+   * Impact map from current roots only (no registry).
    */
   toImpactMap(goal: string): ImpactMap {
     const repos: ImpactRepo[] = this.list().map((entry) => ({

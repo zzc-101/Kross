@@ -31,7 +31,7 @@ describe('ToolGateway', () => {
     ]);
   });
 
-  it('exposes input schema metadata and filters conditionally enabled tools', () => {
+  it('exposes input schema metadata', () => {
     const gateway = new ToolGateway();
 
     gateway.register({
@@ -47,28 +47,13 @@ describe('ToolGateway', () => {
       inputSchema: z.object({ path: z.string() }),
       execute: async ({ input }) => ({ content: `read ${input.path}` })
     });
-    gateway.register({
-      name: 'shell.exec',
-      description: '执行 shell 命令',
-      risk: 'execute',
-      inputSchema: z.object({ cmd: z.string() }),
-      enabled: ({ mode }) => mode === 'conductor',
-      execute: async () => ({ content: 'ok' })
-    });
-
-    expect(gateway.listTools({ mode: 'auto' })).toEqual([
+    expect(gateway.listTools()).toEqual([
       expect.objectContaining({
         name: 'fs.read',
         category: 'filesystem',
         parameters: expect.objectContaining({ type: 'object' })
       })
     ]);
-    expect(gateway.listTools({ mode: 'auto' })).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'shell.exec' })])
-    );
-    expect(gateway.listTools({ mode: 'conductor' })).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'shell.exec' })])
-    );
   });
 
   it('atomically replaces a category without disturbing captured calls', async () => {

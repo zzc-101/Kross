@@ -30,7 +30,6 @@ export interface RunTraceSummary {
   startedAt?: string;
   endedAt?: string;
   status: string;
-  mode?: string;
   inputPreview?: string;
   summaryPreview?: string;
   tools: string[];
@@ -111,7 +110,6 @@ export function summarizeTraceEvents(
   const toolNames = new Set<string>();
   const flags = new Set<string>();
   let status = 'running';
-  let mode: string | undefined;
   let inputPreview: string | undefined;
   let summaryPreview: string | undefined;
   let failureMessage: string | undefined;
@@ -155,13 +153,8 @@ export function summarizeTraceEvents(
         inputPreview = previewText(asString(event.payload.input), 80);
         break;
       }
-      case 'mode.detected': {
-        mode = asString(event.payload.mode) ?? mode;
-        break;
-      }
       case 'run.completed': {
         status = asString(event.payload.status) ?? 'completed';
-        mode = asString(event.payload.mode) ?? mode;
         summaryPreview = previewText(asString(event.payload.summary), 120);
         const report = asRecord(event.payload.report);
         const verification = asRecord(report?.verification);
@@ -202,10 +195,6 @@ export function summarizeTraceEvents(
       }
       case 'run.interrupted': {
         flags.add('interrupted');
-        break;
-      }
-      case 'approval.required': {
-        flags.add('plan-approval');
         break;
       }
       case 'llm.planner.failed': {
@@ -297,7 +286,6 @@ export function summarizeTraceEvents(
     startedAt,
     endedAt,
     status,
-    mode,
     inputPreview,
     summaryPreview,
     tools: [...toolNames],
@@ -382,11 +370,10 @@ export function formatTraceList(
       item.toolStats.total > 0
         ? `${item.toolStats.total} tools`
         : '0 tools';
-    const mode = item.mode ?? '-';
     const input = item.inputPreview ?? '(no input)';
     const flagSuffix =
       item.flags.length > 0 ? ` · ${item.flags.slice(0, 3).join(',')}` : '';
-    return `${index + 1}. ${item.runId}  ${item.status}  ${mode}  ${tools}${flagSuffix}\n   ${input}`;
+    return `${index + 1}. ${item.runId}  ${item.status}  ${tools}${flagSuffix}\n   ${input}`;
   });
 
   return [
@@ -448,7 +435,7 @@ export function formatTraceDetail(detail: RunTraceDetail): string {
 
   return [
     `Trace: ${detail.runId}`,
-    `status: ${detail.status} · phase: ${detail.phase ?? '-'} · mode: ${detail.mode ?? '-'} · events: ${detail.eventCount}`,
+    `status: ${detail.status} · phase: ${detail.phase ?? '-'} · events: ${detail.eventCount}`,
     detail.verificationStatus
       ? `verification: ${detail.verificationStatus} · commands: ${detail.verificationCommandCount ?? 0}`
       : 'verification: (none)',

@@ -53,15 +53,14 @@ describe('AgentRuntime observability', () => {
       });
 
       await runtime.run({
-        input: 'hello',
-        requestedMode: 'auto'
+        input: 'hello'
       });
 
       const contextEvent = traceStore.events.find(
         (event) => event.type === 'context.built'
       );
       expect(contextEvent?.payload).toMatchObject({
-        includedSources: expect.arrayContaining(['session-mode']),
+        includedSources: expect.any(Array),
         droppedSources: [],
         report: expect.objectContaining({
           totalChars: expect.any(Number),
@@ -97,21 +96,18 @@ describe('AgentRuntime observability', () => {
       });
 
       await runtime.run({
-        input: '第一轮',
-        requestedMode: 'auto'
+        input: '第一轮'
       });
       const beforeInspectCalls = llmClient.requests.length;
 
       const snapshot = runtime.inspectContext({
-        requestedMode: 'auto',
         currentUserInput: ''
       });
 
       expect(llmClient.requests).toHaveLength(beforeInspectCalls);
-      expect(snapshot.mode).toBe('auto');
       expect(
         snapshot.messages.find((message) => message.role === 'system')?.content
-      ).toContain('Auto mode:');
+      ).toContain('You are');
       expect(snapshot.report.sections.history).toBeGreaterThan(0);
       expect(snapshot.report.sections.tools).toBeGreaterThan(0);
       expect(snapshot.report.contributors).toEqual(
@@ -131,15 +127,13 @@ describe('AgentRuntime observability', () => {
       });
 
       await runtime.run({
-        input: '修复登录 bug',
-        requestedMode: 'auto'
+        input: '修复登录 bug'
       });
 
       const listed = await runtime.listTraces({ limit: 5 });
       expect(listed[0]).toMatchObject({
         runId: 'run-trace-1',
         status: 'completed',
-        mode: 'auto',
         inputPreview: '修复登录 bug'
       });
 
@@ -188,8 +182,7 @@ describe('AgentRuntime observability', () => {
       });
 
       const result = await runtime.run({
-        input: '写个文件',
-        requestedMode: 'auto'
+        input: '写个文件'
       });
 
       expect(result.report.changedFiles).toEqual(['src/demo.ts']);
@@ -273,8 +266,7 @@ describe('AgentRuntime observability', () => {
       });
 
       const result = await runtime.run({
-        input: '运行测试',
-        requestedMode: 'auto'
+        input: '运行测试'
       });
 
       expect(result.report.verification).toMatchObject({
@@ -358,8 +350,7 @@ describe('AgentRuntime observability', () => {
       const runtime = new AgentRuntime({ traceStore, llmClient, toolGateway });
 
       const result = await runtime.run({
-        input: '检查类型',
-        requestedMode: 'auto'
+        input: '检查类型'
       });
 
       expect(result.summary).toBe('所有检查都通过了');
@@ -390,8 +381,7 @@ describe('AgentRuntime observability', () => {
     });
 
     const result = await runtime.run({
-      input: '修改 gate 实现',
-      requestedMode: 'auto'
+      input: '修改 gate 实现'
     });
 
     expect(llmClient.requests).toHaveLength(3);
@@ -439,8 +429,7 @@ describe('AgentRuntime observability', () => {
     });
 
     const result = await runtime.run({
-      input: '修改并验证 gate 实现',
-      requestedMode: 'auto'
+      input: '修改并验证 gate 实现'
     });
 
     expect(llmClient.requests).toHaveLength(4);
@@ -468,8 +457,7 @@ describe('AgentRuntime observability', () => {
     });
 
     const result = await runtime.run({
-      input: '请运行 `npm test`',
-      requestedMode: 'auto'
+      input: '请运行 `npm test`'
     });
 
     expect(llmClient.requests).toHaveLength(2);

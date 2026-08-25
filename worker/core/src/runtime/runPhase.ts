@@ -66,24 +66,7 @@ export function classifyToolCallPhase(
 }
 
 export function phaseForLifecycleEvent(type: string): RunPhase | undefined {
-  if (
-    type === 'plan.intent' ||
-    type === 'plan.created' ||
-    type === 'approval.required'
-  ) {
-    return 'plan';
-  }
-  if (type === 'conductor.execution.started') {
-    return 'act';
-  }
-  if (type === 'conductor.validation.started') {
-    return 'verify';
-  }
-  if (
-    type === 'conductor.review.started' ||
-    type === 'conductor.review.completed' ||
-    type === 'review.completed'
-  ) {
+  if (type === 'review.completed') {
     return 'review';
   }
   return undefined;

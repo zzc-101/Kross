@@ -825,7 +825,6 @@ public class AgentService {
     row.setTitle(clipTitle(Optional.ofNullable(title).orElse("").trim().isEmpty()
         ? DEFAULT_TITLE
         : title.trim()));
-    row.setMode("auto");
     row.setSkillId(skillId);
     row.setLastMessageAt(now);
     row.setCreatedAt(now);

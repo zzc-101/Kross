@@ -1,4 +1,4 @@
-import { traceEventSchema, type AgentMode, type TraceEvent } from '../domain';
+import { traceEventSchema, type TraceEvent } from '../domain';
 import {
   buildTraceDetail,
   type RunTraceDetail,
@@ -8,20 +8,6 @@ import {
 export const TRACE_REPLAY_VERSION = 1;
 
 export const TRACE_REPLAY_EVENT_TYPES = [
-  'approval.required',
-  'conductor.execution.started',
-  'conductor.review.completed',
-  'conductor.review.evidence',
-  'conductor.review.started',
-  'conductor.validation.completed',
-  'conductor.validation.evidence',
-  'conductor.validation.started',
-  'conductor.worker.attempt.completed',
-  'conductor.worker.attempt.started',
-  'conductor.worker.blocked',
-  'conductor.worker.replan.completed',
-  'conductor.worker.replan.started',
-  'conductor.worker.retry',
   'context.built',
   'context.compacted',
   'llm.planner.completed',
@@ -37,9 +23,6 @@ export const TRACE_REPLAY_EVENT_TYPES = [
   'llm.tool_loop.stall_detected',
   'llm.tool_loop.stall_recovery',
   'llm.tool_loop.stalled',
-  'mode.detected',
-  'plan.created',
-  'plan.intent',
   'planner.started',
   'review.completed',
   'run.awaiting_approval',
@@ -106,7 +89,6 @@ export interface TraceReplayFrame {
   eventType: TraceReplayEventType;
   timestamp: string;
   status: string;
-  mode?: AgentMode;
   phase?: string;
   activeToolCalls: number;
 }
@@ -116,7 +98,6 @@ export interface TraceReplayResult {
   runId: string;
   eventCount: number;
   status: string;
-  mode?: AgentMode;
   phase?: string;
   frames: TraceReplayFrame[];
   summary: RunTraceSummary;
@@ -163,7 +144,6 @@ export function replayTraceEvents(
   let started = false;
   let completed = false;
   let status = 'pending';
-  let mode: AgentMode | undefined;
   let phase: string | undefined;
   const frames: TraceReplayFrame[] = [];
 
@@ -241,23 +221,6 @@ export function replayTraceEvents(
         status = requireStringPayload(event, 'status', index);
         completed = true;
         break;
-      case 'mode.detected': {
-        const nextMode = requireStringPayload(event, 'mode', index);
-        if (
-          nextMode !== 'auto' &&
-          nextMode !== 'plan' &&
-          nextMode !== 'conductor'
-        ) {
-          throw replayError(
-            'invalid-payload',
-            `Invalid mode in ${event.id}: ${nextMode}`,
-            index,
-            event.id
-          );
-        }
-        mode = nextMode;
-        break;
-      }
       case 'run.phase.changed':
         phase = requireStringPayload(event, 'phase', index);
         break;
@@ -347,7 +310,6 @@ export function replayTraceEvents(
       eventType: event.type as TraceReplayEventType,
       timestamp: event.timestamp,
       status,
-      mode,
       phase,
       activeToolCalls: [...activeTools.values()].filter(
         (tool) => !tool.terminal
@@ -373,7 +335,6 @@ export function replayTraceEvents(
     runId: expectedRunId,
     eventCount: events.length,
     status,
-    mode,
     phase,
     frames,
     summary: detail,
@@ -388,7 +349,6 @@ export function formatTraceReplay(result: TraceReplayResult): string {
     `- version: ${result.version}`,
     `- events: ${result.eventCount}`,
     `- status: ${result.status}`,
-    ...(result.mode ? [`- mode: ${result.mode}`] : []),
     ...(result.phase ? [`- phase: ${result.phase}`] : []),
     '',
     '### 派生时间线',

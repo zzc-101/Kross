@@ -1,4 +1,3 @@
-import type { AgentMode } from '../domain';
 import {
   getPromptTemplate,
   type PromptKey
@@ -21,17 +20,6 @@ export const AGENT_EXECUTION_PROMPT_KEYS = [
   'agent.execution.completion',
   'agent.execution.communication'
 ] as const satisfies readonly PromptKey[];
-
-export const AGENT_MODE_PROMPT_KEYS = {
-  auto: 'agent.execution.mode.auto',
-  plan: 'agent.execution.mode.plan',
-  conductor: 'agent.execution.mode.conductor'
-} as const satisfies Record<AgentMode, PromptKey>;
-
-export const MODE_PHASE_PROMPT_KEYS: Partial<Record<PromptKey, PromptKey>> = {
-  'conductor.plan': 'agent.execution.mode.conductor.plan',
-  'conductor.review': 'agent.execution.mode.conductor.review'
-};
 
 export const SUBAGENT_SHARED_PROMPT_KEYS = [
   'agent.execution.instructions',
@@ -67,45 +55,8 @@ export function renderPrompt(
   });
 }
 
-export function renderAgentExecutionPrompt(input: {
-  sessionMode?: string;
-  mode?: AgentMode;
-} = {}): string {
-  const parts = AGENT_EXECUTION_PROMPT_KEYS.map((key) => renderPrompt(key));
-
-  if (input.mode !== undefined) {
-    parts.push(renderAgentModeOverlay(input.mode));
-  }
-
-  if (input.sessionMode !== undefined) {
-    if (input.mode === undefined) {
-      throw new Error('mode is required when sessionMode is provided');
-    }
-    parts.push(
-      renderPrompt('agent.execution.modeContext', {
-        sessionMode: input.sessionMode,
-        mode: input.mode
-      })
-    );
-  }
-
-  return parts.join('\n');
-}
-
-export function renderAgentModeOverlay(mode: AgentMode): string {
-  return renderPrompt(AGENT_MODE_PROMPT_KEYS[mode]);
-}
-
-export function renderModePhasePrompt(
-  key: PromptKey,
-  mode: AgentMode
-): string {
-  const phaseOverlayKey: PromptKey | undefined = MODE_PHASE_PROMPT_KEYS[key];
-  return [
-    renderAgentModeOverlay(mode),
-    ...(phaseOverlayKey ? [renderPrompt(phaseOverlayKey)] : []),
-    renderPrompt(key)
-  ].join('\n');
+export function renderAgentExecutionPrompt(): string {
+  return AGENT_EXECUTION_PROMPT_KEYS.map((key) => renderPrompt(key)).join('\n');
 }
 
 export function renderSubagentExecutionPrompt(input: {

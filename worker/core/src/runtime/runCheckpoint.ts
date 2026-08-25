@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { agentModeSchema, pendingToolApprovalSchema } from '../domain';
+import { pendingToolApprovalSchema } from '../domain';
 import { RUN_PHASES, type RunPhase } from './runPhase';
 
 const toolCallSchema = z.object({
@@ -22,7 +22,6 @@ export const runCheckpointSchema = z
     /** Optional only for persisted checkpoints written before profiles existed. */
     executionProfileId: z.string().min(1).max(100).optional(),
     runId: z.string().min(1),
-    mode: agentModeSchema,
     originalUserInput: z.string(),
     status: z.enum(['running', 'awaiting-approval']),
     phase: z.enum(RUN_PHASES),
@@ -59,7 +58,6 @@ export interface RunCheckpointV1 {
   /** Missing only on legacy v1 Coding checkpoints. New checkpoints always set it. */
   executionProfileId?: string;
   runId: string;
-  mode: z.infer<typeof agentModeSchema>;
   originalUserInput: string;
   status: 'running' | 'awaiting-approval';
   phase: RunPhase;

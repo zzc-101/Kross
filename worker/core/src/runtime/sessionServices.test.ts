@@ -40,7 +40,7 @@ describe('project instructions in AgentRuntime', () => {
 
     const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
     const instructions = runtime.getProjectInstructions();
-    const context = runtime.inspectContext({ requestedMode: 'auto' });
+    const context = runtime.inspectContext({});
 
     expect(instructions.files).toHaveLength(1);
     expect(context.includedSources).toContain(
@@ -60,7 +60,7 @@ describe('project instructions in AgentRuntime', () => {
     const oldSignature = runtime.getProjectInstructions().signature;
 
     writeFileSync(path, 'new rules');
-    const refreshed = runtime.inspectContext({ requestedMode: 'auto' });
+    const refreshed = runtime.inspectContext({});
 
     expect(runtime.getProjectInstructions().signature).not.toBe(oldSignature);
     expect(refreshed.messages[0]?.content).toContain('new rules');
@@ -68,7 +68,7 @@ describe('project instructions in AgentRuntime', () => {
 
     unlinkSync(path);
     const removed = runtime.refreshProjectInstructions();
-    const withoutSource = runtime.inspectContext({ requestedMode: 'auto' });
+    const withoutSource = runtime.inspectContext({});
     expect(removed.files).toEqual([]);
     expect(withoutSource.includedSources).not.toEqual(
       expect.arrayContaining([expect.stringMatching(/^project-instruction:/)])
@@ -92,7 +92,7 @@ describe('project instructions in AgentRuntime', () => {
     const restored = new AgentRuntime({ traceStore, workspaceRoot: root });
     expect(restored.restoreContextState(state)).toBe(true);
 
-    const context = restored.inspectContext({ requestedMode: 'auto' });
+    const context = restored.inspectContext({});
     expect(context.messages[0]?.content).toContain('rules from current disk');
     expect(context.messages[0]?.content).not.toContain('rules from checkpoint time');
   });
@@ -102,9 +102,8 @@ describe('project instructions in AgentRuntime', () => {
     const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
 
     expect(runtime.getProjectInstructions().files).toEqual([]);
-    expect(runtime.inspectContext({ requestedMode: 'auto' }).includedSources).toEqual([
-      'tool-permissions',
-      'session-mode'
+    expect(runtime.inspectContext({}).includedSources).toEqual([
+      'tool-permissions'
     ]);
   });
 
@@ -112,7 +111,7 @@ describe('project instructions in AgentRuntime', () => {
     const root = makeWorkspace();
     const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
 
-    const context = runtime.inspectContext({ requestedMode: 'auto' });
+    const context = runtime.inspectContext({});
     expect(context.messages[0]?.content).toContain('固定的 Cloud 工具策略');
     expect(context.messages[0]?.content).toContain('文件访问范围：workspace');
     expect(context.messages[0]?.content).toContain(`主工作目录：${root}`);
@@ -136,7 +135,7 @@ describe('project instructions in AgentRuntime', () => {
       ]
     });
 
-    let context = runtime.inspectContext({ requestedMode: 'auto' });
+    let context = runtime.inspectContext({});
     expect(context.includedSources).toContain('model-profiles');
     expect(context.messages[0]?.content).toContain(
       'id=economy; name=Economy'
@@ -146,7 +145,7 @@ describe('project instructions in AgentRuntime', () => {
     );
 
     model = 'claude-next';
-    context = runtime.inspectContext({ requestedMode: 'auto' });
+    context = runtime.inspectContext({});
     expect(context.messages[0]?.content).toContain('model=claude-next');
     expect(context.messages[0]?.content).not.toContain('model=claude-fast');
   });
@@ -163,7 +162,7 @@ describe('skills in AgentRuntime', () => {
     );
 
     const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
-    const context = runtime.inspectContext({ requestedMode: 'auto' });
+    const context = runtime.inspectContext({});
 
     expect(runtime.getSkills().skills[0]).toMatchObject({
       id: 'review',
@@ -177,22 +176,13 @@ describe('skills in AgentRuntime', () => {
 });
 
 describe('durable work state in AgentRuntime', () => {
-  it('exports and restores todos, mode and pending execution', () => {
+  it('exports and restores todos', () => {
     const root = makeWorkspace();
     const first = new AgentRuntime({ traceStore, workspaceRoot: root });
     first.getTodoStore()?.write({
       todos: [{ id: 't1', content: 'Continue work', status: 'in_progress' }]
     });
-    first.setSessionMode('plan');
-    const state = {
-      ...first.exportWorkState(),
-      pendingModeExecution: {
-        kind: 'plan' as const,
-        goal: 'Continue work',
-        mode: 'plan' as const,
-        planText: '1. Restore state\n2. Continue work'
-      }
-    };
+    const state = first.exportWorkState();
 
     const second = new AgentRuntime({
       traceStore,
@@ -200,11 +190,9 @@ describe('durable work state in AgentRuntime', () => {
       todoStore: new TodoStore()
     });
     expect(second.restoreWorkState(state)).toBe(true);
-    expect(second.getSessionMode()).toBe('plan');
     expect(second.getTodoStore()?.list()).toEqual(state.todos);
-    expect(second.getPendingModeExecution()).toEqual(state.pendingModeExecution);
     expect(
-      second.inspectContext({ requestedMode: 'auto' }).messages[0]?.content
+      second.inspectContext({}).messages[0]?.content
     ).toContain('固定的 Cloud 工具策略');
   });
 });

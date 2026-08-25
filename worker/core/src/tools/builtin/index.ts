@@ -13,7 +13,6 @@ import { createReadTool } from './read';
 import { createReadSkillTool } from './readSkill';
 import { createStatTool } from './stat';
 import { createTaskTool, type CreateTaskToolOptions } from './task';
-import { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 import { createTodoReadTool, createTodoWriteTool } from './todo';
 import { createWriteTool } from './write';
 import { createApplyPatchTool } from './applyPatch';
@@ -30,7 +29,6 @@ export { createExploreTools, createSubagentTools } from './exploreTools';
 export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
 export { createTaskTool, type CreateTaskToolOptions } from './task';
 export { createDefaultSubagentRunner } from '../../runtime/subagentRunner';
-export { createSetModeTool, type CreateSetModeToolOptions } from './setMode';
 export { createTodoReadTool, createTodoWriteTool } from './todo';
 export { createReadSkillTool } from './readSkill';
 export { createApplyPatchTool } from './applyPatch';
@@ -54,7 +52,6 @@ export const builtinToolNames = [
   'Task',
   'TodoWrite',
   'TodoRead',
-  'SetMode',
   'ProcessStart',
   'ProcessPoll',
   'ProcessWrite',
@@ -79,8 +76,6 @@ export interface CreateBuiltinToolsOptions {
   mutationCoordinator?: MutationCoordinator;
   /** Main-session managed process lifecycle; intentionally omitted for subagents. */
   processManager?: ProcessManager;
-  /** When set, registers SetMode for conversational mode switching. */
-  setMode?: CreateSetModeToolOptions;
 }
 
 /**
@@ -154,10 +149,6 @@ export function createBuiltinTools(
 
   if (options.skillRegistry) {
     tools.push(createReadSkillTool(options.skillRegistry));
-  }
-
-  if (options.setMode) {
-    tools.push(createSetModeTool(options.setMode));
   }
 
   if (options.processManager) {

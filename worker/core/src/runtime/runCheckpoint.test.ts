@@ -24,8 +24,7 @@ describe('run checkpoint recovery', () => {
     );
 
     const pending = await first.run({
-      input: '读取并更新 README',
-      requestedMode: 'auto'
+      input: '读取并更新 README'
     });
     expect(pending.status).toBe('approval-required');
     expect(counters).toEqual({ read: 1, write: 0 });
@@ -72,8 +71,7 @@ describe('run checkpoint recovery', () => {
       createTestProfile('work')
     );
     const pending = await first.run({
-      input: '生成交付物',
-      requestedMode: 'auto'
+      input: '生成交付物'
     });
     expect(first.exportWorkState().runCheckpoint).toMatchObject({
       executionProfileId: 'work'
@@ -113,7 +111,7 @@ describe('run checkpoint recovery', () => {
       context,
       { read: 0, write: 0 }
     );
-    await first.run({ input: '更新文件', requestedMode: 'auto' });
+    await first.run({ input: '更新文件' });
     const workState = first.exportWorkState();
 
     const restoredContext = new SessionContext();
@@ -173,11 +171,9 @@ describe('run checkpoint recovery', () => {
     const invalid = {
       version: 1 as const,
       todos: [],
-      sessionMode: 'auto' as const,
       runCheckpoint: {
         version: 1 as const,
         runId: 'run-missing-context',
-        mode: 'auto' as const,
         originalUserInput: 'write',
         status: 'awaiting-approval' as const,
         phase: 'act' as const,
@@ -286,7 +282,6 @@ function createTestProfile(id: string): AgentExecutionProfile {
         reason: 'Profile completion passed.'
       })
     }),
-    createReviewPolicy: () => ({ supportsConductor: false }),
     getContextSources: () => ({
       sources: [
         {

@@ -38,8 +38,7 @@ describe('tool call scheduler', () => {
     });
 
     const result = await runtime.run({
-      input: 'read both files',
-      requestedMode: 'auto'
+      input: 'read both files'
     });
     expect(result.status).toBe('completed');
     expect(maxActive).toBe(2);

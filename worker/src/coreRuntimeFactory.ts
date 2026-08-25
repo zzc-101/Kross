@@ -2,7 +2,6 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { createAgentHost } from '../core/src/host/createAgentHost';
-import type { AgentMode } from '../core/src/domain';
 import type { AgentExecutionProfile } from '../core/src/runtime/agentExecutionProfile';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
@@ -27,7 +26,6 @@ export interface AgentRuntimeHandle {
   }>): unknown;
   runStreaming(input: {
     input: string;
-    requestedMode: AgentMode;
     signal?: AbortSignal;
   }): AsyncIterable<AgentRunStreamEvent>;
   resolveToolApprovalStreaming(input: {
@@ -37,7 +35,7 @@ export interface AgentRuntimeHandle {
     signal?: AbortSignal;
   }): AsyncIterable<AgentRunStreamEvent>;
   inspectTrace(runId: string): Promise<RunTraceDetail | null>;
-  getContextUsage(input: { requestedMode: AgentMode; currentUserInput?: string }): {
+  getContextUsage(input: { currentUserInput?: string }): {
     usedTokens: number;
     contextWindow: number;
     headerRatio: number;

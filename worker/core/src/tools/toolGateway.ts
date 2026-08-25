@@ -32,10 +32,6 @@ export interface ToolMetadata {
   parameters?: Record<string, unknown>;
 }
 
-export interface ToolListContext {
-  mode?: string;
-}
-
 export interface ToolExecutionContext<TInput> {
   runId: string;
   toolName: string;
@@ -73,7 +69,6 @@ export interface ToolDefinition<TInput = unknown> extends ToolMetadata {
    * - 省略：使用 Gateway 默认（瞬时错误最多 2 次 attempt）
    */
   retry?: ToolRetryPolicy | false;
-  enabled?: (context: ToolListContext) => boolean;
   summarize?: (result: ToolHandlerResult) => string;
   execute(context: ToolExecutionContext<TInput>): Promise<ToolHandlerResult>;
 }
@@ -222,9 +217,8 @@ export class ToolGateway {
     );
   }
 
-  listTools(context: ToolListContext = {}): ToolMetadata[] {
+  listTools(): ToolMetadata[] {
     return [...this.tools.values()]
-      .filter((tool) => tool.enabled?.(context) ?? true)
       .map(({ name, description, risk, category, parameters }) => ({
       name,
       description,

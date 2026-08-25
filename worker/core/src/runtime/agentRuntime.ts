@@ -6,7 +6,6 @@ import {
   throwIfAborted
 } from '../abort';
 import {
-  type AgentMode,
   type AgentResult,
   type TraceEvent,
   agentResultSchema
@@ -25,14 +24,11 @@ import type { ThinkingEffort } from '../llm/thinkingEffort';
 import type { LlmCapabilities } from '../llm/providerCapabilities';
 import type { LlmCallMetrics } from '../llm/providerObservability';
 import type { LlmClient, LlmToolCall } from '../llm/types';
-import { detectMode } from '../modes/modeDetector';
-import { resolveModeTurn } from '../modes/modePolicy';
 import { renderAgentExecutionPrompt } from '../prompts';
 import {
   ToolGateway,
   type ToolMetadata
 } from '../tools/toolGateway';
-import { createSetModeTool } from '../tools/builtin/setMode';
 import {
   isObservableTraceStore,
   type TraceEventListener
@@ -67,13 +63,10 @@ import type {
   AgentRuntimeOptions,
   ContextInspection,
   ContextInspectionInput,
-  PendingConductorExecution,
-  PendingModeExecution,
   ResolveToolApprovalInput
 } from './agentRuntimeTypes';
 import { RuntimeInspection } from './runtimeInspection';
 import { ModelSession } from './modelSession';
-import { ModeFlows } from './modeFlows';
 import { SessionServices } from './sessionServices';
 import {
   DEFAULT_MAX_TOOL_ITERATIONS,
@@ -91,7 +84,6 @@ import {
   type AgentExecutionProfile,
   type AgentExecutionPromptPhase,
   type AgentProgressDescriptor,
-  type AgentReviewPolicy,
   type AgentToolPolicyOverlay
 } from './agentExecutionProfile';
 
@@ -132,11 +124,6 @@ function parsePromptArguments(value: string): Record<string, string> {
 }
 
 export type { ContextMaintenanceResult } from '../context/sessionContext';
-export {
-  chunkTextForStream,
-  isCasualChatInput,
-  parsePlanIntentKind
-} from './modeFlows';
 
 /**
  * 工具调用轮次安全上限（默认）。
@@ -150,11 +137,9 @@ export class AgentRuntime extends EventEmitter {
   private readonly inspection: RuntimeInspection;
   private readonly toolLoop: RuntimeToolLoop;
   private readonly modelSession: ModelSession;
-  private readonly modeFlows: ModeFlows;
   private readonly sessionServices: SessionServices;
   private readonly executionProfile: AgentExecutionProfile;
   private readonly completionPolicy: AgentCompletionPolicy;
-  private readonly reviewPolicy: AgentReviewPolicy;
   private readonly toolPolicy: AgentToolPolicyOverlay;
   private readonly runPhases = new Map<string, RunPhase>();
   private readonly verificationPendingRuns = new Set<string>();
@@ -169,13 +154,6 @@ export class AgentRuntime extends EventEmitter {
     };
     this.completionPolicy =
       this.executionProfile.createCompletionPolicy(profileContext);
-    this.reviewPolicy = this.executionProfile.createReviewPolicy?.(
-      profileContext
-    ) ?? {
-      supportsConductor: false,
-      unsupportedReason:
-        'This execution profile does not provide a Conductor review policy.'
-    };
     this.toolPolicy = this.executionProfile.getToolPolicy?.(profileContext) ?? {
       observeCodingVerificationLifecycle:
         this.executionProfile.id === 'coding'
@@ -194,7 +172,7 @@ export class AgentRuntime extends EventEmitter {
     this.inspection = new RuntimeInspection(options);
     this.toolLoop = new RuntimeToolLoop({
       executionProfileId: this.executionProfile.id,
-      listTools: (mode) => this.listVisibleTools(mode),
+      listTools: () => this.listVisibleTools(),
       llmClient: options.llmClient,
       toolGateway: this.toolGateway,
       sessionContext: this.sessionContext,
@@ -215,7 +193,7 @@ export class AgentRuntime extends EventEmitter {
       interruptTurn: (reason) => this.sessionContext.interruptTurn(reason),
       appendAssistantForCancel: (summary) =>
         this.sessionContext.appendAssistant(summary),
-      syncContextSources: (mode) => this.syncContextSources('agent', mode),
+      syncContextSources: () => this.syncContextSources('agent'),
       onContextMaintained: (runId, maintenance) =>
         this.recordContextMaintenanceEvents(runId, maintenance),
       onCheckpointChanged: () => this.emit('work-state.changed'),
@@ -230,42 +208,13 @@ export class AgentRuntime extends EventEmitter {
       options: this.options,
       sessionContext: this.sessionContext,
       toolGateway: this.toolGateway,
-      emitModeChanged: (event) => this.emit('mode.changed', event),
       emitWorkStateChanged: () => this.emit('work-state.changed')
     });
-    this.modeFlows = new ModeFlows({
-      options: this.options,
-      modelSession: this.modelSession,
-      sessionServices: this.sessionServices,
-      record: (runId, type, payload) => this.record(runId, type, payload),
-      runAgentToolLoop: (input, mode, runId, flowOptions) =>
-        this.runAgentToolLoop(input, mode, runId, flowOptions),
-      attachChangedFiles: (result) => this.attachChangedFiles(result),
-      buildSystemPrompt: (input) => this.buildSystemPrompt(input),
-      finishTurnWithAssistant: (userInput, assistantOutput) =>
-        this.finishTurnWithAssistant(userInput, assistantOutput)
-    });
-    if (this.toolGateway && this.executionProfile.supportsModeSelection !== false) {
-      // SetMode 挂在 runtime 上，保证 get/set 与会话状态一致
-      if (!this.toolGateway.listTools().some((t) => t.name === 'SetMode')) {
-        this.toolGateway.register(
-          createSetModeTool({
-            getMode: () => this.getSessionMode(),
-            setMode: (mode) => this.setSessionMode(mode)
-          })
-        );
-      }
-    }
     this.sessionServices.syncProjectRegistrySource();
     this.sessionServices.refreshProjectInstructions();
     this.sessionServices.refreshSkills();
-    this.sessionServices.syncSessionModeSource();
     this.sessionServices.syncToolPolicySource();
     this.sessionServices.syncModelProfilesSource();
-  }
-
-  getSessionMode(): AgentMode {
-    return this.sessionServices.getSessionMode();
   }
 
   getExecutionProfileId(): string {
@@ -276,24 +225,7 @@ export class AgentRuntime extends EventEmitter {
     return this.executionProfile.describeProgress?.(event);
   }
 
-  /**
-   * 更新会话 Mode（策略）。同步 context source 并 emit `mode.changed` 供 TUI 刷新。
-   */
-  setSessionMode(mode: AgentMode): void {
-    this.sessionServices.setSessionMode(mode);
-  }
-
-  /** 订阅会话 Mode 变更（TUI 用于刷新页脚）。 */
-  onModeChanged(
-    listener: (event: { mode: AgentMode; previous: AgentMode }) => void
-  ): () => void {
-    this.on('mode.changed', listener);
-    return () => {
-      this.off('mode.changed', listener);
-    };
-  }
-
-  /** Subscribe to todo/mode/pending execution changes. */
+  /** Subscribe to persisted work-state changes. */
   onWorkStateChanged(listener: () => void): () => void {
     this.on('work-state.changed', listener);
     return () => {
@@ -301,23 +233,6 @@ export class AgentRuntime extends EventEmitter {
     };
   }
 
-  /** Last plan/conductor execution awaiting /approve (if any). */
-  getPendingModeExecution(): PendingModeExecution | undefined {
-    return this.sessionServices.getPendingModeExecution();
-  }
-
-  /** @deprecated use getPendingModeExecution */
-  getPendingConductorPlan(): PendingConductorExecution | undefined {
-    return this.sessionServices.getPendingConductorPlan();
-  }
-
-  clearPendingModeExecution(): void {
-    this.sessionServices.clearPendingModeExecution();
-  }
-
-  clearPendingConductorPlan(): void {
-    this.clearPendingModeExecution();
-  }
 
   getWorkspaceRoots(): WorkspaceRoots | undefined {
     return this.sessionServices.getWorkspaceRoots();
@@ -411,19 +326,6 @@ export class AgentRuntime extends EventEmitter {
       );
     }
     const workStateRestored = this.sessionServices.restoreWorkState(state);
-    const unsupportedConductorRestored =
-      this.sessionServices.getPendingModeExecution()?.kind === 'conductor' &&
-      !this.reviewPolicy.supportsConductor;
-    if (unsupportedConductorRestored) {
-      this.sessionServices.clearPendingModeExecution();
-      this.toolLoop.clearRunCheckpoint();
-      if (this.sessionContext.getThread().getOpenTurnId()) {
-        this.sessionContext.interruptTurn(
-          '当前 execution profile 不支持恢复 Conductor 执行'
-        );
-      }
-      return false;
-    }
     return checkpointRestored && workStateRestored;
   }
 
@@ -444,7 +346,7 @@ export class AgentRuntime extends EventEmitter {
   }
 
   async compactNow(
-    input: ContextInspectionInput = { requestedMode: 'auto' },
+    input: ContextInspectionInput = {},
     instructions?: string,
     signal?: AbortSignal
   ): Promise<ContextMaintenanceResult> {
@@ -660,7 +562,6 @@ export class AgentRuntime extends EventEmitter {
   }
 
   getContextUsage(input: {
-    requestedMode: AgentMode;
     currentUserInput?: string;
     env?: Record<string, string | undefined>;
   }): {
@@ -676,7 +577,6 @@ export class AgentRuntime extends EventEmitter {
     contextWindow: number;
   } {
     const snapshot = this.inspectContext({
-      requestedMode: input.requestedMode,
       currentUserInput: input.currentUserInput
     });
     const client = this.modelSession.getLlmClient();
@@ -756,126 +656,31 @@ export class AgentRuntime extends EventEmitter {
     yield* this.executeRun(input);
   }
 
-  /**
-   * 统一 Runner：mode 只通过 ModePolicy 决定动作，输出管线唯一。
-   * 用户可见文本只允许 text-delta / thinking-delta。
-   */
+  /** 用户可见文本只允许 text-delta / thinking-delta。 */
   private async *executeRun(
     input: AgentRunInput
   ): AsyncIterable<AgentRunStreamEvent> {
-    const { detection, action } = this.executionProfile.supportsModeSelection === false
-      ? {
-          detection: {
-            mode: 'auto' as const,
-            reason: 'Cloud 自动运行',
-            requiresApproval: false,
-            signals: []
-          },
-          action: { type: 'agent-loop' as const, mode: 'auto' as const }
-        }
-      : resolveModeTurn({
-          requestedMode: input.requestedMode,
-          userInput: input.input,
-          planApproved: input.approvals?.plan === true,
-          pending: this.sessionServices.getPendingModeExecution(),
-          hasLlm: Boolean(this.modelSession.getLlmClient())
-        });
     const runId = this.createRunId();
 
     try {
       await this.record(runId, 'run.started', { input: input.input });
       throwIfAborted(input.signal);
-      await this.record(runId, 'planner.started', {
-        requestedMode: input.requestedMode
-      });
-      await this.record(runId, 'mode.detected', {
-        ...detection,
-        action: action.type
-      });
+      await this.record(runId, 'planner.started', {});
       throwIfAborted(input.signal);
 
-      if (
-        input.approvals?.plan === true &&
-        this.sessionServices.getPendingModeExecution()?.kind === 'plan'
-      ) {
-        // Approval consumes the durable plan before execution so a crash cannot
-        // resurrect an already-approved gate on the next launch.
-        this.sessionServices.clearPendingModeExecution();
+      if (!this.modelSession.getLlmClient()) {
+        const result = await this.finishRunWithoutLlm(runId);
+        yield { type: 'result', result };
+        return;
       }
 
-      switch (action.type) {
-        case 'agent-loop':
-          yield* this.runAgentToolLoop(input, action.mode, runId, {
-            planText: action.planText
-          });
-          return;
-
-        case 'plan-gate-flow':
-          yield* this.modeFlows.planGatePhase(input, runId, detection.reason);
-          return;
-
-        case 'conductor-gate-flow':
-          if (!this.reviewPolicy.supportsConductor) {
-            if (input.requestedMode === 'auto') {
-              yield* this.runAgentToolLoop(input, 'auto', runId);
-              return;
-            }
-            const result = await this.finishUnsupportedConductor(
-              runId,
-              input.input
-            );
-            yield { type: 'text-delta', text: result.summary };
-            yield { type: 'result', result };
-            return;
-          }
-          yield* this.modeFlows.conductorGatePhase(
-            input,
-            runId,
-            detection.reason
-          );
-          return;
-
-        case 'conductor-execute':
-          if (!this.reviewPolicy.supportsConductor) {
-            const result = await this.finishUnsupportedConductor(
-              runId,
-              input.input
-            );
-            yield { type: 'text-delta', text: result.summary };
-            yield { type: 'result', result };
-            return;
-          }
-          yield* this.modeFlows.conductorExecutePhase(
-            runId,
-            action.pending,
-            input.signal
-          );
-          return;
-
-        case 'no-llm': {
-          const result = await this.finishRunWithoutLlm(
-            input,
-            action.mode,
-            runId,
-            detection.reason
-          );
-          yield { type: 'result', result };
-          return;
-        }
-
-        default: {
-          const _exhaustive: never = action;
-          void _exhaustive;
-          yield* this.runAgentToolLoop(input, 'auto', runId);
-        }
-      }
+      yield* this.runAgentToolLoop(input, runId);
     } catch (error) {
       if (!isOperationAborted(error, input.signal)) {
         throw error;
       }
       const cancelled = await this.completeInterruptedRun({
         runId,
-        mode: detection.mode,
         reason: abortMessage(input.signal),
         stage: 'startup'
       });
@@ -885,25 +690,11 @@ export class AgentRuntime extends EventEmitter {
 
   private async *runAgentToolLoop(
     input: AgentRunInput,
-    mode: AgentMode,
-    runId: string,
-    options: { planText?: string } = {}
+    runId: string
   ): AsyncIterable<AgentRunStreamEvent> {
     throwIfAborted(input.signal);
     this.sessionContext.beginTurn(input.input);
-    if (options.planText?.trim()) {
-      this.sessionContext.addSource({
-        id: 'approved-plan',
-        kind: 'user',
-        title: 'Approved plan',
-        content: options.planText.trim(),
-        priority: 96,
-        pinned: true
-      });
-    } else {
-      this.sessionContext.removeSource('approved-plan');
-    }
-    const { buildContextInput, tools } = this.buildPlannerContext(mode);
+    const { buildContextInput, tools } = this.buildPlannerContext();
     const prepared = await this.sessionContext.prepareRequest(
       buildContextInput,
       input.signal
@@ -913,7 +704,6 @@ export class AgentRuntime extends EventEmitter {
 
     yield* this.toolLoop.runStreamingToolLoop({
       runId,
-      mode,
       originalUserInput: input.input,
       sessionContext: this.sessionContext,
       buildContextInput,
@@ -932,7 +722,6 @@ export class AgentRuntime extends EventEmitter {
           const result = await this.attachChangedFiles(
             agentResultSchema.parse({
               runId,
-              mode,
               status: 'completed',
               summary: fullText,
               report: {
@@ -952,7 +741,6 @@ export class AgentRuntime extends EventEmitter {
           const landed = await this.attachChangedFiles(
             agentResultSchema.parse({
               runId,
-              mode,
               status: 'failed',
               summary,
               report: {
@@ -974,7 +762,6 @@ export class AgentRuntime extends EventEmitter {
           const stalled = await this.attachChangedFiles(
             agentResultSchema.parse({
               runId,
-              mode,
               status: 'failed',
               summary,
               report: {
@@ -1000,7 +787,6 @@ export class AgentRuntime extends EventEmitter {
           const failed = await this.attachChangedFiles(
             agentResultSchema.parse({
               runId,
-              mode,
               status: 'failed',
               summary: `模型请求失败：${message}`,
               report: {
@@ -1018,23 +804,17 @@ export class AgentRuntime extends EventEmitter {
           return failed;
         },
         onCancelled: async ({ reason, stage }) =>
-          this.completeInterruptedRun({ runId, mode, reason, stage }).finally(() =>
+          this.completeInterruptedRun({ runId, reason, stage }).finally(() =>
             this.toolLoop.clearRunCheckpoint(runId)
           )
       }
     });
   }
 
-  private async finishRunWithoutLlm(
-    input: AgentRunInput,
-    mode: AgentMode,
-    runId: string,
-    _conductorReason: string | undefined
-  ): Promise<AgentResult> {
+  private async finishRunWithoutLlm(runId: string): Promise<AgentResult> {
     const missingModel = await this.attachChangedFiles(
       agentResultSchema.parse({
         runId,
-        mode,
         status: 'failed',
         summary:
           '未配置模型，无法生成真实回复。请配置 AGENT_LLM_PROVIDER 以及对应的 OPENAI_* 或 ANTHROPIC_* 环境变量后重试。',
@@ -1050,62 +830,19 @@ export class AgentRuntime extends EventEmitter {
     return missingModel;
   }
 
-  private async finishUnsupportedConductor(
-    runId: string,
-    userInput: string
-  ): Promise<AgentResult> {
-    const reason =
-      this.reviewPolicy.unsupportedReason ??
-      `Execution profile "${this.executionProfile.id}" does not support Conductor review.`;
-    const result = await this.attachChangedFiles(
-      agentResultSchema.parse({
-        runId,
-        mode: 'conductor',
-        status: 'failed',
-        summary: reason,
-        report: {
-          changedFiles: [],
-          evidence: [
-            `execution-profile=${this.executionProfile.id}`,
-            'Conductor was not started because no compatible review policy is available.'
-          ],
-          risks: []
-        }
-      })
-    );
-    await this.record(runId, 'run.completed', { ...result });
-    this.finishTurnWithAssistant(userInput, result.summary);
-    return result;
-  }
-
-  private finishTurnWithAssistant(userInput: string, assistantOutput: string): void {
-    if (!this.sessionContext.getThread().getOpenTurnId()) {
-      this.sessionContext.beginTurn(userInput);
-    }
-    this.sessionContext.appendAssistant(assistantOutput);
-    this.sessionContext.commitTurn();
-  }
-
   private buildSystemPrompt(input: {
     phase: AgentExecutionPromptPhase;
-    mode: AgentMode;
     defaultPrompt: string;
   }): string {
     return this.executionProfile.buildSystemPrompt({
       ...input,
-      sessionMode: this.sessionServices.getSessionMode(),
       workspaceRoot: this.options.workspaceRoot
     });
   }
 
-  private applyProfileContextSources(
-    phase: AgentExecutionPromptPhase,
-    mode: AgentMode
-  ): void {
+  private applyProfileContextSources(phase: AgentExecutionPromptPhase): void {
     const overlay = this.executionProfile.getContextSources?.({
       phase,
-      mode,
-      sessionMode: this.sessionServices.getSessionMode(),
       workspaceRoot: this.options.workspaceRoot
     });
     for (const sourceId of overlay?.remove ?? []) {
@@ -1116,48 +853,38 @@ export class AgentRuntime extends EventEmitter {
     }
   }
 
-  private syncContextSources(
-    phase: AgentExecutionPromptPhase,
-    mode: AgentMode
-  ): void {
+  private syncContextSources(phase: AgentExecutionPromptPhase): void {
     this.sessionServices.syncTodoContextSource();
     this.sessionServices.syncProjectRegistrySource();
     this.sessionServices.refreshProjectInstructions();
     this.sessionServices.refreshSkills();
     this.sessionServices.syncModelProfilesSource();
-    this.sessionServices.syncSessionModeSource();
     this.sessionServices.syncToolPolicySource();
-    this.applyProfileContextSources(phase, mode);
+    this.applyProfileContextSources(phase);
   }
 
-  private listVisibleTools(mode: AgentMode): ToolMetadata[] {
-    const available = this.toolGateway?.listTools({ mode }) ?? [];
+  private listVisibleTools(): ToolMetadata[] {
+    const available = this.toolGateway?.listTools() ?? [];
     const isVisible = this.toolPolicy.isToolVisible;
     return isVisible ? available.filter((tool) => isVisible(tool)) : available;
   }
 
-  private buildPlannerContext(mode: AgentMode): {
+  private buildPlannerContext(): {
     buildContextInput: {
       systemPrompt: string;
-      mode: AgentMode;
       tools: ToolMetadata[];
     };
     tools: ToolMetadata[];
   } {
-    const tools = this.listVisibleTools(mode);
-    this.syncContextSources('agent', mode);
-    const defaultPrompt = renderAgentExecutionPrompt({
-      sessionMode: this.sessionServices.getSessionMode(),
-      mode
-    });
+    const tools = this.listVisibleTools();
+    this.syncContextSources('agent');
+    const defaultPrompt = renderAgentExecutionPrompt();
     return {
       buildContextInput: {
         systemPrompt: this.buildSystemPrompt({
           phase: 'agent',
-          mode,
           defaultPrompt
         }),
-        mode,
         tools
       },
       tools
@@ -1179,47 +906,27 @@ export class AgentRuntime extends EventEmitter {
   }
 
   inspectContext(input: ContextInspectionInput): ContextInspection {
-    const { mode, buildContextInput } = this.resolveContextBuildInput(input);
-    const snapshot = this.sessionContext.snapshot(buildContextInput);
-
-    return {
-      ...snapshot,
-      mode
-    };
+    return this.sessionContext.snapshot(
+      this.resolveContextBuildInput(input).buildContextInput
+    );
   }
 
   private resolveContextBuildInput(input: ContextInspectionInput): {
-    mode: AgentMode;
     buildContextInput: {
       systemPrompt: string;
-      mode: AgentMode;
       tools: ToolMetadata[];
     };
   } {
-    const mode =
-      input.requestedMode === 'auto'
-        ? input.currentUserInput?.trim()
-          ? detectMode({
-              requestedMode: input.requestedMode,
-              input: input.currentUserInput ?? ''
-            }).mode
-          : 'auto'
-        : input.requestedMode;
-    const tools = this.listVisibleTools(mode);
-    this.syncContextSources('agent', mode);
-    const defaultPrompt = renderAgentExecutionPrompt({
-      sessionMode: this.sessionServices.getSessionMode(),
-      mode
-    });
+    void input;
+    const tools = this.listVisibleTools();
+    this.syncContextSources('agent');
+    const defaultPrompt = renderAgentExecutionPrompt();
     return {
-      mode,
       buildContextInput: {
         systemPrompt: this.buildSystemPrompt({
           phase: 'agent',
-          mode,
           defaultPrompt
         }),
-        mode,
         tools
       }
     };
@@ -1400,7 +1107,6 @@ export class AgentRuntime extends EventEmitter {
 
   private async completeInterruptedRun(input: {
     runId: string;
-    mode: AgentMode;
     reason: string;
     stage: CancellationStage | 'startup';
   }): Promise<AgentResult> {
@@ -1410,7 +1116,6 @@ export class AgentRuntime extends EventEmitter {
     const cancelled = await this.attachChangedFiles(
       agentResultSchema.parse({
         runId: input.runId,
-        mode: input.mode,
         status: 'cancelled',
         cancellationReason: 'user-interrupt',
         summary: '已中断当前任务',

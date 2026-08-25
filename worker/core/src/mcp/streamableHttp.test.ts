@@ -108,7 +108,6 @@ describe('StreamableHttpTransport', () => {
       expect(attached).toContain('external / untrusted');
       expect(
         runtime.inspectContext({
-          requestedMode: 'auto',
           currentUserInput: ''
         }).includedSources
       ).toContain(

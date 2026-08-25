@@ -70,10 +70,9 @@ describe('domain schemas', () => {
     expect(result.verification.status).toBe('passed');
   });
 
-  it('parses a final agent result for auto mode', () => {
+  it('parses a final agent result', () => {
     const result = agentResultSchema.parse({
       runId: 'run-1',
-      mode: 'auto',
       status: 'completed',
       summary: '任务完成',
       report: {

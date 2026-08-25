@@ -1,9 +1,5 @@
 import { z } from 'zod';
 
-/** auto=默认 agent；plan=先计划后开发；conductor=指挥家多目标编排 */
-export const agentModeSchema = z.enum(['auto', 'plan', 'conductor']);
-export type AgentMode = z.infer<typeof agentModeSchema>;
-
 export const runStatusSchema = z.enum([
   'pending',
   'running',
@@ -125,7 +121,6 @@ export type PendingToolApproval = z.infer<typeof pendingToolApprovalSchema>;
 
 export const agentResultSchema = z.object({
   runId: z.string().min(1),
-  mode: agentModeSchema,
   status: z.enum(['completed', 'failed', 'cancelled', 'approval-required']),
   cancellationReason: z
     .enum([

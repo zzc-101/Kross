@@ -1,6 +1,5 @@
 import {
   agentResultSchema,
-  type AgentMode,
   type AgentResult
 } from '../domain';
 import { abortMessage, isOperationAborted, throwIfAborted } from '../abort';
@@ -80,7 +79,6 @@ export type CancellationStage =
 
 export interface StreamingToolLoopParams {
   runId: string;
-  mode: AgentMode;
   /** 本轮 run 的用户原始输入；审批挂起/续跑时沿用同一值 */
   originalUserInput: string;
   sessionContext: SessionContext;
@@ -112,7 +110,6 @@ export interface StreamingToolLoopDeps {
   ): Promise<void>;
   executeToolBatch(input: {
     runId: string;
-    mode: AgentMode;
     originalUserInput: string;
     calls: LlmToolCall[];
     tools: ToolMetadata[];
@@ -411,7 +408,6 @@ export async function* runStreamingToolLoop(
       stage = 'tool';
       const batch = await deps.executeToolBatch({
         runId: params.runId,
-        mode: params.mode,
         originalUserInput: params.originalUserInput,
         calls: toolCalls,
         tools: params.tools,
@@ -651,12 +647,10 @@ export async function* runStreamingToolLoop(
 
 /** 缺 LLM 时审批续跑路径的快速失败结果 */
 export function createMissingLlmAfterApprovalResult(
-  runId: string,
-  mode: AgentMode
+  runId: string
 ): AgentResult {
   return agentResultSchema.parse({
     runId,
-    mode,
     status: 'failed',
     summary: '工具审批后无法继续：未配置 LLM',
     report: {

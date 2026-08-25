@@ -74,8 +74,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const result = await runtime.run({
-        input: '计算 1 + 2',
-        requestedMode: 'auto'
+        input: '计算 1 + 2'
       });
 
       expect(result.summary).toBe('结果是 3');
@@ -84,8 +83,7 @@ describe('AgentRuntime tool loops and approvals', () => {
           expect.objectContaining({
             name: 'math.add',
             parameters: expect.objectContaining({ type: 'object' })
-          }),
-          expect.objectContaining({ name: 'SetMode' })
+          })
         ])
       );
       expect(llmClient.requests[1]?.messages).toEqual(
@@ -136,8 +134,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const result = await runtime.run({
-        input: '先算 1+2 再翻倍',
-        requestedMode: 'auto'
+        input: '先算 1+2 再翻倍'
       });
 
       expect(result.summary).toBe('最终结果是 6');
@@ -173,8 +170,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const result = await runtime.run({
-        input: '一直读',
-        requestedMode: 'auto'
+        input: '一直读'
       });
 
       // 触顶会软着陆输出总结，但任务本身不能被误报为完成。
@@ -225,8 +221,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const pending = await runtime.run({
-        input: '写 README',
-        requestedMode: 'auto'
+        input: '写 README'
       });
 
       expect(pending.status).toBe('approval-required');
@@ -284,8 +279,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const pending = await runtime.run({
-        input: '写 README',
-        requestedMode: 'auto'
+        input: '写 README'
       });
       const resumed = await runtime.resolveToolApproval({
         runId: pending.runId,
@@ -389,8 +383,7 @@ describe('AgentRuntime tool loops and approvals', () => {
     );
 
     const writePending = await runtime.run({
-      input: '修改代码',
-      requestedMode: 'auto'
+      input: '修改代码'
     });
     expect(writePending.status).toBe('approval-required');
 
@@ -447,8 +440,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const pending = await runtime.run({
-        input: '读取后改写 README',
-        requestedMode: 'auto'
+        input: '读取后改写 README'
       });
 
       expect(pending.status).toBe('approval-required');
@@ -490,8 +482,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const pending = await runtime.run({
-        input: '读并写 README',
-        requestedMode: 'auto'
+        input: '读并写 README'
       });
 
       expect(pending.status).toBe('approval-required');
@@ -561,8 +552,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const first = await runtime.run({
-        input: '写 README',
-        requestedMode: 'auto'
+        input: '写 README'
       });
       expect(first.status).toBe('approval-required');
 
@@ -608,8 +598,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const pending = await runtime.run({
-        input: '写 README',
-        requestedMode: 'auto'
+        input: '写 README'
       });
       expect(pending.status).toBe('approval-required');
       expect(getStoredConversation(contextManager)).toHaveLength(0);
@@ -653,8 +642,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const firstPending = await runtime.run({
-        input: '连续写两个文件',
-        requestedMode: 'auto'
+        input: '连续写两个文件'
       });
       expect(firstPending.status).toBe('approval-required');
 
@@ -697,8 +685,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const pending = await runtime.run({
-        input: '写 README',
-        requestedMode: 'auto'
+        input: '写 README'
       });
       expect(pending.status).toBe('approval-required');
 
@@ -744,8 +731,7 @@ describe('AgentRuntime tool loops and approvals', () => {
 
       const events = [];
       for await (const event of runtime.runStreaming({
-        input: '查看 README',
-        requestedMode: 'auto'
+        input: '查看 README'
       })) {
         events.push(event);
       }
@@ -804,8 +790,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       const events = [];
 
       for await (const event of runtime.runStreaming({
-        input: '一直读',
-        requestedMode: 'auto'
+        input: '一直读'
       })) {
         events.push(event);
       }
@@ -844,8 +829,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const result = await runtime.run({
-        input: '一直重复读取同一个文件',
-        requestedMode: 'auto'
+        input: '一直重复读取同一个文件'
       });
 
       expect(result).toMatchObject({
@@ -931,8 +915,7 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
 
       const result = await runtime.run({
-        input: '等待后台任务完成',
-        requestedMode: 'auto'
+        input: '等待后台任务完成'
       });
 
       expect(result).toMatchObject({

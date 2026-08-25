@@ -7,7 +7,6 @@ import {
 } from '../abort';
 import {
   agentResultSchema,
-  type AgentMode,
   type AgentResult,
   type PendingToolApproval
 } from '../domain';
@@ -67,7 +66,6 @@ export {
 
 interface PendingToolSession {
   runId: string;
-  mode: AgentMode;
   originalUserInput: string;
   call: LlmToolCall;
   remainingCalls: LlmToolCall[];
@@ -80,7 +78,7 @@ interface PendingToolSession {
 export interface RuntimeToolLoopOptions {
   executionProfileId: string;
   /** Profile-filtered view of tools already exposed by ToolGateway. */
-  listTools(mode: AgentMode): ToolMetadata[];
+  listTools(): ToolMetadata[];
   llmClient?: LlmClient;
   toolGateway?: ToolGateway;
   sessionContext: SessionContext;
@@ -98,7 +96,6 @@ export interface RuntimeToolLoopOptions {
   completionPolicy: AgentCompletionPolicy;
   buildSystemPrompt(input: {
     phase: AgentExecutionPromptPhase;
-    mode: AgentMode;
     defaultPrompt: string;
   }): string;
   observeToolCall(input: {
@@ -121,7 +118,7 @@ export interface RuntimeToolLoopOptions {
   interruptTurn(reason: string): void;
   appendAssistantForCancel(summary: string): void;
   /** Rebuild built-in and profile context sources before resumed model calls. */
-  syncContextSources?: (mode: AgentMode) => void;
+  syncContextSources?: () => void;
   onContextMaintained?(
     runId: string,
     maintenance: import('../context/contextGovernor').ContextMaintenanceResult[]
@@ -203,7 +200,7 @@ export class RuntimeToolLoop {
       this.activeCheckpoint = undefined;
       return false;
     }
-    const tools = this.options.listTools(checkpoint.mode);
+    const tools = this.options.listTools();
     if (!tools.some((tool) => tool.name === checkpoint.pendingCall!.name)) {
       this.activeCheckpoint = undefined;
       return false;
@@ -226,7 +223,6 @@ export class RuntimeToolLoop {
     }
     this.pendingToolSessions.set(checkpoint.runId, {
       runId: checkpoint.runId,
-      mode: checkpoint.mode,
       originalUserInput: checkpoint.originalUserInput,
       call: toLlmToolCall(checkpoint.pendingCall),
       remainingCalls: checkpoint.remainingCalls.map(toLlmToolCall),
@@ -366,7 +362,6 @@ export class RuntimeToolLoop {
       this.notifyCheckpointSynchronized(session.runId);
     const batch = await this.executeToolBatch({
       runId: session.runId,
-      mode: session.mode,
       originalUserInput: session.originalUserInput,
       calls: session.remainingCalls,
       tools: session.tools,
@@ -394,7 +389,7 @@ export class RuntimeToolLoop {
     if (!this.options.llmClient) {
       this.clearRunCheckpoint(session.runId);
       const failed = await this.options.attachChangedFiles(
-        createMissingLlmAfterApprovalResult(session.runId, session.mode)
+        createMissingLlmAfterApprovalResult(session.runId)
       );
       await this.options.record(session.runId, 'run.completed', { ...failed });
       this.options.appendAssistantForCancel(failed.summary);
@@ -403,21 +398,18 @@ export class RuntimeToolLoop {
       return;
     }
 
-    this.options.syncContextSources?.(session.mode);
-    const defaultPrompt = renderAgentExecutionPrompt({ mode: session.mode });
+    this.options.syncContextSources?.();
+    const defaultPrompt = renderAgentExecutionPrompt();
     const buildContextInput = {
       systemPrompt: this.options.buildSystemPrompt({
         phase: 'agent',
-        mode: session.mode,
         defaultPrompt
       }),
-      mode: session.mode,
       tools: session.tools
     };
 
     yield* runStreamingToolLoop(this.createStreamingDeps(), {
       runId: session.runId,
-      mode: session.mode,
       originalUserInput: session.originalUserInput,
       sessionContext: this.options.sessionContext,
       buildContextInput,
@@ -433,7 +425,6 @@ export class RuntimeToolLoop {
           const result = await this.options.attachChangedFiles(
             agentResultSchema.parse({
               runId: session.runId,
-              mode: session.mode,
               status: 'completed',
               summary: fullText,
               thinking: fullThinking || undefined,
@@ -452,7 +443,6 @@ export class RuntimeToolLoop {
           this.clearRunCheckpoint(session.runId);
           const landed = await this.createMaxToolIterationsResult(
             session.runId,
-            session.mode,
             summary
           );
           await this.options.record(session.runId, 'run.completed', { ...landed });
@@ -464,7 +454,6 @@ export class RuntimeToolLoop {
           this.clearRunCheckpoint(session.runId);
           const stalled = await this.createStalledToolLoopResult(
             session.runId,
-            session.mode,
             summary
           );
           await this.options.record(session.runId, 'run.completed', {
@@ -479,7 +468,6 @@ export class RuntimeToolLoop {
           const failed = await this.options.attachChangedFiles(
             agentResultSchema.parse({
               runId: session.runId,
-              mode: session.mode,
               status: 'failed',
               summary: `工具审批后续请求失败：${message}`,
               report: {
@@ -529,7 +517,6 @@ export class RuntimeToolLoop {
 
   async executeToolBatch(input: {
     runId: string;
-    mode: AgentMode;
     originalUserInput: string;
     calls: LlmToolCall[];
     tools: ToolMetadata[];
@@ -548,7 +535,6 @@ export class RuntimeToolLoop {
       version: 1,
       executionProfileId: this.options.executionProfileId,
       runId: input.runId,
-      mode: input.mode,
       originalUserInput: input.originalUserInput,
       status: 'running',
       phase: input.calls[0]
@@ -718,7 +704,6 @@ export class RuntimeToolLoop {
 
           const session: PendingToolSession = {
             runId: input.runId,
-            mode: input.mode,
             originalUserInput: input.originalUserInput,
             call,
             remainingCalls: queue,
@@ -810,13 +795,11 @@ export class RuntimeToolLoop {
 
   async createMaxToolIterationsResult(
     runId: string,
-    mode: AgentMode,
     message: string
   ): Promise<AgentResult> {
     return this.options.attachChangedFiles(
       agentResultSchema.parse({
         runId,
-        mode,
         status: 'failed',
         summary: message || SOFT_LAND_FALLBACK,
         report: {
@@ -830,13 +813,11 @@ export class RuntimeToolLoop {
 
   async createStalledToolLoopResult(
     runId: string,
-    mode: AgentMode,
     summary: string
   ): Promise<AgentResult> {
     return this.options.attachChangedFiles(
       agentResultSchema.parse({
         runId,
-        mode,
         status: 'failed',
         summary: summary || renderPrompt('agent.stall.summary'),
         report: {
@@ -972,7 +953,6 @@ export class RuntimeToolLoop {
       version: 1,
       executionProfileId: this.options.executionProfileId,
       runId: session.runId,
-      mode: session.mode,
       originalUserInput: session.originalUserInput,
       status: 'awaiting-approval',
       phase: classifyToolCallPhase(
@@ -1000,7 +980,6 @@ export class RuntimeToolLoop {
     return this.options.attachChangedFiles(
       agentResultSchema.parse({
         runId: session.runId,
-        mode: session.mode,
         status: 'approval-required',
         summary: `需要确认工具调用：${session.call.name}`,
         pendingApproval,
@@ -1037,7 +1016,6 @@ export class RuntimeToolLoop {
     const cancelled = await this.options.attachChangedFiles(
       agentResultSchema.parse({
         runId: session.runId,
-        mode: session.mode,
         status: 'cancelled',
         cancellationReason: 'user-interrupt',
         summary: '已中断当前任务',
@@ -1087,7 +1065,6 @@ export class RuntimeToolLoop {
     const cancelled = await this.options.attachChangedFiles(
       agentResultSchema.parse({
         runId: session.runId,
-        mode: session.mode,
         status: 'cancelled',
         cancellationReason,
         summary,

@@ -6,7 +6,6 @@ import type { ActiveSkill } from '../transport';
 export function createPersonalAgentProfile(activeSkill?: ActiveSkill): AgentExecutionProfile {
   return {
     id: 'personal-agent',
-    supportsModeSelection: false,
     buildSystemPrompt: ({ phase }) => [
       'You are a long-lived personal assistant living in this user workspace.',
       `Phase: ${phase}.`,
@@ -25,10 +24,6 @@ export function createPersonalAgentProfile(activeSkill?: ActiveSkill): AgentExec
       ] : [])
     ].join('\n'),
     createCompletionPolicy: (_context) => createPersonalCompletionPolicy(),
-    createReviewPolicy: () => ({
-      supportsConductor: false,
-      unsupportedReason: 'Personal Agent Profile does not implement Conductor Review Policy.'
-    }),
     getContextSources: (context) => ({
       remove: ['project-instructions', 'project-registry'],
       sources: loadMemoryContextSources(context.workspaceRoot)

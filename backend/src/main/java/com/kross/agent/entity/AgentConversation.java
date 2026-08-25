@@ -15,7 +15,6 @@ public class AgentConversation {
   private String organizationId;
   private String agentId;
   private String title;
-  private String mode;
   private String modelId;
   private String skillId;
   private Instant archivedAt;

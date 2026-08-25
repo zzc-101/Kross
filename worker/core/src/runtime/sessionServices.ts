@@ -1,7 +1,6 @@
 import { basename, resolve } from 'node:path';
 
 import type { SessionContext } from '../context/sessionContext';
-import type { AgentMode } from '../domain';
 import { saasToolApprovalPolicy } from '../tools/saasToolPolicy';
 import type { ToolGateway } from '../tools/toolGateway';
 import {
@@ -14,10 +13,6 @@ import {
   type ProjectInstructionsSnapshot
 } from '../workspace/projectInstructions';
 import type { WorkspaceRoots } from '../workspace/workspaceRoots';
-import type {
-  PendingConductorExecution,
-  PendingModeExecution
-} from '../modes/pendingExecution';
 import type { TodoStore } from '../todo/todoStore';
 import { SkillRegistry } from '../skills/skillRegistry';
 import type { SkillsSnapshot } from '../skills/skillDiscovery';
@@ -32,17 +27,11 @@ export interface SessionServicesOptions {
   options: AgentRuntimeOptions;
   sessionContext: SessionContext;
   toolGateway?: ToolGateway;
-  emitModeChanged: (event: {
-    mode: AgentMode;
-    previous: AgentMode;
-  }) => void;
   emitWorkStateChanged: () => void;
 }
 
 /** Session-scoped policy state and prompt-source synchronization. */
 export class SessionServices {
-  private sessionMode: AgentMode = 'auto';
-  private pendingModeExecution: PendingModeExecution | undefined;
   private projectInstructionSourceIds = new Set<string>();
   private projectInstructions = loadProjectInstructions({ roots: [] });
   private skillIds = new Set<string>();
@@ -67,70 +56,6 @@ export class SessionServices {
     this.deps.toolGateway?.setApprovalPolicy(saasToolApprovalPolicy);
     this.syncToolPolicySource();
     this.syncModelProfilesSource();
-  }
-
-  getSessionMode(): AgentMode {
-    return this.sessionMode;
-  }
-
-  setSessionMode(mode: AgentMode): void {
-    if (this.sessionMode === mode) {
-      this.syncSessionModeSource();
-      return;
-    }
-    const previous = this.sessionMode;
-    this.sessionMode = mode;
-    this.syncSessionModeSource();
-    this.deps.emitModeChanged({ mode, previous });
-    this.deps.emitWorkStateChanged();
-  }
-
-  syncSessionModeSource(): void {
-    if (this.deps.options.executionProfile?.supportsModeSelection === false) {
-      this.deps.sessionContext.addSource({
-        id: 'session-mode',
-        kind: 'user',
-        title: 'Work strategy',
-        content: 'Cloud 工作台使用自动运行；根据用户意图直接回答或完成任务，不提供模式切换。',
-        priority: 97,
-        pinned: true
-      });
-      return;
-    }
-    this.deps.sessionContext.addSource({
-      id: 'session-mode',
-      kind: 'user',
-      title: 'Session mode',
-      content: [
-        `当前会话 Mode：${this.sessionMode}`,
-        '- auto：默认 agent 工具环',
-        '- plan：先计划后开发（需确认）',
-        '- conductor：高级模型拆任务 → worker 执行 → 高级模型验收',
-        '用户要求切换时调用 SetMode 工具；多目录用 /add-dir，与 Mode 无关。'
-      ].join('\n'),
-      priority: 97,
-      pinned: true
-    });
-  }
-
-  getPendingModeExecution(): PendingModeExecution | undefined {
-    return this.pendingModeExecution;
-  }
-
-  getPendingConductorPlan(): PendingConductorExecution | undefined {
-    const pending = this.pendingModeExecution;
-    return pending?.kind === 'conductor' ? pending : undefined;
-  }
-
-  setPendingModeExecution(pending: PendingModeExecution | undefined): void {
-    this.pendingModeExecution = pending;
-    this.deps.emitWorkStateChanged();
-  }
-
-  clearPendingModeExecution(): void {
-    if (!this.pendingModeExecution) return;
-    this.pendingModeExecution = undefined;
-    this.deps.emitWorkStateChanged();
   }
 
   /**
@@ -332,36 +257,21 @@ export class SessionServices {
   exportWorkState(): SessionWorkStateV1 {
     return {
       version: 1,
-      todos: this.deps.options.todoStore?.list() ?? [],
-      pendingModeExecution: this.pendingModeExecution
-        ? JSON.parse(JSON.stringify(this.pendingModeExecution))
-        : undefined,
-      sessionMode: this.sessionMode
+      todos: this.deps.options.todoStore?.list() ?? []
     };
   }
 
   restoreWorkState(state: SessionWorkStateV1): boolean {
     if (!isSessionWorkState(state)) return false;
     const restored = cloneSessionWorkState(state);
-    const previousMode = this.sessionMode;
     this.restoringWorkState = true;
     try {
-      this.pendingModeExecution = this.deps.options.executionProfile?.supportsModeSelection === false
-        ? undefined
-        : restored.pendingModeExecution;
-      this.sessionMode = this.deps.options.executionProfile?.supportsModeSelection === false
-        ? 'auto'
-        : restored.sessionMode;
       this.deps.toolGateway?.setApprovalPolicy(saasToolApprovalPolicy);
       this.deps.options.todoStore?.restore(restored.todos);
-      this.syncSessionModeSource();
       this.syncToolPolicySource();
       this.syncTodoContextSource();
     } finally {
       this.restoringWorkState = false;
-    }
-    if (previousMode !== this.sessionMode) {
-      this.deps.emitModeChanged({ mode: this.sessionMode, previous: previousMode });
     }
     this.deps.emitWorkStateChanged();
     return true;

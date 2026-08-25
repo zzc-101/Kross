@@ -2,7 +2,6 @@ import { mkdir, writeFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { AgentResult } from '../core/src/domain';
-import type { AgentMode } from '../core/src/domain';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
 import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFactory';
@@ -155,7 +154,6 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
           options.transport,
           job,
           job.content,
-          'auto',
           runSignal
         );
         await options.transport.postReply({
@@ -205,7 +203,6 @@ async function runTurn(
   transport: AgentControlTransport,
   job: { id: string; agentMessageId: string; leaseId: string },
   input: string,
-  requestedMode: AgentMode,
   signal?: AbortSignal
 ): Promise<{
   content: string;
@@ -264,7 +261,7 @@ async function runTurn(
     return streamResult;
   };
 
-  let result = await consume(host.runtime.runStreaming({ input, requestedMode, signal }));
+  let result = await consume(host.runtime.runStreaming({ input, signal }));
   while (result?.status === 'approval-required') {
     const pending = result.pendingApproval;
     if (!pending) {
@@ -313,7 +310,7 @@ async function runTurn(
       status: 'done',
       parts,
       usage: await readUsage(host, result.runId),
-      contextUsage: readContextUsage(host, requestedMode)
+      contextUsage: readContextUsage(host)
     };
   }
   return {
@@ -322,12 +319,12 @@ async function runTurn(
     errorSummary: result.summary || 'Agent turn failed',
     parts,
     usage: await readUsage(host, result.runId),
-    contextUsage: readContextUsage(host, requestedMode)
+    contextUsage: readContextUsage(host)
   };
 }
 
-function readContextUsage(host: AgentHostHandle, requestedMode: AgentMode): AgentContextUsage {
-  const usage = host.runtime.getContextUsage({ requestedMode });
+function readContextUsage(host: AgentHostHandle): AgentContextUsage {
+  const usage = host.runtime.getContextUsage({});
   return {
     usedTokens: usage.usedTokens,
     contextWindow: usage.contextWindow,

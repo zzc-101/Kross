@@ -82,14 +82,6 @@ export function formatToolInputPreview(
     }
   }
 
-  if (name === 'SetMode' && typeof record.mode === 'string') {
-    const reason =
-      typeof record.reason === 'string' && record.reason.trim()
-        ? ` · ${record.reason.trim()}`
-        : '';
-    return truncate(`mode → ${record.mode}${reason}`, maxChars);
-  }
-
   if (typeof record.path === 'string') {
     const path = record.path;
     const extra =

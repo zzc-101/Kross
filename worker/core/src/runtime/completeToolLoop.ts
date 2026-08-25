@@ -1,6 +1,5 @@
 import { throwIfAborted } from '../abort';
 import type { SessionContext } from '../context/sessionContext';
-import type { AgentMode } from '../domain';
 import type { LlmClient } from '../llm/types';
 import { renderPrompt } from '../prompts';
 import type { ToolGateway, ToolMetadata } from '../tools/toolGateway';
@@ -14,7 +13,6 @@ export interface CompleteToolLoopParams {
   runId: string;
   prompt: string;
   systemPrompt: string;
-  mode?: AgentMode;
   llmClient: LlmClient;
   gateway: ToolGateway;
   tools: ToolMetadata[];
@@ -72,12 +70,9 @@ export async function runCompleteToolLoop(
     isSubagent: true,
     ...(params.streamMetadata ?? {})
   };
-  const mode = params.mode ?? 'auto';
-
   params.sessionContext.beginTurn(params.prompt);
   const buildContextInput = {
     systemPrompt: params.systemPrompt,
-    mode,
     tools: params.tools
   };
 

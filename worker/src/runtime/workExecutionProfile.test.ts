@@ -15,10 +15,9 @@ describe('Personal agent profile', () => {
     expect(failed.satisfied).toBe(false);
   });
 
-  it('disables Conductor and describes the durable workspace', () => {
+  it('describes the durable workspace', () => {
     const profile = createPersonalAgentProfile();
-    expect(profile.createReviewPolicy?.(context).supportsConductor).toBe(false);
-    expect(profile.buildSystemPrompt({ phase: 'agent', mode: 'auto', defaultPrompt: '', workspaceRoot: '/work' }))
+    expect(profile.buildSystemPrompt({ phase: 'agent', defaultPrompt: '', workspaceRoot: '/work' }))
       .toContain('/work');
   });
 
@@ -31,7 +30,7 @@ describe('Personal agent profile', () => {
       revision: 4
     });
     const prompt = profile.buildSystemPrompt({
-      phase: 'agent', mode: 'auto', defaultPrompt: '', workspaceRoot: '/work'
+      phase: 'agent', defaultPrompt: '', workspaceRoot: '/work'
     });
     expect(prompt).toContain('meeting-minutes, revision 4');
     expect(prompt).toContain('Produce structured minutes.');

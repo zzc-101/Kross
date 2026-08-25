@@ -48,7 +48,7 @@ export interface AgentHostTooling {
   processManager: ProcessManager;
   /** Update LLM used by Task subagents (e.g. after /import). */
   setLlmClient: (client: LlmClient | undefined) => void;
-  /** Shared subagent runner (multi-root Task + conductor fan-out). */
+  /** Shared subagent runner used by the Task tool. */
   runSubagent: NonNullable<AgentRuntimeOptions['runSubagent']>;
   mcpManager?: McpManager;
   closeTraceStore: () => void;

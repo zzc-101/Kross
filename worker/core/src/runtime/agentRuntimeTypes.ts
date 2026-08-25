@@ -1,6 +1,5 @@
 import type { ContextSnapshot, SessionContext } from '../context/sessionContext';
 import type {
-  AgentMode,
   AgentResult,
   ProjectRegistry,
   TraceEvent
@@ -21,12 +20,6 @@ import type { MutationCoordinator } from '../mutations/mutationService';
 import type { ProcessManager } from '../process/processManager';
 import type { McpManager } from '../mcp/register';
 import type { AgentExecutionProfile } from './agentExecutionProfile';
-
-export type {
-  PendingConductorExecution,
-  PendingPlanExecution,
-  PendingModeExecution
-} from '../modes/pendingExecution';
 
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
@@ -81,8 +74,7 @@ export interface AgentRuntimeOptions {
   /** Prefer this project id when selecting from registry. */
   activeProjectId?: string;
   /**
-   * Spawn subagent (conductor workers + Task tool).
-   * When omitted, conductor cannot fan out workers.
+   * Spawn a subagent through the Task tool.
    */
   runSubagent?: (
     request: SubagentRunRequest
@@ -91,12 +83,8 @@ export interface AgentRuntimeOptions {
 
 export interface AgentRunInput {
   input: string;
-  requestedMode: AgentMode;
   /** 取消本次前台运行；取消是正常终态，不按失败处理。 */
   signal?: AbortSignal;
-  approvals?: {
-    plan?: boolean;
-  };
 }
 
 export interface ResolveToolApprovalInput {
@@ -109,13 +97,10 @@ export interface ResolveToolApprovalInput {
 }
 
 export interface ContextInspectionInput {
-  requestedMode: AgentMode;
   currentUserInput?: string;
 }
 
-export interface ContextInspection extends ContextSnapshot {
-  mode: AgentMode;
-}
+export type ContextInspection = ContextSnapshot;
 
 export type AgentRuntimeEvent = TraceEvent;
 

@@ -28,7 +28,7 @@ export interface SubagentRunRequest {
   /** Configured Kross model profile to use instead of the inherited model. */
   modelProfileId?: string;
   /**
-   * Prefer workerLlmClient (经济/快速模型) when available — used by conductor.
+   * Prefer workerLlmClient (经济/快速模型) when available.
    */
   preferWorkerModel?: boolean;
   /** Internal orchestration role; Task calls always use the default worker role. */

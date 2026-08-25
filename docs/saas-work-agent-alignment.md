@@ -94,7 +94,7 @@ Push、项目规则和本地 Host 扩展。
 
 每项完成后独立提交；在全部结构改造完成前不运行测试或编译。
 
-- [ ] 1. 删除 Mode/Plan/Conductor、`SetMode` 和 `conversation.mode`。
+- [x] 1. 删除 Mode/Plan/Conductor、`SetMode` 和 `conversation.mode`。
 - [ ] 2. 删除组织审批策略字段、接口、默认值和数据库列。
 - [ ] 3. 将 SaaS Profile 设为唯一 Runtime，删除 Coding profile 与兼容开关。
 - [ ] 4. 收敛 SaaS 默认工具集，开发工具移出平台默认组合。

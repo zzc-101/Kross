@@ -1,4 +1,3 @@
-import type { AgentMode } from '../domain';
 import type { LlmClient, LlmMessage } from '../llm/types';
 import { resolveModelContextWindow } from '../llm/modelContextWindows';
 import type { ToolMetadata } from '../tools/toolGateway';
@@ -71,7 +70,6 @@ export interface SessionContextState {
 
 export interface BuildContextInput {
   systemPrompt: string;
-  mode: AgentMode;
   tools?: ToolMetadata[];
 }
 
@@ -494,7 +492,6 @@ export class SessionContext {
       .reduce((sum, entry) => sum + entry.tokensEst, 0);
     const baseTokens =
       this.estimator.estimateText(input.systemPrompt) +
-      this.estimator.estimateText(`Mode: ${input.mode}`) +
       skillBlock.tokens +
       toolTokens +
       threadTokens;
@@ -511,8 +508,6 @@ export class SessionContext {
 
     const systemContent = [
       input.systemPrompt,
-      '',
-      `Mode: ${input.mode}`,
       toolBlock,
       skillBlock.content,
       renderSources(selected.included)
