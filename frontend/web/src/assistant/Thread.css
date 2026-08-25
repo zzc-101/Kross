@@ -12,6 +12,8 @@
 .composer:has(.composer-skill-chip) { grid-template-rows: auto minmax(54px, auto) 48px; }
 .composer-skill-chip { display: flex; width: fit-content; align-items: center; gap: 6px; margin: 15px 22px 0; border-radius: 999px; background: #f0edff; padding: 6px 10px; color: #563bad; font-size: 12px; font-weight: 650; }
 .composer-skill-chip svg { width: 14px; height: 14px; }
+.composer-skill-chip button { display: grid; width: 20px; height: 20px; place-items: center; margin: -3px -5px -3px 0; border: 0; border-radius: 50%; background: transparent; color: inherit; }
+.composer-skill-chip button:hover { background: rgb(86 59 173 / .12); }
 .composer:focus-within { box-shadow: 0 8px 19px rgb(0 0 0 / .15); }
 .composer-input { width: 100%; min-height: 68px; max-height: 220px; resize: none; border: 0; outline: none; background: transparent; padding: 25px 32px 8px; color: #202020; font-size: 19px; line-height: 1.5; }
 .composer-input::placeholder { color: #949494; opacity: 1; }

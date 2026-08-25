@@ -32,6 +32,38 @@ describe('AgentApiClient.listModels', () => {
   });
 });
 
+describe('AgentApiClient.createConversation', () => {
+  it('创建首条消息对应的会话时同时携带 Skill 和模型', async () => {
+    let requestBody: unknown;
+    const fetcher = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        code: 0,
+        message: 'ok',
+        data: {
+          id: 'conversation-1',
+          title: '文档整理',
+          skillId: 'skill-1',
+          modelId: 'model-1',
+          lastMessageAt: '2026-08-25T00:00:00.000Z',
+          createdAt: '2026-08-25T00:00:00.000Z'
+        }
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    };
+    const api = new AgentApiClient({
+      baseUrl: 'http://localhost:8787',
+      fetch: fetcher as typeof fetch
+    });
+
+    await api.createConversation({ skillId: 'skill-1', modelId: 'model-1' });
+
+    expect(requestBody).toEqual({ skillId: 'skill-1', modelId: 'model-1' });
+  });
+});
+
 describe('AgentApiClient.listMessages', () => {
   it('兼容历史消息的空上下文统计对象', async () => {
     const fetcher = async () => new Response(JSON.stringify({

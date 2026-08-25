@@ -59,7 +59,7 @@ public class AgentController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestBody(required = false) CreateConversationRequest request) {
     return Res.ok(agents.createConversation(
-        organizationId, Optional.ofNullable(request).orElse(new CreateConversationRequest(null, null))));
+        organizationId, Optional.ofNullable(request).orElse(new CreateConversationRequest(null, null, null))));
   }
 
   @PatchMapping("/conversations/{conversationId}")

@@ -118,8 +118,13 @@ public class AgentService {
         .orElse(null);
     String title = Optional.ofNullable(request.title()).map(String::trim).filter(value -> !value.isEmpty())
         .orElseGet(() -> skill == null ? DEFAULT_TITLE : skill.getName());
+    AgentModel model = Optional.ofNullable(request.modelId())
+        .map(String::trim)
+        .filter(value -> !value.isEmpty())
+        .map(this::requireUsableModel)
+        .orElse(null);
     return AgentViews.conversation(insertConversation(context.organizationId(), agent, title,
-        skill == null ? null : skill.getId()));
+        skill == null ? null : skill.getId(), model == null ? null : model.getId()));
   }
 
   @Transactional
@@ -734,7 +739,7 @@ public class AgentService {
     if (existing.isPresent()) {
       Agent agent = existing.get();
       if (agents.listConversations(organizationId, agent.getId()).isEmpty()) {
-        insertConversation(organizationId, agent, DEFAULT_TITLE, null);
+        insertConversation(organizationId, agent, DEFAULT_TITLE, null, null);
       }
       return agent;
     }
@@ -754,11 +759,12 @@ public class AgentService {
           .orElseThrow(() -> ApiException.conflict("agent_create_race", "Agent creation raced"));
     }
     withRuntimeLock(id, () -> containers.ensureVolume(id));
-    insertConversation(organizationId, row, DEFAULT_TITLE, null);
+    insertConversation(organizationId, row, DEFAULT_TITLE, null, null);
     return row;
   }
 
-  private AgentConversation insertConversation(String organizationId, Agent agent, String title, String skillId) {
+  private AgentConversation insertConversation(
+      String organizationId, Agent agent, String title, String skillId, String modelId) {
     Instant now = Instant.now();
     AgentConversation row = new AgentConversation();
     row.setId(UUID.randomUUID().toString());
@@ -768,6 +774,7 @@ public class AgentService {
         ? DEFAULT_TITLE
         : title.trim()));
     row.setSkillId(skillId);
+    row.setModelId(modelId);
     row.setLastMessageAt(now);
     row.setCreatedAt(now);
     row.setUpdatedAt(now);

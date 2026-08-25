@@ -69,12 +69,16 @@ function toAssistantPart(part: MessagePart): AssistantMessagePart {
 export function AgentRuntimeProvider({
   api,
   conversationId,
+  onCreateConversation,
+  onConversationCreated,
   onConversationsChange,
   onSessionExpired,
   children
 }: {
   api: AgentApiClient;
   conversationId?: string;
+  onCreateConversation(): Promise<string>;
+  onConversationCreated(conversationId: string): void;
   onConversationsChange(): Promise<void>;
   onSessionExpired(): void;
   children: ReactNode;
@@ -128,21 +132,27 @@ export function AgentRuntimeProvider({
   }, [api, conversationId, onConversationsChange, onSessionExpired, refreshMessages]);
 
   const onNew = useCallback(async (message: AppendMessage) => {
-    if (!conversationId) throw new Error('No conversation selected');
     const textPart = message.content.find((part) => part.type === 'text');
     if (!textPart || textPart.type !== 'text' || !textPart.text.trim()) {
       throw new Error('Only text messages are supported');
     }
     setIsRunning(true);
-    const created = await api.appendMessage(conversationId, textPart.text.trim());
-    setMessages((current) => applyChannelEvent(current, {
-      type: 'message.upsert',
-      conversationId,
-      messageId: created.id,
-      data: { message: created }
-    }));
-    await onConversationsChange();
-  }, [api, conversationId, onConversationsChange]);
+    try {
+      const targetConversationId = conversationId ?? await onCreateConversation();
+      const created = await api.appendMessage(targetConversationId, textPart.text.trim());
+      setMessages((current) => applyChannelEvent(current, {
+        type: 'message.upsert',
+        conversationId: targetConversationId,
+        messageId: created.id,
+        data: { message: created }
+      }));
+      await onConversationsChange();
+      if (!conversationId) onConversationCreated(targetConversationId);
+    } catch (cause) {
+      setIsRunning(false);
+      throw cause;
+    }
+  }, [api, conversationId, onConversationCreated, onConversationsChange, onCreateConversation]);
 
   const runtime = useExternalStoreRuntime({
     isRunning,

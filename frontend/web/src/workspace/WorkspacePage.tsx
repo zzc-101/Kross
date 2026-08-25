@@ -36,6 +36,9 @@ export function WorkspacePage({
   const [error, setError] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [section, setSection] = useState<SidebarSection>('conversations');
+  const [draftSkill, setDraftSkill] = useState<Skill>();
+  const [draftModelId, setDraftModelId] = useState<string>();
+  const [draftVersion, setDraftVersion] = useState(0);
 
   const refreshConversations = useCallback(async () => {
     const items = await api.listConversations();
@@ -51,9 +54,11 @@ export function WorkspacePage({
         if (cancelled) return;
         setModels(nextModels);
         setSkills(nextSkills);
+        setDraftSkill(undefined);
+        setDraftModelId(undefined);
         const requested = new URLSearchParams(window.location.search).get('c') ?? conversationId;
         const selected = items.find((item) => item.id === requested) ?? items[0];
-        if (selected) setConversationId(selected.id);
+        setConversationId(selected?.id);
       } catch (cause) {
         if (cancelled) return;
         if (isUnauthorizedError(cause)) {
@@ -68,12 +73,26 @@ export function WorkspacePage({
     };
   }, [api, onSessionExpired, organizationId, refreshConversations, setConversationId]);
 
-  const onCreateConversation = useCallback(async (skillId?: string) => {
-    const created = await api.createConversation(skillId ? { skillId } : undefined);
-    await refreshConversations();
-    setConversationId(created.id);
+  const startDraft = useCallback((skill?: Skill) => {
+    setConversationId(undefined);
+    setDraftSkill(skill);
+    setDraftModelId(undefined);
+    setDraftVersion((value) => value + 1);
+  }, [setConversationId]);
+
+  const selectConversation = useCallback((id: string) => {
+    setDraftSkill(undefined);
+    setDraftModelId(undefined);
+    setConversationId(id);
+  }, [setConversationId]);
+
+  const createDraftConversation = useCallback(async () => {
+    const created = await api.createConversation({
+      ...(draftSkill ? { skillId: draftSkill.id } : {}),
+      ...(draftModelId ? { modelId: draftModelId } : {})
+    });
     return created.id;
-  }, [api, refreshConversations, setConversationId]);
+  }, [api, draftModelId, draftSkill]);
 
   const onConversationsChange = useCallback(async () => {
     await refreshConversations();
@@ -83,8 +102,10 @@ export function WorkspacePage({
     () => conversations.find((item) => item.id === conversationId),
     [conversationId, conversations]
   );
-  const selectedModel = models.find((item) => item.id === conversation?.modelId) ?? models[0] ?? null;
-  const activeSkill = skills.find((item) => item.id === conversation?.skillId);
+  const selectedModel = models.find((item) => item.id === (conversation?.modelId ?? draftModelId)) ?? models[0] ?? null;
+  const activeSkill = conversation
+    ? skills.find((item) => item.id === conversation.skillId)
+    : draftSkill;
 
   const patchConversation = useCallback(async (patch: { modelId: string }) => {
     if (!conversationId) return;
@@ -96,9 +117,15 @@ export function WorkspacePage({
     <div className="shell">
       {error && <div className="error-banner" role="alert">{error}</div>}
       <AgentRuntimeProvider
-        key={conversationId ?? 'no-conversation'}
+        key={conversationId ?? `draft-${draftVersion}`}
         api={api}
         conversationId={conversationId}
+        onCreateConversation={createDraftConversation}
+        onConversationCreated={(id) => {
+          setDraftSkill(undefined);
+          setDraftModelId(undefined);
+          setConversationId(id);
+        }}
         onConversationsChange={onConversationsChange}
         onSessionExpired={onSessionExpired}
       >
@@ -119,12 +146,12 @@ export function WorkspacePage({
               onUserUpdated(next.user);
             }}
             onClose={() => setSidebarOpen(false)}
-            onNew={() => { void onCreateConversation(); setSidebarOpen(false); }}
-            onSelect={setConversationId}
+            onNew={() => { startDraft(); setSidebarOpen(false); }}
+            onSelect={selectConversation}
             onSelectOrganization={onSelectOrganization}
             onLogout={onLogout}
             onApplySkill={(skill) => {
-              void onCreateConversation(skill.id);
+              startDraft(skill);
               setSidebarOpen(false);
             }}
             onArchive={(id) => {
@@ -132,8 +159,8 @@ export function WorkspacePage({
                 const items = await refreshConversations();
                 if (id === conversationId) {
                   const next = items.find((item) => item.id !== id);
-                  if (next) setConversationId(next.id);
-                  else setConversationId(await onCreateConversation());
+                  if (next) selectConversation(next.id);
+                  else startDraft();
                 }
               });
             }}
@@ -147,7 +174,7 @@ export function WorkspacePage({
           <main className="stage">
             <TopBar
               onOpenSidebar={() => setSidebarOpen(true)}
-              onNew={() => void onCreateConversation()}
+              onNew={() => startDraft()}
             />
             <Thread
               api={api}
@@ -155,7 +182,11 @@ export function WorkspacePage({
               model={selectedModel}
               models={models}
               skill={activeSkill}
-              onModelChange={(next) => void patchConversation({ modelId: next.id })}
+              onCancelSkill={draftSkill ? () => setDraftSkill(undefined) : undefined}
+              onModelChange={(next) => {
+                if (conversationId) void patchConversation({ modelId: next.id });
+                else setDraftModelId(next.id);
+              }}
             />
           </main>
         </div>

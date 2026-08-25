@@ -25,7 +25,8 @@ import {
   Mic,
   PencilLine,
   Plus,
-  Sparkles
+  Sparkles,
+  X
 } from 'lucide-react';
 
 import { messagePartComponents } from './MessageParts';
@@ -44,6 +45,7 @@ export function Thread({
   model,
   models,
   skill,
+  onCancelSkill,
   onModelChange
 }: {
   api: AgentApiClient;
@@ -51,6 +53,7 @@ export function Thread({
   model?: AgentModel | null;
   models: AgentModel[];
   skill?: Skill;
+  onCancelSkill?: () => void;
   onModelChange(model: AgentModel): void;
 }) {
   return (
@@ -64,6 +67,7 @@ export function Thread({
                 model={model}
                 models={models}
                 skill={skill}
+                onCancelSkill={onCancelSkill}
                 onModelChange={onModelChange}
                 landing
               />
@@ -90,6 +94,7 @@ export function Thread({
                 model={model}
                 models={models}
                 skill={skill}
+                onCancelSkill={onCancelSkill}
                 onModelChange={onModelChange}
               />
               <Footer />
@@ -115,12 +120,14 @@ function Composer({
   model,
   models,
   skill,
+  onCancelSkill,
   onModelChange,
   landing = false
 }: {
   model?: AgentModel | null;
   models: AgentModel[];
   skill?: Skill;
+  onCancelSkill?: () => void;
   onModelChange(model: AgentModel): void;
   landing?: boolean;
 }) {
@@ -131,7 +138,15 @@ function Composer({
   return (
     <div className="composer-wrap">
       <ComposerPrimitive.Root className="composer">
-        {skill && <div className="composer-skill-chip"><Sparkles />{skill.name}</div>}
+        {skill && (
+          <div className="composer-skill-chip">
+            <Sparkles />
+            <span>{skill.name}</span>
+            {onCancelSkill && (
+              <button type="button" aria-label={`取消应用 ${skill.name}`} onClick={onCancelSkill}><X /></button>
+            )}
+          </div>
+        )}
         <ComposerPrimitive.Input
           className="composer-input"
           placeholder={skill?.starterPrompt || '发送消息…'}

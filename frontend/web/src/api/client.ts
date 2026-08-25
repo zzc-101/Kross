@@ -250,7 +250,7 @@ export class AgentApiClient {
       .then((page) => page.items);
   }
 
-  createConversation(input?: { title?: string; skillId?: string }): Promise<Conversation> {
+  createConversation(input?: { title?: string; skillId?: string; modelId?: string }): Promise<Conversation> {
     return this.request('/api/v2/agent/conversations', conversationSchema, {
       method: 'POST',
       body: input ?? {}
