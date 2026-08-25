@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { TodoStore } from '../../todo/todoStore';
-import { ToolGateway, ToolPermissionError } from '../toolGateway';
+import { ToolGateway } from '../toolGateway';
 import { createSaasTools, saasToolNames } from './index';
 
 let root: string;
@@ -39,6 +39,7 @@ describe('SaaS tools integration', () => {
     expect(names.sort()).toEqual(coreOnly.sort());
     expect(names).not.toEqual(
       expect.arrayContaining([
+        'Bash',
         'Git',
         'ApplyPatch',
         'ProcessStart',
@@ -78,13 +79,6 @@ describe('SaaS tools integration', () => {
     });
     expect(res.status).toBe('completed');
     expect(res.content).toBe('hi');
-  });
-
-  it('requires approval for execute/write tools without a runtime policy', async () => {
-    const gateway = makeGateway();
-    await expect(
-      gateway.call({ runId: 'r', name: 'Bash', input: { command: 'echo hi' } })
-    ).rejects.toThrow(ToolPermissionError);
   });
 
   it('keeps paths workspace-scoped', async () => {

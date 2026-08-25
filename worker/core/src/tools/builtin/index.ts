@@ -1,5 +1,4 @@
 import type { ToolDefinition } from '../toolGateway';
-import { createBashTool } from './bash';
 import { createDeleteTool } from './delete';
 import { createEditTool } from './edit';
 import { createExploreTools } from './exploreTools';
@@ -31,7 +30,6 @@ export { createApplyPatchTool } from './applyPatch';
 export { createProcessTools } from './processTools';
 
 export const saasToolNames = [
-  'Bash',
   'Read',
   'ReadSkill',
   'Write',
@@ -71,7 +69,6 @@ export function createSaasTools(
   options: CreateSaasToolsOptions = {}
 ): ToolDefinition[] {
   const tools: ToolDefinition[] = [
-    createBashTool(workspaceRoot),
     createReadTool(workspaceRoot),
     createWriteTool(
       workspaceRoot,
