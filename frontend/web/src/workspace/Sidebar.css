@@ -1,0 +1,49 @@
+.libre-sidebar { display: flex; width: 324px; min-width: 324px; height: 100%; overflow: visible; background: #f7f7f8; }
+.icon-rail {
+  position: relative; z-index: 3; display: flex; width: 48px; min-width: 48px; height: 100%; flex-direction: column;
+  align-items: center; gap: 8px; border-right: 1px solid #dedede; background: #f7f7f8; padding: 8px 6px;
+}
+.rail-button, .section-toggle, .conversation-trigger, .conversation-action, .account-popover button { border: 0; background: transparent; }
+.rail-button { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 9px; color: #444; transition: background-color .15s ease; }
+.rail-button:hover { background: #e9e9ea; }
+.rail-button.active { background: #e4e4e5; color: #202020; }
+.rail-button svg { width: 21px; height: 21px; stroke-width: 2; }
+.rail-divider { width: 30px; height: 1px; margin: 1px 0 5px; background: #dedede; }
+.rail-links { display: flex; min-height: 0; flex-direction: column; gap: 1px; overflow-y: auto; }
+.rail-account { position: relative; margin-top: auto; }
+.account-avatar { display: grid; width: 36px; height: 36px; place-items: center; overflow: hidden; border: 0; border-radius: 50%; background: #ececec; color: #202020; font-size: 13px; font-weight: 650; }
+.account-avatar img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+.account-popover {
+  position: absolute; bottom: 0; left: 45px; z-index: 30; display: grid; width: 280px; gap: 10px; padding: 14px;
+  border: 1px solid #dedede; border-radius: 14px; background: #fff; box-shadow: 0 12px 32px rgb(0 0 0 / .14);
+}
+.account-title { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.account-popover label { display: grid; gap: 5px; color: #777; font-size: 11px; }
+.account-popover select, .account-popover input { width: 100%; border: 1px solid #d8d8d8; border-radius: 8px; background: #fff; padding: 7px; font-size: 12px; }
+.account-profile { display: grid; gap: 8px; }
+.account-popover button { display: flex; align-items: center; gap: 7px; border-radius: 8px; padding: 8px; text-align: left; font-size: 12px; }
+.account-popover button:hover { background: #f2f2f2; }
+.account-username { margin: 0; color: #888; font-size: 12px; }
+.sidebar-panel { display: flex; min-width: 0; flex: 1; flex-direction: column; overflow: hidden; padding: 8px 14px 16px; background: #f7f7f8; }
+.sidebar-section { padding: 9px 0 0; }
+.section-toggle { display: flex; width: 100%; min-width: 0; align-items: center; gap: 8px; padding: 5px 0; font-size: 14px; font-weight: 650; }
+.section-toggle svg { width: 16px; height: 16px; }
+.conversation-section { margin-top: 4px; }
+.conversation-list { display: grid; gap: 2px; margin-top: 4px; }
+.conversation-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; border-radius: 8px; }
+.conversation-row:hover, .conversation-row.active { background: #ececec; }
+.conversation-trigger { overflow: hidden; padding: 8px 9px; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.conversation-action { display: grid; width: 27px; height: 30px; place-items: center; border-radius: 6px; opacity: 0; }
+.conversation-row:hover .conversation-action, .conversation-row:focus-within .conversation-action { opacity: 1; }
+.conversation-action:hover { background: #dedede; }
+.conversation-action svg { width: 14px; height: 14px; }
+.conversation-row input { min-width: 0; margin: 4px; border: 1px solid #c8c8c8; border-radius: 6px; background: #fff; padding: 5px 7px; outline: none; font-size: 13px; }
+.conversation-empty { margin: 6px 8px; color: #888; font-size: 12px; }
+.sidebar-scrim { display: none; }
+
+@media (max-width: 760px) {
+  .libre-sidebar { position: fixed; top: 0; bottom: 0; left: 0; z-index: 41; width: min(360px, 88vw); min-width: 0; transform: translateX(-105%); transition: transform .25s cubic-bezier(.2, 0, 0, 1); }
+  .libre-sidebar.open { transform: none; }
+  .sidebar-scrim { position: fixed; inset: 0; z-index: 40; display: block; border: 0; background: rgb(0 0 0 / .45); }
+  .icon-rail { width: 50px; min-width: 50px; }
+}

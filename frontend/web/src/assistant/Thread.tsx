@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+
+import './Thread.css';
 import {
   ActionBarPrimitive,
   AuiIf,
@@ -15,10 +17,12 @@ import {
   BarChart3,
   BrainCircuit,
   Check,
+  ChevronDown,
   Copy,
   FileText,
   Lightbulb,
   LoaderCircle,
+  Mic,
   PencilLine,
   Plus,
   Sparkles
@@ -26,18 +30,28 @@ import {
 
 import { messagePartComponents } from './MessageParts';
 import { AgentApiClient, ApiError } from '../api/client';
-import type { Skill } from '../api/types';
+import type { AgentModel, Skill } from '../api/types';
+import { AgentContextUsageContext } from './AgentRuntimeProvider';
+import { ContextUsageRing } from './ContextUsageRing';
+
+function modelLabel(model?: AgentModel | null): string {
+  return model?.model ?? '未配置模型';
+}
 
 export function Thread({
   api,
   conversationId,
+  model,
+  models,
   skill,
-  onOpenFiles
+  onModelChange
 }: {
   api: AgentApiClient;
   conversationId?: string;
+  model?: AgentModel | null;
+  models: AgentModel[];
   skill?: Skill;
-  onOpenFiles(): void;
+  onModelChange(model: AgentModel): void;
 }) {
   return (
     <ThreadPrimitive.Root className="thread">
@@ -47,8 +61,10 @@ export function Thread({
             <div className="landing-content">
               <div className="landing-greeting"><h1>{skill ? skill.name : 'How can I help you today?'}</h1></div>
               <Composer
+                model={model}
+                models={models}
                 skill={skill}
-                onOpenFiles={onOpenFiles}
+                onModelChange={onModelChange}
                 landing
               />
             </div>
@@ -71,8 +87,10 @@ export function Thread({
             </ThreadPrimitive.ScrollToBottom>
             <div className="composer-docked">
               <Composer
+                model={model}
+                models={models}
                 skill={skill}
-                onOpenFiles={onOpenFiles}
+                onModelChange={onModelChange}
               />
               <Footer />
             </div>
@@ -94,14 +112,22 @@ function AssistantLoading() {
 }
 
 function Composer({
+  model,
+  models,
   skill,
-  onOpenFiles,
+  onModelChange,
   landing = false
 }: {
+  model?: AgentModel | null;
+  models: AgentModel[];
   skill?: Skill;
-  onOpenFiles(): void;
+  onModelChange(model: AgentModel): void;
   landing?: boolean;
 }) {
+  const latestContextUsage = useContext(AgentContextUsageContext);
+  const contextWindow = latestContextUsage?.contextWindow ?? model?.contextWindow ?? 256_000;
+  const usedTokens = latestContextUsage?.usedTokens ?? 0;
+
   return (
     <div className="composer-wrap">
       <ComposerPrimitive.Root className="composer">
@@ -115,16 +141,93 @@ function Composer({
         />
         <div className="composer-toolbar">
           <div className="composer-tools">
-            <button type="button" aria-label="查看文件与产物" title="查看文件与产物" onClick={onOpenFiles}>
+            <button type="button" aria-label="从本地上传文件（即将支持）" title="本地文件上传即将支持" disabled>
               <Plus />
             </button>
+            <ModelMenu model={model} models={models} onChange={onModelChange} />
           </div>
           <div className="composer-tools right">
+            <ContextUsageRing usedTokens={usedTokens} contextWindow={contextWindow} />
+            <button type="button" aria-label="语音输入（即将支持）" title="语音输入即将支持" disabled>
+              <Mic />
+            </button>
             <ComposerPrimitive.Send className="composer-send" aria-label="发送"><ArrowUp /></ComposerPrimitive.Send>
           </div>
         </div>
       </ComposerPrimitive.Root>
       {landing && <QuickActions />}
+    </div>
+  );
+}
+
+function ModelMenu({
+  model,
+  models,
+  onChange
+}: {
+  model?: AgentModel | null;
+  models: AgentModel[];
+  onChange(model: AgentModel): void;
+}) {
+  return (
+    <Dropdown
+      label={modelLabel(model)}
+      ariaLabel="当前模型"
+      disabled={models.length === 0}
+    >
+      {models.map((item) => (
+        <button
+          type="button"
+          key={item.id}
+          className={item.id === model?.id ? 'menu-item active' : 'menu-item'}
+          onClick={() => onChange(item)}
+        >
+          <span>{modelLabel(item)}</span>
+        </button>
+      ))}
+    </Dropdown>
+  );
+}
+
+function Dropdown({
+  label,
+  ariaLabel,
+  disabled,
+  children
+}: {
+  label: string;
+  ariaLabel: string;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener('mousedown', onPointer);
+    return () => window.removeEventListener('mousedown', onPointer);
+  }, [open]);
+  return (
+    <div className="composer-menu" ref={root}>
+      <button
+        type="button"
+        className="composer-model"
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>{label}</span>
+        <ChevronDown />
+      </button>
+      {open && (
+        <div className="composer-menu-list" role="menu" onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }

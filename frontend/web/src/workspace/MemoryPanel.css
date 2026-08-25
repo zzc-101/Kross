@@ -1,0 +1,16 @@
+.memory-panel { gap: 10px; }
+.memory-form { display: grid; gap: 8px; margin-top: auto; padding-top: 10px; }
+.memory-form label { display: grid; gap: 4px; color: #777; font-size: 11px; }
+.memory-form input { width: 100%; border: 1px solid #d8d8d8; border-radius: 8px; background: #fff; padding: 7px; font-size: 12px; }
+.memory-form button { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 8px; background: #222; color: #fff; padding: 8px; font-size: 12px; }
+.memory-form textarea, .memory-form select { width: 100%; border: 1px solid #d8d8d8; border-radius: 8px; background: #fff; padding: 7px; font-size: 12px; resize: vertical; }
+.memory-group { display: grid; gap: 4px; }
+.memory-group-title { margin: 8px 0 0; color: #666; font-size: 11px; }
+.memory-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; border-radius: 8px; padding: 8px; }
+.memory-row:hover { background: #ececec; }
+.memory-row > div { display: grid; gap: 2px; min-width: 0; }
+.memory-row small { color: #777; font-size: 11px; }
+.memory-row button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 7px; background: transparent; color: #666; }
+.memory-content { margin: 0; color: #222; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.memory-row textarea { width: 100%; border: 1px solid #d8d8d8; border-radius: 8px; background: #fff; padding: 7px; font-size: 12px; resize: vertical; }
+.memory-actions { display: flex; gap: 2px; }

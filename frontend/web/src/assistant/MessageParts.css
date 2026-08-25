@@ -1,0 +1,28 @@
+.reasoning-part, .tool-part { margin: 8px 0 12px; overflow: hidden; border: 1px solid #e3e3e3; border-radius: 12px; background: #fafafa; }
+.tool-part.failed { border-color: #efc9c4; background: #fff8f7; }
+.part-trigger { display: flex; width: 100%; align-items: center; gap: 8px; border: 0; background: transparent; padding: 9px 11px; text-align: left; }
+.part-trigger svg { width: 16px; height: 16px; }
+.part-trigger span { font-size: 13px; font-weight: 600; }
+.part-trigger small { margin-left: auto; color: #777; font-size: 11px; }
+.part-trigger .part-chevron { margin-left: 2px; color: #888; transition: transform .18s ease; }
+[data-open] > .part-trigger .part-chevron { transform: rotate(180deg); }
+.reasoning-content { border-top: 1px solid #e7e7e7; padding: 10px 12px; color: #666; font-size: 13px; white-space: pre-wrap; }
+.tool-content { position: relative; border-top: 1px solid #e7e7e7; }
+.tool-content .inline-copy { position: absolute; top: 5px; right: 5px; }
+.tool-content pre { max-height: 320px; overflow: auto; margin: 0; padding: 12px 42px 12px 12px; font-size: 12px; white-space: pre-wrap; }
+.approval-panel { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid #e7e7e7; padding: 12px; background: #fffaf2; }
+.approval-panel > div:first-child { display: grid; gap: 3px; }
+.approval-panel strong { font-size: 13px; }
+.approval-panel span { color: #6d6254; font-size: 12px; }
+.approval-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.approval-actions button { border: 1px solid #d7d0c6; border-radius: 8px; padding: 7px 11px; font-size: 12px; font-weight: 600; }
+.approval-reject { background: #fff; }
+.approval-reject:hover { background: #f5f1eb; }
+.approval-allow { border-color: #202020 !important; background: #202020; color: #fff; }
+.approval-allow:hover { background: #000; }
+.file-part { display: flex; max-width: 360px; align-items: center; gap: 9px; margin: 8px 0; border: 1px solid #e1e1e1; border-radius: 11px; padding: 10px 12px; }
+.file-part svg { width: 19px; height: 19px; }
+.file-part small { margin-left: auto; color: #888; }
+.image-part { max-width: 520px; margin: 10px 0; }
+.image-part img { display: block; max-width: 100%; border-radius: 12px; }
+.image-part figcaption { margin-top: 5px; color: #777; font-size: 12px; }

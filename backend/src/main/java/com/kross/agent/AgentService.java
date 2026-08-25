@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.agent.dto.AgentProtocol;
 import com.kross.agent.dto.AgentMessageView;
+import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AgentViews;
 import com.kross.agent.dto.AppendAgentMessageRequest;
 import com.kross.agent.dto.ConversationView;
@@ -89,6 +90,13 @@ public class AgentService {
   private final SkillCatalogService skills;
   private final ReentrantLock[] runtimeLocks = createLocks(RUNTIME_LOCK_STRIPES);
 
+  public List<AgentModelView> listModels(String organizationId) {
+    access.require(organizationId, OrganizationAction.AGENT_READ);
+    return agents.listUsableModels().stream()
+        .map(AgentViews::model)
+        .toList();
+  }
+
   public List<ConversationView> listConversations(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
     Agent agent = ensure(context);
@@ -129,6 +137,14 @@ public class AgentService {
         conversation.setArchivedAt(Optional.ofNullable(conversation.getArchivedAt()).orElse(Instant.now()));
       } else {
         conversation.setArchivedAt(null);
+      }
+    });
+    Optional.ofNullable(request.modelId()).ifPresent(modelId -> {
+      String trimmed = modelId.trim();
+      if (trimmed.isEmpty()) {
+        conversation.setModelId(null);
+      } else {
+        conversation.setModelId(requireUsableModel(trimmed).getId());
       }
     });
     agents.updateConversation(conversation);
@@ -788,11 +804,16 @@ public class AgentService {
     }
   }
 
+  private AgentModel requireUsableModel(String modelId) {
+    return agents.findUsableModelById(modelId)
+        .orElseThrow(() -> ApiException.invalidRequest("Model is not available"));
+  }
+
   private AgentModel resolveUsableModel(Optional<String> modelId) {
     return modelId
         .map(String::trim)
         .filter(value -> !value.isEmpty())
-        .flatMap(agents::findUsableModelById)
+        .map(this::requireUsableModel)
         .or(agents::findUsableModel)
         .orElseThrow(() -> ApiException.conflict(
             "model_credential_unavailable", "No usable model credential is configured"));

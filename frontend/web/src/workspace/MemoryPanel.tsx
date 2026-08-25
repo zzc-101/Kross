@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 
+import './Panel.css';
+import './MemoryPanel.css';
+
 import { AgentApiClient, ApiError } from '../api/client';
 import type { AgentMemory, MemoryKind } from '../api/types';
 
@@ -88,7 +91,7 @@ export function MemoryPanel({ api }: { api: AgentApiClient }) {
   };
 
   return (
-    <div className="skills-panel memory-panel">
+    <div className="workspace-panel memory-panel">
       <div className="files-toolbar">
         <strong>记忆</strong>
       </div>

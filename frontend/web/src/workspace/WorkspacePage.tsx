@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import './WorkspacePage.css';
+
 import { AgentApiClient, ApiError, isUnauthorizedError } from '../api/client';
-import type { Conversation, MeUser, Membership, Skill } from '../api/types';
+import type { AgentModel, Conversation, MeUser, Membership, Skill } from '../api/types';
 import { AgentRuntimeProvider } from '../assistant/AgentRuntimeProvider';
 import { Thread } from '../assistant/Thread';
 import { useConversationRoute } from '../lib/conversationRoute';
@@ -28,6 +30,7 @@ export function WorkspacePage({
   onUserUpdated(user: MeUser): void;
 }) {
   const { conversationId, setConversationId } = useConversationRoute();
+  const [models, setModels] = useState<AgentModel[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [error, setError] = useState<string>();
@@ -44,8 +47,9 @@ export function WorkspacePage({
     let cancelled = false;
     void (async () => {
       try {
-        const [nextSkills, items] = await Promise.all([api.listSkills(), refreshConversations()]);
+        const [nextModels, nextSkills, items] = await Promise.all([api.listModels(), api.listSkills(), refreshConversations()]);
         if (cancelled) return;
+        setModels(nextModels);
         setSkills(nextSkills);
         const requested = new URLSearchParams(window.location.search).get('c') ?? conversationId;
         const selected = items.find((item) => item.id === requested) ?? items[0];
@@ -79,7 +83,14 @@ export function WorkspacePage({
     () => conversations.find((item) => item.id === conversationId),
     [conversationId, conversations]
   );
+  const selectedModel = models.find((item) => item.id === conversation?.modelId) ?? models[0] ?? null;
   const activeSkill = skills.find((item) => item.id === conversation?.skillId);
+
+  const patchConversation = useCallback(async (patch: { modelId: string }) => {
+    if (!conversationId) return;
+    const next = await api.patchConversation(conversationId, patch);
+    setConversations((current) => current.map((item) => item.id === next.id ? next : item));
+  }, [api, conversationId]);
 
   return (
     <div className="shell">
@@ -141,11 +152,10 @@ export function WorkspacePage({
             <Thread
               api={api}
               conversationId={conversationId}
+              model={selectedModel}
+              models={models}
               skill={activeSkill}
-              onOpenFiles={() => {
-                setSection('files');
-                setSidebarOpen(true);
-              }}
+              onModelChange={(next) => void patchConversation({ modelId: next.id })}
             />
           </main>
         </div>

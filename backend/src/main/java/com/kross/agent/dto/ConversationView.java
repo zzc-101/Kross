@@ -5,6 +5,7 @@ import java.time.Instant;
 public record ConversationView(
     String id,
     String title,
+    String modelId,
     String skillId,
     Instant archivedAt,
     Instant lastMessageAt,

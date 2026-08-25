@@ -44,9 +44,18 @@ export interface InvitePreview {
   accepted: boolean;
 }
 
+export interface AgentModel {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  contextWindow: number;
+}
+
 export interface Conversation {
   id: string;
   title: string;
+  modelId?: string;
   skillId?: string;
   archivedAt?: string;
   lastMessageAt: string;

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type {
-  AgentMemory, AgentMessage, AuthConfig, Conversation, InvitePreview, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing
+  AgentMemory, AgentMessage, AgentModel, AuthConfig, Conversation, InvitePreview, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing
 } from './types';
 import type { ChannelEvent } from './channelEvents';
 
@@ -64,9 +64,18 @@ const invitePreviewSchema: z.ZodType<InvitePreview> = z.object({
   accepted: z.boolean()
 });
 
+const agentModelSchema: z.ZodType<AgentModel> = z.object({
+  id,
+  name: id,
+  provider: id,
+  model: id,
+  contextWindow: z.number().int().positive()
+});
+
 const conversationSchema: z.ZodType<Conversation, z.ZodTypeDef, unknown> = z.object({
   id,
   title: z.string().min(1),
+  modelId: z.string().min(1).optional(),
   skillId: z.string().min(1).optional(),
   archivedAt: instant.optional(),
   lastMessageAt: instant,
@@ -231,6 +240,11 @@ export class AgentApiClient {
     return this.request('/api/v2/me', meSchema, { method: 'PATCH', organization: false, body: input });
   }
 
+  listModels(): Promise<AgentModel[]> {
+    return this.request('/api/v2/agent/models', z.object({ items: z.array(agentModelSchema) }))
+      .then((page) => page.items);
+  }
+
   listConversations(): Promise<Conversation[]> {
     return this.request('/api/v2/agent/conversations', z.object({ items: z.array(conversationSchema) }))
       .then((page) => page.items);
@@ -246,6 +260,7 @@ export class AgentApiClient {
   patchConversation(conversationId: string, patch: {
     title?: string;
     archived?: boolean;
+    modelId?: string;
   }): Promise<Conversation> {
     return this.request(
       `/api/v2/agent/conversations/${encodeURIComponent(conversationId)}`,

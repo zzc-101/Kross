@@ -7,6 +7,8 @@ import type {
 import { CheckCircle2, ChevronDown, CircleAlert, FileText, LoaderCircle, ShieldAlert } from 'lucide-react';
 import { useState } from 'react';
 
+import './MessageParts.css';
+
 import { CopyButton, MarkdownText } from './MarkdownText';
 
 export const ReasoningPart: ReasoningMessagePartComponent = ({ text, status }) => {

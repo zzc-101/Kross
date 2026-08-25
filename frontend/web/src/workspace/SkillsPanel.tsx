@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { FileText, Sparkles } from 'lucide-react';
 
+import './Panel.css';
+import './SkillsPanel.css';
+
 import { AgentApiClient, ApiError } from '../api/client';
 import type { Skill } from '../api/types';
 
@@ -19,7 +22,7 @@ export function SkillsPanel({ api, onApply }: { api: AgentApiClient; onApply(ski
   }, [api]);
 
   return (
-    <div className="skills-panel">
+    <div className="workspace-panel">
       <div className="files-toolbar"><div><strong>技能</strong><small>选择一个模板开始工作</small></div></div>
       {error && <p className="files-error">{error}</p>}
       {loading && <p className="files-hint">正在读取技能…</p>}

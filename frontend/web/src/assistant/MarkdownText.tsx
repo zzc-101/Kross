@@ -1,4 +1,5 @@
 import '@assistant-ui/react-markdown/styles/dot.css';
+import './MarkdownText.css';
 
 import {
   MarkdownTextPrimitive,

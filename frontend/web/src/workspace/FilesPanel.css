@@ -1,0 +1,16 @@
+.files-panel { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 8px; padding-top: 8px; }
+.files-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; color: #666; font-size: 12px; }
+.files-crumb button { border: 0; background: transparent; padding: 2px 4px; border-radius: 6px; color: inherit; }
+.files-crumb button:hover { background: #ececec; }
+.files-crumb span { display: inline-flex; align-items: center; }
+.file-row { display: flex; width: 100%; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: transparent; padding: 7px 8px; text-align: left; font-size: 13px; }
+.file-row:hover:not(:disabled) { background: #ececec; }
+.file-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row small { margin-left: auto; color: #888; font-size: 10px; }
+.file-preview { display: grid; min-height: 0; max-height: 48%; overflow: hidden; border: 1px solid #dedede; border-radius: 10px; background: #fff; }
+.file-preview header { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #e8e8e8; padding: 7px 9px; font-size: 12px; }
+.file-preview header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-preview header button { display: grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; border: 0; border-radius: 6px; background: transparent; }
+.file-preview header button:hover { background: #eee; }
+.file-preview header svg { width: 14px; height: 14px; }
+.file-preview pre { min-height: 0; margin: 0; overflow: auto; padding: 10px; font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }

@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+
+import './Sidebar.css';
 import {
   Archive,
   BrainCircuit,

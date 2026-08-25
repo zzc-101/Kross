@@ -2,6 +2,36 @@ import { describe, expect, it } from 'vitest';
 
 import { AgentApiClient, ApiError, isUnauthorizedError } from './client';
 
+describe('AgentApiClient.listModels', () => {
+  it('读取用户可切换的模型及上下文窗口', async () => {
+    const fetcher = async () => new Response(JSON.stringify({
+      code: 0,
+      message: 'ok',
+      data: {
+        items: [{
+          id: 'model-1',
+          name: 'Default',
+          provider: 'openai',
+          model: 'gpt-5',
+          contextWindow: 256_000
+        }]
+      }
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+    const api = new AgentApiClient({
+      baseUrl: 'http://localhost:8787',
+      fetch: fetcher as typeof fetch
+    });
+
+    await expect(api.listModels()).resolves.toEqual([expect.objectContaining({
+      id: 'model-1',
+      contextWindow: 256_000
+    })]);
+  });
+});
+
 describe('AgentApiClient.listMessages', () => {
   it('兼容历史消息的空上下文统计对象', async () => {
     const fetcher = async () => new Response(JSON.stringify({

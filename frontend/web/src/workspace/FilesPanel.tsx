@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { ChevronRight, File, Folder, RefreshCw, X } from 'lucide-react';
 
+import './Panel.css';
+import './FilesPanel.css';
+
 import { AgentApiClient, ApiError } from '../api/client';
 import type { WorkspaceListing } from '../api/types';
 

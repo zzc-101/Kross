@@ -2,6 +2,7 @@ package com.kross.controller;
 
 import com.kross.agent.AgentService;
 import com.kross.agent.dto.AgentMessageView;
+import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AppendAgentMessageRequest;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
@@ -40,6 +41,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/agent")
 public class AgentController {
   private final AgentService agents;
+
+  @GetMapping("/models")
+  public Res<ItemList<AgentModelView>> models(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
+    return Res.ok(new ItemList<>(agents.listModels(organizationId)));
+  }
 
   @GetMapping("/conversations")
   public Res<ItemList<ConversationView>> conversations(
