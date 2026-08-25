@@ -8,8 +8,7 @@ import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFa
 import { ConversationRuntimeRegistry } from './conversationRuntimeRegistry';
 import { createWorkerLogger } from './logger';
 import { extractMemories } from './memoryExtract';
-import { writeMemoryFiles } from './memoryFiles';
-import { createPersonalAgentProfile } from './runtime/workExecutionProfile';
+import { loadMemoryContextSources, writeMemoryFiles } from './memoryFiles';
 import type {
   AgentContextUsage,
   AgentControlTransport,
@@ -146,7 +145,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
             createPersistentAgentHost({
               workspaceRoot: options.workspaceRoot,
               env: jobModelEnv,
-              executionProfile: createPersonalAgentProfile(job.skill)
+              activeSkill: job.skill,
+              memoryContextSources: loadMemoryContextSources(options.workspaceRoot)
             })
         });
         const reply = await runTurn(

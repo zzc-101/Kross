@@ -9,6 +9,5 @@ export type {
   AgentStreamEvent,
   WsAgentControlTransportOptions
 } from './transport';
-export { createPersonalAgentProfile } from './runtime/workExecutionProfile';
 export { parseWorkerMainConfig, runWorkerMain } from './main';
 export type { WorkerMainConfig } from './main';

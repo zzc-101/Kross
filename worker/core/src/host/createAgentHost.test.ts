@@ -41,8 +41,6 @@ describe('createRuntimeOptionsFromEnv', () => {
       const second = host.createRuntime();
 
       expect(first).not.toBe(second);
-      expect(first.getExecutionProfileId()).toBe('coding');
-      expect(second.getExecutionProfileId()).toBe('coding');
       expect(first.getTodoStore()).toBe(second.getTodoStore());
       await host.close();
       await host.close();

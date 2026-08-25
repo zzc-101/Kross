@@ -5,22 +5,6 @@ import {
 
 const PLACEHOLDER = /\{([a-zA-Z0-9_]+)\}/g;
 
-export const AGENT_EXECUTION_PROMPT_KEYS = [
-  'agent.execution.base',
-  'agent.execution.intent',
-  'agent.execution.authority',
-  'agent.execution.instructions',
-  'agent.execution.workspaceSafety',
-  'agent.execution.toolDiscipline',
-  'agent.execution.workflow.inspect',
-  'agent.execution.workflow.plan',
-  'agent.execution.workflow.act',
-  'agent.execution.workflow.verify',
-  'agent.execution.workflow.recover',
-  'agent.execution.completion',
-  'agent.execution.communication'
-] as const satisfies readonly PromptKey[];
-
 export const SUBAGENT_SHARED_PROMPT_KEYS = [
   'agent.execution.instructions',
   'agent.execution.workspaceSafety',
@@ -53,10 +37,6 @@ export function renderPrompt(
     }
     return String(value);
   });
-}
-
-export function renderAgentExecutionPrompt(): string {
-  return AGENT_EXECUTION_PROMPT_KEYS.map((key) => renderPrompt(key)).join('\n');
 }
 
 export function renderSubagentExecutionPrompt(input: {

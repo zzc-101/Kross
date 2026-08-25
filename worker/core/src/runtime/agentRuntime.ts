@@ -24,7 +24,6 @@ import type { ThinkingEffort } from '../llm/thinkingEffort';
 import type { LlmCapabilities } from '../llm/providerCapabilities';
 import type { LlmCallMetrics } from '../llm/providerObservability';
 import type { LlmClient, LlmToolCall } from '../llm/types';
-import { renderAgentExecutionPrompt } from '../prompts';
 import {
   ToolGateway,
   type ToolMetadata
@@ -79,13 +78,11 @@ import {
   type RunPhase
 } from './runPhase';
 import {
-  createCodingAgentExecutionProfile,
+  buildSaasSystemPrompt,
+  createSaasCompletionPolicy,
   type AgentCompletionPolicy,
-  type AgentExecutionProfile,
-  type AgentExecutionPromptPhase,
-  type AgentProgressDescriptor,
-  type AgentToolPolicyOverlay
-} from './agentExecutionProfile';
+  type AgentExecutionPromptPhase
+} from './saasRuntimePolicy';
 
 export { DEFAULT_MAX_TOOL_ITERATIONS } from './toolLoop';
 
@@ -138,26 +135,13 @@ export class AgentRuntime extends EventEmitter {
   private readonly toolLoop: RuntimeToolLoop;
   private readonly modelSession: ModelSession;
   private readonly sessionServices: SessionServices;
-  private readonly executionProfile: AgentExecutionProfile;
   private readonly completionPolicy: AgentCompletionPolicy;
-  private readonly toolPolicy: AgentToolPolicyOverlay;
   private readonly runPhases = new Map<string, RunPhase>();
   private readonly verificationPendingRuns = new Set<string>();
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
-    this.executionProfile =
-      options.executionProfile ?? createCodingAgentExecutionProfile();
-    const profileContext = {
-      workspaceRoot: options.workspaceRoot,
-      traceStore: options.traceStore
-    };
-    this.completionPolicy =
-      this.executionProfile.createCompletionPolicy(profileContext);
-    this.toolPolicy = this.executionProfile.getToolPolicy?.(profileContext) ?? {
-      observeCodingVerificationLifecycle:
-        this.executionProfile.id === 'coding'
-    };
+    this.completionPolicy = createSaasCompletionPolicy();
     this.createRunId =
       options.createRunId ?? (() => `run-${Date.now().toString(36)}`);
     this.now = options.now ?? (() => new Date());
@@ -171,7 +155,6 @@ export class AgentRuntime extends EventEmitter {
     this.toolGateway = options.toolGateway;
     this.inspection = new RuntimeInspection(options);
     this.toolLoop = new RuntimeToolLoop({
-      executionProfileId: this.executionProfile.id,
       listTools: () => this.listVisibleTools(),
       llmClient: options.llmClient,
       toolGateway: this.toolGateway,
@@ -182,7 +165,7 @@ export class AgentRuntime extends EventEmitter {
       assessCompletionGate: (runId, originalUserInput) =>
         this.assessRunCompletionGate(runId, originalUserInput),
       completionPolicy: this.completionPolicy,
-      buildSystemPrompt: (input) => this.buildSystemPrompt(input),
+      buildSystemPrompt: () => this.buildSystemPrompt('agent'),
       observeToolCall: (input) => this.observeToolCall(input),
       completeVerificationObservation: (runId, options) =>
         this.completeVerificationObservation(runId, options),
@@ -215,14 +198,6 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.refreshSkills();
     this.sessionServices.syncToolPolicySource();
     this.sessionServices.syncModelProfilesSource();
-  }
-
-  getExecutionProfileId(): string {
-    return this.executionProfile.id;
-  }
-
-  describeProgress(event: TraceEvent): AgentProgressDescriptor | undefined {
-    return this.executionProfile.describeProgress?.(event);
   }
 
   /** Subscribe to persisted work-state changes. */
@@ -830,25 +805,18 @@ export class AgentRuntime extends EventEmitter {
     return missingModel;
   }
 
-  private buildSystemPrompt(input: {
-    phase: AgentExecutionPromptPhase;
-    defaultPrompt: string;
-  }): string {
-    return this.executionProfile.buildSystemPrompt({
-      ...input,
-      workspaceRoot: this.options.workspaceRoot
+  private buildSystemPrompt(phase: AgentExecutionPromptPhase): string {
+    return buildSaasSystemPrompt({
+      phase,
+      activeSkill: this.options.activeSkill
     });
   }
 
-  private applyProfileContextSources(phase: AgentExecutionPromptPhase): void {
-    const overlay = this.executionProfile.getContextSources?.({
-      phase,
-      workspaceRoot: this.options.workspaceRoot
-    });
-    for (const sourceId of overlay?.remove ?? []) {
+  private applySaasContextSources(): void {
+    for (const sourceId of ['project-instructions', 'project-registry']) {
       this.sessionContext.removeSource(sourceId);
     }
-    for (const source of overlay?.sources ?? []) {
+    for (const source of this.options.memoryContextSources ?? []) {
       this.sessionContext.addSource(source);
     }
   }
@@ -860,13 +828,12 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.refreshSkills();
     this.sessionServices.syncModelProfilesSource();
     this.sessionServices.syncToolPolicySource();
-    this.applyProfileContextSources(phase);
+    void phase;
+    this.applySaasContextSources();
   }
 
   private listVisibleTools(): ToolMetadata[] {
-    const available = this.toolGateway?.listTools() ?? [];
-    const isVisible = this.toolPolicy.isToolVisible;
-    return isVisible ? available.filter((tool) => isVisible(tool)) : available;
+    return this.toolGateway?.listTools() ?? [];
   }
 
   private buildPlannerContext(): {
@@ -878,13 +845,9 @@ export class AgentRuntime extends EventEmitter {
   } {
     const tools = this.listVisibleTools();
     this.syncContextSources('agent');
-    const defaultPrompt = renderAgentExecutionPrompt();
     return {
       buildContextInput: {
-        systemPrompt: this.buildSystemPrompt({
-          phase: 'agent',
-          defaultPrompt
-        }),
+        systemPrompt: this.buildSystemPrompt('agent'),
         tools
       },
       tools
@@ -920,13 +883,9 @@ export class AgentRuntime extends EventEmitter {
     void input;
     const tools = this.listVisibleTools();
     this.syncContextSources('agent');
-    const defaultPrompt = renderAgentExecutionPrompt();
     return {
       buildContextInput: {
-        systemPrompt: this.buildSystemPrompt({
-          phase: 'agent',
-          defaultPrompt
-        }),
+        systemPrompt: this.buildSystemPrompt('agent'),
         tools
       }
     };
@@ -1023,19 +982,13 @@ export class AgentRuntime extends EventEmitter {
     const defaultClassification = classifyToolCallPhase(input.call, metadata, {
       verificationPending
     });
-    const classified = this.toolPolicy.classifyToolCall?.({
-      call: input.call,
-      metadata,
-      verificationPending,
-      defaultClassification
-    }) ?? defaultClassification;
+    const classified = defaultClassification;
     await this.setRunPhase(input.runId, classified.phase, {
       trigger: 'tool-call',
       toolName: input.call.name,
       iteration: input.iteration
     });
     if (
-      this.toolPolicy.observeCodingVerificationLifecycle === false ||
       !classified.verification
     ) {
       return;

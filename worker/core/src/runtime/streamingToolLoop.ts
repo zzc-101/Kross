@@ -22,8 +22,8 @@ import {
 import type {
   AgentCompletionAssessment,
   AgentCompletionPolicy
-} from './agentExecutionProfile';
-import { sanitizeAgentCompletionMetadata } from './agentExecutionProfile';
+} from './saasRuntimePolicy';
+import { sanitizeAgentCompletionMetadata } from './saasRuntimePolicy';
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
 export const MAX_VERIFICATION_FOLLOWUPS = 1;

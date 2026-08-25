@@ -2,7 +2,8 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { createAgentHost } from '../core/src/host/createAgentHost';
-import type { AgentExecutionProfile } from '../core/src/runtime/agentExecutionProfile';
+import type { ContextSource } from '../core/src/context/sessionContext';
+import type { SaasActiveSkill } from '../core/src/runtime/saasRuntimePolicy';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
 interface RunTraceDetail {
@@ -51,16 +52,20 @@ export interface AgentHostHandle {
 export async function createPersistentAgentHost(input: {
   workspaceRoot: string;
   env: Record<string, string | undefined>;
-  executionProfile: AgentExecutionProfile;
+  activeSkill?: SaasActiveSkill;
+  memoryContextSources: ContextSource[];
 }): Promise<AgentHostHandle> {
   const krossHome = join(input.workspaceRoot, '.kross');
   await mkdir(krossHome, { recursive: true });
   const host = await createAgentHost({
     workspaceRoot: input.workspaceRoot,
     env: input.env,
-    executionProfile: input.executionProfile,
     config: { homeDir: input.workspaceRoot, krossHome },
-    runtimeOptions: { personalSkillsDir: join(input.workspaceRoot, 'skills') }
+    runtimeOptions: {
+      ...(input.activeSkill ? { activeSkill: input.activeSkill } : {}),
+      memoryContextSources: input.memoryContextSources,
+      personalSkillsDir: join(input.workspaceRoot, 'skills')
+    }
   });
   const runtime = host.createRuntime();
   return {

@@ -15,7 +15,7 @@ import type {
   LlmMessage,
   LlmToolCall
 } from '../llm/types';
-import { renderAgentExecutionPrompt, renderPrompt } from '../prompts';
+import { renderPrompt } from '../prompts';
 import { formatToolInputPreview } from '../tools/formatToolInputPreview';
 import {
   ToolPermissionError,
@@ -52,7 +52,7 @@ import type {
   AgentCompletionAssessment,
   AgentCompletionPolicy,
   AgentExecutionPromptPhase
-} from './agentExecutionProfile';
+} from './saasRuntimePolicy';
 
 export { toLlmTools } from './toolLoopShared';
 
@@ -76,8 +76,7 @@ interface PendingToolSession {
 }
 
 export interface RuntimeToolLoopOptions {
-  executionProfileId: string;
-  /** Profile-filtered view of tools already exposed by ToolGateway. */
+  /** Tools exposed by ToolGateway. */
   listTools(): ToolMetadata[];
   llmClient?: LlmClient;
   toolGateway?: ToolGateway;
@@ -94,10 +93,7 @@ export interface RuntimeToolLoopOptions {
     originalUserInput: string
   ): Promise<AgentCompletionAssessment>;
   completionPolicy: AgentCompletionPolicy;
-  buildSystemPrompt(input: {
-    phase: AgentExecutionPromptPhase;
-    defaultPrompt: string;
-  }): string;
+  buildSystemPrompt(input: { phase: AgentExecutionPromptPhase }): string;
   observeToolCall(input: {
     runId: string;
     call: LlmToolCall;
@@ -148,19 +144,7 @@ export class RuntimeToolLoop {
     this.pendingToolSessions.clear();
     this.activeCheckpoint = undefined;
     if (!checkpoint) return true;
-    const persistedProfileId = checkpoint.executionProfileId;
-    if (
-      (persistedProfileId === undefined &&
-        this.options.executionProfileId !== 'coding') ||
-      (persistedProfileId !== undefined &&
-        persistedProfileId !== this.options.executionProfileId)
-    ) {
-      return false;
-    }
-    this.activeCheckpoint = cloneRunCheckpoint({
-      ...checkpoint,
-      executionProfileId: this.options.executionProfileId
-    });
+    this.activeCheckpoint = cloneRunCheckpoint(checkpoint);
     if (checkpoint.status === 'running') {
       // An arbitrary in-flight LLM/tool boundary is not safe to replay. The
       // restored open turn follows the normal interrupted-turn cleanup path.
@@ -399,11 +383,9 @@ export class RuntimeToolLoop {
     }
 
     this.options.syncContextSources?.();
-    const defaultPrompt = renderAgentExecutionPrompt();
     const buildContextInput = {
       systemPrompt: this.options.buildSystemPrompt({
-        phase: 'agent',
-        defaultPrompt
+        phase: 'agent'
       }),
       tools: session.tools
     };
@@ -533,7 +515,6 @@ export class RuntimeToolLoop {
     ];
     this.updateCheckpoint({
       version: 1,
-      executionProfileId: this.options.executionProfileId,
       runId: input.runId,
       originalUserInput: input.originalUserInput,
       status: 'running',
@@ -951,7 +932,6 @@ export class RuntimeToolLoop {
     this.pendingToolSessions.set(session.runId, session);
     this.updateCheckpoint({
       version: 1,
-      executionProfileId: this.options.executionProfileId,
       runId: session.runId,
       originalUserInput: session.originalUserInput,
       status: 'awaiting-approval',

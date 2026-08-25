@@ -1,4 +1,8 @@
-import type { ContextSnapshot, SessionContext } from '../context/sessionContext';
+import type {
+  ContextSnapshot,
+  ContextSource,
+  SessionContext
+} from '../context/sessionContext';
 import type {
   AgentResult,
   ProjectRegistry,
@@ -19,16 +23,18 @@ import type { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationCoordinator } from '../mutations/mutationService';
 import type { ProcessManager } from '../process/processManager';
 import type { McpManager } from '../mcp/register';
-import type { AgentExecutionProfile } from './agentExecutionProfile';
+import type { SaasActiveSkill } from './saasRuntimePolicy';
 
 export interface AgentRuntimeOptions {
   traceStore: TraceStore;
-  /** Defaults to the built-in Coding profile when omitted. */
-  executionProfile?: AgentExecutionProfile;
-  /** 高级模型（指挥家规划 + 验收）；也是默认 agent 模型 */
+  /** Active platform-managed Skill for this conversation. */
+  activeSkill?: SaasActiveSkill;
+  /** Trusted USER.md and MEMORY.md sources loaded by the Worker boundary. */
+  memoryContextSources?: ContextSource[];
+  /** Default model used by the work agent. */
   llmClient?: LlmClient;
   /**
-   * 经济/快速 worker 模型，供指挥家派生子代理时使用。
+   * 经济/快速 worker 模型，供子代理使用。
    * 未配置时子代理回退到 llmClient。
    */
   workerLlmClient?: LlmClient;
@@ -53,8 +59,7 @@ export interface AgentRuntimeOptions {
   /** Session todo list shared with TodoWrite/TodoRead tools. */
   todoStore?: TodoStore;
   /**
-   * Session multi-directory roots (/add-dir). Orthogonal to modes —
-   * any mode may use Task(repoId) against these roots.
+   * Session multi-directory roots used by Task(repoId).
    */
   workspaceRoots?: WorkspaceRoots;
   /** Shared dynamic Skill registry. Runtime creates a fallback when omitted. */
