@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AgentApiClient, ApiError, isUnauthorizedError } from '../api/client';
-import type { AgentModel, Conversation, MeUser, Membership, Skill } from '../api/types';
+import type { Conversation, MeUser, Membership, Skill } from '../api/types';
 import { AgentRuntimeProvider } from '../assistant/AgentRuntimeProvider';
 import { Thread } from '../assistant/Thread';
 import { useConversationRoute } from '../lib/conversationRoute';
@@ -28,13 +28,11 @@ export function WorkspacePage({
   onUserUpdated(user: MeUser): void;
 }) {
   const { conversationId, setConversationId } = useConversationRoute();
-  const [models, setModels] = useState<AgentModel[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [error, setError] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [section, setSection] = useState<SidebarSection>('conversations');
-  const [placeholder, setPlaceholder] = useState<{ title: string; body: string }>();
 
   const refreshConversations = useCallback(async () => {
     const items = await api.listConversations();
@@ -46,9 +44,8 @@ export function WorkspacePage({
     let cancelled = false;
     void (async () => {
       try {
-        const [nextModels, nextSkills, items] = await Promise.all([api.listModels(), api.listSkills(), refreshConversations()]);
+        const [nextSkills, items] = await Promise.all([api.listSkills(), refreshConversations()]);
         if (cancelled) return;
-        setModels(nextModels);
         setSkills(nextSkills);
         const requested = new URLSearchParams(window.location.search).get('c') ?? conversationId;
         const selected = items.find((item) => item.id === requested) ?? items[0];
@@ -82,14 +79,7 @@ export function WorkspacePage({
     () => conversations.find((item) => item.id === conversationId),
     [conversationId, conversations]
   );
-  const selectedModel = models.find((item) => item.id === conversation?.modelId) ?? models[0] ?? null;
   const activeSkill = skills.find((item) => item.id === conversation?.skillId);
-
-  const patchConversation = useCallback(async (patch: { modelId: string }) => {
-    if (!conversationId) return;
-    const next = await api.patchConversation(conversationId, patch);
-    setConversations((current) => current.map((item) => item.id === next.id ? next : item));
-  }, [api, conversationId]);
 
   return (
     <div className="shell">
@@ -122,7 +112,6 @@ export function WorkspacePage({
             onSelect={setConversationId}
             onSelectOrganization={onSelectOrganization}
             onLogout={onLogout}
-            onPlaceholder={(title, body) => setPlaceholder({ title, body })}
             onApplySkill={(skill) => {
               void onCreateConversation(skill.id);
               setSidebarOpen(false);
@@ -148,33 +137,19 @@ export function WorkspacePage({
             <TopBar
               onOpenSidebar={() => setSidebarOpen(true)}
               onNew={() => void onCreateConversation()}
-              onTemporaryChat={() => setPlaceholder({
-                title: '临时对话',
-                body: '临时对话不会写入历史。入口已恢复，能力尚未接入。'
-              })}
             />
             <Thread
               api={api}
               conversationId={conversationId}
-              model={selectedModel}
-              models={models}
               skill={activeSkill}
-              onModelChange={(next) => void patchConversation({ modelId: next.id })}
+              onOpenFiles={() => {
+                setSection('files');
+                setSidebarOpen(true);
+              }}
             />
           </main>
         </div>
       </AgentRuntimeProvider>
-      {placeholder && (
-        <div className="dialog-backdrop" onClick={() => setPlaceholder(undefined)}>
-          <div className="dialog" onClick={(event) => event.stopPropagation()}>
-            <h2>{placeholder.title}</h2>
-            <p>{placeholder.body}</p>
-            <div className="dialog-actions">
-              <button type="button" className="primary" onClick={() => setPlaceholder(undefined)}>知道了</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,13 +1,11 @@
-import { Copy, Menu, MessageCircleDashed, Plus } from 'lucide-react';
+import { Copy, Menu, Plus } from 'lucide-react';
 
 export function TopBar({
   onOpenSidebar,
-  onNew,
-  onTemporaryChat
+  onNew
 }: {
   onOpenSidebar(): void;
   onNew(): void;
-  onTemporaryChat(): void;
 }) {
   return (
     <header className="libre-topbar">
@@ -15,9 +13,6 @@ export function TopBar({
       <button type="button" className="header-icon" aria-label="复制当前对话链接" onClick={() => void navigator.clipboard?.writeText(location.href)}><Copy /></button>
       <button type="button" className="header-icon" aria-label="新对话" onClick={onNew}><Plus /></button>
       <span className="header-spacer" />
-      <button type="button" className="header-icon temporary-chat" aria-label="临时对话" onClick={onTemporaryChat}>
-        <MessageCircleDashed />
-      </button>
     </header>
   );
 }

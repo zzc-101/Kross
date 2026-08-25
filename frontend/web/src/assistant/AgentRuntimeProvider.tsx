@@ -1,4 +1,4 @@
-import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
@@ -11,9 +11,6 @@ import { AgentApiClient, isUnauthorizedError } from '../api/client';
 import type { AgentMessage, MessagePart } from '../api/types';
 
 type AssistantMessagePart = Exclude<ThreadMessageLike['content'], string>[number];
-
-export type AgentContextUsage = NonNullable<AgentMessage['contextUsage']>;
-export const AgentContextUsageContext = createContext<AgentContextUsage | undefined>(undefined);
 
 function toThreadMessage(message: AgentMessage): ThreadMessageLike {
   const role = message.role === 'agent' ? 'assistant' : message.role;
@@ -158,15 +155,8 @@ export function AgentRuntimeProvider({
     unstable_capabilities: { copy: true }
   });
 
-  const contextUsage = useMemo(
-    () => [...messages].reverse().find((message) => message.contextUsage)?.contextUsage,
-    [messages]
-  );
-
   return (
-    <AgentContextUsageContext.Provider value={contextUsage}>
-      <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
-    </AgentContextUsageContext.Provider>
+    <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
   );
 }
 

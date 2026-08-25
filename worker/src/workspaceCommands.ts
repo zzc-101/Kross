@@ -1,6 +1,5 @@
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative } from 'node:path';
-import { spawn } from 'node:child_process';
+import { dirname, join, relative } from 'node:path';
 
 import {
   resolveExistingPathWithinWorkspace,
@@ -31,14 +30,6 @@ export async function handleWorkspaceCommand(
         workspaceRoot,
         stringField(command.payload.path, ''),
         stringField(command.payload.content, '')
-      );
-    case 'git.status':
-      return gitStatus(workspaceRoot, stringField(command.payload.path, '.'));
-    case 'git.clone':
-      return gitClone(
-        workspaceRoot,
-        stringField(command.payload.url, ''),
-        optionalString(command.payload.directory)
       );
     case 'mcp.save':
       return saveMcp(workspaceRoot, command.payload.servers);
@@ -98,53 +89,6 @@ async function writeWorkspaceFile(
   return { path: toRelative(root, target) };
 }
 
-async function gitStatus(root: string, inputPath: string): Promise<Record<string, unknown>> {
-  const target = await resolveExistingPathWithinWorkspace(root, inputPath);
-  const repo = await findGitRoot(target, root);
-  if (!repo) {
-    return { path: toRelative(root, target), repository: false, dirty: false, files: [] };
-  }
-  const branch = (await runGit(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim() || 'HEAD';
-  const porcelain = (await runGit(repo, ['status', '--porcelain=v1', '-uall'])).stdout;
-  const files = porcelain
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter((line) => line.length >= 4)
-    .map((line) => ({
-      status: line.slice(0, 2).trim() || line.slice(0, 2),
-      path: line.slice(3)
-    }));
-  return {
-    path: toRelative(root, repo),
-    repository: true,
-    branch,
-    dirty: files.length > 0,
-    files
-  };
-}
-
-async function gitClone(
-  root: string,
-  url: string,
-  directory: string | undefined
-): Promise<Record<string, unknown>> {
-  const safeUrl = assertGitUrl(url);
-  const relativeDir = directory?.trim() || join('files', repoNameFromUrl(safeUrl));
-  const target = await resolveWritablePathWithinWorkspace(root, relativeDir);
-  try {
-    await stat(target);
-    throw new Error('Clone directory already exists');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
-  await mkdir(dirname(target), { recursive: true });
-  const result = await runGit(root, ['clone', '--', safeUrl, toRelative(root, target)], 180_000);
-  if (result.code !== 0) {
-    throw new Error(result.stderr.trim() || result.stdout.trim() || 'git clone failed');
-  }
-  return { directory: toRelative(root, target), url: safeUrl };
-}
-
 export async function writeMcpConfig(root: string, servers: unknown): Promise<Record<string, unknown>> {
   const map = normalizeMcpServers(servers);
   const target = await resolveWritablePathWithinWorkspace(root, join('.kross', 'mcp.json'));
@@ -177,82 +121,11 @@ function normalizeMcpServers(value: unknown): Record<string, unknown> {
   return next;
 }
 
-async function findGitRoot(start: string, workspaceRoot: string): Promise<string | undefined> {
-  let current = start;
-  while (true) {
-    try {
-      const info = await stat(join(current, '.git'));
-      if (info.isDirectory() || info.isFile()) return current;
-    } catch {
-      // keep walking up
-    }
-    if (current === workspaceRoot) return undefined;
-    const parent = dirname(current);
-    if (parent === current) return undefined;
-    const rel = relative(workspaceRoot, parent);
-    if (rel.startsWith('..') || isAbsolute(rel)) return undefined;
-    current = parent;
-  }
-}
-
 function toRelative(root: string, target: string): string {
   const rel = relative(root, target);
   return rel === '' ? '.' : rel.replaceAll('\\', '/');
 }
 
-function assertGitUrl(url: string): string {
-  const trimmed = url.trim();
-  if (!trimmed || trimmed.length > 512 || /[\s\\;|&$`]/.test(trimmed)) {
-    throw new Error('Invalid repository URL');
-  }
-  if (/^https:\/\//i.test(trimmed) || /^ssh:\/\//i.test(trimmed) || /^git@[^:]+:\S+$/.test(trimmed)) {
-    return trimmed;
-  }
-  throw new Error('Only https, ssh, or git@ URLs are allowed');
-}
-
-function repoNameFromUrl(url: string): string {
-  const cleaned = url.replace(/\/+$/, '').replace(/\.git$/i, '');
-  const name = basename(cleaned);
-  const safe = name.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  if (!safe) throw new Error('Could not derive a clone directory from the URL');
-  return safe;
-}
-
 function stringField(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function runGit(
-  cwd: string,
-  args: string[],
-  timeoutMs = 30_000
-): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn('git', args, { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('git command timed out'));
-    }, timeoutMs);
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString('utf8');
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
-    });
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolvePromise({ code: code ?? 1, stdout, stderr });
-    });
-  });
 }

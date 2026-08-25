@@ -44,18 +44,9 @@ export interface InvitePreview {
   accepted: boolean;
 }
 
-export interface AgentModel {
-  id: string;
-  name: string;
-  provider: string;
-  model: string;
-  contextWindow: number;
-}
-
 export interface Conversation {
   id: string;
   title: string;
-  modelId?: string;
   skillId?: string;
   archivedAt?: string;
   lastMessageAt: string;
@@ -109,22 +100,9 @@ export interface WorkspaceListing {
   entries: WorkspaceEntry[];
 }
 
-export interface GitFileStatus {
+export interface WorkspaceFile {
   path: string;
-  status: string;
-}
-
-export interface GitStatus {
-  path: string;
-  repository: boolean;
-  branch?: string;
-  dirty: boolean;
-  files: GitFileStatus[];
-}
-
-export interface CloneResult {
-  directory: string;
-  url: string;
+  content: string;
 }
 
 export interface Skill {
@@ -137,8 +115,6 @@ export interface Skill {
   starterPrompt: string;
   revision: number;
 }
-
-export type McpServers = Record<string, Record<string, unknown>>;
 
 export type MemoryKind = 'preference' | 'fact';
 export type MemorySource = 'manual' | 'remember' | 'extract';

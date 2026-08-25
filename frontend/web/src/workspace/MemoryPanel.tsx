@@ -118,7 +118,7 @@ export function MemoryPanel({ api }: { api: AgentApiClient }) {
         onForget={forget}
       />
       {!loading && items.length === 0 && <p className="files-hint">还没有记忆。可以在下面记一条，或在对话里让我记住。</p>}
-      <form className="clone-form" onSubmit={submit}>
+      <form className="memory-form" onSubmit={submit}>
         <label>
           <span>类型</span>
           <select
@@ -174,7 +174,7 @@ function MemoryGroup({
       <p className="memory-group-title">{title}</p>
       <div className="files-list">
         {items.map((item) => (
-          <div key={item.id} className="skill-row memory-row">
+          <div key={item.id} className="memory-row">
             <div>
               {editingId === item.id ? (
                 <textarea

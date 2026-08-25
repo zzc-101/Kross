@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type {
-  AgentMemory, AgentMessage, AgentModel, AuthConfig, CloneResult, Conversation, GitStatus, InvitePreview, Me, MessagePart, Skill, WorkspaceListing
+  AgentMemory, AgentMessage, AuthConfig, Conversation, InvitePreview, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing
 } from './types';
 import type { ChannelEvent } from './channelEvents';
 
@@ -64,18 +64,9 @@ const invitePreviewSchema: z.ZodType<InvitePreview> = z.object({
   accepted: z.boolean()
 });
 
-const agentModelSchema: z.ZodType<AgentModel> = z.object({
-  id,
-  name: id,
-  provider: id,
-  model: id,
-  contextWindow: z.number().int().positive()
-});
-
 const conversationSchema: z.ZodType<Conversation, z.ZodTypeDef, unknown> = z.object({
   id,
   title: z.string().min(1),
-  modelId: z.string().min(1).optional(),
   skillId: z.string().min(1).optional(),
   archivedAt: instant.optional(),
   lastMessageAt: instant,
@@ -143,20 +134,9 @@ const workspaceListingSchema: z.ZodType<WorkspaceListing> = z.object({
   }))
 });
 
-const gitStatusSchema: z.ZodType<GitStatus, z.ZodTypeDef, unknown> = z.object({
+const workspaceFileSchema: z.ZodType<WorkspaceFile> = z.object({
   path: z.string().min(1),
-  repository: z.boolean(),
-  branch: z.string().min(1).optional(),
-  dirty: z.boolean(),
-  files: z.array(z.object({
-    path: z.string().min(1),
-    status: z.string().min(1)
-  })).default([])
-});
-
-const cloneResultSchema: z.ZodType<CloneResult> = z.object({
-  directory: z.string().min(1),
-  url: z.string().min(1)
+  content: z.string()
 });
 
 const skillSchema: z.ZodType<Skill> = z.object({
@@ -168,14 +148,6 @@ const skillSchema: z.ZodType<Skill> = z.object({
   launchMode: z.enum(['instant', 'form', 'file']),
   starterPrompt: z.string(),
   revision: z.number().int().positive()
-});
-
-const mcpConfigSchema: z.ZodType<
-  { servers: Record<string, Record<string, unknown>> },
-  z.ZodTypeDef,
-  unknown
-> = z.object({
-  servers: z.record(z.record(z.unknown())).default({})
 });
 
 const memorySchema: z.ZodType<AgentMemory> = z.object({
@@ -259,15 +231,6 @@ export class AgentApiClient {
     return this.request('/api/v2/me', meSchema, { method: 'PATCH', organization: false, body: input });
   }
 
-  getCurrentModel(): Promise<AgentModel | null> {
-    return this.request('/api/v2/agent/model', agentModelSchema.nullable());
-  }
-
-  listModels(): Promise<AgentModel[]> {
-    return this.request('/api/v2/agent/models', z.object({ items: z.array(agentModelSchema) }))
-      .then((page) => page.items);
-  }
-
   listConversations(): Promise<Conversation[]> {
     return this.request('/api/v2/agent/conversations', z.object({ items: z.array(conversationSchema) }))
       .then((page) => page.items);
@@ -283,7 +246,6 @@ export class AgentApiClient {
   patchConversation(conversationId: string, patch: {
     title?: string;
     archived?: boolean;
-    modelId?: string;
   }): Promise<Conversation> {
     return this.request(
       `/api/v2/agent/conversations/${encodeURIComponent(conversationId)}`,
@@ -326,31 +288,16 @@ export class AgentApiClient {
     );
   }
 
-  gitStatus(path = '.'): Promise<GitStatus> {
+  readWorkspaceFile(path: string): Promise<WorkspaceFile> {
     return this.request(
-      `/api/v2/agent/workspace/git?path=${encodeURIComponent(path)}`,
-      gitStatusSchema
+      `/api/v2/agent/workspace/file?path=${encodeURIComponent(path)}`,
+      workspaceFileSchema
     );
-  }
-
-  cloneWorkspace(input: { url: string; directory?: string }): Promise<CloneResult> {
-    return this.request('/api/v2/agent/workspace/git/clone', cloneResultSchema, {
-      method: 'POST',
-      body: input
-    });
   }
 
   listSkills(): Promise<Skill[]> {
     return this.request('/api/v2/agent/skills', z.object({ items: z.array(skillSchema) }))
       .then((page) => page.items);
-  }
-
-  mcpConfig(): Promise<{ servers: Record<string, Record<string, unknown>> }> {
-    return this.request('/api/v2/agent/mcp', mcpConfigSchema);
-  }
-
-  updateMcpConfig(servers: Record<string, Record<string, unknown>>): Promise<{ servers: Record<string, Record<string, unknown>> }> {
-    return this.request('/api/v2/agent/mcp', mcpConfigSchema, { method: 'PUT', body: { servers } });
   }
 
   listMemories(): Promise<AgentMemory[]> {

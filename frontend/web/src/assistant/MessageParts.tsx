@@ -4,7 +4,7 @@ import type {
   ReasoningMessagePartComponent,
   ToolCallMessagePartComponent
 } from '@assistant-ui/react';
-import { CheckCircle2, ChevronDown, CircleAlert, FileText, LoaderCircle, ShieldAlert, Wrench } from 'lucide-react';
+import { CheckCircle2, ChevronDown, CircleAlert, FileText, LoaderCircle, ShieldAlert } from 'lucide-react';
 import { useState } from 'react';
 
 import { CopyButton, MarkdownText } from './MarkdownText';
@@ -25,52 +25,46 @@ export const ReasoningPart: ReasoningMessagePartComponent = ({ text, status }) =
   );
 };
 
-function printable(value: unknown) {
-  if (value === undefined) return '';
-  if (typeof value === 'string') return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
 export const ToolFallback: ToolCallMessagePartComponent = ({
   toolName,
-  args,
-  argsText,
   result,
   status,
   isError,
   approval,
   respondToApproval
 }) => {
-  const [open, setOpen] = useState(false);
   const running = status?.type === 'running';
   const awaitingApproval = approval && approval.approved === undefined && !approval.resolution;
-  const body = result === undefined ? (argsText || printable(args)) : printable(result);
+  const label = friendlyToolLabel(toolName);
 
   return (
-    <section className={`tool-part${isError ? ' failed' : ''}`} data-open={open || undefined}>
-      <button type="button" className="part-trigger" onClick={() => setOpen((value) => !value)}>
-        {isError ? <CircleAlert /> : awaitingApproval ? <ShieldAlert /> : running ? <LoaderCircle className="spin" /> : <Wrench />}
-        <span>{toolName || '工具调用'}</span>
-        <small>{isError ? '失败' : awaitingApproval ? '等待审批' : running ? '运行中' : '已完成'}</small>
-        <ChevronDown className="part-chevron" />
-      </button>
+    <section className={`tool-part${isError ? ' failed' : ''}`}>
+      <div className="part-trigger">
+        {isError ? <CircleAlert /> : awaitingApproval ? <ShieldAlert /> : running ? <LoaderCircle className="spin" /> : <CheckCircle2 />}
+        <span>{label}</span>
+        <small>{isError ? '未完成' : awaitingApproval ? '需要确认' : running ? '进行中' : '已完成'}</small>
+      </div>
       {awaitingApproval && (
         <div className="approval-panel">
-          <div><strong>确认外部操作</strong><span>{approval.reason || 'Agent 将访问或修改外部系统，请确认是否继续。'}</span></div>
+          <div><strong>是否继续这项外部操作？</strong><span>这一步会访问或修改工作区之外的服务。</span></div>
           <div className="approval-actions">
             <button type="button" className="approval-reject" onClick={() => respondToApproval({ approved: false })}>取消</button>
             <button type="button" className="approval-allow" onClick={() => respondToApproval({ approved: true })}>确认继续</button>
           </div>
         </div>
       )}
-      {open && body && <div className="tool-content"><CopyButton value={body} /><pre>{body}</pre></div>}
+      {isError && result && <div className="tool-content"><CopyButton value={result} /><pre>{result}</pre></div>}
     </section>
   );
 };
+
+function friendlyToolLabel(toolName: string): string {
+  if (['Read', 'List', 'Glob', 'Grep', 'Rg', 'Stat'].includes(toolName)) return '查看资料';
+  if (['Write', 'Edit', 'Delete', 'Move'].includes(toolName)) return '更新文件';
+  if (toolName === 'Task') return '处理子任务';
+  if (toolName === 'TodoWrite' || toolName === 'TodoRead') return '更新任务进度';
+  return '使用连接服务';
+}
 
 export const FilePart: FileMessagePartComponent = ({ filename, mimeType }) => (
   <div className="file-part"><FileText /><span>{filename || '文件'}</span><small>{mimeType}</small></div>

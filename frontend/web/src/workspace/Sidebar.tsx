@@ -1,15 +1,10 @@
 import { useMemo, useState } from 'react';
 import {
   Archive,
-  Bookmark,
-  Bot,
   BrainCircuit,
   ChevronDown,
   ChevronRight,
-  Folder,
-  FolderPlus,
   MessagesSquare,
-  NotebookPen,
   PanelLeft,
   Paperclip,
   Pencil,
@@ -20,28 +15,21 @@ import {
 
 import type { Conversation, Membership } from '../api/types';
 import type { AgentApiClient } from '../api/client';
-import { ComingSoonPanel } from './ComingSoonPanel';
 import { FilesPanel } from './FilesPanel';
 import { MemoryPanel } from './MemoryPanel';
 import { SkillsPanel } from './SkillsPanel';
 
 export type SidebarSection =
   | 'conversations'
-  | 'agents'
   | 'skills'
-  | 'notes'
   | 'memory'
-  | 'bookmarks'
   | 'files';
 
 const RAIL: Array<{ id: SidebarSection; label: string; icon: typeof MessagesSquare }> = [
   { id: 'conversations', label: '对话', icon: MessagesSquare },
-  { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'skills', label: '技能', icon: Sparkles },
-  { id: 'notes', label: '笔记', icon: NotebookPen },
   { id: 'memory', label: '记忆', icon: BrainCircuit },
-  { id: 'bookmarks', label: '书签', icon: Bookmark },
-  { id: 'files', label: '文件', icon: Paperclip }
+  { id: 'files', label: '文件与产物', icon: Paperclip }
 ];
 
 export function Sidebar({
@@ -63,7 +51,6 @@ export function Sidebar({
   onSelectOrganization,
   onLogout,
   onSaveProfile,
-  onPlaceholder,
   onApplySkill,
   api,
   section,
@@ -87,7 +74,6 @@ export function Sidebar({
   onSelectOrganization(id: string): void;
   onLogout(): void;
   onSaveProfile(input: { displayName: string; avatarUrl: string; gender: string; phone: string }): Promise<void>;
-  onPlaceholder(title: string, body: string): void;
   onApplySkill(skill: import('../api/types').Skill): void;
   api: AgentApiClient;
   section: SidebarSection;
@@ -193,45 +179,10 @@ export function Sidebar({
             <FilesPanel api={api} />
           ) : section === 'skills' ? (
             <SkillsPanel api={api} onApply={onApplySkill} />
-          ) : section === 'agents' ? (
-            <ComingSoonPanel title="Agents" body="每人目前只有一个长期 Agent 工作区。多 Agent 切换会作为后续入口单独接入，不会再跳到空页面。" />
-          ) : section === 'notes' ? (
-            <ComingSoonPanel title="笔记" body="笔记将与对话分开保存、可检索。这一期只恢复入口，实现按你指定的顺序逐项接入。" />
           ) : section === 'memory' ? (
             <MemoryPanel api={api} />
-          ) : section === 'bookmarks' ? (
-            <ComingSoonPanel title="书签" body="书签用来固定对话、文件或网页。入口已恢复，能力尚未接入。" />
           ) : (
-            <>
-              <button
-                type="button"
-                className="bookmark-head"
-                aria-label="书签"
-                onClick={() => onSection('bookmarks')}
-              >
-                <Bookmark />
-              </button>
-              <div className="sidebar-section projects-section">
-                <div className="section-heading">
-                  <button
-                    type="button"
-                    onClick={() => onPlaceholder('项目', '项目将按 /work 下的目录组织。入口先恢复，独立项目模型尚未接入。')}
-                  >
-                    <span>Projects</span><ChevronRight />
-                  </button>
-                  <div>
-                    <button type="button" aria-label="打开项目" onClick={() => onSection('files')}><Folder /></button>
-                    <button
-                      type="button"
-                      aria-label="新建项目"
-                      onClick={() => onPlaceholder('新建项目', '新建项目会在 /work 下建目录。入口先恢复，向导尚未接入。')}
-                    >
-                      <FolderPlus />
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="sidebar-section conversation-section">
+            <div className="sidebar-section conversation-section">
                 <button type="button" className="section-toggle" aria-expanded={conversationsOpen} onClick={() => setConversationsOpen((value) => !value)}>
                   <span>对话</span>{conversationsOpen ? <ChevronDown /> : <ChevronRight />}
                 </button>
@@ -264,8 +215,7 @@ export function Sidebar({
                     {visibleConversations.length === 0 && <p className="conversation-empty">还没有对话</p>}
                   </div>
                 )}
-              </div>
-            </>
+            </div>
           )}
         </div>
       </aside>

@@ -8,20 +8,18 @@ import com.kross.agent.dto.AgentMessageView;
 import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AgentViews;
 import com.kross.agent.dto.AppendAgentMessageRequest;
-import com.kross.agent.dto.CloneWorkspaceRequest;
-import com.kross.agent.dto.CloneWorkspaceView;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
 import com.kross.agent.dto.CreateMemoryRequest;
 import com.kross.agent.dto.MemoryView;
 import com.kross.agent.dto.PatchMemoryRequest;
 import com.kross.agent.dto.RememberMemoryRequest;
-import com.kross.agent.dto.GitStatusView;
 import com.kross.agent.dto.McpConfigView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.dto.SkillView;
 import com.kross.agent.dto.UpdateMcpRequest;
+import com.kross.agent.dto.WorkspaceFileView;
 import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.agent.entity.Agent;
 import com.kross.agent.entity.AgentConversation;
@@ -274,34 +272,15 @@ public class AgentService {
     return mapper.convertValue(payload, WorkspaceListingView.class);
   }
 
-  public GitStatusView gitStatus(String organizationId, String path) {
+  public WorkspaceFileView readWorkspaceFile(String organizationId, String path) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
     Agent agent = ensure(context);
     Map<String, Object> payload = runWorkspaceCommand(
         agent,
-        "git.status",
-        Map.of("path", Optional.ofNullable(path).orElse(".")),
+        "workspace.read",
+        Map.of("path", path),
         Duration.ofSeconds(30));
-    GitStatusView view = mapper.convertValue(payload, GitStatusView.class);
-    return new GitStatusView(
-        view.path(),
-        view.repository(),
-        view.branch(),
-        view.dirty(),
-        Optional.ofNullable(view.files()).orElse(List.of()));
-  }
-
-  public CloneWorkspaceView cloneWorkspace(String organizationId, CloneWorkspaceRequest request) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
-    String url = Optional.ofNullable(request.url()).map(String::trim).filter(value -> !value.isEmpty())
-        .orElseThrow(() -> ApiException.invalidRequest("Repository URL is required"));
-    Agent agent = ensure(context);
-    Map<String, Object> payload = new LinkedHashMap<>();
-    payload.put("url", url);
-    Optional.ofNullable(request.directory()).map(String::trim).filter(value -> !value.isEmpty())
-        .ifPresent(directory -> payload.put("directory", directory));
-    Map<String, Object> result = runWorkspaceCommand(agent, "git.clone", payload, Duration.ofMinutes(3));
-    return mapper.convertValue(result, CloneWorkspaceView.class);
+    return mapper.convertValue(payload, WorkspaceFileView.class);
   }
 
   public List<SkillView> listSkills(String organizationId) {
