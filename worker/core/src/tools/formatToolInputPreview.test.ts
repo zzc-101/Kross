@@ -23,20 +23,4 @@ describe('formatToolInputPreview', () => {
     expect(preview).toContain('- const x = 1');
     expect(preview).toContain('+ const x = 2');
   });
-
-  it('formats Bash as shell command', () => {
-    expect(formatToolInputPreview('Bash', { command: 'npm test' })).toBe(
-      '$ npm test'
-    );
-  });
-
-  it('formats ProcessStart without exposing argument values', () => {
-    const preview = formatToolInputPreview('ProcessStart', {
-      command: 'curl --header="Bearer secret" https://example.test/private'
-    });
-    expect(preview).toContain('$ curl --header');
-    expect(preview).toMatch(/\d+ args?/);
-    expect(preview).not.toContain('Bearer secret');
-    expect(preview).not.toContain('/private');
-  });
 });

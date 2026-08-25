@@ -69,18 +69,18 @@ describe('changedFiles', () => {
     expect(extractChangedFilesFromEvents(events)).toEqual(['legacy.ts']);
   });
 
-  it('extracts ApplyPatch files from completed data and locates the last mutation', () => {
+  it('extracts moved files and locates the last mutation', () => {
     const events: TraceEvent[] = [
       started('Write', { path: 'src/first.ts' }, 'write-1'),
       completed('Write', 'wrote 1 bytes', 'write-1'),
-      started('ApplyPatch', { patch: 'redacted' }, 'patch-1'),
+      started('Move', { from: 'src/a.ts', to: 'src/b.ts' }, 'move-1'),
       {
-        ...completed('ApplyPatch', '2 files patched', 'patch-1'),
+        ...completed('Move', 'moved file', 'move-1'),
         payload: {
-          toolName: 'ApplyPatch',
-          callId: 'patch-1',
-          summary: '2 files patched',
-          data: { files: ['src/a.ts', 'src/b.ts'], updated: 2 }
+          toolName: 'Move',
+          callId: 'move-1',
+          summary: 'moved file',
+          data: { from: 'src/a.ts', to: 'src/b.ts', changed: true }
         }
       }
     ];

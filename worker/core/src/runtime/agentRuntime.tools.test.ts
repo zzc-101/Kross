@@ -238,7 +238,7 @@ describe('AgentRuntime tool loops and approvals', () => {
         llmClient.requests[1]?.messages.find(
           (message) => message.role === 'system'
         )?.content
-      ).toContain('Auto mode:');
+      ).toContain('long-lived work assistant');
       expect(traceStore.events.map((event) => event.type)).toEqual(
         expect.arrayContaining([
           'tool_call.approval_required',

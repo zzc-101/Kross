@@ -169,7 +169,7 @@ describe('MutationService', () => {
     await expect(
       service.record({
         runId: 'run-fail',
-        toolName: 'ApplyPatch',
+        toolName: 'Edit',
         paths: ['a.txt'],
         action: async () => {
           writeFileSync(join(workspace, 'a.txt'), 'partial');

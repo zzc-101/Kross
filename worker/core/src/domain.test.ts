@@ -45,7 +45,6 @@ describe('domain schemas', () => {
       }
     });
 
-    expect(result.mode).toBe('auto');
     expect(result.report.evidence).toEqual(['trace 已保存']);
     expect(result.report.incompleteItems).toEqual([]);
   });

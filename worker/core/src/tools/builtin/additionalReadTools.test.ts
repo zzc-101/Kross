@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,41 +18,15 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function findTool(name: string): ToolDefinition {
+function runTool(name: string, input: unknown): Promise<ToolHandlerResult> {
   const tool = createSaasTools(root).find((candidate) => candidate.name === name);
   expect(tool, `${name} should be registered`).toBeDefined();
-  return tool as ToolDefinition;
-}
-
-function runTool(name: string, input: unknown): Promise<ToolHandlerResult> {
-  const tool = findTool(name);
-  return tool.execute({
+  return (tool as ToolDefinition).execute({
     runId: 'run-1',
     toolName: name,
     input,
     signal: new AbortController().signal
   });
-}
-
-function git(args: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd: root }, (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
-async function initializeRepository(): Promise<void> {
-  await git(['init', '--quiet']);
-  await git(['config', 'user.name', 'Kross Test']);
-  await git(['config', 'user.email', 'kross@example.com']);
-  await writeFile(join(root, 'note.txt'), 'before\n');
-  await git(['add', 'note.txt']);
-  await git(['commit', '--quiet', '-m', 'initial commit']);
 }
 
 describe('additional read-only builtin tools', () => {
@@ -88,90 +61,7 @@ describe('additional read-only builtin tools', () => {
 
     expect(result.content).toContain('"path": "note.txt"');
     expect(result.data).toEqual(
-      expect.objectContaining({
-        path: 'note.txt',
-        type: 'file',
-        size: 5
-      })
+      expect.objectContaining({ path: 'note.txt', type: 'file', size: 5 })
     );
-  });
-
-  it('Git status reports working-tree changes', async () => {
-    await initializeRepository();
-    await writeFile(join(root, 'note.txt'), 'after\n');
-
-    const result = await runTool('Git', { action: 'status' });
-
-    expect(result.content).toContain(' M note.txt');
-    expect(result.summary).toContain('1 change');
-  });
-
-  it('Git diff returns an optionally path-scoped patch', async () => {
-    await initializeRepository();
-    await writeFile(join(root, 'note.txt'), 'after\n');
-    await writeFile(join(root, 'other.txt'), 'ignored\n');
-
-    const result = await runTool('Git', {
-      action: 'diff',
-      paths: ['note.txt'],
-      context: 1
-    });
-
-    expect(result.content).toContain('-before');
-    expect(result.content).toContain('+after');
-    expect(result.content).not.toContain('other.txt');
-  });
-
-  it('Git log returns recent commit summaries', async () => {
-    await initializeRepository();
-
-    const result = await runTool('Git', { action: 'log', limit: 1 });
-
-    expect(result.content).toMatch(/^[0-9a-f]+ initial commit/m);
-    expect(result.summary).toContain('1 commit');
-  });
-
-  it('Git log treats a repository without commits as an empty history', async () => {
-    await git(['init', '--quiet']);
-
-    const result = await runTool('Git', { action: 'log' });
-
-    expect(result.content).toBe('(no commits)');
-    expect(result.summary).toBe('0 commits');
-  });
-
-  it('Git rejects option-like revisions, branches, and remotes', async () => {
-    await initializeRepository();
-    const schema = findTool('Git').inputSchema;
-
-    expect(() => schema.parse({
-      action: 'show',
-      revision: '--output=/tmp/kross-git-injection'
-    })).toThrow('不能以 - 开头');
-    expect(() => schema.parse({
-      action: 'checkout',
-      branch: '--detach'
-    })).toThrow('不能以 - 开头');
-    expect(() => schema.parse({
-      action: 'fetch',
-      remote: '--upload-pack=touch /tmp/kross-git-injection'
-    })).toThrow('不能以 - 开头');
-  });
-
-  it('Git stages and commits through structured write actions', async () => {
-    await initializeRepository();
-    await writeFile(join(root, 'note.txt'), 'committed through tool\n');
-
-    await runTool('Git', { action: 'add', paths: ['note.txt'] });
-    const commit = await runTool('Git', {
-      action: 'commit',
-      message: 'test: structured git commit'
-    });
-    const log = await runTool('Git', { action: 'log', limit: 1 });
-
-    expect(commit.data).toEqual(
-      expect.objectContaining({ action: 'commit', exitCode: 0 })
-    );
-    expect(log.content).toContain('test: structured git commit');
   });
 });

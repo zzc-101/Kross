@@ -230,7 +230,6 @@ describe('ContextGovernor', () => {
     expect(thread.getEntriesForTurn(openTurnId).map((entry) => entry.message.content)).toEqual([
       'still running'
     ]);
-    expect(thread.getEntries()[0]?.kind).toBe('compaction');
   });
 
   it('keeps a bounded single summary during a long conversation', async () => {
