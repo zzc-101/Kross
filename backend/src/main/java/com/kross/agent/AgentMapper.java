@@ -110,6 +110,38 @@ public interface AgentMapper {
 
   int updateMessageBody(AgentMessage row);
 
+  int insertPendingApproval(
+      @Param("agentId") String agentId,
+      @Param("approvalId") String approvalId,
+      @Param("organizationId") String organizationId,
+      @Param("conversationId") String conversationId,
+      @Param("userMessageId") String userMessageId,
+      @Param("agentMessageId") String agentMessageId);
+
+  int resolvePendingApproval(
+      @Param("agentId") String agentId,
+      @Param("approvalId") String approvalId,
+      @Param("organizationId") String organizationId,
+      @Param("conversationId") String conversationId,
+      @Param("status") String status,
+      @Param("reason") String reason,
+      @Param("resolvedBy") String resolvedBy,
+      @Param("resolvedAt") Instant resolvedAt);
+
+  boolean hasApproval(
+      @Param("agentId") String agentId,
+      @Param("approvalId") String approvalId,
+      @Param("organizationId") String organizationId,
+      @Param("conversationId") String conversationId);
+
+  boolean hasApprovalDecision(
+      @Param("agentId") String agentId,
+      @Param("approvalId") String approvalId,
+      @Param("organizationId") String organizationId,
+      @Param("conversationId") String conversationId,
+      @Param("status") String status,
+      @Param("reason") String reason);
+
   void insertToken(
       @Param("tokenHash") String tokenHash,
       @Param("organizationId") String organizationId,

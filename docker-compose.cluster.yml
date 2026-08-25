@@ -23,6 +23,7 @@ services:
       KROSS_NODE_TOKENS: ${KROSS_NODE_TOKENS:-}
       KROSS_JUICEFS_MOUNT: ${KROSS_JUICEFS_MOUNT:-/var/lib/kross/jfs}
       KROSS_PUBLIC_BASE_URL: ${KROSS_PUBLIC_BASE_URL:?集群请设为节点和 Worker 都能访问的控制面地址，例如 http://10.0.0.10:8788}
+      KROSS_EXTERNAL_BASE_URL: ${KROSS_EXTERNAL_BASE_URL:-http://localhost:8787}
 
   kross-node:
     image: kross-node:local

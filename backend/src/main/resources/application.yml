@@ -63,6 +63,7 @@ logging:
 kross:
   dev-identity-enabled: ${KROSS_DEV_IDENTITY:false}
   public-base-url: ${KROSS_PUBLIC_BASE_URL:http://127.0.0.1:8787}
+  external-base-url: ${KROSS_EXTERNAL_BASE_URL:http://127.0.0.1:8787}
   credential-master-key: ${KROSS_CREDENTIAL_MASTER_KEY:}
   scheduler-owner: ${KROSS_SCHEDULER_OWNER:kross-server}
   worker-image: ${KROSS_WORKER_IMAGE:kross-worker:local}

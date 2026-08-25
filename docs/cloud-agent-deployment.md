@@ -74,8 +74,8 @@ Secret。保存并启用时，控制面会请求
 https://你的域名/api/v2/auth/sso/callback
 ```
 
-工作台和管理中心是同一 Origin，IdP 只需登记这一条回调。本机开发若分别跑 Vite
-（工作台 `:4173`、管理端 `:4174`），才需要再各登记一条。
+回调地址固定由 `KROSS_EXTERNAL_BASE_URL` 生成，不采信请求 Host。工作台和管理中心
+共用这一条回调；生产启用 SSO 前必须把该变量设为浏览器实际访问的 HTTPS 地址。
 
 登录流：
 
@@ -103,6 +103,7 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 | `KROSS_POSTGRES_PASSWORD` | 本地 PostgreSQL 密码；脚本可自动生成 |
 | `KROSS_CREDENTIAL_MASTER_KEY` | 加密模型 API Key 与 SSO Client Secret，至少 32 字符 |
 | `KROSS_PUBLIC_BASE_URL` | Worker 用来连控制面的地址。单机用 `http://kross-server:8787`；集群用内部口，例如 `http://10.0.0.10:8788` |
+| `KROSS_EXTERNAL_BASE_URL` | 浏览器访问控制面的公开地址，用于生成固定的 SSO 回调地址；生产环境应使用 HTTPS，例如 `https://kross.example.com` |
 | `KROSS_DEV_IDENTITY` | `1` 跳过登录；默认 `0`，生产必须为 `0` |
 | `KROSS_ORCHESTRATOR_MANAGER_ID` | Docker 资源归属标签，多实例必须唯一 |
 | `KROSS_WORKER_IMAGE` | Worker 镜像，Compose 默认 `kross-worker:local` |

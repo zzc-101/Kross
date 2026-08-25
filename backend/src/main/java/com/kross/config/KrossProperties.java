@@ -10,6 +10,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class KrossProperties {
   private String devIdentityEnabled = "false";
   private String publicBaseUrl = "http://127.0.0.1:8787";
+  private String externalBaseUrl = "http://127.0.0.1:8787";
   private String credentialMasterKey = "";
   private String schedulerOwner = "kross-server";
   private String workerImage = "kross-worker:local";
@@ -46,6 +47,14 @@ public class KrossProperties {
 
   public void setPublicBaseUrl(String publicBaseUrl) {
     this.publicBaseUrl = publicBaseUrl;
+  }
+
+  public String getExternalBaseUrl() {
+    return externalBaseUrl;
+  }
+
+  public void setExternalBaseUrl(String externalBaseUrl) {
+    this.externalBaseUrl = externalBaseUrl;
   }
 
   public String getCredentialMasterKey() {

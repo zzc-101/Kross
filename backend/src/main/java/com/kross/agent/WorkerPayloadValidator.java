@@ -1,9 +1,11 @@
 package com.kross.agent;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.agent.dto.AgentProtocol;
 import com.kross.api.ApiException;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 final class WorkerPayloadValidator {
@@ -44,6 +46,24 @@ final class WorkerPayloadValidator {
     }
     requireJsonSize(mapper, events, MAX_EVENTS_BYTES, "Stream events");
     return events;
+  }
+
+  static List<String> pendingApprovalIds(JsonNode parts) {
+    if (parts == null || !parts.isArray()) {
+      return List.of();
+    }
+    LinkedHashSet<String> ids = new LinkedHashSet<>();
+    for (JsonNode part : parts) {
+      if (!"approval-required".equals(part.path("status").asText())) {
+        continue;
+      }
+      String id = part.path("approval").path("id").asText("").trim();
+      if (id.isEmpty() || id.length() > 128) {
+        throw ApiException.invalidRequest("Approval id is required");
+      }
+      ids.add(id);
+    }
+    return List.copyOf(ids);
   }
 
   private static void requireJsonSize(ObjectMapper mapper, Object value, int maxBytes, String label) {

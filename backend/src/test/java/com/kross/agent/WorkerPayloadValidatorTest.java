@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.kross.agent.dto.AgentProtocol;
 import com.kross.api.ApiException;
 import java.util.Collections;
@@ -47,5 +48,28 @@ class WorkerPayloadValidatorTest {
     assertThatThrownBy(() -> WorkerPayloadValidator.validateContent("x".repeat(64_001)))
         .isInstanceOf(ApiException.class)
         .hasMessageContaining("Reply content");
+  }
+
+  @Test
+  void extractsUniquePendingApprovalIds() {
+    ArrayNode parts = mapper.createArrayNode();
+    parts.addObject()
+        .put("type", "tool")
+        .put("status", "approval-required")
+        .putObject("approval")
+        .put("id", "run-1");
+    parts.add(parts.get(0).deepCopy());
+
+    assertThat(WorkerPayloadValidator.pendingApprovalIds(parts)).containsExactly("run-1");
+  }
+
+  @Test
+  void rejectsPendingApprovalWithoutId() {
+    ArrayNode parts = mapper.createArrayNode();
+    parts.addObject().put("status", "approval-required");
+
+    assertThatThrownBy(() -> WorkerPayloadValidator.pendingApprovalIds(parts))
+        .isInstanceOf(ApiException.class)
+        .hasMessageContaining("Approval id");
   }
 }

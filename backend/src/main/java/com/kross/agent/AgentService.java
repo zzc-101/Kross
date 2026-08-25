@@ -201,14 +201,14 @@ public class AgentService {
     RequestLogContext.put(RequestLogContext.CONVERSATION_ID, conversation.getId());
     RequestLogContext.bindAgent(agent);
     Agent toWake = agent;
-    afterCommit(() -> {
+    afterCommit(() -> Thread.ofVirtual().start(RequestLogContext.propagate(() -> {
       try {
         wake(toWake);
       } catch (RuntimeException error) {
         log.warn("Failed to wake agent {}: {}", toWake.getId(), error.getMessage());
       }
       offerJobToWorker(toWake.getId());
-    });
+    })));
     return AgentViews.message(row);
   }
 
@@ -223,6 +223,7 @@ public class AgentService {
         .toList();
   }
 
+  @Transactional
   public void resolveApproval(
       String organizationId,
       String conversationId,
@@ -231,13 +232,36 @@ public class AgentService {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
     Agent agent = ensure(context);
     requireConversation(context, agent, conversationId);
-    if (approvalId == null || approvalId.isBlank()) {
-      throw ApiException.invalidRequest("approvalId is required");
+    String normalizedApprovalId = requireProtocolId(approvalId, "approvalId");
+    String reason = Optional.ofNullable(request.reason())
+        .map(String::trim)
+        .filter(value -> !value.isEmpty())
+        .orElse(null);
+    if (reason != null && reason.length() > 2_000) {
+      throw ApiException.invalidRequest("Approval reason is too long");
     }
-    sockets.sendRequired(agent.getId(), new AgentProtocol.ApprovalDecision(
-        approvalId,
-        request.approved(),
-        Optional.ofNullable(request.reason()).map(String::trim).filter(value -> !value.isEmpty()).orElse(null)));
+    String status = request.approved() ? "approved" : "rejected";
+    int updated = agents.resolvePendingApproval(
+        agent.getId(),
+        normalizedApprovalId,
+        context.organizationId(),
+        conversationId,
+        status,
+        reason,
+        context.userId(),
+        Instant.now());
+    if (updated == 0) {
+      if (!agents.hasApproval(agent.getId(), normalizedApprovalId, context.organizationId(), conversationId)) {
+        throw ApiException.notFound("Approval");
+      }
+      if (!agents.hasApprovalDecision(
+          agent.getId(), normalizedApprovalId, context.organizationId(), conversationId, status, reason)) {
+        throw ApiException.conflict("approval_already_resolved", "Approval was already resolved differently");
+      }
+    }
+    AgentProtocol.ApprovalDecision decision =
+        new AgentProtocol.ApprovalDecision(normalizedApprovalId, request.approved(), reason);
+    afterCommit(() -> sockets.sendRequired(agent.getId(), decision));
   }
 
   public WorkspaceListingView listWorkspace(String organizationId, String path) {
@@ -613,6 +637,17 @@ public class AgentService {
         || !userMessageId.equals(reply.getReplyTo())
         || !"agent".equals(reply.getRole())) {
       throw ApiException.invalidRequest("Agent reply does not belong to the claimed conversation");
+    }
+    if ("processing".equals(status)) {
+      for (String approvalId : WorkerPayloadValidator.pendingApprovalIds(parts)) {
+        agents.insertPendingApproval(
+            session.getAgentId(),
+            approvalId,
+            session.getOrganizationId(),
+            conversationId,
+            userMessageId,
+            reply.getId());
+      }
     }
     reply.setContent(body);
     reply.setParts(parts);

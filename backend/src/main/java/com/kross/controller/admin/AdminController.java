@@ -41,7 +41,6 @@ import com.kross.identity.dto.UpdatePlatformRequest;
 import com.kross.identity.dto.UpdatePolicyRequest;
 import com.kross.identity.dto.UpdateSsoRequest;
 import com.kross.identity.dto.UserAccountView;
-import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -82,13 +81,13 @@ public class AdminController {
   }
 
   @GetMapping("/platform/sso")
-  public Res<PlatformSsoView> sso(HttpServletRequest request) {
-    return Res.ok(sso.view(request));
+  public Res<PlatformSsoView> sso() {
+    return Res.ok(sso.view());
   }
 
   @PatchMapping("/platform/sso")
-  public Res<PlatformSsoView> updateSso(@RequestBody UpdateSsoRequest body, HttpServletRequest request) {
-    return Res.ok(sso.update(body, request));
+  public Res<PlatformSsoView> updateSso(@RequestBody UpdateSsoRequest body) {
+    return Res.ok(sso.update(body));
   }
 
   @GetMapping("/platform/organizations")

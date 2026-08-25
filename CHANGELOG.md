@@ -93,5 +93,9 @@
   必须属于同一用户消息及会话，并为 processing、记忆抽取和组织用量查询补充索引。
 - 收敛可靠性实现：Worker 串行执行时只保留当前会话 Runtime；claim 后未能投递会
   原子释放，租约恢复后立即重新派发；配置同步按 Agent 串行并读取数据库最新状态。
+- 工具审批绑定到 Agent、会话与消息并持久记录原子决策；重复冲突决策会被拒绝。
+- 密码登录按用户名或来源 IP 限制近期失败次数；SSO 回调由
+  `KROSS_EXTERNAL_BASE_URL` 固定生成，不再信任请求 Host。
+- 首条消息提交后异步唤醒 Worker，遗忘记忆查询在 SQL 层限制为最近 80 条。
 
 [Unreleased]: https://github.com/zzc-101/Kross/commits/main

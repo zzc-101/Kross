@@ -23,6 +23,8 @@
     WHERE organization_id = #{organizationId}
       AND user_id = #{userId}
       AND forgotten_at IS NOT NULL
+    ORDER BY forgotten_at DESC, id DESC
+    LIMIT 80
   </select>
 
   <select id="findOwned" resultType="com.kross.agent.entity.AgentMemory">

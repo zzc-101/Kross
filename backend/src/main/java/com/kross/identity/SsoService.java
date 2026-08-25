@@ -21,7 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 @RequiredArgsConstructor
@@ -39,10 +39,10 @@ public class SsoService {
   private final KrossProperties properties;
   private final SecureRandom random = new SecureRandom();
 
-  public PlatformSsoView view(HttpServletRequest request) {
+  public PlatformSsoView view() {
     auth.requireSuperAdmin();
     PlatformSettings settings = settings();
-    String redirectUri = callbackUri(request);
+    String redirectUri = callbackUri();
     return new PlatformSsoView(
         Boolean.TRUE.equals(settings.getSsoEnabled()),
         settings.getSsoDisplayName(),
@@ -54,7 +54,7 @@ public class SsoService {
   }
 
   @Transactional
-  public PlatformSsoView update(UpdateSsoRequest request, HttpServletRequest http) {
+  public PlatformSsoView update(UpdateSsoRequest request) {
     auth.requireSuperAdmin();
     PlatformSettings current = settings();
     boolean enabled = Optional.ofNullable(request.enabled()).orElse(Boolean.TRUE.equals(current.getSsoEnabled()));
@@ -79,13 +79,13 @@ public class SsoService {
         issuer == null || issuer.isBlank() ? null : OidcClient.normalizeIssuer(issuer),
         clientId,
         secret.map(vault::encryptText).orElse(null));
-    return view(http);
+    return view();
   }
 
   public String start(HttpServletRequest request) {
     PlatformSettings settings = requireEnabled();
     OidcClient.Discovery discovery = oidc.discover(settings.getSsoIssuer());
-    String redirectUri = callbackUri(request);
+    String redirectUri = callbackUri();
     String state = randomToken();
     String nonce = randomToken();
     String verifier = randomToken();
@@ -116,7 +116,7 @@ public class SsoService {
     String nonce = Optional.ofNullable(session.getAttribute(NONCE_ATTR)).map(Object::toString).orElse("");
     String verifier = Optional.ofNullable(session.getAttribute(VERIFIER_ATTR)).map(Object::toString).orElse("");
     String redirectUri = Optional.ofNullable(session.getAttribute(REDIRECT_ATTR)).map(Object::toString)
-        .orElse(callbackUri(request));
+        .orElse(callbackUri());
     session.removeAttribute(STATE_ATTR);
     session.removeAttribute(NONCE_ATTR);
     session.removeAttribute(VERIFIER_ATTR);
@@ -256,8 +256,8 @@ public class SsoService {
     return "/";
   }
 
-  private String callbackUri(HttpServletRequest request) {
-    return ServletUriComponentsBuilder.fromRequest(request)
+  private String callbackUri() {
+    return UriComponentsBuilder.fromUriString(properties.getExternalBaseUrl())
         .replacePath(properties.getApi().getPrefix() + "/auth/sso/callback")
         .replaceQuery(null)
         .build()

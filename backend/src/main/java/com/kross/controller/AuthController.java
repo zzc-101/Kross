@@ -58,6 +58,7 @@ public class AuthController {
 
   @PostMapping("/login")
   public Res<MeResponse> login(@RequestBody LoginRequest request, HttpServletRequest http) {
+    authLogs.requirePasswordLoginAllowed(http, request.username());
     try {
       MeResponse me = auth.login(request);
       AuthSessions.establish(http, IdentityViews.identity(me.user()));

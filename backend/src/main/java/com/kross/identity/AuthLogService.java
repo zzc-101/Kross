@@ -1,9 +1,12 @@
 package com.kross.identity;
 
+import com.kross.api.ApiException;
 import com.kross.api.PageResponse;
 import com.kross.identity.dto.AuthLoginEventView;
 import com.kross.identity.entity.AuthLoginEvent;
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +17,8 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class AuthLogService {
+  private static final int MAX_RECENT_FAILURES = 10;
+  private static final Duration FAILURE_WINDOW = Duration.ofMinutes(10);
   private static final int MAX_USERNAME = 128;
   private static final int MAX_REASON = 64;
   private static final int MAX_IP = 64;
@@ -21,6 +26,16 @@ public class AuthLogService {
 
   private final AuthLogMapper events;
   private final AuthService auth;
+
+  public void requirePasswordLoginAllowed(HttpServletRequest request, String username) {
+    String normalizedUsername = clip(Optional.ofNullable(username), MAX_USERNAME);
+    String ip = clip(Optional.ofNullable(clientIp(request)), MAX_IP);
+    if (events.countRecentPasswordFailures(
+        normalizedUsername, ip, Instant.now().minus(FAILURE_WINDOW)) >= MAX_RECENT_FAILURES) {
+      throw new ApiException(
+          "login_rate_limited", "Too many failed sign-in attempts. Try again later.", 429);
+    }
+  }
 
   public void record(
       HttpServletRequest request,
@@ -78,8 +93,8 @@ public class AuthLogService {
   }
 
   private static String clientIp(HttpServletRequest request) {
-    return Optional.ofNullable(request.getHeader("X-Forwarded-For"))
-        .map(value -> value.split(",")[0].trim())
+    return Optional.ofNullable(request.getHeader("X-Real-IP"))
+        .map(String::trim)
         .filter(value -> !value.isBlank())
         .orElseGet(request::getRemoteAddr);
   }

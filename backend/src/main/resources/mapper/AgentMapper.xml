@@ -283,6 +283,52 @@
     WHERE id = #{id}
   </update>
 
+  <insert id="insertPendingApproval">
+    INSERT INTO agent_tool_approvals
+      (agent_id, approval_id, organization_id, conversation_id, user_message_id, agent_message_id)
+    VALUES
+      (#{agentId}, #{approvalId}, #{organizationId}, #{conversationId}, #{userMessageId}, #{agentMessageId})
+    ON CONFLICT (agent_id, approval_id) DO NOTHING
+  </insert>
+
+  <update id="resolvePendingApproval">
+    UPDATE agent_tool_approvals
+    SET status = #{status},
+        decision_reason = #{reason},
+        resolved_by = #{resolvedBy},
+        resolved_at = #{resolvedAt}
+    WHERE agent_id = #{agentId}
+      AND approval_id = #{approvalId}
+      AND organization_id = #{organizationId}
+      AND conversation_id = #{conversationId}
+      AND status = 'pending'
+  </update>
+
+  <select id="hasApproval" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1 FROM agent_tool_approvals
+      WHERE agent_id = #{agentId}
+        AND approval_id = #{approvalId}
+        AND organization_id = #{organizationId}
+        AND conversation_id = #{conversationId}
+    )
+  </select>
+
+  <select id="hasApprovalDecision" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1
+      FROM agent_tool_approvals approval
+      JOIN agent_messages message ON message.id = approval.user_message_id
+      WHERE approval.agent_id = #{agentId}
+        AND approval.approval_id = #{approvalId}
+        AND approval.organization_id = #{organizationId}
+        AND approval.conversation_id = #{conversationId}
+        AND approval.status = #{status}
+        AND approval.decision_reason IS NOT DISTINCT FROM #{reason}
+        AND message.status = 'processing'
+    )
+  </select>
+
   <insert id="insertToken">
     INSERT INTO agent_tokens (token_hash, organization_id, agent_id, expires_at)
     VALUES (#{tokenHash}, #{organizationId}, #{agentId}, #{expiresAt})
