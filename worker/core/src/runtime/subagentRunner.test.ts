@@ -10,7 +10,7 @@ import type { LlmClient, LlmRequest, LlmResponse, LlmStreamChunk } from '../llm/
 import { renderPrompt } from '../prompts';
 import type { TraceStore } from '../trace/traceStore';
 import { ToolGateway, ToolPermissionError } from '../tools/toolGateway';
-import { createApprovalPolicy } from '../tools/permissionModes';
+import { saasToolApprovalPolicy } from '../tools/saasToolPolicy';
 import { createTaskTool } from '../tools/builtin/task';
 import {
   createExploreTools,
@@ -840,7 +840,7 @@ describe('Task tool', () => {
   it('auto-approves scoped general tasks while explore remains read-only', async () => {
     const requests: string[] = [];
     const gateway = new ToolGateway({
-      approvalPolicy: createApprovalPolicy('classifier')
+      approvalPolicy: saasToolApprovalPolicy
     });
     gateway.register(
       createTaskTool({

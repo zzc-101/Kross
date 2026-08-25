@@ -52,12 +52,9 @@ export interface AgentModel {
   contextWindow: number;
 }
 
-export type AgentMode = 'auto' | 'plan' | 'conductor';
-
 export interface Conversation {
   id: string;
   title: string;
-  mode: AgentMode;
   modelId?: string;
   skillId?: string;
   archivedAt?: string;

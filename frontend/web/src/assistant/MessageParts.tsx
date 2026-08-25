@@ -60,10 +60,10 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
       </button>
       {awaitingApproval && (
         <div className="approval-panel">
-          <div><strong>需要确认高风险操作</strong><span>{approval.reason || '该命令需要你的确认后才能继续。'}</span></div>
+          <div><strong>确认外部操作</strong><span>{approval.reason || 'Agent 将访问或修改外部系统，请确认是否继续。'}</span></div>
           <div className="approval-actions">
-            <button type="button" className="approval-reject" onClick={() => respondToApproval({ approved: false })}>拒绝</button>
-            <button type="button" className="approval-allow" onClick={() => respondToApproval({ approved: true })}>允许一次</button>
+            <button type="button" className="approval-reject" onClick={() => respondToApproval({ approved: false })}>取消</button>
+            <button type="button" className="approval-allow" onClick={() => respondToApproval({ approved: true })}>确认继续</button>
           </div>
         </div>
       )}

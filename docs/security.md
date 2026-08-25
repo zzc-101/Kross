@@ -32,19 +32,11 @@ IdP 签发的 `id_token`，不充当身份提供商。
 角色隔离是行级逻辑隔离：超管管平台，组织管理员管本组织，普通成员只用工作台。
 详细接入步骤见 [Cloud Agent 部署与运维](cloud-agent-deployment.md#身份与-sso)。
 
-## 权限模式
+## Cloud 工具策略
 
-Cloud Worker 当前固定为 `classifier`：工作区内读/写自动允许；已知危险 shell
-拒绝；其他执行和网络请求在工作台弹出确认。Core 仍实现另外两档，但本分支 Web
-不提供切换：
-
-| 模式 | 行为 |
-|---|---|
-| `default` | 工作区内 read 自动允许；write、execute、network 需确认 |
-| `classifier` | 工作区内 read/write 自动允许；危险 shell 拒绝；其他执行和网络需确认 |
-| `auto` | 所有工具自动允许，并解除内建文件 / 搜索 / Git / Shell cwd 的 workspace 路径边界 |
-
-规则分类器只识别一组已知危险命令模式，不能替代人工判断。
+Cloud Worker 使用一套固定策略，不向普通用户暴露权限模式：工作区读写、构建、测试
+和普通容器命令自动执行；Git push、MCP 与未知网络操作要求确认；已知会破坏工作区
+或容器的 Shell 命令直接拒绝。文件访问始终限制在 workspace，不能切换为系统范围。
 
 ## 文件边界
 
@@ -118,9 +110,8 @@ journal 位于 Worker 容器 `$HOME/.kross/mutations`，可能包含历史文件
 
 ## 当前已知限制
 
-- Cloud Worker 中获批的 shell 命令使用容器内 `node` 用户权限，并可访问外网。
-- Web 不提供权限模式切换；Worker 固定 `classifier`。
+- Cloud Worker 中的 shell 命令使用容器内 `node` 用户权限，并可访问外网。
 - MCP 没有交互式 OAuth 客户端。
 - Project Instructions 当前只扫描工作区根顶层。
-- 权限 classifier 是启发式规则，不是安全证明。
+- Shell 危险命令识别是纵深防御，不是完整的命令语义证明。
 - `$HOME/.kross` 中的 journal / trace / 个人 Skills 默认不进工作区备份。

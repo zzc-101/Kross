@@ -48,7 +48,7 @@ export function AuthPage({
             <TeamOutlined /> 组织与成员治理
           </span>
           <span>
-            <SafetyCertificateOutlined /> 审批策略与完整审计
+            <SafetyCertificateOutlined /> 外部操作确认与完整审计
           </span>
         </Space>
       </section>

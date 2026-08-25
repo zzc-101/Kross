@@ -19,7 +19,7 @@ export function createReadTool(workspaceRoot: string): ToolDefinition<ReadInput>
   return {
     name: 'Read',
     description:
-      '读取文件内容，可按行偏移与行数截取。默认限当前工作区；完全访问模式支持任意绝对路径。',
+      '读取工作区内的文件内容，可按行偏移与行数截取。',
     risk: 'read',
     category: 'filesystem',
     inputSchema: z.object({

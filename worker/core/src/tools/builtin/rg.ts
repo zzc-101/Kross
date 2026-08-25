@@ -245,7 +245,7 @@ export function createRgTool(
   return {
     name: 'Rg',
     description:
-      '用 ripgrep（rg）高速搜索；默认限当前工作区，完全访问模式支持任意绝对路径。' +
+      '用 ripgrep（rg）高速搜索工作区。' +
       '默认做内容检索（比 Grep 更快，尊重 .gitignore）；' +
       'filesOnly=true 时仅列文件（可替代 Glob/find）。' +
       '优先于 Grep/Glob 使用。',

@@ -108,24 +108,15 @@ describe('project instructions in AgentRuntime', () => {
     ]);
   });
 
-  it('injects the live permission mode, scope and workspace path', () => {
+  it('injects the fixed Cloud tool policy and workspace path', () => {
     const root = makeWorkspace();
     const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
 
-    runtime.setPermissionMode('classifier');
-    const trusted = runtime.inspectContext({ requestedMode: 'auto' });
-    expect(trusted.messages[0]?.content).toContain(
-      '当前工具权限模式：classifier'
-    );
-    expect(trusted.messages[0]?.content).toContain('文件访问范围：workspace');
-    expect(trusted.messages[0]?.content).toContain(`主工作目录：${root}`);
-    expect(trusted.messages[0]?.content).toContain('Git 操作优先使用 Git');
-
-    runtime.setPermissionMode('auto');
-    const fullAccess = runtime.inspectContext({ requestedMode: 'auto' });
-    expect(fullAccess.messages[0]?.content).toContain('当前工具权限模式：auto');
-    expect(fullAccess.messages[0]?.content).toContain('文件访问范围：system');
-    expect(fullAccess.messages[0]?.content).toContain('任意目录的绝对路径');
+    const context = runtime.inspectContext({ requestedMode: 'auto' });
+    expect(context.messages[0]?.content).toContain('固定的 Cloud 工具策略');
+    expect(context.messages[0]?.content).toContain('文件访问范围：workspace');
+    expect(context.messages[0]?.content).toContain(`主工作目录：${root}`);
+    expect(context.messages[0]?.content).toContain('Git 操作优先使用 Git');
   });
 
   it('injects live model profile ids for Task selection', () => {
@@ -186,14 +177,13 @@ describe('skills in AgentRuntime', () => {
 });
 
 describe('durable work state in AgentRuntime', () => {
-  it('exports and restores todos, mode, permission and pending execution', () => {
+  it('exports and restores todos, mode and pending execution', () => {
     const root = makeWorkspace();
     const first = new AgentRuntime({ traceStore, workspaceRoot: root });
     first.getTodoStore()?.write({
       todos: [{ id: 't1', content: 'Continue work', status: 'in_progress' }]
     });
     first.setSessionMode('plan');
-    first.setPermissionMode('auto');
     const state = {
       ...first.exportWorkState(),
       pendingModeExecution: {
@@ -211,11 +201,10 @@ describe('durable work state in AgentRuntime', () => {
     });
     expect(second.restoreWorkState(state)).toBe(true);
     expect(second.getSessionMode()).toBe('plan');
-    expect(second.getPermissionMode()).toBe('auto');
     expect(second.getTodoStore()?.list()).toEqual(state.todos);
     expect(second.getPendingModeExecution()).toEqual(state.pendingModeExecution);
     expect(
       second.inspectContext({ requestedMode: 'auto' }).messages[0]?.content
-    ).toContain('当前工具权限模式：auto');
+    ).toContain('固定的 Cloud 工具策略');
   });
 });

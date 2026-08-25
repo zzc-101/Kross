@@ -24,7 +24,6 @@ const OrganizationOverviewPage = lazyNamed(
 );
 const MembersPage = lazyNamed(() => import('../pages/organization/members/MembersPage'), 'MembersPage');
 const ModelsPage = lazyNamed(() => import('../pages/platform/models/ModelsPage'), 'ModelsPage');
-const PolicyPage = lazyNamed(() => import('../pages/organization/policy/PolicyPage'), 'PolicyPage');
 const AuditPage = lazyNamed(() => import('../pages/organization/audit/AuditPage'), 'AuditPage');
 const TokenUsagePage = lazyNamed(() => import('../pages/token-usage/TokenUsagePage'), 'TokenUsagePage');
 const PlatformSkillsPage = lazyNamed(
@@ -89,7 +88,6 @@ export function AdminRouter({
             <Route path="members" element={<MembersPage api={api} />} />
             <Route path="token-usage" element={<TokenUsagePage api={api} />} />
             <Route path="skills" element={<OrganizationSkillsPage api={api} />} />
-            <Route path="policy" element={<PolicyPage api={api} />} />
             <Route path="audit" element={<AuditPage api={api} />} />
           </Route>
           <Route

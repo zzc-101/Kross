@@ -164,6 +164,8 @@ export interface AgentReviewPolicy {
 
 export interface AgentExecutionProfile {
   readonly id: string;
+  /** Whether this product exposes plan/conductor selection to the session. */
+  readonly supportsModeSelection?: boolean;
   buildSystemPrompt(context: AgentSystemPromptContext): string;
   createCompletionPolicy(
     context: AgentExecutionProfileContext

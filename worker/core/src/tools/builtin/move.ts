@@ -33,7 +33,7 @@ export function createMoveTool(
   return {
     name: 'Move',
     description:
-      '移动或重命名文件/目录（from → to），自动创建目标父目录。默认限当前工作区；完全访问模式支持任意绝对路径。',
+      '移动或重命名工作区内的文件/目录（from → to），自动创建目标父目录。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: z.object({

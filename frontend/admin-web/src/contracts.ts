@@ -286,22 +286,6 @@ export const tokenUsageSchema = z
   })
   .strict();
 
-export const approvalPolicySchema = z
-  .object({
-    defaultTimezone: z.string().min(1),
-    dataRetentionDays: z.number().int().positive().nullable(),
-    approvalPolicy: z
-      .object({
-        requirePlanApproval: z.boolean(),
-        requireExternalActionApproval: z.boolean(),
-        minimumToolRiskRequiringApproval: z.enum(['low', 'medium', 'high', 'critical']),
-        allowAdminOrganizationHighRiskApproval: z.boolean(),
-        allowMemberHighRiskApproval: z.boolean()
-      })
-      .strict()
-  })
-  .strict();
-
 export const auditLogSchema = z
   .object({
     id,
@@ -358,6 +342,5 @@ export type SkillVersion = z.infer<typeof skillVersionSchema>;
 export type ModelConfig = z.infer<typeof modelSchema>;
 export type TokenUsage = z.infer<typeof tokenUsageSchema>;
 export type TokenUsageRank = z.infer<typeof tokenUsageRankSchema>;
-export type ApprovalPolicy = z.infer<typeof approvalPolicySchema>;
 export type AuditLog = z.infer<typeof auditLogSchema>;
 export type AuthLoginEvent = z.infer<typeof authLoginEventSchema>;

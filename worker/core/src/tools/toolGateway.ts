@@ -41,7 +41,7 @@ export interface ToolExecutionContext<TInput> {
   toolName: string;
   input: TInput;
   signal: AbortSignal;
-  /** Filesystem boundary selected by the current permission mode. */
+  /** Filesystem boundary enforced by the runtime. */
   accessScope?: ToolAccessScope;
 }
 
@@ -163,14 +163,6 @@ export class ToolGateway {
 
   getApprovalPolicy(): ToolApprovalPolicy {
     return this.approvalPolicy;
-  }
-
-  setAccessScope(scope: ToolAccessScope): void {
-    this.accessScope = scope;
-  }
-
-  getAccessScope(): ToolAccessScope {
-    return this.accessScope;
   }
 
   /** Return the same validated, secret-safe input representation used by trace events. */

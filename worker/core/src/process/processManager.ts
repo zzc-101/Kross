@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 import { resolveExistingPathWithinWorkspace } from '../tools/builtin/paths';
 import { formatProcessCommandPreview } from './processCommandPreview';
+import { buildSubprocessEnv } from './subprocessEnv';
 
 export type ManagedProcessStatus = 'running' | 'exited' | 'killed';
 
@@ -404,14 +405,7 @@ function summarize(handle: ManagedHandle): ManagedProcessSummary {
 }
 
 function mergeEnv(overrides: Record<string, string> | undefined): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const [key, value] of Object.entries(overrides ?? {})) {
-    if (!key || key.includes('=') || key.includes('\0') || value.includes('\0')) {
-      throw new Error(`Invalid environment override key: ${key}`);
-    }
-    env[key] = value;
-  }
-  return env;
+  return buildSubprocessEnv(process.env, overrides);
 }
 
 function waitForSpawn(child: ChildProcess, signal?: AbortSignal): Promise<void> {

@@ -61,14 +61,10 @@ experimental 的 `bootstrapRuntimeTooling` 与 `createRuntimeOptionsFromEnv`。
 
 源码级扩展入口及稳定性说明见[扩展 Kross](extensions.md)。
 
-## 模式与运行闭环
+## 自动运行闭环
 
-三种模式只决定工作策略，不拥有各自的输出管线：
-
-- `auto`：直接探索、实施和验证，必要时可选择计划或编排。
-- `plan`：先生成计划，用户批准后进入同一个主 Agent 工具循环。
-- `conductor`：高级模型拆分任务，worker 在隔离上下文执行，最后读取真实 diff
-  进行统一验收。
+Cloud 工作台只提供自动运行。Agent 根据用户意图直接回答或使用工具；用户明确要求
+先给方案时只返回方案。规划与子任务拆分属于内部实现，不要求普通用户选择模式。
 
 用户可见回复统一通过流式事件输出。一次运行会经过探索、计划、执行、验证、复核
 与完成等可观测阶段，阶段由真实生命周期和工具事件推导，不依赖模型自行声明。
@@ -109,10 +105,8 @@ Tool Gateway 是模型能力与真实副作用之间的边界。每个工具必�
 - `read`、`write`、`execute` 或 `network` 风险；
 - 执行、超时、取消、摘要和可选 trace 脱敏逻辑。
 
-Cloud Worker 固定 `classifier`：自动允许 workspace 内可信读写，Shell 与网络继续
-审批。Core 仍实现 `default`（只自动允许只读）和 `auto`（完全访问并解除路径边界）。
-调用前仍会校验动态风险，调用结果及审批状态写入 trace。工作台用按钮处理审批，
-没有 TUI 的 `/perm`。
+Cloud Worker 使用固定 SaaS 策略：workspace 内可信读写和普通容器命令自动执行，
+外部操作要求用户确认，危险本地命令直接拒绝。调用结果及确认状态写入 trace。
 
 连续、独立且无需审批的 read 调用最多 4 个并发，并按原始 tool-call 顺序回填；
 write、execute、network、Process、MCP 与动态风险调用保持串行屏障。

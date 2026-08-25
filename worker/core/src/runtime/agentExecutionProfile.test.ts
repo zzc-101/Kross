@@ -386,7 +386,6 @@ describe('AgentExecutionProfile', () => {
       toolGateway: gateway,
       executionProfile: createWorkProfile()
     });
-    runtime.setPermissionMode('auto');
 
     const result = await runtime.run({
       input: '验证生成物',
@@ -435,12 +434,14 @@ describe('AgentExecutionProfile', () => {
   it('keeps the injected profile prompt after tool approval resumes', async () => {
     const llmClient = new WriteThenFinishClient();
     const traceStore = new InMemoryTraceStore();
+    const toolGateway = createWriteGateway(traceStore);
     const runtime = new AgentRuntime({
       traceStore,
       llmClient,
-      toolGateway: createWriteGateway(traceStore),
+      toolGateway,
       executionProfile: createWorkProfile()
     });
+    toolGateway.setApprovalPolicy(() => ({ action: 'ask' }));
 
     const pending = await runtime.run({
       input: '生成需要确认的文件',
@@ -470,7 +471,6 @@ describe('AgentExecutionProfile', () => {
       llmClient: codingClient,
       toolGateway: createWriteGateway(codingTrace)
     });
-    coding.setPermissionMode('auto');
 
     const workClient = new WriteThenFinishClient();
     const workTrace = new InMemoryTraceStore();
@@ -480,7 +480,6 @@ describe('AgentExecutionProfile', () => {
       toolGateway: createWriteGateway(workTrace),
       executionProfile: createWorkProfile()
     });
-    work.setPermissionMode('auto');
 
     const [codingResult, workResult] = await Promise.all([
       coding.run({ input: '修改代码', requestedMode: 'auto' }),

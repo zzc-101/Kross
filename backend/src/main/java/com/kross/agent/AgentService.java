@@ -148,7 +148,6 @@ public class AgentService {
         conversation.setArchivedAt(null);
       }
     });
-    Optional.ofNullable(request.mode()).ifPresent(mode -> conversation.setMode(normalizeMode(mode)));
     Optional.ofNullable(request.modelId()).ifPresent(modelId -> {
       String trimmed = modelId.trim();
       if (trimmed.isEmpty()) {
@@ -566,11 +565,6 @@ public class AgentService {
       AgentConversation conversation = conversationId.isBlank()
           ? null
           : agents.findConversation(session.getOrganizationId(), conversationId).orElse(null);
-      String mode = Optional.ofNullable(conversation)
-          .map(AgentConversation::getMode)
-          .filter(value -> !value.isBlank())
-          .map(AgentService::normalizeMode)
-          .orElse("auto");
       String modelId = Optional.ofNullable(conversation)
           .map(AgentConversation::getModelId)
           .filter(value -> !value.isBlank())
@@ -585,7 +579,7 @@ public class AgentService {
               skill.getId(), skill.getName(), skill.getDescription(), skill.getContent(), skill.getRevision()))
           .orElse(null);
       return new AgentProtocol.Job(
-          row.getId(), conversationId, reply.getId(), row.getContent(), history, row.getCreatedAt(), mode, modelId,
+          row.getId(), conversationId, reply.getId(), row.getContent(), history, row.getCreatedAt(), modelId,
           row.getLeaseId(), activeSkill);
     });
   }
@@ -882,14 +876,6 @@ public class AgentService {
         .or(agents::findUsableModel)
         .orElseThrow(() -> ApiException.conflict(
             "model_credential_unavailable", "No usable model credential is configured"));
-  }
-
-  private static String normalizeMode(String value) {
-    String mode = Optional.ofNullable(value).orElse("").trim().toLowerCase();
-    if (!List.of("auto", "plan", "conductor").contains(mode)) {
-      throw ApiException.invalidRequest("mode must be auto, plan or conductor");
-    }
-    return mode;
   }
 
   private JsonNode loadMcpServers(String agentId) {

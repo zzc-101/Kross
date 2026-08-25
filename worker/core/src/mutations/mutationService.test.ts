@@ -25,7 +25,7 @@ function setup() {
 }
 
 describe('MutationService', () => {
-  it('journals and undoes full-access mutations outside the primary workspace', async () => {
+  it('journals and undoes mutations in an explicitly coordinated workspace', async () => {
     const { workspace, krossHome } = setup();
     const outside = join(temp, 'outside');
     mkdirSync(outside);

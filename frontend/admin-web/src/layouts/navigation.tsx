@@ -5,7 +5,6 @@ import {
   BuildOutlined,
   BulbOutlined,
   DashboardOutlined,
-  SafetyCertificateOutlined,
   SettingOutlined,
   ThunderboltOutlined,
   TeamOutlined
@@ -59,11 +58,6 @@ export function createAdminMenu(superAdmin: boolean, current?: Membership): Menu
                 key: `/organizations/${current.organizationId}/skills`,
                 icon: <BulbOutlined />,
                 label: '组织技能'
-              },
-              {
-                key: `/organizations/${current.organizationId}/policy`,
-                icon: <SafetyCertificateOutlined />,
-                label: '审批策略'
               },
               {
                 key: `/organizations/${current.organizationId}/audit`,

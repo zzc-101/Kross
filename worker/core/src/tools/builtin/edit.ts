@@ -77,7 +77,7 @@ export function createEditTool(
   return {
     name: 'Edit',
     description:
-      '在文件内做精确字符串替换。默认限当前工作区，完全访问模式支持任意绝对路径；old_string 默认须唯一，可 replace_all。',
+      '在工作区文件内做精确字符串替换；old_string 默认须唯一，可 replace_all。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: editInputSchema,

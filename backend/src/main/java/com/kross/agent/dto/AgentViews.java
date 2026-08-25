@@ -3,7 +3,6 @@ package com.kross.agent.dto;
 import com.kross.agent.entity.AgentConversation;
 import com.kross.agent.entity.AgentMessage;
 import com.kross.agent.entity.AgentModel;
-import java.util.Optional;
 
 public final class AgentViews {
   private AgentViews() {}
@@ -23,7 +22,6 @@ public final class AgentViews {
     return new ConversationView(
         row.getId(),
         row.getTitle(),
-        Optional.ofNullable(row.getMode()).filter(value -> !value.isBlank()).orElse("auto"),
         row.getModelId(),
         row.getSkillId(),
         row.getArchivedAt(),

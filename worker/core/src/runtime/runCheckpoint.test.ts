@@ -238,7 +238,6 @@ function createRuntime(
     executionProfile,
     createRunId: () => 'run-checkpoint'
   });
-  runtime.setPermissionMode('classifier');
   return runtime;
 }
 

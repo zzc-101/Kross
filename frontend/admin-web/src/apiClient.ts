@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import {
-  approvalPolicySchema,
   auditLogSchema,
   authConfigSchema,
   authLoginEventSchema,
@@ -20,7 +19,6 @@ import {
   tokenUsageSchema,
   sessionSchema,
   userAccountSchema,
-  type ApprovalPolicy,
   type CreatedInvite,
   type Invite,
   type Member,
@@ -279,15 +277,6 @@ export class AdminApiClient {
   }
   organizationTokenUsage(days = 30) {
     return this.request(`/api/v2/admin/token-usage?days=${days}`, tokenUsageSchema);
-  }
-  approvalPolicy() {
-    return this.request('/api/v2/admin/approval-policy', approvalPolicySchema);
-  }
-  updateApprovalPolicy(input: ApprovalPolicy) {
-    return this.request('/api/v2/admin/approval-policy', approvalPolicySchema, {
-      method: 'PATCH',
-      body: input
-    });
   }
   auditLogs() {
     return this.request('/api/v2/admin/audit-logs', page(auditLogSchema)).then((x) => x.items);

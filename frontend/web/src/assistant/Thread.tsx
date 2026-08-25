@@ -29,34 +29,24 @@ import {
 
 import { messagePartComponents } from './MessageParts';
 import { AgentApiClient, ApiError } from '../api/client';
-import type { AgentMode, AgentModel, Skill } from '../api/types';
+import type { AgentModel, Skill } from '../api/types';
 import { ModelBadge, modelLabel } from '../workspace/ModelBadge';
 import { AgentContextUsageContext } from './AgentRuntimeProvider';
 import { ContextUsageRing } from './ContextUsageRing';
-
-const MODE_OPTIONS: Array<{ id: AgentMode; label: string; hint: string }> = [
-  { id: 'auto', label: '自动', hint: '按话术选择工作方式' },
-  { id: 'plan', label: '计划', hint: '先给出计划再动手' },
-  { id: 'conductor', label: '指挥', hint: '拆成多目标并行推进' }
-];
 
 export function Thread({
   api,
   conversationId,
   model,
   models,
-  mode,
   skill,
-  onModeChange,
   onModelChange
 }: {
   api: AgentApiClient;
   conversationId?: string;
   model?: AgentModel | null;
   models: AgentModel[];
-  mode: AgentMode;
   skill?: Skill;
-  onModeChange(mode: AgentMode): void;
   onModelChange(model: AgentModel): void;
 }) {
   return (
@@ -69,9 +59,7 @@ export function Thread({
               <Composer
                 model={model}
                 models={models}
-                mode={mode}
                 skill={skill}
-                onModeChange={onModeChange}
                 onModelChange={onModelChange}
                 landing
               />
@@ -97,9 +85,7 @@ export function Thread({
               <Composer
                 model={model}
                 models={models}
-                mode={mode}
                 skill={skill}
-                onModeChange={onModeChange}
                 onModelChange={onModelChange}
               />
               <Footer />
@@ -124,17 +110,13 @@ function AssistantLoading() {
 function Composer({
   model,
   models,
-  mode,
   skill,
-  onModeChange,
   onModelChange,
   landing = false
 }: {
   model?: AgentModel | null;
   models: AgentModel[];
-  mode: AgentMode;
   skill?: Skill;
-  onModeChange(mode: AgentMode): void;
   onModelChange(model: AgentModel): void;
   landing?: boolean;
 }) {
@@ -158,7 +140,6 @@ function Composer({
             <button type="button" aria-label="添加附件（即将支持）" title="等待 Kross 附件协议支持" disabled>
               <Plus />
             </button>
-            <ModeMenu mode={mode} onChange={onModeChange} />
             <ModelMenu model={model} models={models} onChange={onModelChange} />
           </div>
           <div className="composer-tools right">
@@ -172,28 +153,6 @@ function Composer({
       </ComposerPrimitive.Root>
       {landing && <QuickActions />}
     </div>
-  );
-}
-
-function ModeMenu({ mode, onChange }: { mode: AgentMode; onChange(mode: AgentMode): void }) {
-  const current = MODE_OPTIONS.find((item) => item.id === mode) ?? MODE_OPTIONS[0]!;
-  return (
-    <Dropdown
-      label={current.label}
-      ariaLabel={`工作模式：${current.label}`}
-    >
-      {MODE_OPTIONS.map((item) => (
-        <button
-          type="button"
-          key={item.id}
-          className={item.id === mode ? 'menu-item active' : 'menu-item'}
-          onClick={() => onChange(item.id)}
-        >
-          <strong>{item.label}</strong>
-          <span>{item.hint}</span>
-        </button>
-      ))}
-    </Dropdown>
   );
 }
 

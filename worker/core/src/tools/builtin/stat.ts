@@ -14,7 +14,7 @@ export function createStatTool(workspaceRoot: string): ToolDefinition<StatInput>
   return {
     name: 'Stat',
     description:
-      '读取文件、目录或符号链接元数据。默认限当前工作区；完全访问模式支持任意绝对路径。',
+      '读取工作区内文件、目录或符号链接的元数据。',
     risk: 'read',
     category: 'filesystem',
     inputSchema: z.object({

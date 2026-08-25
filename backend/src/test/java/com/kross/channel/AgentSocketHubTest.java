@@ -60,7 +60,6 @@ class AgentSocketHubTest {
         "hello",
         List.of(),
         Instant.now(),
-        "agent",
         "model-1",
         "lease-1",
         null);

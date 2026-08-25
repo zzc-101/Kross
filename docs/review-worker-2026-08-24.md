@@ -51,7 +51,7 @@ tool_call 配对保护、skill 发现的三级 symlink 校验、审批先缓存�
 | # | 位置 | 问题 | 状态 |
 |---|---|---|---|
 | M1 | `builtin/bash.ts:32-60` | 超时只 SIGTERM 直接 shell 子进程，孙进程孤儿化继续运行持 fd；无进程数/频率配额（fork 防护仅容器 pids limit + classifier 一条易绕正则）。建议 detached + 进程组信号。 | 待修 |
-| M2 | `permissionModes.ts:93-122` | classifier 黑名单正则覆盖极少数字面形式，`curl \| python3`、写 authorized_keys、base64 解码执行等全部自动放行。若对外承诺"危险命令拦截"属误导，应文档化为尽力提示或改白名单。 | 待修 |
+| M2 | 原 `permissionModes.ts` | TUI 权限模式和 classifier 黑名单不适合 Cloud 普通用户。 | **已修**：移除权限模式，固定 workspace 范围；普通本地操作自动执行，外部操作确认，已知破坏性命令直接拒绝 |
 | M3 | `transport.ts:227-236` | waitForApproval 无超时：控制面丢消息或用户不响应则 job 永久挂起。另 pending 按 message type 匹配响应，同类型并发会错配（当前串行侥幸安全）。 | 待修 |
 | M4 | `createAgentHost.ts:389`、`inMemoryTraceStore.ts:9` | InMemoryTraceStore 只进不出：长驻 worker 内存泄漏，attachChangedFiles/readRun 全量线性扫描越跑越慢。 | 待修 |
 | M5 | `src/main.ts:31-44` | SIGTERM 只 close transport 不中止 run：runStreaming 未传 AbortSignal（接口支持），优雅关闭需等整个 turn 自然结束或被强杀留中间态。 | 待修 |
@@ -80,7 +80,7 @@ tool_call 配对保护、skill 发现的三级 symlink 校验、审批先缓存�
 - MCP HTTP 强制 https（localhost 除外）+ header 白名单 + authorization 仅允许 env 引用;
 - mutation journal 的 capture/recover/undo 流程正确，hash 校验防冲突；
 - ProcessManager 有界环形缓冲、进程组 TERM→KILL、句柄 GC 设计良好；
-- 权限模式只能由用户侧修改，模型不能自行提权到 auto/system scope。
+- Cloud 工具策略固定为 workspace scope，模型和用户都不能提权到 system scope。
 
 ## 与后端审查（review-2026-08-24.md）的关联
 

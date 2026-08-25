@@ -50,7 +50,7 @@ export function classifyRuntimeError(
       source,
       'permission',
       false,
-      '检查权限模式；需要时由用户明确批准该调用。'
+      '检查 Cloud 工具策略；外部操作需要时由用户明确确认。'
     );
   }
   if (name === 'ToolValidationError' || message.includes('invalid input')) {

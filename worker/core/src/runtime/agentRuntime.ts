@@ -33,7 +33,6 @@ import {
   type ToolMetadata
 } from '../tools/toolGateway';
 import { createSetModeTool } from '../tools/builtin/setMode';
-import type { PermissionMode } from '../tools/permissionModes';
 import {
   isObservableTraceStore,
   type TraceEventListener
@@ -232,8 +231,6 @@ export class AgentRuntime extends EventEmitter {
       sessionContext: this.sessionContext,
       toolGateway: this.toolGateway,
       emitModeChanged: (event) => this.emit('mode.changed', event),
-      emitPermissionChanged: (event) =>
-        this.emit('permission.changed', event),
       emitWorkStateChanged: () => this.emit('work-state.changed')
     });
     this.modeFlows = new ModeFlows({
@@ -248,7 +245,7 @@ export class AgentRuntime extends EventEmitter {
       finishTurnWithAssistant: (userInput, assistantOutput) =>
         this.finishTurnWithAssistant(userInput, assistantOutput)
     });
-    if (this.toolGateway) {
+    if (this.toolGateway && this.executionProfile.supportsModeSelection !== false) {
       // SetMode 挂在 runtime 上，保证 get/set 与会话状态一致
       if (!this.toolGateway.listTools().some((t) => t.name === 'SetMode')) {
         this.toolGateway.register(
@@ -263,7 +260,7 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.refreshProjectInstructions();
     this.sessionServices.refreshSkills();
     this.sessionServices.syncSessionModeSource();
-    this.sessionServices.syncPermissionModeSource();
+    this.sessionServices.syncToolPolicySource();
     this.sessionServices.syncModelProfilesSource();
   }
 
@@ -333,27 +330,6 @@ export class AgentRuntime extends EventEmitter {
   /** Bind managed process visibility and control to the active persisted session. */
   setManagedProcessSession(sessionId?: string): void {
     this.options.processManager?.setSessionScope(sessionId);
-  }
-
-  getPermissionMode(): PermissionMode {
-    return this.sessionServices.getPermissionMode();
-  }
-
-  setPermissionMode(mode: PermissionMode): void {
-    this.sessionServices.setPermissionMode(mode);
-  }
-
-  /** 订阅用户主动切换权限模式，用于 UI 与持久化审计。 */
-  onPermissionModeChanged(
-    listener: (event: {
-      mode: PermissionMode;
-      previous: PermissionMode;
-    }) => void
-  ): () => void {
-    this.on('permission.changed', listener);
-    return () => {
-      this.off('permission.changed', listener);
-    };
   }
 
   getModelLabel(): string {
@@ -787,13 +763,23 @@ export class AgentRuntime extends EventEmitter {
   private async *executeRun(
     input: AgentRunInput
   ): AsyncIterable<AgentRunStreamEvent> {
-    const { detection, action } = resolveModeTurn({
-      requestedMode: input.requestedMode,
-      userInput: input.input,
-      planApproved: input.approvals?.plan === true,
-      pending: this.sessionServices.getPendingModeExecution(),
-      hasLlm: Boolean(this.modelSession.getLlmClient())
-    });
+    const { detection, action } = this.executionProfile.supportsModeSelection === false
+      ? {
+          detection: {
+            mode: 'auto' as const,
+            reason: 'Cloud 自动运行',
+            requiresApproval: false,
+            signals: []
+          },
+          action: { type: 'agent-loop' as const, mode: 'auto' as const }
+        }
+      : resolveModeTurn({
+          requestedMode: input.requestedMode,
+          userInput: input.input,
+          planApproved: input.approvals?.plan === true,
+          pending: this.sessionServices.getPendingModeExecution(),
+          hasLlm: Boolean(this.modelSession.getLlmClient())
+        });
     const runId = this.createRunId();
 
     try {
@@ -1140,7 +1126,7 @@ export class AgentRuntime extends EventEmitter {
     this.sessionServices.refreshSkills();
     this.sessionServices.syncModelProfilesSource();
     this.sessionServices.syncSessionModeSource();
-    this.sessionServices.syncPermissionModeSource();
+    this.sessionServices.syncToolPolicySource();
     this.applyProfileContextSources(phase, mode);
   }
 

@@ -9,6 +9,7 @@ import type {
 } from '../toolGateway';
 import { TIMEOUT_ONLY_RETRY_POLICY } from '../toolRetry';
 import { formatProcessCommandPreview } from '../../process/processCommandPreview';
+import { buildSubprocessEnv } from '../../process/subprocessEnv';
 import {
   fingerprintCommand,
   identifyVerificationCommand
@@ -38,6 +39,7 @@ function runCommand(
   return new Promise((resolvePromise, reject) => {
     const child = exec(command, {
       cwd,
+      env: buildSubprocessEnv(),
       signal,
       timeout: timeoutMs,
       maxBuffer: MAX_OUTPUT_CHARS * 2,
@@ -63,7 +65,7 @@ export function createBashTool(workspaceRoot: string): ToolDefinition<BashInput>
   return {
     name: 'Bash',
     description:
-      '启动 shell 命令并返回标准输出与错误。默认 cwd 限当前工作区；完全访问模式支持任意绝对 cwd。命令拥有当前进程的系统权限。',
+      '在容器工作区内启动 shell 命令并返回标准输出与错误。cwd 必须位于当前工作区。',
     risk: 'execute',
     category: 'shell',
     timeoutMs: 120_000,

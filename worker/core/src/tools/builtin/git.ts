@@ -116,7 +116,7 @@ export function createGitTool(
         },
         cwd: {
           type: 'string',
-          description: '仓库目录；完全访问模式可使用绝对路径'
+          description: '工作区内的仓库目录'
         },
         paths: {
           type: 'array',

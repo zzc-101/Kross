@@ -54,7 +54,7 @@ Nginx 必须关闭 buffering，并且控制面 `spring.mvc.async.request-timeout
 
 ## 工具一直停在确认面板
 
-工作台用按钮批准或拒绝高风险工具，不要发送 TUI 的 `/approve`。若面板消失：
+工作台只在外部操作前显示确认按钮，不要发送 TUI 的 `/approve`。若面板消失：
 
 - 刷新后只有「尚未执行且证据完整」的审批能恢复；
 - 工具定义、动态风险或策略与保存时不一致会 fail-closed；

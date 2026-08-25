@@ -53,7 +53,6 @@ public final class AgentProtocol {
       String content,
       List<HistoryTurn> history,
       Instant createdAt,
-      String mode,
       String modelId,
       String leaseId,
       ActiveSkill skill) {
@@ -64,11 +63,10 @@ public final class AgentProtocol {
         String content,
         List<HistoryTurn> history,
         Instant createdAt,
-        String mode,
         String modelId,
         String leaseId,
         ActiveSkill skill) {
-      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt, mode, modelId, leaseId, skill);
+      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt, modelId, leaseId, skill);
     }
   }
 

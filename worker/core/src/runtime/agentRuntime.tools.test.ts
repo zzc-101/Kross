@@ -223,7 +223,6 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager: new InMemoryContextManager(),
         toolGateway
       });
-      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '写 README',
@@ -283,7 +282,6 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager: new InMemoryContextManager(),
         toolGateway
       });
-      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '写 README',
@@ -386,7 +384,9 @@ describe('AgentRuntime tool loops and approvals', () => {
       })
     });
     const runtime = new AgentRuntime({ traceStore, llmClient, toolGateway });
-    runtime.setPermissionMode('classifier');
+    toolGateway.setApprovalPolicy(({ tool }) =>
+      tool.risk === 'execute' ? { action: 'ask' } : { action: 'allow' }
+    );
 
     const writePending = await runtime.run({
       input: '修改代码',
@@ -445,7 +445,6 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager: new InMemoryContextManager(),
         toolGateway
       });
-      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '读取后改写 README',
@@ -489,7 +488,6 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager: new InMemoryContextManager(),
         toolGateway
       });
-      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '读并写 README',
@@ -561,7 +559,6 @@ describe('AgentRuntime tool loops and approvals', () => {
         llmClient,
         toolGateway
       });
-      runtime.setPermissionMode('classifier');
 
       const first = await runtime.run({
         input: '写 README',
@@ -609,7 +606,6 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager,
         toolGateway
       });
-      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '写 README',
@@ -655,7 +651,6 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager,
         toolGateway
       });
-      runtime.setPermissionMode('classifier');
 
       const firstPending = await runtime.run({
         input: '连续写两个文件',
@@ -700,7 +695,6 @@ describe('AgentRuntime tool loops and approvals', () => {
         contextManager,
         toolGateway
       });
-      runtime.setPermissionMode('classifier');
 
       const pending = await runtime.run({
         input: '写 README',

@@ -45,7 +45,7 @@ export function createWriteTool(
   return {
     name: 'Write',
     description:
-      '写入或覆盖文件，自动创建不存在的父目录。默认限当前工作区；完全访问模式支持任意绝对路径。',
+      '写入或覆盖工作区内的文件，自动创建不存在的父目录。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: z.object({

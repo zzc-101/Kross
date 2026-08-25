@@ -14,7 +14,6 @@ export interface AgentControlTransport {
     agentMessageId: string;
     content: string;
     history: Array<{ role: string; content: string }>;
-    mode: 'auto' | 'plan' | 'conductor';
     modelId?: string;
     skill?: ActiveSkill;
   } | undefined>;
@@ -103,7 +102,6 @@ type Job = {
   agentMessageId: string;
   content: string;
   history: Array<{ role: string; content: string }>;
-  mode: 'auto' | 'plan' | 'conductor';
   modelId?: string;
   skill?: ActiveSkill;
 };
@@ -124,7 +122,6 @@ type SocketMessage = {
   agentMessageId?: unknown;
   content?: unknown;
   history?: unknown;
-  mode?: unknown;
   modelId?: unknown;
   skill?: unknown;
   commandId?: unknown;
@@ -607,7 +604,6 @@ function parseJob(value: SocketMessage): Job {
     agentMessageId: value.agentMessageId,
     content: value.content,
     history: parseHistory(value.history),
-    mode: parseMode(value.mode),
     ...(typeof value.modelId === 'string' && value.modelId.trim() ? { modelId: value.modelId } : {}),
     ...(skill ? { skill } : {})
   };
@@ -630,10 +626,6 @@ function parseSkill(value: unknown): ActiveSkill | undefined {
     content: skill.content,
     revision: skill.revision
   };
-}
-
-function parseMode(value: unknown): 'auto' | 'plan' | 'conductor' {
-  return value === 'plan' || value === 'conductor' ? value : 'auto';
 }
 
 function parseHistory(value: unknown): Array<{ role: string; content: string }> {

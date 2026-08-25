@@ -1,25 +1,20 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { TodoStore } from '../../todo/todoStore';
-import { MutationCoordinator } from '../../mutations/mutationService';
-import { createApprovalPolicy } from '../permissionModes';
 import { ToolGateway, ToolPermissionError } from '../toolGateway';
 import { builtinToolNames, createBuiltinTools } from './index';
 
 let root: string;
-let outsideRoot: string;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'kross-builtin-'));
-  outsideRoot = await mkdtemp(join(tmpdir(), 'kross-full-access-'));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
-  await rm(outsideRoot, { recursive: true, force: true });
 });
 
 function makeGateway(): ToolGateway {
@@ -84,52 +79,22 @@ describe('builtin tools integration', () => {
     ).rejects.toThrow(ToolPermissionError);
   });
 
-  it('keeps paths workspace-scoped until full-access mode selects system scope', async () => {
+  it('keeps paths workspace-scoped', async () => {
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'kross-outside-'));
     const outsideFile = join(outsideRoot, 'outside.txt');
     await writeFile(outsideFile, 'outside');
     const gateway = makeGateway();
 
-    await expect(
-      gateway.call({
-        runId: 'workspace',
-        name: 'Read',
-        input: { path: outsideFile }
-      })
-    ).rejects.toThrow('路径超出 workspace 范围');
-
-    gateway.setAccessScope('system');
-    await expect(
-      gateway.call({
-        runId: 'system',
-        name: 'Read',
-        input: { path: outsideFile }
-      })
-    ).resolves.toMatchObject({ content: 'outside' });
-  });
-
-  it('journals full-access writes outside the primary workspace', async () => {
-    const target = join(outsideRoot, 'outside.txt');
-    await writeFile(target, 'before');
-    const coordinator = new MutationCoordinator(join(root, '.kross'));
-    const gateway = new ToolGateway({
-      approvalPolicy: createApprovalPolicy('auto')
-    });
-    gateway.setAccessScope('system');
-    for (const tool of createBuiltinTools(root, {
-      mutationService: coordinator.forWorkspace(root),
-      mutationCoordinator: coordinator
-    })) {
-      gateway.register(tool);
+    try {
+      await expect(
+        gateway.call({
+          runId: 'workspace',
+          name: 'Read',
+          input: { path: outsideFile }
+        })
+      ).rejects.toThrow('路径超出 workspace 范围');
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true });
     }
-
-    await gateway.call({
-      runId: 'system-write',
-      name: 'Write',
-      input: { path: target, content: 'after' }
-    });
-    expect(await readFile(target, 'utf8')).toBe('after');
-
-    coordinator.undo('system-write');
-    expect(await readFile(target, 'utf8')).toBe('before');
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AgentApiClient, ApiError, isUnauthorizedError } from '../api/client';
-import type { AgentMode, AgentModel, Conversation, MeUser, Membership, Skill } from '../api/types';
+import type { AgentModel, Conversation, MeUser, Membership, Skill } from '../api/types';
 import { AgentRuntimeProvider } from '../assistant/AgentRuntimeProvider';
 import { Thread } from '../assistant/Thread';
 import { useConversationRoute } from '../lib/conversationRoute';
@@ -82,11 +82,10 @@ export function WorkspacePage({
     () => conversations.find((item) => item.id === conversationId),
     [conversationId, conversations]
   );
-  const mode: AgentMode = conversation?.mode ?? 'auto';
   const selectedModel = models.find((item) => item.id === conversation?.modelId) ?? models[0] ?? null;
   const activeSkill = skills.find((item) => item.id === conversation?.skillId);
 
-  const patchConversation = useCallback(async (patch: { mode?: AgentMode; modelId?: string }) => {
+  const patchConversation = useCallback(async (patch: { modelId: string }) => {
     if (!conversationId) return;
     const next = await api.patchConversation(conversationId, patch);
     setConversations((current) => current.map((item) => item.id === next.id ? next : item));
@@ -159,9 +158,7 @@ export function WorkspacePage({
               conversationId={conversationId}
               model={selectedModel}
               models={models}
-              mode={mode}
               skill={activeSkill}
-              onModeChange={(next) => void patchConversation({ mode: next })}
               onModelChange={(next) => void patchConversation({ modelId: next.id })}
             />
           </main>

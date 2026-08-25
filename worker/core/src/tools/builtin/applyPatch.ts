@@ -42,7 +42,7 @@ export function createApplyPatchTool(
   return {
     name: 'ApplyPatch',
     description:
-      '原子应用 *** Begin Patch 格式多文件补丁。默认限当前工作区，完全访问模式支持绝对路径；任一路径或 hunk 失败时不写入。',
+      '原子应用 *** Begin Patch 格式的工作区多文件补丁；任一路径或 hunk 失败时不写入。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: z.object({

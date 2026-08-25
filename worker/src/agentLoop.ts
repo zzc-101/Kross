@@ -129,7 +129,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
         ? AbortSignal.any([options.signal, jobAbort.signal])
         : jobAbort.signal;
       try {
-        log.info('Claimed conversation job', { conversationId: job.conversationId, mode: job.mode });
+        log.info('Claimed conversation job', { conversationId: job.conversationId });
         const nextSkillKey = job.skill ? `${job.skill.id}@${job.skill.revision}` : '';
         const modelKey = job.modelId ?? '';
         const signature = `${modelKey}\u0000${nextSkillKey}`;
@@ -155,7 +155,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
           options.transport,
           job,
           job.content,
-          job.mode,
+          'auto',
           runSignal
         );
         await options.transport.postReply({

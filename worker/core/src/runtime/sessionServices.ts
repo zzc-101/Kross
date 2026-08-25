@@ -2,11 +2,7 @@ import { basename, resolve } from 'node:path';
 
 import type { SessionContext } from '../context/sessionContext';
 import type { AgentMode } from '../domain';
-import {
-  createApprovalPolicy,
-  permissionModeAccessScope,
-  type PermissionMode
-} from '../tools/permissionModes';
+import { saasToolApprovalPolicy } from '../tools/saasToolPolicy';
 import type { ToolGateway } from '../tools/toolGateway';
 import {
   formatRegistryForPrompt,
@@ -40,16 +36,11 @@ export interface SessionServicesOptions {
     mode: AgentMode;
     previous: AgentMode;
   }) => void;
-  emitPermissionChanged: (event: {
-    mode: PermissionMode;
-    previous: PermissionMode;
-  }) => void;
   emitWorkStateChanged: () => void;
 }
 
 /** Session-scoped policy state and prompt-source synchronization. */
 export class SessionServices {
-  private permissionMode: PermissionMode = 'default';
   private sessionMode: AgentMode = 'auto';
   private pendingModeExecution: PendingModeExecution | undefined;
   private projectInstructionSourceIds = new Set<string>();
@@ -73,13 +64,8 @@ export class SessionServices {
         this.deps.emitWorkStateChanged();
       }
     });
-    this.deps.toolGateway?.setApprovalPolicy(
-      createApprovalPolicy(this.permissionMode)
-    );
-    this.deps.toolGateway?.setAccessScope(
-      permissionModeAccessScope(this.permissionMode)
-    );
-    this.syncPermissionModeSource();
+    this.deps.toolGateway?.setApprovalPolicy(saasToolApprovalPolicy);
+    this.syncToolPolicySource();
     this.syncModelProfilesSource();
   }
 
@@ -100,6 +86,17 @@ export class SessionServices {
   }
 
   syncSessionModeSource(): void {
+    if (this.deps.options.executionProfile?.supportsModeSelection === false) {
+      this.deps.sessionContext.addSource({
+        id: 'session-mode',
+        kind: 'user',
+        title: 'Work strategy',
+        content: 'Cloud 工作台使用自动运行；根据用户意图直接回答或完成任务，不提供模式切换。',
+        priority: 97,
+        pinned: true
+      });
+      return;
+    }
     this.deps.sessionContext.addSource({
       id: 'session-mode',
       kind: 'user',
@@ -136,58 +133,27 @@ export class SessionServices {
     this.deps.emitWorkStateChanged();
   }
 
-  getPermissionMode(): PermissionMode {
-    return this.permissionMode;
-  }
-
-  setPermissionMode(mode: PermissionMode): void {
-    if (this.permissionMode === mode) {
-      this.syncPermissionModeSource();
-      return;
-    }
-    const previous = this.permissionMode;
-    this.permissionMode = mode;
-    this.deps.toolGateway?.setApprovalPolicy(createApprovalPolicy(mode));
-    this.deps.toolGateway?.setAccessScope(permissionModeAccessScope(mode));
-    this.syncPermissionModeSource();
-    this.deps.emitPermissionChanged({ mode, previous });
-    this.deps.emitWorkStateChanged();
-  }
-
   /**
    * 把当前权限边界作为受 runtime 管理的 pinned context 注入模型。
    * 这只帮助模型选择正确工具；最终授权仍完全由 ToolGateway 强制执行。
    */
-  syncPermissionModeSource(): void {
+  syncToolPolicySource(): void {
     const workspace =
       this.deps.options.workspaceRoots?.primary ??
       (this.deps.options.workspaceRoot
         ? resolve(this.deps.options.workspaceRoot)
         : resolve(process.cwd()));
-    const accessScope = permissionModeAccessScope(this.permissionMode);
-    const modeRules: Record<PermissionMode, string[]> = {
-      default: [
-        '工作区内的读取工具自动允许。',
-        '编辑、执行、网络及其他非读取操作必须请求用户审批。'
-      ],
-      classifier: [
-        '工作区内的读取和编辑工具自动允许。',
-        'Shell 执行、网络及不熟悉的操作必须请求用户审批；已知危险命令会被阻止。'
-      ],
-      auto: [
-        '所有工具调用自动允许，文件访问范围扩展到整个系统。',
-        '可以使用任意目录的绝对路径，但仍须遵守用户授权与任务范围。'
-      ]
-    };
     this.deps.sessionContext.addSource({
       id: 'tool-permissions',
       kind: 'workspace',
       title: 'Runtime tool permissions',
       content: [
-        `当前工具权限模式：${this.permissionMode}`,
-        `文件访问范围：${accessScope}`,
+        '当前使用固定的 Cloud 工具策略。',
+        '文件访问范围：workspace',
         `主工作目录：${workspace}`,
-        ...modeRules[this.permissionMode].map((rule) => `- ${rule}`),
+        '- 工作区内读写、构建、测试和普通本地命令自动执行。',
+        '- 外部系统写入和未知网络操作需要用户确认。',
+        '- 破坏工作区或容器边界的命令会直接拒绝。',
         '- 相对路径始终以主工作目录为基准；不要重复拼接工作区目录名。',
         '- 读取/搜索优先使用 Read、List、Glob、Grep 或 Rg；Git 操作优先使用 Git；仅在没有对应结构化工具时使用 Bash。',
         '- 本上下文用于工具选择，不授予额外权限；ToolGateway 的实时判定是最终权限边界。'
@@ -370,8 +336,7 @@ export class SessionServices {
       pendingModeExecution: this.pendingModeExecution
         ? JSON.parse(JSON.stringify(this.pendingModeExecution))
         : undefined,
-      sessionMode: this.sessionMode,
-      permissionMode: this.permissionMode
+      sessionMode: this.sessionMode
     };
   }
 
@@ -381,18 +346,16 @@ export class SessionServices {
     const previousMode = this.sessionMode;
     this.restoringWorkState = true;
     try {
-      this.pendingModeExecution = restored.pendingModeExecution;
-      this.sessionMode = restored.sessionMode;
-      this.permissionMode = restored.permissionMode ?? 'default';
-      this.deps.toolGateway?.setApprovalPolicy(
-        createApprovalPolicy(this.permissionMode)
-      );
-      this.deps.toolGateway?.setAccessScope(
-        permissionModeAccessScope(this.permissionMode)
-      );
+      this.pendingModeExecution = this.deps.options.executionProfile?.supportsModeSelection === false
+        ? undefined
+        : restored.pendingModeExecution;
+      this.sessionMode = this.deps.options.executionProfile?.supportsModeSelection === false
+        ? 'auto'
+        : restored.sessionMode;
+      this.deps.toolGateway?.setApprovalPolicy(saasToolApprovalPolicy);
       this.deps.options.todoStore?.restore(restored.todos);
       this.syncSessionModeSource();
-      this.syncPermissionModeSource();
+      this.syncToolPolicySource();
       this.syncTodoContextSource();
     } finally {
       this.restoringWorkState = false;

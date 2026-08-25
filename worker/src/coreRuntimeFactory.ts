@@ -65,7 +65,6 @@ export async function createPersistentAgentHost(input: {
     runtimeOptions: { personalSkillsDir: join(input.workspaceRoot, 'skills') }
   });
   const runtime = host.createRuntime();
-  runtime.setPermissionMode('classifier');
   return {
     runtime: runtime as unknown as AgentRuntimeHandle,
     reloadMcp: async () => {

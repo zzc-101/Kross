@@ -186,8 +186,6 @@ describe('AgentRuntime observability', () => {
           return { stdout: '', stderr: '' };
         }
       });
-      // Runtime 会覆盖 gateway 的 approvalPolicy；用 auto 放行 Write
-      runtime.setPermissionMode('auto');
 
       const result = await runtime.run({
         input: '写个文件',
@@ -273,7 +271,6 @@ describe('AgentRuntime observability', () => {
         toolGateway,
         createRunId: () => 'run-verification-report'
       });
-      runtime.setPermissionMode('auto');
 
       const result = await runtime.run({
         input: '运行测试',
@@ -359,7 +356,6 @@ describe('AgentRuntime observability', () => {
         })
       });
       const runtime = new AgentRuntime({ traceStore, llmClient, toolGateway });
-      runtime.setPermissionMode('auto');
 
       const result = await runtime.run({
         input: '检查类型',
@@ -392,7 +388,6 @@ describe('AgentRuntime observability', () => {
       toolGateway,
       createRunId: () => 'run-verification-followup'
     });
-    runtime.setPermissionMode('auto');
 
     const result = await runtime.run({
       input: '修改 gate 实现',
@@ -442,7 +437,6 @@ describe('AgentRuntime observability', () => {
       llmClient,
       toolGateway: createVerificationGateGateway(traceStore)
     });
-    runtime.setPermissionMode('auto');
 
     const result = await runtime.run({
       input: '修改并验证 gate 实现',

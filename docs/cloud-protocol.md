@@ -10,7 +10,7 @@ npm Protocol 包。
 - 直播：`GET /api/v2/agent/conversations/{id}/events`（SSE，`event: channel`）
 - 历史：`GET /api/v2/agent/conversations/{id}/messages`
 - 可用模型：`GET /api/v2/agent/models`
-- 对话模式/模型：`PATCH /api/v2/agent/conversations/{id}`（`mode`、`modelId`）
+- 对话模型：`PATCH /api/v2/agent/conversations/{id}`（`modelId`）
 
 SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要把每个 token 写入数据库；
 回合结束再写完整快照。
@@ -25,8 +25,8 @@ SSE 体是通用消息事件，包含文本、思考和工具 `parts`。不要�
 该路径不经过公网 Nginx。Worker 应连控制面（Compose 别名 `kross-server` 或集群
 内部口），不要连浏览器入口 `:8787`。
 
-当前 Worker 线协议版本为 3。握手后控制面推送 `agent.job`（含对话 `mode`、
-`leaseId` 与可选 `modelId`）。Worker 在心跳里续租当前任务；租约失效时必须中止
+当前 Worker 线协议版本为 3。握手后控制面推送 `agent.job`（含 `leaseId` 与可选
+`modelId`）。Worker 在心跳里续租当前任务；租约失效时必须中止
 本地生成，控制面会按最大尝试次数重新排队或标记失败。Worker 可带
 `modelId` 再要一次 `agent.model_environment`。生成过程立即推 `agent.events`，
 结束时用 `agent.message` 提交完整 `parts`。`agent.events` 只用于即时直播，采用

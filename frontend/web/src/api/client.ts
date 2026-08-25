@@ -75,7 +75,6 @@ const agentModelSchema: z.ZodType<AgentModel> = z.object({
 const conversationSchema: z.ZodType<Conversation, z.ZodTypeDef, unknown> = z.object({
   id,
   title: z.string().min(1),
-  mode: z.enum(['auto', 'plan', 'conductor']).default('auto'),
   modelId: z.string().min(1).optional(),
   skillId: z.string().min(1).optional(),
   archivedAt: instant.optional(),
@@ -284,7 +283,6 @@ export class AgentApiClient {
   patchConversation(conversationId: string, patch: {
     title?: string;
     archived?: boolean;
-    mode?: Conversation['mode'];
     modelId?: string;
   }): Promise<Conversation> {
     return this.request(

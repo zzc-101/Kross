@@ -75,7 +75,7 @@ export interface CreateBuiltinToolsOptions {
   skillRegistry?: SkillRegistry;
   /** Durable pre/post image journal for all file mutation tools. */
   mutationService?: MutationService;
-  /** Journals file mutations outside the primary workspace in full-access mode. */
+  /** Optional coordinator for additional explicitly authorized workspaces. */
   mutationCoordinator?: MutationCoordinator;
   /** Main-session managed process lifecycle; intentionally omitted for subagents. */
   processManager?: ProcessManager;

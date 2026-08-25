@@ -31,7 +31,7 @@ export function createDeleteTool(
   return {
     name: 'Delete',
     description:
-      '删除文件或目录。默认限当前工作区，完全访问模式支持任意绝对路径；删除目录需显式 recursive: true。',
+      '删除工作区内的文件或目录；删除目录需显式 recursive: true。',
     risk: 'write',
     category: 'filesystem',
     inputSchema: z.object({
