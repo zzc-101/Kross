@@ -40,9 +40,7 @@ import com.kross.identity.dto.InviteView;
 import com.kross.identity.dto.MemberRemoved;
 import com.kross.identity.dto.MemberView;
 import com.kross.identity.dto.NodeHealthView;
-import com.kross.identity.dto.OrganizationPolicyView;
 import com.kross.identity.dto.UpdateMemberRequest;
-import com.kross.identity.dto.UpdatePolicyRequest;
 import com.kross.identity.dto.UsageView;
 import com.kross.identity.entity.Member;
 import com.kross.identity.entity.OrganizationInvite;
@@ -246,28 +244,6 @@ public class AdminService {
     }
     identities.deleteMembership(context.organizationId(), target.getId());
     return new MemberRemoved(target.getId(), true);
-  }
-
-  public OrganizationPolicyView getPolicy(String organizationId) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.CREDENTIAL_MANAGE);
-    return IdentityViews.policy(identities.findOrganization(context.organizationId())
-        .orElseThrow(() -> ApiException.notFound("Organization")));
-  }
-
-  @Transactional
-  public OrganizationPolicyView updatePolicy(String organizationId, UpdatePolicyRequest request) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.CREDENTIAL_MANAGE);
-    boolean setRetention = request.dataRetentionDays() != null;
-    Integer retentionDays = !setRetention || request.dataRetentionDays().isNull()
-        ? null
-        : request.dataRetentionDays().asInt();
-    identities.updatePolicy(
-        context.organizationId(),
-        request.defaultTimezone(),
-        setRetention,
-        retentionDays,
-        request.approvalPolicy());
-    return getPolicy(organizationId);
   }
 
   public PageResponse<ModelProfileView> listModels(int page, int pageSize) {

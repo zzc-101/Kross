@@ -85,16 +85,8 @@ public final class IdentityViews {
         organization.getStatus(),
         organization.getDefaultTimezone(),
         organization.getDataRetentionDays(),
-        organization.getApprovalPolicy(),
         organization.getCreatedAt(),
         organization.getUpdatedAt());
-  }
-
-  public static OrganizationPolicyView policy(Organization organization) {
-    return new OrganizationPolicyView(
-        organization.getDefaultTimezone(),
-        organization.getDataRetentionDays(),
-        organization.getApprovalPolicy());
   }
 
   public static DashboardCountsView counts(DashboardCounts row) {

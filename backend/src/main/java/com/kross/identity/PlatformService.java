@@ -14,7 +14,6 @@ import com.kross.identity.entity.Organization;
 import com.kross.identity.entity.OrganizationListRow;
 import com.kross.identity.entity.User;
 import com.kross.support.Ids;
-import com.kross.support.Policies;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,7 +50,7 @@ public class PlatformService {
     String timezone = Optional.ofNullable(request.defaultTimezone()).filter(value -> !value.isBlank()).orElse("UTC");
     String organizationId = UUID.randomUUID().toString();
     try {
-      identities.insertOrganization(organizationId, slug, name, timezone, Policies.defaultApprovalPolicy());
+      identities.insertOrganization(organizationId, slug, name, timezone);
     } catch (DuplicateKeyException error) {
       throw ApiException.conflict("organization_exists", "Organization slug already exists");
     }

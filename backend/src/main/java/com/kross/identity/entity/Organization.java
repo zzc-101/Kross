@@ -4,7 +4,6 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Instant;
 
 @Getter
@@ -18,7 +17,6 @@ public class Organization {
   private String status;
   private String defaultTimezone;
   private Integer dataRetentionDays;
-  private JsonNode approvalPolicy;
   private Instant createdAt;
   private Instant updatedAt;
 }

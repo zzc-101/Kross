@@ -10,26 +10,6 @@ public final class Policies {
 
   private Policies() {}
 
-  public static ObjectNode defaultApprovalPolicy() {
-    ObjectNode policy = MAPPER.createObjectNode();
-    policy.put("requirePlanApproval", false);
-    policy.put("requireExternalActionApproval", true);
-    policy.put("minimumToolRiskRequiringApproval", "high");
-    policy.put("allowAdminOrganizationHighRiskApproval", false);
-    policy.put("allowMemberHighRiskApproval", false);
-    return policy;
-  }
-
-  public static ObjectNode defaultPermissionPolicy(boolean allowNetwork) {
-    ObjectNode policy = MAPPER.createObjectNode();
-    policy.put("version", 1);
-    policy.put("allowNetworkAccess", allowNetwork);
-    policy.put("allowRepositoryWrite", false);
-    policy.set("allowedConnectorScopes", MAPPER.createArrayNode());
-    policy.set("approvalPolicy", defaultApprovalPolicy());
-    return policy;
-  }
-
   public static ObjectNode defaultResourceLimits() {
     ObjectNode limits = MAPPER.createObjectNode();
     limits.put("cpuMillis", 1_000);

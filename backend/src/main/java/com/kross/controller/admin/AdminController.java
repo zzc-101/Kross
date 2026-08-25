@@ -31,14 +31,12 @@ import com.kross.identity.dto.InviteMemberRequest;
 import com.kross.identity.dto.InviteView;
 import com.kross.identity.dto.MemberRemoved;
 import com.kross.identity.dto.MemberView;
-import com.kross.identity.dto.OrganizationPolicyView;
 import com.kross.identity.dto.PlatformOrganizationView;
 import com.kross.identity.dto.PlatformSettingsView;
 import com.kross.identity.dto.PlatformSsoView;
 import com.kross.identity.dto.UpdateMemberRequest;
 import com.kross.identity.dto.UpdateOrganizationRequest;
 import com.kross.identity.dto.UpdatePlatformRequest;
-import com.kross.identity.dto.UpdatePolicyRequest;
 import com.kross.identity.dto.UpdateSsoRequest;
 import com.kross.identity.dto.UserAccountView;
 import java.util.List;
@@ -190,19 +188,6 @@ public class AdminController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @PathVariable String membershipId) {
     return Res.ok(admin.removeMember(organizationId, membershipId));
-  }
-
-  @GetMapping("/approval-policy")
-  public Res<OrganizationPolicyView> getPolicy(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
-    return Res.ok(admin.getPolicy(organizationId));
-  }
-
-  @PatchMapping("/approval-policy")
-  public Res<OrganizationPolicyView> updatePolicy(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
-      @RequestBody UpdatePolicyRequest request) {
-    return Res.ok(admin.updatePolicy(organizationId, request));
   }
 
   @GetMapping("/auth-logs")

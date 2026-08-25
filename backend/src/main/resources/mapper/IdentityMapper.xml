@@ -124,7 +124,7 @@
   </select>
 
   <select id="findOrganization" resultType="com.kross.identity.entity.Organization">
-    SELECT id, slug, name, status, default_timezone, data_retention_days, approval_policy, created_at, updated_at
+    SELECT id, slug, name, status, default_timezone, data_retention_days, created_at, updated_at
     FROM organizations WHERE id = #{id}
   </select>
 
@@ -137,8 +137,8 @@
   </select>
 
   <insert id="insertOrganization">
-    INSERT INTO organizations (id, slug, name, status, default_timezone, data_retention_days, approval_policy)
-    VALUES (#{id}, #{slug}, #{name}, 'active', #{timezone}, 90, #{policy, typeHandler=com.kross.support.JsonbTypeHandler})
+    INSERT INTO organizations (id, slug, name, status, default_timezone, data_retention_days)
+    VALUES (#{id}, #{slug}, #{name}, 'active', #{timezone}, 90)
   </insert>
 
   <insert id="insertMembership">
@@ -211,15 +211,6 @@
   <delete id="deleteMembership">
     DELETE FROM organization_memberships WHERE organization_id = #{organizationId} AND id = #{id}
   </delete>
-
-  <update id="updatePolicy">
-    UPDATE organizations
-    SET default_timezone = COALESCE(#{timezone}, default_timezone),
-        data_retention_days = CASE WHEN #{setRetention} THEN #{retentionDays} ELSE data_retention_days END,
-        approval_policy = COALESCE(#{policy, typeHandler=com.kross.support.JsonbTypeHandler}, approval_policy),
-        updated_at = now()
-    WHERE id = #{id}
-  </update>
 
   <select id="dashboardCounts" resultType="com.kross.identity.entity.DashboardCounts">
     SELECT

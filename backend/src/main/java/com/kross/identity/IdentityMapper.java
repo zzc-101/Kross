@@ -1,6 +1,5 @@
 package com.kross.identity;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.kross.identity.entity.DashboardCounts;
 import com.kross.identity.entity.Member;
 import com.kross.identity.entity.Membership;
@@ -94,8 +93,7 @@ public interface IdentityMapper {
       @Param("id") String id,
       @Param("slug") String slug,
       @Param("name") String name,
-      @Param("timezone") String timezone,
-      @Param("policy") JsonNode policy);
+      @Param("timezone") String timezone);
 
   void insertMembership(
       @Param("id") String id,
@@ -130,13 +128,6 @@ public interface IdentityMapper {
       @Param("status") String status);
 
   int deleteMembership(@Param("organizationId") String organizationId, @Param("id") String id);
-
-  int updatePolicy(
-      @Param("id") String id,
-      @Param("timezone") String timezone,
-      @Param("setRetention") boolean setRetention,
-      @Param("retentionDays") Integer retentionDays,
-      @Param("policy") JsonNode policy);
 
   DashboardCounts dashboardCounts(@Param("organizationId") String organizationId);
 

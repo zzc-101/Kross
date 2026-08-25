@@ -1,6 +1,5 @@
 package com.kross.identity.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Instant;
 
 public record OrganizationView(
@@ -10,6 +9,5 @@ public record OrganizationView(
     String status,
     String defaultTimezone,
     Integer dataRetentionDays,
-    JsonNode approvalPolicy,
     Instant createdAt,
     Instant updatedAt) {}
