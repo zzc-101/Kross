@@ -84,7 +84,7 @@ export interface ContextContributor {
 
 export interface ContextReport {
   totalTokens: number;
-  /** 兼容 TUI / trace */
+  /** 字符统计，供运行追踪使用。 */
   totalChars: number;
   sections: Record<ContextSection, number>;
   contributors: ContextContributor[];

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.agent.dto.AgentProtocol;
 import com.kross.agent.dto.AgentMessageView;
-import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AgentViews;
 import com.kross.agent.dto.AppendAgentMessageRequest;
 import com.kross.agent.dto.ConversationView;
@@ -14,11 +13,9 @@ import com.kross.agent.dto.CreateMemoryRequest;
 import com.kross.agent.dto.MemoryView;
 import com.kross.agent.dto.PatchMemoryRequest;
 import com.kross.agent.dto.RememberMemoryRequest;
-import com.kross.agent.dto.McpConfigView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.dto.SkillView;
-import com.kross.agent.dto.UpdateMcpRequest;
 import com.kross.agent.dto.WorkspaceFileView;
 import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.agent.entity.Agent;
@@ -92,18 +89,6 @@ public class AgentService {
   private final SkillCatalogService skills;
   private final ReentrantLock[] runtimeLocks = createLocks(RUNTIME_LOCK_STRIPES);
 
-  public AgentModelView currentModel(String organizationId) {
-    access.require(organizationId, OrganizationAction.AGENT_READ);
-    return agents.findUsableModel().map(AgentViews::model).orElse(null);
-  }
-
-  public List<AgentModelView> listModels(String organizationId) {
-    access.require(organizationId, OrganizationAction.AGENT_READ);
-    return agents.listUsableModels().stream()
-        .map(AgentViews::model)
-        .toList();
-  }
-
   public List<ConversationView> listConversations(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
     Agent agent = ensure(context);
@@ -144,14 +129,6 @@ public class AgentService {
         conversation.setArchivedAt(Optional.ofNullable(conversation.getArchivedAt()).orElse(Instant.now()));
       } else {
         conversation.setArchivedAt(null);
-      }
-    });
-    Optional.ofNullable(request.modelId()).ifPresent(modelId -> {
-      String trimmed = modelId.trim();
-      if (trimmed.isEmpty()) {
-        conversation.setModelId(null);
-      } else {
-        conversation.setModelId(requireUsableModel(trimmed).getId());
       }
     });
     agents.updateConversation(conversation);
@@ -289,36 +266,6 @@ public class AgentService {
             row.getId(), row.getName(), row.getDescription(), row.getCategory(), row.getIcon(),
             row.getLaunchMode(), row.getStarterPrompt(), row.getRevision()))
         .toList();
-  }
-
-  public McpConfigView mcpConfig(String organizationId) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
-    Agent agent = ensure(context);
-    return new McpConfigView(loadMcpServers(agent.getId()));
-  }
-
-  public McpConfigView updateMcpConfig(String organizationId, UpdateMcpRequest request) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_CHAT);
-    Agent agent = ensure(context);
-    JsonNode servers = requireMcpServers(Optional.ofNullable(request).map(UpdateMcpRequest::servers).orElse(null));
-    AgentSettings settings = new AgentSettings();
-    settings.setAgentId(agent.getId());
-    settings.setOrganizationId(context.organizationId());
-    settings.setMcpServers(servers);
-    agents.upsertSettings(settings);
-    Thread.ofVirtual().start(RequestLogContext.propagate(() -> {
-      try {
-        withRuntimeLock(agent.getId(), () -> {
-          JsonNode latest = loadMcpServers(agent.getId());
-          Map<String, Object> payload = new LinkedHashMap<>();
-          payload.put("servers", mapper.convertValue(latest, new TypeReference<Map<String, Object>>() {}));
-          runWorkspaceCommand(agent, "mcp.save", payload, Duration.ofSeconds(45));
-        });
-      } catch (RuntimeException error) {
-        log.warn("Failed to sync MCP settings to agent {}: {}", agent.getId(), error.getMessage());
-      }
-    }));
-    return new McpConfigView(servers);
   }
 
   public AgentProtocol.WorkerSettings workerSettings(String token) {
@@ -841,16 +788,11 @@ public class AgentService {
     }
   }
 
-  private AgentModel requireUsableModel(String modelId) {
-    return agents.findUsableModelById(modelId)
-        .orElseThrow(() -> ApiException.invalidRequest("Model is not available"));
-  }
-
   private AgentModel resolveUsableModel(Optional<String> modelId) {
     return modelId
         .map(String::trim)
         .filter(value -> !value.isEmpty())
-        .map(this::requireUsableModel)
+        .flatMap(agents::findUsableModelById)
         .or(agents::findUsableModel)
         .orElseThrow(() -> ApiException.conflict(
             "model_credential_unavailable", "No usable model credential is configured"));
@@ -861,32 +803,6 @@ public class AgentService {
         .map(AgentSettings::getMcpServers)
         .map(Jsons::objectOrEmpty)
         .orElseGet(() -> mapper.createObjectNode());
-  }
-
-  private JsonNode requireMcpServers(JsonNode node) {
-    JsonNode servers = Jsons.objectOrEmpty(node);
-    if (servers.size() > 40) {
-      throw ApiException.invalidRequest("Too many MCP servers");
-    }
-    if (servers.toString().length() > 64_000) {
-      throw ApiException.invalidRequest("MCP configuration is too large");
-    }
-    servers.fieldNames().forEachRemaining(id -> {
-      requireResourceName(id, "MCP server id");
-      JsonNode config = servers.get(id);
-      if (config == null || !config.isObject()) {
-        throw ApiException.invalidRequest("Each MCP server must be an object");
-      }
-    });
-    return servers;
-  }
-
-  private static String requireResourceName(String value, String label) {
-    String name = Optional.ofNullable(value).orElse("").trim();
-    if (!name.matches("[A-Za-z][A-Za-z0-9_-]{0,63}")) {
-      throw ApiException.invalidRequest(label + " must be 1-64 letters, digits, _ or -");
-    }
-    return name;
   }
 
   private static String clipTitle(String title) {

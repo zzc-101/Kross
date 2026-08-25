@@ -5,8 +5,7 @@ const MUTATING_FILE_TOOLS = new Set([
   'Write',
   'Edit',
   'Delete',
-  'Move',
-  'ApplyPatch'
+  'Move'
 ]);
 
 export interface TouchedFile {

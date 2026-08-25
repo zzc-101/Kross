@@ -118,7 +118,7 @@ export interface ToolGatewayOptions {
   approvalPolicy?: ToolApprovalPolicy;
   defaultTimeoutMs?: number;
   maxSummaryChars?: number;
-  /** completed 事件 contentPreview 最大字符，供 TUI 展开预览（默认 4000） */
+  /** completed 事件 contentPreview 最大字符（默认 4000）。 */
   maxContentPreviewChars?: number;
   /**
    * Gateway 默认重试策略。
@@ -129,8 +129,7 @@ export interface ToolGatewayOptions {
   /** 测试可注入；默认 setTimeout。 */
   sleep?: (ms: number) => Promise<void>;
   /**
-   * Merged into every tool_call.* payload (e.g. `{ isSubagent: true }` so TUI
-   * can hard-filter subagent traffic from the main transcript).
+   * Merged into every tool_call.* payload so consumers can separate child work.
    */
   tracePayloadExtras?: Record<string, unknown>;
 }

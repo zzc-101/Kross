@@ -18,10 +18,6 @@ import {
 } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
-import {
-  formatProjectInstructionSource,
-  loadProjectInstructions
-} from '../workspace/projectInstructions';
 import { runCompleteToolLoop } from './completeToolLoop';
 import type {
   SubagentMode,
@@ -104,10 +100,6 @@ export async function runSubagent(
     deriveSubagentTitle(goal);
 
   const workspaceRoot = deps.workspaceRoot;
-  const rootId = 'workspace';
-  const projectInstructions = loadProjectInstructions({
-    roots: [{ id: rootId, path: workspaceRoot, primary: true }]
-  });
   const requestedProfileId = request.modelProfileId?.trim();
   if (requestedProfileId && !deps.resolveModelProfile) {
     throw new Error('当前 Host 不支持按模型档案派生子代理');
@@ -139,13 +131,6 @@ export async function runSubagent(
     ...modelExtras,
     goalPreview: goal.slice(0, 240),
     autoApprove: true,
-    projectInstructions: projectInstructions.files.map((file) => ({
-      filename: file.filename,
-      rootId: file.rootId,
-      truncated: file.truncated,
-      injectedBytes: file.injectedBytes
-    })),
-    projectInstructionDiagnosticCount: projectInstructions.diagnostics.length,
     activeSkill: deps.activeSkill
       ? { id: deps.activeSkill.id, revision: deps.activeSkill.revision }
       : undefined
@@ -225,17 +210,6 @@ export async function runSubagent(
     isSubagent: true,
     contextWindow: llmClient.contextWindow
   });
-  for (const file of projectInstructions.files) {
-    sessionContext.addSource({
-      id: file.sourceId,
-      kind: 'repo',
-      title: `Project instructions: ${file.rootId}/${file.filename}`,
-      content: formatProjectInstructionSource(file),
-      priority: 99,
-      pinned: true
-    });
-  }
-
   try {
     let stalled = false;
     const summary = await runCompleteToolLoop({

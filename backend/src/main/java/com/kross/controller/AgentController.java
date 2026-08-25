@@ -2,7 +2,6 @@ package com.kross.controller;
 
 import com.kross.agent.AgentService;
 import com.kross.agent.dto.AgentMessageView;
-import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AppendAgentMessageRequest;
 import com.kross.agent.dto.ConversationView;
 import com.kross.agent.dto.CreateConversationRequest;
@@ -10,11 +9,9 @@ import com.kross.agent.dto.CreateMemoryRequest;
 import com.kross.agent.dto.MemoryView;
 import com.kross.agent.dto.PatchMemoryRequest;
 import com.kross.agent.dto.RememberMemoryRequest;
-import com.kross.agent.dto.McpConfigView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.dto.SkillView;
-import com.kross.agent.dto.UpdateMcpRequest;
 import com.kross.agent.dto.WorkspaceFileView;
 import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.api.ApiHeaders;
@@ -30,7 +27,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -44,16 +40,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/agent")
 public class AgentController {
   private final AgentService agents;
-
-  @GetMapping("/model")
-  public Res<AgentModelView> model(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
-    return Res.ok(agents.currentModel(organizationId));
-  }
-
-  @GetMapping("/models")
-  public Res<ItemList<AgentModelView>> models(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
-    return Res.ok(new ItemList<>(agents.listModels(organizationId)));
-  }
 
   @GetMapping("/conversations")
   public Res<ItemList<ConversationView>> conversations(
@@ -122,18 +108,6 @@ public class AgentController {
   @GetMapping("/skills")
   public Res<ItemList<SkillView>> skills(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
     return Res.ok(new ItemList<>(agents.listSkills(organizationId)));
-  }
-
-  @GetMapping("/mcp")
-  public Res<McpConfigView> mcp(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
-    return Res.ok(agents.mcpConfig(organizationId));
-  }
-
-  @PutMapping("/mcp")
-  public Res<McpConfigView> updateMcp(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
-      @RequestBody UpdateMcpRequest request) {
-    return Res.ok(agents.updateMcpConfig(organizationId, request));
   }
 
   @GetMapping("/memories")

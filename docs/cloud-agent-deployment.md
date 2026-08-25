@@ -1,6 +1,6 @@
 # Cloud Agent 部署与运维
 
-本文描述本分支的自托管部署。本分支没有本地 TUI / CLI；执行环境是每位成员
+本文描述 SaaS Work Agent 的自托管部署。执行环境是每位成员
 一块持久 Docker Worker。本地终端产品仍在 `main`。
 
 ## 组件边界

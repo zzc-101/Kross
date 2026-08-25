@@ -3,36 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { classifyToolCallPhase, phaseForLifecycleEvent } from './runPhase';
 
 describe('runPhase', () => {
-  it('classifies read, planning, and mutation tools', () => {
+  it('classifies read, preparation, and mutation tools', () => {
     expect(classifyToolCallPhase(call('Read', { path: 'src/a.ts' })).phase).toBe(
       'inspect'
     );
     expect(classifyToolCallPhase(call('TodoWrite', { todos: [] })).phase).toBe(
-      'plan'
+      'prepare'
     );
     expect(classifyToolCallPhase(call('Edit', { path: 'src/a.ts' })).phase).toBe(
       'act'
     );
-  });
-
-  it('recognizes verification commands instead of treating every shell call as act', () => {
-    const classified = classifyToolCallPhase(
-      call('Bash', { command: 'npm run typecheck && npm test' })
-    );
-
-    expect(classified.phase).toBe('verify');
-    expect(classified.verification?.kinds).toEqual(
-      expect.arrayContaining(['typecheck', 'test'])
-    );
-  });
-
-  it('only treats process polling as verification when a check is pending', () => {
-    const poll = call('ProcessPoll', { processId: 'process-1' });
-
-    expect(classifyToolCallPhase(poll).phase).toBe('act');
-    expect(
-      classifyToolCallPhase(poll, undefined, { verificationPending: true }).phase
-    ).toBe('verify');
   });
 
   it('maps lifecycle events to observable phases', () => {

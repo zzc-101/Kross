@@ -35,7 +35,7 @@ export interface ContextMaintenanceResult {
   preservedMessageCount: number;
   tokensBefore: number;
   tokensAfter: number;
-  /** 兼容旧 trace / TUI 字段 */
+  /** 字符统计，供运行追踪使用。 */
   historyCharsBefore: number;
   historyCharsAfter: number;
   summaryChars?: number;

@@ -22,8 +22,6 @@ export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
 export { createTaskTool, type CreateTaskToolOptions } from './task';
 export { createDefaultSubagentRunner } from '../../runtime/subagentRunner';
 export { createTodoReadTool, createTodoWriteTool } from './todo';
-export { createApplyPatchTool } from './applyPatch';
-export { createProcessTools } from './processTools';
 
 export const saasToolNames = [
   'Read',

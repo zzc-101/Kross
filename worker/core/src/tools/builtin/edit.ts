@@ -63,7 +63,7 @@ export interface EditResultData {
   replaceAll: boolean;
   mutated: boolean;
   editCount?: number;
-  /** TUI 展开用红绿 diff 预览 */
+  /** 供运行事件展示的 diff 预览。 */
   diffPreview?: DiffPreview;
   /** 失败时的定位提示 */
   hint?: string;

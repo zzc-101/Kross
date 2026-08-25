@@ -1,9 +1,7 @@
 /**
- * 把工具入参格式化成 TUI / 审批面板可读的短预览。
+ * 把工具入参格式化成审批与运行事件可读的短预览。
  * Edit/Write 突出 path 与变更片段，避免整文件 JSON 糊屏。
  */
-
-import { formatProcessCommandPreview } from '../process/processCommandPreview';
 
 const DEFAULT_MAX = 500;
 
@@ -44,25 +42,6 @@ export function formatToolInputPreview(
     const from = typeof record.from === 'string' ? record.from : '?';
     const to = typeof record.to === 'string' ? record.to : '?';
     return truncate(`${from} → ${to}`, maxChars);
-  }
-
-  if (name === 'ProcessStart' && typeof record.commandPreview === 'string') {
-    return truncate(record.commandPreview, maxChars);
-  }
-
-  if (name === 'ProcessStart' && typeof record.command === 'string') {
-    return truncate(formatProcessCommandPreview(record.command, maxChars), maxChars);
-  }
-
-  if (name === 'Bash' && typeof record.command === 'string') {
-    return truncate(`$ ${record.command}`, maxChars);
-  }
-
-  if (name === 'ProcessWrite' && typeof record.processId === 'string') {
-    return truncate(
-      `${record.processId} · ${Number(record.textBytes ?? 0)} bytes${record.eof === true ? ' · EOF' : ''}`,
-      maxChars
-    );
   }
 
   if (name === 'Task') {

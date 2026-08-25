@@ -60,7 +60,7 @@ export class TodoStore {
     return { todos, counts };
   }
 
-  /** Subscribe to list changes (for TUI refresh). */
+  /** Subscribe to list changes for work-state persistence. */
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => {

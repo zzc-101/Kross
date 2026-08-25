@@ -43,10 +43,6 @@ export class ConversationRuntimeRegistry {
     return next;
   }
 
-  async reloadMcp(): Promise<void> {
-    await this.current?.host.reloadMcp();
-  }
-
   async close(): Promise<void> {
     const current = this.current;
     this.current = undefined;

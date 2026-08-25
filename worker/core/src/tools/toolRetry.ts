@@ -30,7 +30,7 @@ export const DEFAULT_TOOL_RETRY_POLICY: ResolvedToolRetryPolicy = {
   retryOn: isRetryableToolError
 };
 
-/** Bash 等：仅超时可重试，exit≠0 不走此路径。 */
+/** 仅超时可重试的工具策略。 */
 export const TIMEOUT_ONLY_RETRY_POLICY: ToolRetryPolicy = {
   maxAttempts: 2,
   backoffMs: 200,

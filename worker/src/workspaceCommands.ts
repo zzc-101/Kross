@@ -31,8 +31,6 @@ export async function handleWorkspaceCommand(
         stringField(command.payload.path, ''),
         stringField(command.payload.content, '')
       );
-    case 'mcp.save':
-      return saveMcp(workspaceRoot, command.payload.servers);
     default:
       throw new Error(`Unsupported workspace command: ${command.name}`);
   }
@@ -100,10 +98,6 @@ export async function writeMcpConfig(root: string, servers: unknown): Promise<Re
     { encoding: 'utf8', mode: 0o600 }
   );
   return { servers: map };
-}
-
-async function saveMcp(root: string, servers: unknown): Promise<Record<string, unknown>> {
-  return writeMcpConfig(root, servers);
 }
 
 function normalizeMcpServers(value: unknown): Record<string, unknown> {

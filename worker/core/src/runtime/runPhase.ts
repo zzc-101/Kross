@@ -3,7 +3,7 @@ import type { ToolMetadata } from '../tools/toolGateway';
 
 export const RUN_PHASES = [
   'inspect',
-  'plan',
+  'prepare',
   'act',
   'review',
   'complete'
@@ -19,8 +19,7 @@ const MUTATION_TOOLS = new Set([
   'Write',
   'Edit',
   'Delete',
-  'Move',
-  'ApplyPatch'
+  'Move'
 ]);
 
 export function isRunPhase(value: unknown): value is RunPhase {
@@ -32,7 +31,7 @@ export function classifyToolCallPhase(
   metadata?: ToolMetadata
 ): ToolCallPhaseClassification {
   if (call.name === 'TodoWrite') {
-    return { phase: 'plan' };
+    return { phase: 'prepare' };
   }
   if (
     MUTATION_TOOLS.has(call.name) ||

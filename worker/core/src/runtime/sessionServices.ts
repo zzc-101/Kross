@@ -3,11 +3,6 @@ import { resolve } from 'node:path';
 import type { SessionContext } from '../context/sessionContext';
 import { saasToolApprovalPolicy } from '../tools/saasToolPolicy';
 import type { ToolGateway } from '../tools/toolGateway';
-import {
-  formatProjectInstructionSource,
-  loadProjectInstructions,
-  type ProjectInstructionsSnapshot
-} from '../workspace/projectInstructions';
 import type { TodoStore } from '../todo/todoStore';
 import type { AgentRuntimeOptions } from './agentRuntimeTypes';
 import {
@@ -25,8 +20,6 @@ export interface SessionServicesOptions {
 
 /** Session-scoped policy state and prompt-source synchronization. */
 export class SessionServices {
-  private projectInstructionSourceIds = new Set<string>();
-  private projectInstructions = loadProjectInstructions({ roots: [] });
   private restoringWorkState = false;
 
   constructor(private readonly deps: SessionServicesOptions) {
@@ -62,7 +55,7 @@ export class SessionServices {
         '- 外部系统写入和未知网络操作需要用户确认。',
         '- 破坏工作区或容器边界的操作会直接拒绝。',
         '- 相对路径始终以主工作目录为基准；不要重复拼接工作区目录名。',
-        '- 使用当前提供的结构化工具完成任务，不要假设 Bash、Git 或其他未提供工具可用。',
+        '- 只使用当前提供的结构化工具，不要假设存在未提供的本地执行能力。',
         '- 本上下文用于工具选择，不授予额外权限；ToolGateway 的实时判定是最终权限边界。'
       ].join('\n'),
       priority: 98,
@@ -121,37 +114,6 @@ export class SessionServices {
     });
   }
 
-  refreshProjectInstructions(): ProjectInstructionsSnapshot {
-    const roots = this.getInstructionRoots();
-    const next = loadProjectInstructions({ roots });
-    if (next.signature === this.projectInstructions.signature) {
-      return this.projectInstructions;
-    }
-
-    for (const sourceId of this.projectInstructionSourceIds) {
-      this.deps.sessionContext.removeSource(sourceId);
-    }
-    this.projectInstructionSourceIds.clear();
-
-    for (const file of next.files) {
-      this.deps.sessionContext.addSource({
-        id: file.sourceId,
-        kind: 'repo',
-        title: `Project instructions: ${file.rootId}/${file.filename}`,
-        content: formatProjectInstructionSource(file),
-        priority: 99,
-        pinned: true
-      });
-      this.projectInstructionSourceIds.add(file.sourceId);
-    }
-    this.projectInstructions = next;
-    return next;
-  }
-
-  getProjectInstructions(): ProjectInstructionsSnapshot {
-    return this.projectInstructions;
-  }
-
   exportWorkState(): SessionWorkStateV1 {
     return {
       version: 1,
@@ -173,17 +135,5 @@ export class SessionServices {
     }
     this.deps.emitWorkStateChanged();
     return true;
-  }
-
-  private getInstructionRoots() {
-    return this.deps.options.workspaceRoot
-      ? [
-          {
-            id: 'workspace',
-            path: this.deps.options.workspaceRoot,
-            primary: true
-          }
-        ]
-      : [];
   }
 }

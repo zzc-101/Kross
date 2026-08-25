@@ -37,7 +37,7 @@ function escapeRegExp(value: string): string {
 
 /**
  * 展开一层/多层花括号，例如 star-star/star.{ts,js} 扩展为多条模式。
- * 模型常写这种写法；不支持时会 0 匹配并误导模型改用 Bash。
+ * 模型常写这种写法；不支持时会产生误导性的 0 匹配。
  */
 export function expandGlobBraces(pattern: string): string[] {
   const match = /\{([^{}]+)\}/.exec(pattern);

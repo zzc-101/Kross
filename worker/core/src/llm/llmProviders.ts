@@ -24,7 +24,7 @@ export interface LlmProviderDefinition {
   baseUrlEnv?: string;
   /** Recommended models for provider metadata and compatibility checks. */
   exampleModel: string;
-  /** Curated choices for the compact TUI; metadata comes from pi-ai. */
+  /** Curated provider choices; metadata comes from pi-ai. */
   recommendedModels: readonly string[];
   /** Native HTTP clients only implement openai + anthropic wire formats. */
   supportsNative: boolean;

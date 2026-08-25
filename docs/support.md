@@ -46,8 +46,7 @@ Docker Desktop on macOS/Windows 适合本地开发和自托管试用，属于社
   `CHANGELOG.md` 并提供迁移或清理说明。
 - `frontend` 与 `worker` 采用同一应用版本；`node scripts/check-version-consistency.mjs`
   会阻止版本漂移。协议版本、存储 schema 版本和应用版本彼此独立。
-- 当前只维护本分支和最新预发布版本，不为旧的 `0.x` 分支承诺长期安全更新。
-  本地 TUI / CLI 在 `main`，不随本分支发布。
+- 当前只维护 SaaS Work Agent 和最新预发布版本，不为旧的 `0.x` 分支承诺长期安全更新。
 - `worker/core` 当前是 Worker 内部源码，不是稳定 SDK。稳定级别见
   [扩展 Kross](extensions.md)；public / experimental 分类描述预发布维护意图，
   不代表已经发布独立 Core 包。

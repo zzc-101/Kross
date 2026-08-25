@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import {
-  AgentRuntime,
-  chunkTextForStream,
-  isCasualChatInput,
-  parsePlanIntentKind
-} from './agentRuntime';
+import { AgentRuntime } from './agentRuntime';
 import { InMemoryContextManager, type SessionContext } from '../context/sessionContext';
 import type { LlmMessage } from '../llm/types';
-import type { TraceEvent } from '../domain';
 import type {
   LlmClient,
   LlmRequest,

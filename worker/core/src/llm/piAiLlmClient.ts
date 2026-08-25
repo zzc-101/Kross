@@ -194,7 +194,7 @@ export class PiAiLlmClient implements LlmClient {
 
     try {
       // 每步 next() 与 signal 竞态：否则 provider 半开连接时 for-await 永不返回，
-      // Esc 无效，而 TUI spinner 仍 80ms 全屏重绘把事件循环打满。
+      // Abort must interrupt the provider request instead of leaving a busy stream behind.
       for await (const event of abortableAsyncIterable(stream, request.signal, {
         idleMs: STREAM_IDLE_MS,
         idleMessage: `LLM stream idle for ${STREAM_IDLE_MS}ms`

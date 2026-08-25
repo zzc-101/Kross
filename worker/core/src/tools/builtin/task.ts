@@ -53,7 +53,7 @@ export function createTaskTool(
       '可选 modelProfileId：指定已配置的 Kross 模型档案；不填则继承当前模型。' +
       '子代理基础可用 Read/Glob/Grep/Rg/List/Stat；' +
       'mode=explore 时只读调查，mode=general 时额外允许 Edit/Write 完成任务范围内的修改；' +
-      '不可用 Bash/Delete/Move/Task 等高危工具，子代理内无需用户审批。' +
+      '不可用删除、移动、嵌套任务或外部工具，子代理内无需用户审批。' +
       '子代理不能再派生子代理。',
     risk: 'read',
     resolveRisk: (input) => (input.mode === 'general' ? 'write' : 'read'),
@@ -77,7 +77,7 @@ export function createTaskTool(
           type: 'string',
           enum: ['explore', 'general'],
           description:
-            '可选，默认 explore。explore=只读调查；general=可使用允许的编辑工具完成修改。两者均无 Bash/Delete/Move/Task。'
+            '可选，默认 explore。explore=只读调查；general=可使用允许的编辑工具完成修改。两者均不能删除、移动、派生子任务或访问外部系统。'
         },
         modelProfileId: {
           type: 'string',

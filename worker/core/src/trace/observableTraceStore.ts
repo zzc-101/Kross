@@ -4,7 +4,7 @@ import type { TraceStore } from './traceStore';
 export type TraceEventListener = (event: TraceEvent) => void;
 
 /**
- * 在现有 TraceStore 之上广播 append 事件，供 TUI 实时渲染工具卡片等。
+ * 在现有 TraceStore 之上广播 append 事件，供运行时生命周期订阅。
  * runtime 与 ToolGateway 共用同一实例时，两侧写入都会被订阅到。
  *
  * listener 抛错会被隔离，不会中断其他订阅者，也不会污染工具/runtime 主路径。

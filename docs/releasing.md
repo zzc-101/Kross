@@ -1,6 +1,6 @@
 # 发布指南
 
-本分支发布 Cloud 镜像候选，不发布 npm CLI。当前采用人工确认发布：CI 验证代码
+Kross 发布 SaaS Work Agent 镜像候选。当前采用人工确认发布：CI 验证代码
 与容器 smoke，但不会自动创建标签或推送镜像。首次公开发布前仍需由项目所有者
 确认 License、镜像仓库和 GitHub 权限。`worker/core` 当前保持为 Worker 内部源码，
 不发布 npm 包。

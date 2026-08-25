@@ -6,12 +6,10 @@ import { ConversationRuntimeRegistry } from './conversationRuntimeRegistry';
 function fakeHost() {
   const restoreConversation = vi.fn();
   const close = vi.fn(async () => undefined);
-  const reloadMcp = vi.fn(async () => undefined);
   return {
-    host: { runtime: { restoreConversation }, close, reloadMcp } as unknown as AgentHostHandle,
+    host: { runtime: { restoreConversation }, close } as unknown as AgentHostHandle,
     restoreConversation,
-    close,
-    reloadMcp
+    close
   };
 }
 

@@ -29,12 +29,10 @@ import {
   type ToolMetadata
 } from '../tools/toolGateway';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
-import type { ProjectInstructionsSnapshot } from '../workspace/projectInstructions';
 import {
   isSessionWorkState,
   type SessionWorkStateV1
 } from '../session/sessionWorkState';
-import type { ManagedProcessSummary } from '../process/processManager';
 import type {
   AgentRunInput,
   AgentRunStreamEvent,
@@ -140,7 +138,6 @@ export class AgentRuntime extends EventEmitter {
       toolGateway: this.toolGateway,
       emitWorkStateChanged: () => this.emit('work-state.changed')
     });
-    this.sessionServices.refreshProjectInstructions();
     this.sessionServices.syncToolPolicySource();
     this.sessionServices.syncModelProfilesSource();
   }
@@ -151,15 +148,6 @@ export class AgentRuntime extends EventEmitter {
     return () => {
       this.off('work-state.changed', listener);
     };
-  }
-
-  listManagedProcesses(): ManagedProcessSummary[] {
-    return this.options.processManager?.list() ?? [];
-  }
-
-  /** Bind managed process visibility and control to the active persisted session. */
-  setManagedProcessSession(sessionId?: string): void {
-    this.options.processManager?.setSessionScope(sessionId);
   }
 
   getModelLabel(): string {
@@ -254,14 +242,6 @@ export class AgentRuntime extends EventEmitter {
 
   syncTodoContextSource(): void {
     this.sessionServices.syncTodoContextSource();
-  }
-
-  refreshProjectInstructions(): ProjectInstructionsSnapshot {
-    return this.sessionServices.refreshProjectInstructions();
-  }
-
-  getProjectInstructions(): ProjectInstructionsSnapshot {
-    return this.sessionServices.getProjectInstructions();
   }
 
   getContextUsage(): {
@@ -503,9 +483,6 @@ export class AgentRuntime extends EventEmitter {
   }
 
   private applySaasContextSources(): void {
-    for (const sourceId of ['project-instructions']) {
-      this.sessionContext.removeSource(sourceId);
-    }
     for (const source of this.options.memoryContextSources ?? []) {
       this.sessionContext.addSource(source);
     }
@@ -513,7 +490,6 @@ export class AgentRuntime extends EventEmitter {
 
   private syncContextSources(phase: AgentExecutionPromptPhase): void {
     this.sessionServices.syncTodoContextSource();
-    this.sessionServices.refreshProjectInstructions();
     this.sessionServices.syncModelProfilesSource();
     this.sessionServices.syncToolPolicySource();
     void phase;

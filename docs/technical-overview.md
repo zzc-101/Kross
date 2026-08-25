@@ -1,201 +1,90 @@
 # Kross 技术概览
 
-Kross 是面向自托管部署的 Cloud 编程 Agent。`worker/core` 提供运行时，
-`worker` 在每位成员的持久 Docker 工作区里执行；Web 只通过 Java 后端收发消息，
-浏览器不直连 Worker。
+Kross 是面向组织的 SaaS Work Agent。控制面拥有身份与持久化，容器 Worker 拥有执行环境，浏览器只与控制面通信。
 
-本文只描述当前实现和长期架构边界。安装与配置见
-[快速上手](getting-started.md)和[配置参考](configuration.md)。
-
-## 目录与依赖方向
+## 组件与依赖
 
 ```mermaid
 flowchart TB
     WEB["frontend/web"] --> BACKEND["backend"]
     ADMIN["frontend/admin-web"] --> BACKEND
     BACKEND --> WORKER["worker"]
-    BACKEND --> NODE["node"]
+    BACKEND -. cluster .-> NODE["node"]
     NODE --> WORKER
     WORKER --> CORE["worker/core"]
 ```
 
-| 路径 | 职责 |
+| 组件 | 职责 |
 |---|---|
-| `frontend/web` | 普通用户工作台 |
-| `frontend/admin-web` | 组织管理端（部署时挂在 `/admin/`） |
-| `backend` | Java Spring Boot 控制面（账号密码 / OIDC SSO、模型、Agent 生命周期） |
-| `node` | 多机时的 Go 节点进程：出站连控制面，在本机 Docker 起 Worker |
-| `worker` | 个人 Agent 容器内的常驻 Runtime 宿主 |
-| `worker/core` | Runtime、上下文、会话、工具、权限、Skills、MCP、模型与验证 |
+| `frontend/web` | 对话、Skill、记忆、文件与产物 |
+| `frontend/admin-web` | 平台模型、组织、成员、Skill 包和基础设施管理 |
+| `backend` | 身份、数据、SSE、Worker 租约与容器生命周期 |
+| `node` | 多机部署时在目标节点启动 Worker |
+| `worker` | 成员容器中的控制面协议适配与会话宿主 |
+| `worker/core` | SaaS Runtime、上下文、工具、子任务与恢复 |
 
-Core 不依赖 Web 或 Java 后端。浏览器不引用 Core。前后端通过 HTTP/SSE 交换消息；
-Worker 只在容器运行时用 WebSocket 连控制面。浏览器身份由控制面 `KROSS_SESSION`
-会话维持；企业 SSO 时控制面作为 OIDC 验证方，不把登录交给 Spring `oauth2Login`。
+依赖方向保持单向：Web 不引用 Core，Core 不依赖 Java 或 UI。
 
-Core 顶层只由 `src/api/public.ts` 和 `src/api/experimental.ts` 组成；内部模块不
+## 唯一 Runtime
 
-## Runtime 组合
+每个会话使用同一套自动工作闭环。Runtime 根据用户目标直接回答或调用工具，不读取用户选择的运行模式。用户要求“先给方案”只是普通语言约束，不生成特殊模式状态。
 
-`createAgentHost` 是默认组合根。它一次性创建并拥有：
+系统上下文由以下受管来源组成：
 
-- 模型客户端与上下文策略；
-- Tool Gateway 与内置工具；
-- workspace roots、Project Instructions 和 Skills；
-- trace、Todo、mutation journal 与后台进程；
-- MCP 客户端和子代理执行器。
+- SaaS Work Agent 基础行为；
+- 控制面下发的 `USER.md` 与 `MEMORY.md`；
+- 会话启动时固定的版本化 Skill；
+- 当前 Todo 和实时工具边界。
 
-Host 可以在同一组 Tooling 资源上创建替换用的 `AgentRuntime`，并通过幂等
-`close()` 统一释放 MCP、后台进程和 trace。调用方仍拥有当前运行的
-`AbortController`，必须先取消前台运行，再关闭 Host。Cloud Worker 为每个活跃
-会话创建独立 Host，保持会话之间的工具、trace 和运行状态隔离。
+其他 `/work` 文件是待处理资料，不会因为文件名而自动成为系统指令。
 
-`createAgentHost` 还提供 experimental lifecycle hooks。它们在共享
-`ObservableTraceStore` 边界接收冻结后的脱敏通知，因此同一 Host 重建 Runtime
-不会重复订阅，也能覆盖 Runtime 与 Tool Gateway 产生的生命周期事件。调度器采用
-异步通知、单 Hook 超时、pending 上限和事件速率限制，不参与 Agent 决策。
+## 工具边界
 
-`AgentRuntime` 是运行门面，负责 run、resume、approval 和 cancel 语义，具体职责
-分别下沉到会话服务、模型会话、模式流程、工具循环、Checkpoint 和完成门。Worker
-宿主只组合和驱动 Runtime，不维护独立 Agent 实现。需要更底层组装时仍可使用
-experimental 的 `bootstrapRuntimeTooling` 与 `createRuntimeOptionsFromEnv`。
+默认内置工具只有：
 
-源码级扩展入口及稳定性说明见[扩展 Kross](extensions.md)。
+- 文件：Read、Write、Edit、Delete、Move；
+- 检索：Glob、Grep、Rg、List、Stat；
+- 工作管理：TodoRead、TodoWrite；
+- 受限子任务：Task。
 
-## 自动运行闭环
+Runtime 不注册 Shell、Git、Patch、后台进程或代码验证工具。Task 子任务最多一层，使用同一工作区和 Skill；调查子任务只读，执行子任务只额外获得 Write/Edit。
 
-Cloud 工作台只提供自动运行。Agent 根据用户意图直接回答或使用工具；用户明确要求
-先给方案时只返回方案。规划与子任务拆分属于内部实现，不要求普通用户选择模式。
+受管外部工具可以由平台连接，但仍通过 Tool Gateway。工作区 read/write 自动允许；network 和未知副作用要求确认。调度器只并发独立只读调用，写入与外部调用保持有序。
 
-用户可见回复统一通过流式事件输出。一次运行会经过探索、计划、执行、验证、复核
-与完成等可观测阶段，阶段由真实生命周期和工具事件推导，不依赖模型自行声明。
+## 结果与恢复
 
-Harness 对验证、完成门、子代理复核与恢复不变量的详细说明见
-[Agent Harness](harness.md)。
+最终结果包含：
 
-## 上下文系统
+- `artifacts`：创建或修改的工作产物；
+- `evidence`：完成依据；
+- `incompleteItems`：明确未完成部分。
 
-`ConversationThread` 是模型对话的单一事实源。用户消息、assistant 回复、
-tool calls、工具结果和压缩摘要都写入 Thread；UI 消息和治理后的 Thread
-Checkpoint 同时持久化。
+完成门只要求产生真实用户回复，不把 Git 状态、测试或构建当作所有工作的通用成功条件。Stall Guard 会在重复调用无进展时先提示恢复，再有限停止。
 
-请求前的上下文治理分为三层：
-
-1. 老化超预算的历史工具输出，保留工具消息结构。
-2. 把较早历史滚动压缩成唯一摘要，保留最近完整轮次。
-3. 对无法通过前两层处理的单条超大消息执行 head/tail 硬截断。
-
-输入预算由模型上下文窗口减去输出预留得到，使用模型返回的 usage 校准启发式
-token 估算。超阈值时 Runtime 自动老化工具输出并滚动压缩。
-
-固定上下文来源包括 Project Instructions、会话 Todo 和 Skills metadata：
-
-- 每个授权 root 加载顶层 `CLAUDE.md`、`AGENTS.md`、`KROSS.md`；
-- 项目 Skill 位于 `<workspace>/.agents/skills`（Cloud 即 `/work/.agents/skills`）；
-- 个人 Skill 位于 Worker `$HOME/.kross/skills`，Cloud 上默认不随 `/work` 持久化；
-- Skill 正文和资源通过 `ReadSkill` 按需读取，不常驻上下文；
-- 子代理只接收个人规则和当前执行 root 的项目规则，避免跨仓库污染。
-
-所有文件来源都经过 canonical path 校验、大小限制和 UTF-8 检查。
-
-## 工具系统
-
-Tool Gateway 是模型能力与真实副作用之间的边界。每个工具必须声明：
-
-- 名称、描述与输入 Zod schema；
-- `read`、`write`、`execute` 或 `network` 风险；
-- 执行、超时、取消、摘要和可选 trace 脱敏逻辑。
-
-Cloud Worker 使用固定 SaaS 策略：workspace 内可信读写和普通容器命令自动执行，
-外部操作要求用户确认，危险本地命令直接拒绝。调用结果及确认状态写入 trace。
-
-连续、独立且无需审批的 read 调用最多 4 个并发，并按原始 tool-call 顺序回填；
-write、execute、network、Process、MCP 与动态风险调用保持串行屏障。
-
-内置工具覆盖文件、搜索、Git、Shell、后台进程、Todo、Skills、子代理与模式切换。
-文件工具使用真实路径限制 workspace；所有 mutation 工具记录 pre/post image，
-撤销只在当前文件仍匹配 post hash 时恢复，避免覆盖后续人工修改。
-
-MCP 协议客户端通过 Transport 契约使用 JSON-RPC；Transport 负责连接、取消、
-超时、诊断和关闭，协议客户端负责 initialize、capability、tools、resources 与
-prompts 调用。stdio
-和 Streamable HTTP 共用这一生命周期；HTTP 额外维护 session、JSON/SSE 响应、
-cursor 恢复和协议版本 header。所有 MCP 工具仍经过同一 Gateway 权限边界。
-热重载会先在隔离 Gateway 中准备新连接和工具，全部成功后原子切换；
-旧连接在已有调用排空后关闭，刷新失败则保留当前 generation。Resources 只有在
-被显式拉取后才作为带 server/URI 来源的外部 Context Source 加入当前会话；
-Prompts 仅预览，不会静默改变系统行为。Cloud 上 MCP 配置默认在容器
-`$HOME/.kross`，不随 `/work` 卷保留。
-
-Cloud Worker 的 `Bash` 和后台进程运行在独立容器内。具体安全边界见
-[安全模型](security.md)。
-
-## Harness 与子代理
-
-完成状态不由模型的最终文本单独决定：
-
-- Stall Guard 检测重复工具调用和无进展结果；
-- Verification Report 从真实 test、typecheck、build 和 lint trace 汇总证据；
-- 发生 mutation 后，只接受最后一次修改之后完成的验证；
-- 验证失败或无法执行可以结束运行，但必须保留失败或未运行状态；
-- Conductor worker 只有在能够证明没有修改时才允许安全重试；
-- 最终 reviewer 读取各 root 的 Git status 和真实 diff 后给出 verdict。
-
-`Task` 子代理使用独立上下文、受限工具集和最大深度，并可通过
-`modelProfileId` 选择已配置的模型档案；未指定时继承当前模型。子代理工具事件带作用域标记，
-不会混入主会话工具历史。
-
-## 持久化与恢复
-
-Cloud 把用户可见状态和执行磁盘分开：
-
-| 数据 | 位置 |
-|---|---|
-| 对话 `parts`、账号、平台模型、Agent 元数据 | 控制面 PostgreSQL |
-| 工作区文件 | `/work`（本机 volume 或 JuiceFS） |
-| Runtime Thread / Work State / Trace / Mutation | Worker `$HOME/.kross`，默认不随工作区卷备份 |
-
-等待审批时，open turn 与运行 Checkpoint 一起保存在 Worker 本地。恢复前会核对
-tool call、已有结果、当前工具定义、动态风险和审批策略。只有明确尚未执行的审批
-调用可以续跑；已完成的写入或执行绝不会猜测性重放。证据不完整时 fail-closed。
-
-浏览器刷新从 PostgreSQL 加载历史。容器被删后，`/work` 仍在；`$HOME/.kross` 中的
-trace 与 journal 则可能丢失。备份边界见
-[Cloud Agent 部署与运维](cloud-agent-deployment.md#数据与恢复)。
+等待外部工具确认时，Runtime 保存 open turn 和 checkpoint。恢复前重新核对 tool-call、已有结果、当前定义和实时策略；只有确定尚未执行的调用可以继续，任何已完成副作用都不会重放。
 
 ## Cloud 数据流
 
 ```mermaid
 sequenceDiagram
-    participant B as Web
-    participant CP as Control Plane
-    participant W as Agent Worker
-    participant R as Agent Runtime
-
-    B->>CP: POST /api/v2/agent/conversations/{id}/messages
-    CP->>W: 必要时唤醒容器
-    W->>CP: WebSocket /internal/v2/agents/ws
-    CP-->>W: agent.job
+    participant B as Browser
+    participant C as Control Plane
+    participant W as Worker
+    participant R as Runtime
+    B->>C: POST message
+    C->>W: wake and agent.job
     W->>R: runStreaming
-    R-->>W: text-delta / thinking-delta / tool-call / tool-result
-    W-->>CP: agent.events
-    CP-->>B: SSE /api/v2/agent/conversations/{id}/events
-    W-->>CP: agent.message 完整 parts 快照
+    R-->>W: text / reasoning / tool events
+    W-->>C: agent.events
+    C-->>B: SSE channel event
+    W-->>C: final message snapshot
 ```
 
-浏览器上行使用 HTTP POST，下行使用 SSE；控制面把通用 `parts` 存在 PostgreSQL，
-直播事件只在内存扇出，不把每个 token 写入数据库。Worker 只在容器运行时与控制面
-保持 WebSocket：空闲时由控制面推送任务，生成过程立即推送 delta。浏览器不直连
-Worker。版本、错误和回放语义见 [Cloud Protocol](cloud-protocol.md)。
+对话与最终 `parts` 在 PostgreSQL；Token delta 只做内存扇出。工作区文件位于 `/work`。单机使用 Docker volume，多机可使用 JuiceFS。
 
-每个成员使用独立 Agent 容器。单机把 `/work` 放在 Docker volume；集群可挂 JuiceFS，
-并由 `kross-node` 在各机起容器。Web 静态文件由独立 Nginx 容器提供。
+## 当前边界
 
-## 当前限制
-
-- Cloud Worker 的 `Bash` 与后台进程使用容器内 `node` 用户权限，执行前依赖权限审批。
-- MCP 尚不支持交互式 OAuth。
-- 没有跨会话语义记忆。
-- Project Instructions 只加载 workspace root 顶层。
-- Core 尚未作为稳定 SDK 单独发布。
-- Cloud 的 Docker、移动端、弱网与公网反向代理仍需在真实环境验收。
-- 多机节点令牌目前只走环境变量，超管 UI 尚未接入。
+- Worker Core 仍是内部源码，不是稳定 SDK。
+- 受管外部工具尚不支持所有交互式 OAuth 流程。
+- 浏览器附件上传仍需独立协议；当前文件面板提供目录浏览和文本预览。
+- 生产环境仍需在真实 TLS、弱网、移动端和备份恢复场景验收。

@@ -13,7 +13,6 @@ import type {
   SubagentRunRequest
 } from './subagentRunner';
 import type { MutationCoordinator } from '../mutations/mutationService';
-import type { ProcessManager } from '../process/processManager';
 import type { SaasActiveSkill } from './saasRuntimePolicy';
 
 export interface AgentRuntimeOptions {
@@ -50,8 +49,6 @@ export interface AgentRuntimeOptions {
   todoStore?: TodoStore;
   /** Workspace-aware mutation journal and undo coordinator. */
   mutationCoordinator?: MutationCoordinator;
-  /** Main-session background process owner. Handles are never persisted. */
-  processManager?: ProcessManager;
   /**
    * Spawn a subagent through the Task tool.
    */

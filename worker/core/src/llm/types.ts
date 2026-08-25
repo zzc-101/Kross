@@ -99,7 +99,7 @@ export interface LlmClient {
   readonly provider: LlmProvider;
   /** End-to-end features declared by the active Provider Adapter/model. */
   readonly capabilities?: LlmCapabilities;
-  /** 当前默认模型名，供 TUI 状态栏展示。 */
+  /** 当前默认模型名，供运行时观测使用。 */
   readonly model?: string;
   /** 默认思考强度（状态栏与请求共用）。 */
   readonly thinkingEffort?: ThinkingEffort;

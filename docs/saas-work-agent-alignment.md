@@ -103,7 +103,7 @@ Push、项目规则和本地 Host 扩展。
 - [x] 7. 删除 project registry、多 root 和 TUI 斜杠命令/inspection 门面。
 - [x] 8. 以平台版本化 Skill 为唯一来源，删除本地 Skill CRUD 遗产。
 - [x] 9. 重构普通用户工作台：文件/附件/产物优先，隐藏开发者诊断信息。
-- [ ] 10. 重写 README、CHANGELOG、架构、安全、扩展与上手文档。
+- [x] 10. 重写 README、CHANGELOG、架构、安全、扩展与上手文档。
 - [ ] 11. 统一运行 Worker 和前端的类型检查、测试与构建；后端由用户运行验证。
 
 ## 完成标准

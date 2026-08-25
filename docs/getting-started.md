@@ -1,39 +1,27 @@
 # 快速上手
 
-本指南从源码启动自托管 Cloud Agent，并完成第一个受审批保护的任务。
+目标：启动自托管 Kross，为组织配置模型，并让普通成员生成第一个工作产物。
 
 ## 1. 准备环境
 
-需要：
+- Docker Engine
+- Docker Compose v2
+- 一个受支持 Provider 的模型凭证
 
-- Docker Engine 与 Docker Compose v2
-- 可用的模型凭证（OpenAI / Anthropic / OpenRouter 等）
-- 从源码开发 Web / Worker 时才需要 Node.js `>= 22.19` 与 pnpm `10.14`
+源码开发前端或 Worker 时还需要 Node.js `>= 22.19.0` 与 pnpm `10.14`。
 
-确认 Docker：
+## 2. 启动
 
-```bash
-docker --version
-docker compose version
-```
-
-## 2. 启动 Cloud Agent
-
-从仓库根目录运行：
+在仓库根目录运行：
 
 ```bash
 ./scripts/start-cloud.sh
 ```
 
-首次运行会从 `.env.example` 创建 `.env`、生成内部服务密钥，并构建 Web、
-控制面和 Worker 镜像。启动后打开：
+首次启动会创建 `.env`、生成内部密钥并构建镜像。打开：
 
-- 用户工作台：`http://localhost:8787`
+- 工作台：`http://localhost:8787`
 - 管理中心：`http://localhost:8787/admin/`
-
-空实例第一次注册的用户会成为平台超级管理员。超管创建组织并指定组织管理员后，
-组织管理员再为本组织登记成员；平台模型由超级管理员统一维护。普通用户只使用工作台。企业 SSO 在管理中心
-「平台设置」接入，Kross 只做 OIDC 验证方。
 
 常用命令：
 
@@ -43,64 +31,38 @@ docker compose version
 ./scripts/start-cloud.sh --stop
 ```
 
-Java 控制面的结构化日志会同时写入 Docker 标准输出和宿主机文件。实时查看：
+## 3. 初始化平台
 
-```bash
-docker compose logs -f server
-tail -f runs/logs/server/server.log
-```
+1. 注册第一个账号，成为平台超级管理员。
+2. 在管理中心添加并启用平台模型档案。
+3. 创建组织，指定组织管理员并邀请成员。
+4. 可选：配置企业 OIDC SSO。
+5. 可选：发布版本化 Skill 并安装到组织。
 
-文件日志默认保留 14 天，单文件最大 50MB，总量上限 1GB；可在 `.env` 中通过
-`KROSS_LOG_DIR`、`KROSS_LOG_MAX_FILE_SIZE`、`KROSS_LOG_MAX_HISTORY` 和
-`KROSS_LOG_TOTAL_SIZE_CAP` 调整。Docker 标准输出另有限制，最多保留 5 个 20MB 文件。
-
-默认使用账号密码和 `KROSS_SESSION`。`KROSS_DEV_IDENTITY=1` 仅供本机冒烟跳过登录，
-公网必须关闭。配置、安全边界和验收清单见
-[Cloud Agent 部署与运维](cloud-agent-deployment.md)。
-单机 Compose 默认即可；完整集群（JuiceFS 镜像 + `kross-node`）见该文档
-「工作区存储：单机与集群」。
-
-## 3. 配置模型
-
-用超级管理员登录管理中心，在平台级「模型配置」中添加模型档案（Provider、模型名、
-上下文长度、API Key）。模型档案由平台统一维护，所有组织共享已启用的模型。
-开发环境也可以把凭证写进 `.env` 后重启栈，字段见 [配置参考](configuration.md)。
+普通成员不选择模型，也不填写 API Key 或外部工具命令。
 
 ## 4. 完成第一个任务
 
-在工作台直接输入自然语言：
+登录工作台，直接描述结果：
 
 ```text
-检查当前工作区，找出最可能的回归并运行相关测试。
+阅读工作区中的资料，整理为一份摘要，并把后续行动保存成 Markdown 文档。
 ```
 
-Cloud Worker 默认按可信工作区权限运行：
+Agent 会自动选择是否读取文件、更新 Todo、派生受限子任务并创建产物。生成文件可在“文件与产物”中查看。若受管工具即将访问或修改外部系统，工作台会显示简化确认面板。
 
-1. 工作区内读写、构建、测试和普通容器命令自动执行。
-2. 只有访问或修改外部系统时才会在对话里弹出确认面板。
-3. 选择「确认继续」或「取消」后继续。
+## 5. 使用 Skill 和记忆
 
-对话历史写在控制面 PostgreSQL，刷新页面可以接着看。代码改动在该成员的 `/work`
-工作区，容器休眠后磁盘仍在。
+- 从“技能”中启动管理员已安装的版本化 Skill；会话固定使用启动时的版本。
+- 在“记忆”中保存长期事实或偏好，也可以在对话中要求“记住这个”。
+- 放入 `/work/files` 的资料只是待处理数据，不会自动成为系统指令。
 
-## 5. 工作方式
+## 6. 数据与停止
 
-工作台只有自动工作方式。普通任务直接完成；用户明确要求先给方案时，Agent 先返回
-方案，不会进入额外的运行模式。
-
-```text
-先做计划，再重构配置模块，等我确认方案后再改文件。
-```
-
-本地容器操作不会因技术风险等级反复打断用户；外部发布、推送或第三方数据修改仍会
-要求确认。
-
-## 停止与清理
+对话保存在 PostgreSQL，文件保存在成员 `/work` 卷。停止服务不会删除这些数据：
 
 ```bash
 ./scripts/start-cloud.sh --stop
 ```
 
-Compose 声明的 PostgreSQL 和 MinIO 数据卷会保留。`docker compose down -v` 会删除
-本地数据库和对象存储，属于破坏性操作。更多细节见
-[Cloud Agent 部署与运维](cloud-agent-deployment.md#数据与恢复)。
+`docker compose down -v` 会删除 Compose 数据卷，属于破坏性操作。生产部署、备份和集群配置见[部署与运维](cloud-agent-deployment.md)。

@@ -33,7 +33,7 @@ export interface WriteResultData {
   linesRemoved: number;
   bytes: number;
   totalLines: number;
-  /** TUI 展开用红绿 diff 预览 */
+  /** 供运行事件展示的 diff 预览。 */
   diffPreview?: DiffPreview;
 }
 

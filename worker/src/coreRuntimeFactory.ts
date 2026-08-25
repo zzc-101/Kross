@@ -41,7 +41,6 @@ export interface AgentRuntimeHandle {
 
 export interface AgentHostHandle {
   runtime: AgentRuntimeHandle;
-  reloadMcp(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -65,9 +64,6 @@ export async function createPersistentAgentHost(input: {
   const runtime = host.createRuntime();
   return {
     runtime: runtime as unknown as AgentRuntimeHandle,
-    reloadMcp: async () => {
-      await host.tooling.mcpManager?.reload?.();
-    },
     close: () => host.close()
   };
 }

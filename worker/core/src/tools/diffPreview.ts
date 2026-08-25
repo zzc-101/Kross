@@ -1,5 +1,5 @@
 /**
- * 工具结果用 unified diff 预览（TUI 红绿背景行）。
+ * 工具结果使用 unified diff 预览文件变化。
  * - Edit 替换块：文件上下文 + -old + +new（带行号）
  * - Write 新建：全 +
  * - Write 覆盖：行级 LCS unified（带上下文与行号）

@@ -69,11 +69,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
       if (command.name === 'memory.extract') {
         return { ok: true, payload: await extractMemories(modelEnv, command.payload) };
       }
-      const payload = await handleWorkspaceCommand(options.workspaceRoot, command);
-      if (command.name === 'mcp.save') {
-        await runtimes.reloadMcp();
-      }
-      return { ok: true, payload };
+      return { ok: true, payload: await handleWorkspaceCommand(options.workspaceRoot, command) };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }

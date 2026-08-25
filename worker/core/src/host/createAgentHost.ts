@@ -22,7 +22,6 @@ import { ToolGateway } from '../tools/toolGateway';
 import { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 import { ObservableTraceStore } from '../trace/observableTraceStore';
 import { MutationCoordinator } from '../mutations/mutationService';
-import { ProcessManager } from '../process/processManager';
 import {
   ExperimentalLifecycleHooks,
   type ExperimentalLifecycleHooksOptions
@@ -38,7 +37,6 @@ export interface AgentHostTooling {
   traceStore: ObservableTraceStore;
   todoStore: TodoStore;
   mutationCoordinator: MutationCoordinator;
-  processManager: ProcessManager;
   /** Keep the Task subagent model binding in sync with the active model. */
   setLlmClient: (client: LlmClient | undefined) => void;
   /** Shared subagent runner used by the Task tool. */
@@ -143,7 +141,7 @@ export function createRuntimeOptionsFromEnv(
     | 'setLlmClient'
     | 'runSubagent'
     | 'mutationCoordinator'
-  > & Partial<Pick<AgentHostTooling, 'processManager'>>
+  >
 ): AgentRuntimeOptions {
   const llmClient = createLlmClientFromEnv(env, fetch);
   const sessionContext = createSessionContext({
@@ -158,7 +156,6 @@ export function createRuntimeOptionsFromEnv(
   let todoStore = tooling?.todoStore;
   let runSubagent: AgentRuntimeOptions['runSubagent'] = tooling?.runSubagent;
   let mutationCoordinator = tooling?.mutationCoordinator;
-  let processManager = tooling?.processManager ?? new ProcessManager(cwd);
   if (
     !toolGateway ||
     !traceStore ||
@@ -182,7 +179,6 @@ export function createRuntimeOptionsFromEnv(
     todoStore,
     workspaceRoot: cwd,
     mutationCoordinator,
-    processManager,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
     onLlmClientChanged: tooling?.setLlmClient,
@@ -217,7 +213,6 @@ export async function bootstrapRuntimeTooling(
   let closePromise: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closePromise ??= (async () => {
-      await created.processManager.close();
       created.closeTraceStore();
       await mcpManager.close();
     })();
@@ -229,7 +224,6 @@ export async function bootstrapRuntimeTooling(
     traceStore: created.traceStore,
     todoStore: created.todoStore,
     mutationCoordinator: created.mutationCoordinator,
-    processManager: created.processManager,
     setLlmClient: created.setLlmClient,
     runSubagent: created.runSubagent,
     mcpManager,
@@ -248,7 +242,6 @@ function createLocalTooling(
   traceStore: ObservableTraceStore;
   todoStore: TodoStore;
   mutationCoordinator: MutationCoordinator;
-  processManager: ProcessManager;
   setLlmClient: (client: LlmClient | undefined) => void;
   runSubagent: NonNullable<AgentRuntimeOptions['runSubagent']>;
   closeTraceStore: () => void;
@@ -261,7 +254,6 @@ function createLocalTooling(
   });
   const todoStore = new TodoStore();
   const mutationCoordinator = new MutationCoordinator(resolveKrossHome(options));
-  const processManager = new ProcessManager(cwd);
 
   const subagentDeps: SubagentRunDeps = {
     workspaceRoot: cwd,
@@ -293,7 +285,6 @@ function createLocalTooling(
     traceStore,
     todoStore,
     mutationCoordinator,
-    processManager,
     runSubagent,
     setLlmClient: (client) => {
       subagentDeps.llmClient = client;

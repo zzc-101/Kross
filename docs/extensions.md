@@ -1,296 +1,59 @@
 # 扩展 Kross
+以下内容不是稳定扩展 API：Runtime 内部类、Worker 本地 JSONL/SQLite、组件 CSS、容器标签、内部 WebSocket 字段和未公开的源码深路径。需要新能力时优先增加窄的控制面接口、版本化 Skill 字段或受管工具契约。
+Kross 面向 SaaS 平台的扩展边界只有两类：平台版本化 Skill，以及经过 Tool Gateway 的受管外部工具。Worker Core 不是面向普通用户的插件目录，也不承诺旧客户端兼容。
 
-Kross 提供三层扩展方式。优先选择配置和文件约定；只有这些方式无法满足需求时，
-再修改 Core 或 Cloud 协议。
+## 版本化 Skill
 
-## 扩展层级
+Skill 用于封装稳定工作流程、领域说明和配套资源。管理员上传 ZIP，平台生成不可变版本并安装到组织。普通成员从工作台启动 Skill；会话和子任务使用同一版本。
 
-| 层级 | 适合场景 | 当前兼容性 |
-|---|---|---|
-| 配置扩展 | 项目规则、Skills、MCP、兼容模型端点 | `0.x` 期间尽量保持向后兼容 |
-| 源码扩展 | 自定义工具、审批策略、Runtime 宿主 | 预览接口，升级时需要跟随类型检查 |
-| 协议扩展 | 自定义 Web、移动端或远程 Worker | 以 Java 控制面 DTO 和协议版本为准 |
-
-`worker/core` 目前是 Worker 内部源码，尚未作为稳定 SDK 单独发布。Core 顶层导出分为：
-
-- `public`：面向自定义本地 Host 的最小组合契约，`0.x` 期间变更会进入
-  `CHANGELOG.md`；
-- `experimental`：供首方 Worker 与开发工具复用，可能在次版本调整；
-- `internal`：不从 `@kross/core` 顶层导出，禁止通过源码深路径依赖。
-
-## Project Instructions
-
-无需编写代码即可让 Agent 遵循项目约定。在每个授权 workspace 根目录放置以下
-任一文件：
+最小包结构：
 
 ```text
-CLAUDE.md
-AGENTS.md
-KROSS.md
+my-skill.zip
+└── SKILL.md
 ```
 
-同一目录中后者优先级更高。适合记录：
-
-- 构建、测试和格式化命令；
-- 目录职责与依赖方向；
-- 禁止修改的生成文件；
-- 安全限制和提交规范。
-
-当前只扫描授权 root 顶层，不递归加载子目录规则。Cloud 工作区根即 `/work`。
-
-## Skills
-
-Skill 是带说明的按需知识包。Cloud 请把长期 Skill 放在工作区，以便随 `/work` 保留：
-
-```text
-<workspace>/.agents/skills/<id>/SKILL.md
-```
-
-Runtime 仍读取 `$HOME/.kross/skills`；在 Cloud Worker 里该路径是容器本地目录，
-重建后可能丢失。
-
-最小示例：
+`SKILL.md` 示例：
 
 ```markdown
 ---
-name: release-check
-description: 检查版本、变更记录和发布前验证结果
+name: customer-feedback-summary
+description: 汇总客户反馈并生成行动项
 ---
 
-# Release Check
-
-1. 读取 package.json 和 CHANGELOG.md。
-2. 运行项目规定的类型检查与测试。
-3. 报告版本不一致、未提交文件和验证失败。
+1. 读取用户提供的反馈文件。
+2. 按主题聚类并标注证据。
+3. 在工作区生成 summary.md。
 ```
 
-Kross 启动时只把 Skill 的名称和描述加入上下文，需要时再通过 `ReadSkill` 读取
-正文。Skill 中出现的命令不会自动获得执行权限，仍然经过正常工具审批。
+Skill 不能改变文件边界、审批策略或模型凭证。脚本和二进制不会因为被打包进 Skill 而自动获得执行能力。
 
-## MCP 工具
+## 受管外部工具
 
-无需修改 Kross 源码即可通过 stdio 或 Streamable HTTP MCP server 增加工具。
-配置文件读取 `$HOME/.kross/mcp.json`，也可写入 `$HOME/.kross/config.json` 的
-`mcpServers`。同名 server 以 `config.json` 为准。Cloud Worker 的 `$HOME` 是
-`/home/node`，不在 `/work` 卷上。
+外部工具用于访问 CRM、邮件、日历、知识库等平台服务。要求：
 
-```json
-{
-  "mcpServers": {
-    "example": {
-      "transport": "stdio",
-      "command": "node",
-      "args": ["/absolute/path/to/server.js"],
-      "env": {
-        "EXAMPLE_TOKEN": "replace-me"
-      },
-      "cwd": "/optional/working/directory",
-      "risk": "network",
-      "connectTimeoutMs": 12000,
-      "disabled": false
-    },
-    "remote": {
-      "transport": "streamable-http",
-      "url": "https://mcp.example.com/mcp",
-      "authorization": {
-        "type": "bearer-env",
-        "env": "MCP_REMOTE_TOKEN"
-      }
-    }
-  }
-}
-```
+1. 输入使用明确 schema，拒绝未知字段。
+2. read、write、network 风险与真实副作用一致。
+3. 密钥只从受管凭证读取，不进入参数、Trace 或结果。
+4. 网络或外部副作用进入简化确认流程。
+5. 支持 `AbortSignal`、超时、幂等和可判定错误。
+6. 返回面向任务的摘要与结构化数据，不向普通用户暴露 transport 细节。
 
-注册后的名称格式为 `<serverId>__<toolName>`。服务器级 `risk` 可设置为 `read`、
-`write`、`execute` 或 `network`；未设置时优先读取 MCP annotations，无法判断时
-按 `network` 处理并要求审批。
+平台可以在 Worker 启动时下发受管 MCP/Connector 配置，但普通 Agent API 和工作台不提供 stdio 命令、URL 或认证编辑器。连接失败不能阻止基础文件工作能力启动。
 
-当前边界：
+## 模型 Provider
 
-- 支持 stdio 与 Streamable HTTP，远程 HTTP 自动处理 session、JSON/SSE 响应、
-  SSE cursor 恢复、404 重新初始化和 DELETE 关闭；
-- 支持 tools、resources 和 prompts；Resources 需显式加入带来源标识的
-  Context Source，Prompts 仅预览；
-- Resource 只接收文本内容，响应默认限制为 128 KiB；Prompt 响应默认限制为
-  64 KiB，且不会自动执行或覆盖系统指令；
-- 单个 MCP 连接失败不会阻止其他服务或 Kross 启动；
-- 修改 MCP 配置后需要重新加载连接；新一代完整准备后才原子替换工具，
-  任一启用服务连接失败都会拒绝本次刷新并保留旧配置，在途调用继续使用旧连接直到
-  完成；
-- MCP 子进程拥有当前用户权限，远程 MCP 拥有网络与服务端权限；不能把审批等同于
-  OS 沙箱。
+优先使用现有 Provider 的 `*_BASE_URL` 接入协议兼容服务。新增 Provider 必须同时实现流式文本、思考内容、工具调用、usage、取消、错误分类和凭证映射，并更新管理端与测试。
 
-Core 把 MCP 协议客户端与 Transport 生命周期分离。Transport 统一负责
-连接、JSON-RPC 请求、`AbortSignal` 取消、单请求超时、结构化诊断和幂等关闭；
-工具注册、风险推断与审批继续统一经过 `ToolGateway`。
+## Cloud 客户端
 
-Resources 和 Prompts 不伪装为工具：Core 先按 initialize capability 建立目录，
-读取前再次确认目标仍在服务端目录中。这样可以保留 server、URI 或 prompt name
-等来源信息，也避免远端内容在没有明确用户动作时影响 Agent。
+自定义 Web 或移动端应以 Java DTO 和 [Cloud Protocol](cloud-protocol.md) 为事实源：
 
-HTTP 实现遵循
-[MCP 2025-11-25 Transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
-规范。当前接受预先取得的 Bearer token 环境变量引用，并会把 401 challenge 中的
-Protected Resource Metadata 与 scope 作为结构化错误暴露；尚未内置需要浏览器
-交互的 OAuth 2.1/PKCE 授权流程。token 不写入 Trace、Session、错误或诊断。
+- 上行 HTTP，下行 SSE；
+- 最终消息快照覆盖直播增量，但不能让陈旧 processing 快照擦除更丰富的本地流；
+- 保留外部工具确认、组织身份和会话归档语义；
+- 客户端不直接连接 Worker。
 
-不要把真实密钥提交到仓库。公开 Issue 中的配置示例也应删除 token、绝对用户名
-路径和私有仓库地址。
+## 不稳定内部接口
 
-## 兼容模型端点
-
-优先通过现有 Provider 的 `*_BASE_URL` 接入兼容服务，而不是直接增加 Provider：
-
-```bash
-export AGENT_LLM_PROVIDER=openai
-export OPENAI_API_KEY=...
-export OPENAI_MODEL=my-model
-export OPENAI_BASE_URL=https://example.com/v1
-```
-
-Anthropic-compatible 服务使用对应的 `ANTHROPIC_*` 字段。兼容端点仍需正确实现
-流式输出、工具调用和当前 Provider 的消息格式。只支持普通文本对话但不支持工具
-调用的端点，无法完成完整 Agent 循环。
-
-增加全新协议类型属于源码扩展，需要同时处理：
-
-- 凭证和配置解析；
-- 模型列表与上下文窗口；
-- 流式文本、思考内容和工具调用转换；
-- 错误分类、取消和重试；
-- Core、Worker 与 Web 的相关测试。
-
-## 源码级自定义工具
-
-在 Fork 或 monorepo 内，可以向 `ToolGateway` 注册 `ToolDefinition`：
-
-```ts
-import { z } from 'zod';
-import { createAgentHost } from '@kross/core';
-
-export async function createCustomRuntime() {
-  const cwd = process.cwd();
-  const host = await createAgentHost({
-    workspaceRoot: cwd,
-    env: process.env
-  });
-
-  host.tooling.toolGateway.register({
-    name: 'ProjectMetadata',
-    description: '读取当前项目的公开元数据',
-    risk: 'read',
-    inputSchema: z.object({}),
-    async execute({ signal }) {
-      signal.throwIfAborted();
-      return {
-        content: JSON.stringify({ cwd }),
-        summary: 'project metadata loaded'
-      };
-    }
-  });
-
-  return {
-    runtime: host.createRuntime(),
-    // 宿主退出时必须释放 MCP、进程和 trace 资源。
-    close: () => host.close()
-  };
-}
-```
-
-自定义工具应满足以下约束：
-
-1. `inputSchema` 必须拒绝未知或危险输入。
-2. `risk` 和 `resolveRisk` 必须反映真实副作用。
-3. 输入含密钥时实现 `redactInputForTrace`。
-4. 长任务响应 `AbortSignal`，不要遗留子进程。
-5. `summary` 保持简短，`content` 面向模型，`data` 保持可序列化。
-6. 不要绕过 `ToolGateway` 直接执行需要审批的副作用。
-
-内置宿主组合入口位于
-[`worker/core/src/host/createAgentHost.ts`](../worker/core/src/host/createAgentHost.ts)；
-工具契约位于
-[`worker/core/src/tools/toolGateway.ts`](../worker/core/src/tools/toolGateway.ts)。
-`createAgentHost` 的 `close()` 可安全重复调用；开始关闭后不能再创建 Runtime。
-自定义宿主应自行持有当前运行的 `AbortController`，退出时先取消运行，再关闭
-Host。
-如果需要长期维护大量自定义工具，优先实现 MCP server，减少与 Core 内部结构的
-耦合。
-
-## Experimental Lifecycle Hooks
-
-源码级 Host 可以订阅只读、脱敏的生命周期通知：
-
-```ts
-const host = await createAgentHost({
-  workspaceRoot: process.cwd(),
-  experimentalLifecycleHooks: {
-    timeoutMs: 1000,
-    maxPendingEvents: 16,
-    maxEventsPerSecond: 50,
-    hooks: [
-      async (event, { signal }) => {
-        signal.throwIfAborted();
-        console.log(event.type, event.runId, event.tool?.name);
-      }
-    ],
-    onDiagnostic(diagnostic) {
-      console.warn(diagnostic.code, diagnostic.eventType);
-    }
-  }
-});
-```
-
-第一版只暴露版本、事件类型、run id、时间、工具名称/风险和有限 outcome。工具
-输入、输出、content preview、summary 与任意 Trace payload 都不会交给 Hook；
-事件对象及嵌套工具信息被冻结。Hook 在主循环之外运行，抛错不会改变 Agent 结果，
-并受单 Hook 超时、并发等待上限和每秒事件上限保护。
-
-这是 experimental 源码扩展，不是安全隔离：Hook 与 Kross 运行在同一 Node.js
-进程，只有可信代码才能安装。超时会触发 `AbortSignal` 并让调度器停止等待，但
-无法强制终止忽略取消的 JavaScript。需要修改文件、执行命令、访问网络或改变
-Agent 行为时，应实现经过 schema、风险、审批和 Trace 的 Tool/Process，而不是
-在 Hook 中隐藏副作用。
-
-## 自定义客户端与 Cloud Protocol
-
-浏览器和 Worker 的线协议由 Java 控制面 DTO 定义，见 [Cloud Protocol](cloud-protocol.md)。
-
-扩展客户端时：
-
-- 以 `backend` 的 Java DTO 和 `frontend/web` 为参考，不另造一套字段；
-- 上行 HTTP、下行 SSE；直播事件按到达顺序处理，回合结束再写完整 `parts`；
-- 保留工具审批和取消语义；
-- Worker 只连 `/internal/v2/agents/ws`，集群节点只连 `/internal/v2/nodes/ws`。
-
-当前 HTTP 路由、容器名称、Worker 持久化目录和 Web 组件树属于内部实现，不是稳定
-扩展 API。现有 `frontend/web` 是首选 TypeScript 参考实现。
-
-## 不应依赖的内部细节
-
-以下内容可能在 `0.x` 版本中直接调整：
-
-- Worker `$HOME/.kross` 内 JSONL、SQLite 和 trace 的具体字段布局；
-- Runtime 内部类的构造顺序；
-- 控制面内部 HTTP / WebSocket 路径之外尚未公开的字段；
-- Docker 容器标签、网络名称和挂载细节；
-- Web 组件层级和 CSS class；
-- 未从 Core public / experimental barrel 导出的源码文件。
-
-`ModeFlows`、`ModelSession`、`SessionServices`、`RuntimeToolLoop` 和 Conductor
-执行器属于内部编排实现，即使在历史版本中曾被顶层 barrel 意外导出，也不构成
-兼容承诺。
-
-需要这些能力时，请先创建 Feature Request，说明使用场景。更合适的处理通常是
-新增一个窄而稳定的扩展接口，而不是把内部实现永久公开。
-
-## 提交扩展
-
-准备向上游贡献扩展时，请同时提供：
-
-- 使用场景和不修改 Core 时为何无法实现；
-- 权限风险与失败恢复策略；
-- 最小测试；
-- 配置和用户文档；
-- 对 Cloud Worker 和协议兼容性的影响。
-
-贡献流程见[参与贡献](../CONTRIBUTING.md)。
+以下内容不是稳定扩展 API：Runtime 内部类、Worker 本地 JSONL/SQLite、组件 CSS、容器标签、内部 WebSocket 字段和未公开的源码深路径。需要新能力时优先增加窄的控制面接口、版本化 Skill 字段或受管工具契约。

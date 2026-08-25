@@ -13,7 +13,6 @@ import { assertSupportedDataVersion } from '../persistence/version';
 const MUTATION_EVENT_FORMAT_VERSION = 1;
 
 export type MutationToolName =
-  | 'ApplyPatch'
   | 'Write'
   | 'Edit'
   | 'Delete'

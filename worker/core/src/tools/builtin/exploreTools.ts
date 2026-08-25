@@ -11,7 +11,7 @@ import type { MutationService } from '../../mutations/mutationService';
 
 /**
  * Subagent tool set: basic read + edit only.
- * Excludes high-risk tools: Bash, Delete, Move, Task, MCP, network.
+ * Excludes destructive, nested, and external tools.
  */
 export function createSubagentTools(
   workspaceRoot: string,
