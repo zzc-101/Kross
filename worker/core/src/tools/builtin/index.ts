@@ -3,7 +3,6 @@ import { createBashTool } from './bash';
 import { createDeleteTool } from './delete';
 import { createEditTool } from './edit';
 import { createExploreTools } from './exploreTools';
-import { createGitTool } from './git';
 import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createListTool } from './list';
@@ -15,15 +14,12 @@ import { createStatTool } from './stat';
 import { createTaskTool, type CreateTaskToolOptions } from './task';
 import { createTodoReadTool, createTodoWriteTool } from './todo';
 import { createWriteTool } from './write';
-import { createApplyPatchTool } from './applyPatch';
 import type { TodoStore } from '../../todo/todoStore';
 import type { SkillRegistry } from '../../skills/skillRegistry';
 import type {
   MutationCoordinator,
   MutationService
 } from '../../mutations/mutationService';
-import type { ProcessManager } from '../../process/processManager';
-import { createProcessTools } from './processTools';
 
 export { createExploreTools, createSubagentTools } from './exploreTools';
 export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
@@ -34,12 +30,11 @@ export { createReadSkillTool } from './readSkill';
 export { createApplyPatchTool } from './applyPatch';
 export { createProcessTools } from './processTools';
 
-export const builtinToolNames = [
+export const saasToolNames = [
   'Bash',
   'Read',
   'ReadSkill',
   'Write',
-  'ApplyPatch',
   'Edit',
   'Delete',
   'Move',
@@ -48,18 +43,12 @@ export const builtinToolNames = [
   'Rg',
   'List',
   'Stat',
-  'Git',
   'Task',
   'TodoWrite',
-  'TodoRead',
-  'ProcessStart',
-  'ProcessPoll',
-  'ProcessWrite',
-  'ProcessKill',
-  'ProcessList'
+  'TodoRead'
 ] as const;
 
-export interface CreateBuiltinToolsOptions {
+export interface CreateSaasToolsOptions {
   /** Include Task (subagent) tool. Default true when runSubagent provided, else false. */
   includeTask?: boolean;
   parentDepth?: number;
@@ -74,18 +63,12 @@ export interface CreateBuiltinToolsOptions {
   mutationService?: MutationService;
   /** Optional coordinator for additional explicitly authorized workspaces. */
   mutationCoordinator?: MutationCoordinator;
-  /** Main-session managed process lifecycle; intentionally omitted for subagents. */
-  processManager?: ProcessManager;
 }
 
-/**
- * 创建首批内置工具集。文件类工具会校验 workspace 边界；
- * Bash 只保证启动 cwd 位于 workspace 内，命令能力仍由审批策略约束。
- * 传入 runSubagent 时注册 Task（explore 子代理）。
- */
-export function createBuiltinTools(
+/** Create the default SaaS Work Agent tool set. */
+export function createSaasTools(
   workspaceRoot: string,
-  options: CreateBuiltinToolsOptions = {}
+  options: CreateSaasToolsOptions = {}
 ): ToolDefinition[] {
   const tools: ToolDefinition[] = [
     createBashTool(workspaceRoot),
@@ -114,19 +97,8 @@ export function createBuiltinTools(
     createGrepTool(workspaceRoot),
     createRgTool(workspaceRoot),
     createListTool(workspaceRoot),
-    createStatTool(workspaceRoot),
-    createGitTool(workspaceRoot)
+    createStatTool(workspaceRoot)
   ];
-
-  if (options.mutationService) {
-    tools.push(
-      createApplyPatchTool(
-        workspaceRoot,
-        options.mutationService,
-        options.mutationCoordinator
-      )
-    );
-  }
 
   const includeTask =
     options.includeTask ?? options.runSubagent !== undefined;
@@ -149,10 +121,6 @@ export function createBuiltinTools(
 
   if (options.skillRegistry) {
     tools.push(createReadSkillTool(options.skillRegistry));
-  }
-
-  if (options.processManager) {
-    tools.push(...createProcessTools(options.processManager));
   }
 
   return tools;

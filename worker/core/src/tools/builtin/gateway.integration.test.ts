@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { TodoStore } from '../../todo/todoStore';
 import { ToolGateway, ToolPermissionError } from '../toolGateway';
-import { builtinToolNames, createBuiltinTools } from './index';
+import { createSaasTools, saasToolNames } from './index';
 
 let root: string;
 
@@ -19,31 +19,40 @@ afterEach(async () => {
 
 function makeGateway(): ToolGateway {
   const gateway = new ToolGateway({ defaultTimeoutMs: 1000 });
-  for (const tool of createBuiltinTools(root)) {
+  for (const tool of createSaasTools(root)) {
     gateway.register(tool);
   }
   return gateway;
 }
 
-describe('builtin tools integration', () => {
-  it('registers core builtin tools (Task/Todo require extra wiring)', () => {
+describe('SaaS tools integration', () => {
+  it('registers the default work tools without development-only tools', () => {
     const gateway = makeGateway();
     const names = gateway.listTools().map((t) => t.name);
-    const coreOnly = [...builtinToolNames].filter(
+    const coreOnly = [...saasToolNames].filter(
       (name) =>
         name !== 'Task' &&
         name !== 'TodoWrite' &&
         name !== 'TodoRead' &&
-        name !== 'ReadSkill' &&
-        name !== 'ApplyPatch' &&
-        !name.startsWith('Process')
+        name !== 'ReadSkill'
     );
     expect(names.sort()).toEqual(coreOnly.sort());
+    expect(names).not.toEqual(
+      expect.arrayContaining([
+        'Git',
+        'ApplyPatch',
+        'ProcessStart',
+        'ProcessPoll',
+        'ProcessWrite',
+        'ProcessKill',
+        'ProcessList'
+      ])
+    );
   });
 
   it('registers Task and Todo tools when wired', () => {
     const gateway = new ToolGateway({ defaultTimeoutMs: 1000 });
-    for (const tool of createBuiltinTools(root, {
+    for (const tool of createSaasTools(root, {
       includeTask: true,
       runSubagent: async () => {
         throw new Error('not used');

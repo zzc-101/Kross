@@ -97,7 +97,7 @@ Push、项目规则和本地 Host 扩展。
 - [x] 1. 删除 Mode/Plan/Conductor、`SetMode` 和 `conversation.mode`。
 - [x] 2. 删除组织审批策略字段、接口、默认值和数据库列。
 - [x] 3. 将 SaaS Profile 设为唯一 Runtime，删除 Coding profile 与兼容开关。
-- [ ] 4. 收敛 SaaS 默认工具集，开发工具移出平台默认组合。
+- [x] 4. 收敛 SaaS 默认工具集，开发工具移出平台默认组合。
 - [ ] 5. 禁止 Bash 绕过外部操作确认；外部副作用只走结构化工具边界。
 - [ ] 6. 将 Task 和完成契约改为目标、产物、证据和未完成项，不再依赖 Git。
 - [ ] 7. 删除 project registry、多 root 和 TUI 斜杠命令/inspection 门面。

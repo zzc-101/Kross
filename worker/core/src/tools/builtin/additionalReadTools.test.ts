@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { ToolDefinition, ToolHandlerResult } from '../toolGateway';
 import { ToolBoundaryError } from './paths';
-import { createBuiltinTools } from './index';
+import { createSaasTools } from './index';
 
 let root: string;
 
@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 function findTool(name: string): ToolDefinition {
-  const tool = createBuiltinTools(root).find((candidate) => candidate.name === name);
+  const tool = createSaasTools(root).find((candidate) => candidate.name === name);
   expect(tool, `${name} should be registered`).toBeDefined();
   return tool as ToolDefinition;
 }

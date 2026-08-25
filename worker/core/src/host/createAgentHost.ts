@@ -16,7 +16,7 @@ import {
   type SubagentRunDeps
 } from '../runtime/subagentRunner';
 import { TodoStore } from '../todo';
-import { createBuiltinTools } from '../tools/builtin';
+import { createSaasTools } from '../tools/builtin';
 import { ToolGateway } from '../tools/toolGateway';
 import { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 import { ObservableTraceStore } from '../trace/observableTraceStore';
@@ -128,7 +128,7 @@ export async function createAgentHost(
 }
 
 /**
- * Build AgentRuntime options (sync). Registers builtin tools (+ Task + Todos).
+ * Build AgentRuntime options (sync). Registers SaaS tools (+ Task + Todos).
  * For MCP, prefer `bootstrapRuntimeTooling` once at process start and pass
  * the shared gateway/trace into options.
  */
@@ -208,7 +208,7 @@ export function createRuntimeOptionsFromEnv(
 }
 
 /**
- * One-shot tooling bootstrap: builtins (Task + Todos) + MCP servers (stdio).
+ * One-shot tooling bootstrap: SaaS tools (Task + Todos) + MCP servers (stdio).
  * Reuse across runtime recreations so MCP/Task/todo wiring survives /import.
  */
 export async function bootstrapRuntimeTooling(
@@ -300,15 +300,14 @@ function createLocalTooling(
 
   const runSubagent = createDefaultSubagentRunner(subagentDeps);
 
-  for (const tool of createBuiltinTools(cwd, {
+  for (const tool of createSaasTools(cwd, {
     includeTask: true,
     parentDepth: 0,
     runSubagent,
     todoStore,
     skillRegistry,
     mutationService: mutationCoordinator.forWorkspace(cwd),
-    mutationCoordinator,
-    processManager
+    mutationCoordinator
   })) {
     toolGateway.register(tool);
   }
