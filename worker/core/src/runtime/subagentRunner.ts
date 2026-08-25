@@ -6,14 +6,11 @@ import {
   throwIfAborted
 } from '../abort';
 import {
-  subagentResultSchema,
-  type TraceEvent,
-  type VerificationReport
+  subagentResultSchema
 } from '../domain';
 import { createSessionContext } from '../context/sessionContext';
 import type { LlmClient } from '../llm/types';
 import { createSubagentTools } from '../tools/builtin/exploreTools';
-import { createVerifyTool } from '../tools/builtin/verify';
 import { createReadSkillTool } from '../tools/builtin/readSkill';
 import { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationService } from '../mutations/mutationService';
@@ -24,11 +21,6 @@ import {
 } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
-import {
-  assessVerificationGate,
-  collectVerificationReport,
-  requiresVerificationForFiles
-} from '../verification';
 import {
   formatProjectInstructionSource,
   loadProjectInstructions
@@ -102,9 +94,9 @@ export async function runSubagent(
   }
 
   const mode: SubagentMode = request.mode === 'general' ? 'general' : 'explore';
-  const prompt = request.prompt.trim();
-  if (!prompt) {
-    throw new Error('Subagent prompt must not be empty');
+  const goal = request.goal.trim();
+  if (!goal) {
+    throw new Error('Subagent goal must not be empty');
   }
   throwIfAborted(request.signal);
 
@@ -116,12 +108,12 @@ export async function runSubagent(
     isSubagent: true,
     subRunId,
     parentRunId: request.parentRunId,
-    role: request.role ?? 'worker'
+    role: 'worker'
   };
 
   const title =
     request.title?.trim() ||
-    deriveSubagentTitle(prompt);
+    deriveSubagentTitle(goal);
 
   const workspaceRoot = resolveSubagentWorkspaceRoot(request, deps);
   const rootId = request.repoId?.trim() || basename(workspaceRoot) || 'primary';
@@ -163,7 +155,7 @@ export async function runSubagent(
     preferWorkerModel: request.preferWorkerModel === true,
     workerModel: useWorker,
     ...modelExtras,
-    promptPreview: prompt.slice(0, 240),
+    goalPreview: goal.slice(0, 240),
     autoApprove: true,
     projectInstructions: projectInstructions.files.map((file) => ({
       filename: file.filename,
@@ -184,22 +176,13 @@ export async function runSubagent(
     const failed = subagentResultSchema.parse({
       status: 'failed',
       summary: 'Subagent failed: no LLM client configured',
-      changedFiles: [],
-      diffSummary: [],
-      commandsRun: [],
-      verification: {
-        status: 'not-needed',
-        commands: [],
-        evidence: [],
-        reason: 'No worker execution occurred.'
-      },
+      artifacts: [],
       evidence: [
         useWorker
-          ? '指挥家 worker 子代理未配置 workerLlmClient / 主模型'
+          ? '子代理未配置 workerLlmClient / 主模型'
           : '子代理未检测到可用 LLM client'
       ],
-      risks: ['请配置模型后再派生子代理'],
-      needsReview: []
+      incompleteItems: ['请配置模型后再派生子代理']
     });
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.failed', {
       ...lifecycleExtras,
@@ -224,24 +207,19 @@ export async function runSubagent(
     createReadSkillTool(skillRegistry)
   ];
   const toolDefs =
-    request.role === 'validator'
-      ? [
-          ...availableToolDefs.filter((tool) => tool.risk === 'read'),
-          createVerifyTool(workspaceRoot)
-        ]
-      : mode === 'explore'
+    mode === 'explore'
       ? availableToolDefs.filter((tool) => tool.risk === 'read')
       : availableToolDefs;
   const childGateway = new ToolGateway({
     traceStore: deps.traceStore,
     defaultTimeoutMs: 120_000,
     approvalPolicy: ({ tool }) =>
-      mode === 'explore' || request.role === 'validator'
-        ? tool.risk === 'read' || (request.role === 'validator' && tool.name === 'Verify')
+      mode === 'explore'
+        ? tool.risk === 'read'
           ? { action: 'allow' }
           : {
               action: 'deny',
-              reason: `${request.role ?? 'explore'} 子代理只允许只读工具调用`
+              reason: 'explore 子代理只允许只读工具调用'
             }
         : { action: 'allow' },
     tracePayloadExtras: {
@@ -292,9 +270,8 @@ export async function runSubagent(
     let stalled = false;
     const summary = await runCompleteToolLoop({
       runId: subRunId,
-      prompt,
-      systemPrompt:
-        request.systemPrompt ?? renderSubagentExecutionPrompt({ mode }),
+      prompt: goal,
+      systemPrompt: renderSubagentExecutionPrompt({ mode }),
       llmClient,
       gateway: childGateway,
       tools: toolMeta,
@@ -354,103 +331,49 @@ export async function runSubagent(
       }
     });
 
-    let changedFiles: string[] = [];
+    let artifacts: string[] = [];
     let toolsUsed: string[] = [];
-    let diffSummary: string[] = [];
-    let verification: VerificationReport = {
-      status: 'not-run',
-      commands: [],
-      evidence: [],
-      reason: 'Subagent trace was unavailable.'
-    };
+    let toolEvidence: string[] = [];
     try {
       const events = await deps.traceStore.readRun(subRunId);
-      changedFiles = extractChangedFilesFromEvents(events);
+      artifacts = extractChangedFilesFromEvents(events);
       toolsUsed = [
         ...new Set(
-          [
-            ...events
-              .filter((event) => event.type === 'tool_call.completed')
-              .map((event) => event.payload.toolName)
-              .filter((name): name is string => typeof name === 'string'),
-            ...extractCompletedGitEvidence(events)
-          ]
+          events
+            .filter((event) => event.type === 'tool_call.completed')
+            .map((event) => event.payload.toolName)
+            .filter((name): name is string => typeof name === 'string')
         )
       ];
-      diffSummary = events
-        .filter(
-          (event) =>
-            event.type === 'tool_call.completed' &&
-            event.payload.toolName === 'Git' &&
-            event.payload.data &&
-            typeof event.payload.data === 'object' &&
-            (event.payload.data as { action?: unknown }).action === 'diff'
-        )
-        .map((event) =>
-          typeof event.payload.summary === 'string'
-            ? event.payload.summary
-            : 'Git diff completed'
-        );
-      const verificationFiles =
-        request.role === 'validator'
-          ? request.verificationChangedFiles ?? []
-          : changedFiles;
-      verification = collectVerificationReport(events, {
-        changedFiles: verificationFiles
+      toolEvidence = events.flatMap((event) => {
+        if (event.type !== 'tool_call.completed') return [];
+        const toolName = event.payload.toolName;
+        const summary = event.payload.summary;
+        return typeof toolName === 'string' && typeof summary === 'string'
+          ? [`${toolName}: ${summary}`]
+          : [];
       });
-      if (request.role === 'validator') {
-        const assessment = assessVerificationGate(events, {
-          changedFiles: verificationFiles
-        });
-        if (!assessment.satisfied && verification.status === 'passed') {
-          verification = {
-            ...verification,
-            status: 'not-run',
-            reason: assessment.reason
-          };
-        }
-      }
     } catch {
-      // A missing trace must never become implicit verification success.
+      // Trace-derived artifacts and evidence are best-effort.
     }
 
-    const verificationNeedsReview =
-      verification.status === 'failed' ||
-      (request.role === 'validator' && verification.status !== 'passed') ||
-      (requiresVerificationForFiles(changedFiles) &&
-        verification.status !== 'passed');
-    const resultStatus =
-      stalled || verificationNeedsReview ? 'needs-review' : 'completed';
-
     const result = subagentResultSchema.parse({
-      status: resultStatus,
+      status: stalled ? 'incomplete' : 'completed',
       summary,
-      changedFiles,
-      diffSummary,
-      commandsRun: verification.commands,
+      artifacts,
       toolsUsed,
-      verification,
       evidence: [
         stalled
           ? '子代理在一次恢复提示后仍重复相同工具调用，且结果没有变化'
           : '子代理已完成独立工具环',
-        ...(changedFiles.length > 0
-          ? [`修改文件 ${changedFiles.length} 个`]
+        ...(artifacts.length > 0
+          ? [`产出文件 ${artifacts.length} 个`]
           : []),
-        ...verification.evidence
+        ...toolEvidence
       ],
-      risks: [
-        ...(stalled ? ['分配给子代理的任务可能尚未完成'] : []),
-        ...(verificationNeedsReview
-          ? [verification.reason ?? '子代理修改缺少可信验证证据']
-          : [])
-      ],
-      needsReview: [
-        ...(stalled ? ['父 Agent 需要检查阻塞证据并调整策略'] : []),
-        ...(verificationNeedsReview
-          ? ['Conductor reviewer 必须检查最终 diff 与验证缺口']
-          : [])
-      ]
+      incompleteItems: stalled
+        ? ['父 Agent 需要检查阻塞证据并调整策略']
+        : []
     });
 
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.completed', {
@@ -460,9 +383,9 @@ export async function runSubagent(
       status: result.status,
       summaryPreview: result.summary.slice(0, 240),
       evidenceCount: result.evidence.length,
-      changedFiles: result.changedFiles,
-      toolsUsed: result.toolsUsed,
-      verification: result.verification
+      artifacts: result.artifacts,
+      incompleteItems: result.incompleteItems,
+      toolsUsed: result.toolsUsed
     });
 
     return {
@@ -507,54 +430,6 @@ export async function runSubagent(
   }
 }
 
-function extractCompletedGitEvidence(events: TraceEvent[]): string[] {
-  const completedCallIds = new Set(
-    events
-      .filter(
-        (event) =>
-          event.type === 'tool_call.completed' &&
-          event.payload.toolName === 'Git' &&
-          event.payload.data &&
-          typeof event.payload.data === 'object' &&
-          ['status', 'diff'].includes(
-            String((event.payload.data as { action?: unknown }).action)
-          ) &&
-          typeof event.payload.callId === 'string'
-      )
-      .map((event) => event.payload.callId as string)
-  );
-  return events
-    .filter(
-      (event) =>
-        event.type === 'tool_call.started' &&
-        event.payload.toolName === 'Git' &&
-        typeof event.payload.callId === 'string' &&
-        completedCallIds.has(event.payload.callId)
-    )
-    .map((event) => {
-      const input = event.payload.input;
-      const record =
-        input && typeof input === 'object' && !Array.isArray(input)
-          ? (input as {
-              action?: unknown;
-              staged?: unknown;
-              paths?: unknown;
-              cwd?: unknown;
-            })
-          : undefined;
-      if (record?.action === 'status') return 'Git:status';
-      if (record?.action !== 'diff') return 'Git:unknown';
-      if (
-        (Array.isArray(record?.paths) && record.paths.length > 0) ||
-        typeof record?.cwd === 'string'
-      ) {
-        return 'Git:diff:scoped';
-      }
-      const staged = record?.staged === true;
-      return staged ? 'Git:diff:staged' : 'Git:diff:unstaged';
-    });
-}
-
 /** Build a default Task runner bound to shared LLM/trace/workspace. */
 export function createDefaultSubagentRunner(
   deps: SubagentRunDeps
@@ -566,9 +441,9 @@ function sanitizeRunIdPart(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80) || 'parent';
 }
 
-/** 从 prompt 压出短标题（无 description 时的回退）。 */
-export function deriveSubagentTitle(prompt: string, maxLen = 36): string {
-  const oneLine = prompt.replace(/\s+/g, ' ').trim();
+/** Derive a short progress title when the caller omitted one. */
+export function deriveSubagentTitle(goal: string, maxLen = 36): string {
+  const oneLine = goal.replace(/\s+/g, ' ').trim();
   if (oneLine.length === 0) {
     return 'Task';
   }

@@ -1,6 +1,5 @@
 import type { ToolDefinition } from '../toolGateway';
 import { createEditTool } from './edit';
-import { createGitTool } from './git';
 import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createListTool } from './list';
@@ -9,7 +8,6 @@ import { createReadTool } from './read';
 import { createStatTool } from './stat';
 import { createWriteTool } from './write';
 import type { MutationService } from '../../mutations/mutationService';
-import { createApplyPatchTool } from './applyPatch';
 
 /**
  * Subagent tool set: basic read + edit only.
@@ -27,14 +25,9 @@ export function createSubagentTools(
     createRgTool(workspaceRoot),
     createListTool(workspaceRoot),
     createStatTool(workspaceRoot),
-    createGitTool(workspaceRoot),
     // edit-related (no Delete/Move)
     createEditTool(workspaceRoot, mutations),
     createWriteTool(workspaceRoot, mutations)
   ];
-  if (mutations) tools.push(createApplyPatchTool(workspaceRoot, mutations));
   return tools;
 }
-
-/** @deprecated Use createSubagentTools */
-export const createExploreTools = createSubagentTools;

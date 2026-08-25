@@ -11,9 +11,9 @@ export interface SubagentModelProfileSummary {
 }
 
 export interface SubagentRunRequest {
-  prompt: string;
+  goal: string;
   mode?: SubagentMode;
-  /** 短标题（Task description），供 TUI 单行展示 */
+  /** Short user-facing task title. */
   title?: string;
   parentRunId: string;
   parentDepth?: number;
@@ -31,12 +31,6 @@ export interface SubagentRunRequest {
    * Prefer workerLlmClient (经济/快速模型) when available.
    */
   preferWorkerModel?: boolean;
-  /** Internal orchestration role; Task calls always use the default worker role. */
-  role?: 'worker' | 'reviewer' | 'validator';
-  /** Internal system-prompt override for specialized read-only reviewers. */
-  systemPrompt?: string;
-  /** Final workspace files whose verification the validator must establish. */
-  verificationChangedFiles?: string[];
 }
 
 export interface SubagentRunOutcome {

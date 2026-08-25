@@ -22,16 +22,16 @@ export interface CreateTaskToolOptions {
   formatOutcome?: (outcome: SubagentRunOutcome) => string;
 }
 
-/** 短标题：必填，供 TUI 底栏单行展示；模型调用 Task 时必须传。 */
+/** Short title shown in task progress. */
 const TITLE_MAX = 48;
 
 const taskInputSchema = z.object({
-  description: z
+  title: z
     .string()
     .trim()
-    .min(1, 'description (short title) is required')
+    .min(1, 'title is required')
     .max(TITLE_MAX),
-  prompt: z.string().min(1),
+  goal: z.string().min(1),
   /** Explore is read-only by policy; general may use read+edit tools. */
   mode: z.enum(['explore', 'general']).optional(),
   /**
@@ -58,11 +58,11 @@ export function createTaskTool(
   return {
     name: 'Task',
     description:
-      '派生子代理在独立上下文中完成聚焦任务并返回摘要。' +
-      '调用时必须同时提供 description（极短标题，用于 UI 单行展示）与 prompt（完整任务说明）。' +
+      '派生子代理在独立上下文中完成聚焦工作并返回产物、证据和未完成项。' +
+      '调用时必须同时提供 title（极短标题）与 goal（完整目标）。' +
       '可选 repoId：在跨仓项目中指定 project registry 中的仓库 id，子代理将绑定该仓库路径。' +
       '可选 modelProfileId：指定已配置的 Kross 模型档案；不填则继承当前模型。' +
-      '子代理基础可用 Read/Glob/Grep/Rg/List/Stat/Git*；' +
+      '子代理基础可用 Read/Glob/Grep/Rg/List/Stat；' +
       'mode=explore 时只读调查，mode=general 时额外允许 Edit/Write 完成任务范围内的修改；' +
       '不可用 Bash/Delete/Move/Task 等高危工具，子代理内无需用户审批。' +
       '子代理不能再派生子代理。',
@@ -75,16 +75,14 @@ export function createTaskTool(
     parameters: {
       type: 'object',
       properties: {
-        description: {
+        title: {
           type: 'string',
           description:
-            '必填。极短任务标题（建议 4–20 字，最多 48 字符），仅用于 UI 底栏单行展示，' +
-            '例如「追加 test.txt」「扫描 auth 路由」。不要写完整指令。'
+            '必填。极短任务标题（建议 4–20 字，最多 48 字符）。'
         },
-        prompt: {
+        goal: {
           type: 'string',
-          description:
-            '必填。交给子代理的完整任务说明（目标、范围、期望产出、约束）'
+          description: '必填。交给子代理的完整目标、范围、期望产物与约束。'
         },
         mode: {
           type: 'string',
@@ -106,7 +104,7 @@ export function createTaskTool(
             '不填时继承当前模型。'
         }
       },
-      required: ['description', 'prompt'],
+      required: ['title', 'goal'],
       additionalProperties: false
     },
     execute: async ({ input, runId, signal }) => {
@@ -119,7 +117,7 @@ export function createTaskTool(
       }
 
       const mode = (input.mode ?? 'explore') as SubagentMode;
-      const title = input.description.trim();
+      const title = input.title.trim();
       const repoId = input.repoId?.trim();
 
       let workspaceRoot: string | undefined;
@@ -146,7 +144,7 @@ export function createTaskTool(
 
       try {
         const outcome = await options.run({
-          prompt: input.prompt,
+          goal: input.goal,
           mode,
           title,
           parentRunId: runId,
@@ -176,8 +174,8 @@ export function createTaskTool(
             model: outcome.model,
             status: outcome.result.status,
             evidence: outcome.result.evidence,
-            risks: outcome.result.risks,
-            changedFiles: outcome.result.changedFiles
+            artifacts: outcome.result.artifacts,
+            incompleteItems: outcome.result.incompleteItems
           }
         };
       } catch (error) {

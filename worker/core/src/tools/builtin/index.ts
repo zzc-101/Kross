@@ -1,7 +1,6 @@
 import type { ToolDefinition } from '../toolGateway';
 import { createDeleteTool } from './delete';
 import { createEditTool } from './edit';
-import { createExploreTools } from './exploreTools';
 import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createListTool } from './list';
@@ -20,7 +19,7 @@ import type {
   MutationService
 } from '../../mutations/mutationService';
 
-export { createExploreTools, createSubagentTools } from './exploreTools';
+export { createSubagentTools } from './exploreTools';
 export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
 export { createTaskTool, type CreateTaskToolOptions } from './task';
 export { createDefaultSubagentRunner } from '../../runtime/subagentRunner';

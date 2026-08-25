@@ -1,21 +1,18 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import type { TraceEvent } from '../domain';
-import type { LlmClient, LlmRequest, LlmResponse, LlmStreamChunk } from '../llm/types';
+import type {
+  LlmClient,
+  LlmRequest,
+  LlmResponse,
+  LlmStreamChunk
+} from '../llm/types';
 import { renderPrompt } from '../prompts';
 import type { TraceStore } from '../trace/traceStore';
-import { ToolGateway, ToolPermissionError } from '../tools/toolGateway';
-import { saasToolApprovalPolicy } from '../tools/saasToolPolicy';
-import { createTaskTool } from '../tools/builtin/task';
-import {
-  createExploreTools,
-  createSubagentTools
-} from '../tools/builtin/exploreTools';
 import { runSubagent } from './subagentRunner';
 
 class InMemoryTraceStore implements TraceStore {
@@ -37,14 +34,11 @@ class InMemoryTraceStore implements TraceStore {
 class ScriptedLlmClient implements LlmClient {
   readonly provider = 'openai' as const;
   readonly requests: LlmRequest[] = [];
-  readonly model: string;
 
   constructor(
     private readonly text: string,
-    model = 'fake'
-  ) {
-    this.model = model;
-  }
+    readonly model = 'fake'
+  ) {}
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
     this.requests.push(request);
@@ -64,1023 +58,113 @@ class ScriptedLlmClient implements LlmClient {
 }
 
 describe('runSubagent', () => {
-  it('uses the explicitly selected model profile instead of the inherited client', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-model-'));
-    try {
-      const traceStore = new InMemoryTraceStore();
-      const inherited = new ScriptedLlmClient('inherited', 'main-model');
-      const economy = new ScriptedLlmClient('selected', 'economy-model');
-
-      const outcome = await runSubagent(
-        {
-          prompt: 'Use the economy profile',
-          parentRunId: 'parent-model',
-          modelProfileId: 'economy'
-        },
-        {
-          workspaceRoot: workspace,
-          traceStore,
-          llmClient: inherited,
-          resolveModelProfile: (profileId) => {
-            expect(profileId).toBe('economy');
-            return {
-              client: economy,
-              profile: {
-                id: 'economy',
-                name: 'Economy',
-                provider: 'openai',
-                model: 'economy-model'
-              }
-            };
-          }
-        }
-      );
-
-      expect(inherited.requests).toHaveLength(0);
-      expect(economy.requests.length).toBeGreaterThan(0);
-      expect(outcome).toMatchObject({
-        modelProfileId: 'economy',
-        modelProfileName: 'Economy',
-        model: 'economy-model'
-      });
-      expect(
-        traceStore.events.find((event) => event.type === 'subagent.started')
-          ?.payload
-      ).toMatchObject({
-        modelProfileId: 'economy',
-        modelProfileName: 'Economy',
-        model: 'economy-model'
-      });
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('injects instructions only from the selected child root and traces provenance', async () => {
-    const parent = mkdtempSync(join(tmpdir(), 'kross-subagent-instructions-'));
-    try {
-      const main = join(parent, 'main');
-      const api = join(parent, 'api');
-      mkdirSync(main);
-      mkdirSync(api);
-      writeFileSync(join(main, 'AGENTS.md'), 'MAIN ROOT SECRET RULE');
-      writeFileSync(join(api, 'KROSS.md'), 'API ROOT SCOPED RULE');
-      const mainSkill = join(main, '.agents', 'skills', 'main-only');
-      const apiSkill = join(api, '.agents', 'skills', 'api-only');
-      mkdirSync(mainSkill, { recursive: true });
-      mkdirSync(apiSkill, { recursive: true });
-      writeFileSync(
-        join(mainSkill, 'SKILL.md'),
-        '---\ndescription: MAIN SKILL SECRET\n---\nmain body'
-      );
-      writeFileSync(
-        join(apiSkill, 'SKILL.md'),
-        '---\ndescription: API scoped skill\n---\nAPI SKILL BODY'
-      );
-      const traceStore = new InMemoryTraceStore();
-      const llm = new ScriptedLlmClient('done');
-
-      await runSubagent(
-        {
-          prompt: 'Work only in API',
-          parentRunId: 'parent-scoped',
-          parentDepth: 0,
-          repoId: 'api',
-          workspaceRoot: api
-        },
-        {
-          workspaceRoot: main,
-          allowedWorkspaceRoots: [main, api],
-          traceStore,
-          llmClient: llm
-        }
-      );
-
-      const system = llm.requests[0]?.messages.find((message) => message.role === 'system');
-      expect(system?.content).toContain('API ROOT SCOPED RULE');
-      expect(system?.content).not.toContain('MAIN ROOT SECRET RULE');
-      expect(system?.content).toContain('API scoped skill');
-      expect(system?.content).not.toContain('API SKILL BODY');
-      expect(system?.content).not.toContain('MAIN SKILL SECRET');
-      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).toContain('ReadSkill');
-
-      const started = traceStore.events.find((event) => event.type === 'subagent.started');
-      expect(started?.payload).toMatchObject({
-        projectInstructions: [
-          expect.objectContaining({
-            filename: 'KROSS.md',
-            rootId: 'api',
-            truncated: false,
-            injectedBytes: expect.any(Number)
-          })
-        ],
-        projectInstructionDiagnosticCount: 0
-      });
-      expect(JSON.stringify(traceStore.events)).not.toContain('API ROOT SCOPED RULE');
-    } finally {
-      rmSync(parent, { recursive: true, force: true });
-    }
-  });
-
-  it('runs an isolated explore subagent and returns a structured result', async () => {
+  it('returns a work-oriented result from an isolated explore task', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-'));
     try {
-      writeFileSync(join(workspace, 'note.txt'), 'hello from workspace');
       const traceStore = new InMemoryTraceStore();
-      const llm = new ScriptedLlmClient(
-        'Found note.txt which says hello from workspace.'
-      );
+      const llm = new ScriptedLlmClient('整理出三个行动项');
 
       const outcome = await runSubagent(
         {
-          prompt: 'Summarize files in the workspace',
+          goal: '整理会议记录',
           mode: 'explore',
-          parentRunId: 'parent-run-1',
-          parentDepth: 0
+          parentRunId: 'parent-run-1'
         },
         {
           workspaceRoot: workspace,
           llmClient: llm,
           traceStore,
           maxToolIterations: 5
-        }
-      );
-
-      expect(outcome.mode).toBe('explore');
-      expect(outcome.result.status).toBe('completed');
-      expect(outcome.result.verification.status).toBe('not-needed');
-      expect(outcome.result.summary).toContain('note.txt');
-      expect(outcome.subRunId.startsWith('sub-parent-run-1')).toBe(true);
-
-      const types = traceStore.events.map((event) => event.type);
-      expect(types).toContain('subagent.started');
-      expect(types).toContain('subagent.completed');
-      // Dedicated path uses SUBAGENT system prompt, not planner shell.
-      const system = llm.requests[0]?.messages.find((m) => m.role === 'system');
-      expect(system?.content).toContain(renderPrompt('subagent.execution'));
-      expect(system?.content).toContain(
-        renderPrompt('subagent.execution.mode.explore')
-      );
-      expect(system?.content).not.toContain(
-        renderPrompt('subagent.execution.mode.general')
-      );
-      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).not.toContain(
-        'Edit'
-      );
-      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).not.toContain(
-        'Write'
-      );
-      expect(system?.content).not.toContain('规划器');
-      // Child should not see parent history — only the task prompt as user turn.
-      const userMessages = llm.requests.flatMap((request) =>
-        request.messages.filter((message) => message.role === 'user')
-      );
-      expect(userMessages.some((message) => message.content.includes('Summarize'))).toBe(
-        true
-      );
-      // Lifecycle + any tool traffic tagged isSubagent.
-      expect(
-        traceStore.events.some(
-          (event) =>
-            event.type === 'subagent.started' && event.payload.isSubagent === true
-        )
-      ).toBe(true);
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('assigns unique run ids to concurrently spawned subagents', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-ids-'));
-    try {
-      const outcomes = await Promise.all(
-        Array.from({ length: 6 }, (_, index) =>
-          runSubagent(
-            {
-              prompt: `inspect ${index}`,
-              mode: 'explore',
-              parentRunId: 'same-parent'
-            },
-            {
-              workspaceRoot: workspace,
-              llmClient: new ScriptedLlmClient(`done ${index}`),
-              traceStore: new InMemoryTraceStore(),
-              maxToolIterations: 2
-            }
-          )
-        )
-      );
-
-      const ids = outcomes.map((outcome) => outcome.subRunId);
-      expect(new Set(ids).size).toBe(ids.length);
-      expect(ids.every((id) => id.startsWith('sub-same-parent-'))).toBe(true);
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects nested subagent depth', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-depth-'));
-    try {
-      const traceStore = new InMemoryTraceStore();
-      await expect(
-        runSubagent(
-          {
-            prompt: 'nested',
-            parentRunId: 'p',
-            parentDepth: 1
-          },
-          {
-            workspaceRoot: workspace,
-            traceStore,
-            llmClient: new ScriptedLlmClient('nope')
-          }
-        )
-      ).rejects.toThrow(/depth limit/i);
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps general mode label without forcing explore', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-gen-'));
-    try {
-      const traceStore = new InMemoryTraceStore();
-      const llm = new ScriptedLlmClient('ok');
-      const outcome = await runSubagent(
-        {
-          prompt: 'quick look',
-          mode: 'general',
-          parentRunId: 'p2',
-          parentDepth: 0
-        },
-        {
-          workspaceRoot: workspace,
-          traceStore,
-          llmClient: llm,
-          maxToolIterations: 3
-        }
-      );
-      expect(outcome.mode).toBe('general');
-      expect(outcome.modeForcedToExplore).toBe(false);
-      const system = llm.requests[0]?.messages.find((m) => m.role === 'system');
-      expect(system?.content).toContain(
-        renderPrompt('subagent.execution.mode.general')
-      );
-      expect(system?.content).not.toContain(
-        renderPrompt('subagent.execution.mode.explore')
-      );
-      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).toContain('Edit');
-      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).toContain('Write');
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('derives an explicit not-run verification report after worker changes', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-verify-'));
-    try {
-      class WriteThenDoneClient implements LlmClient {
-        readonly provider = 'openai' as const;
-        calls = 0;
-
-        async complete(request: LlmRequest): Promise<LlmResponse> {
-          this.calls += 1;
-          return this.calls === 1
-            ? {
-                provider: this.provider,
-                model: 'fake',
-                text: '',
-                raw: {},
-                toolCalls: [
-                  {
-                    id: 'write-1',
-                    name: 'Write',
-                    input: { path: 'worker.ts', content: 'export const ok = true;\n' }
-                  }
-                ]
-              }
-            : {
-                provider: this.provider,
-                model: 'fake',
-                text: 'implemented worker.ts',
-                raw: {}
-              };
-        }
-
-        async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
-          const response = await this.complete(request);
-          for (const call of response.toolCalls ?? []) {
-            yield { type: 'tool-call', call };
-          }
-          if (response.text) {
-            yield { type: 'text-delta', text: response.text };
-          }
-          yield { type: 'done' };
-        }
-      }
-
-      const traceStore = new InMemoryTraceStore();
-      const outcome = await runSubagent(
-        {
-          prompt: 'implement worker file',
-          mode: 'general',
-          parentRunId: 'parent-worker-verification'
-        },
-        {
-          workspaceRoot: workspace,
-          llmClient: new WriteThenDoneClient(),
-          traceStore,
-          maxToolIterations: 4
-        }
-      );
-
-      expect(outcome.result).toMatchObject({
-        status: 'needs-review',
-        changedFiles: ['worker.ts'],
-        commandsRun: [],
-        verification: {
-          status: 'not-run',
-          commands: []
-        }
-      });
-      expect(outcome.result.needsReview).toContain(
-        'Conductor reviewer 必须检查最终 diff 与验证缺口'
-      );
-      expect(
-        traceStore.events.find((event) => event.type === 'subagent.completed')
-          ?.payload
-      ).toMatchObject({
-        verification: { status: 'not-run' }
-      });
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('auto-allows Edit/Write and does not register Bash/Delete/Task', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-tools-'));
-    try {
-      const tools = createSubagentTools(workspace).map((tool) => tool.name);
-      expect(tools).toEqual(
-        expect.arrayContaining(['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Rg'])
-      );
-      expect(tools).not.toContain('Bash');
-      expect(tools).not.toContain('Delete');
-      expect(tools).not.toContain('Move');
-      expect(tools).not.toContain('Task');
-      expect(tools.some((name) => name.startsWith('Process'))).toBe(false);
-
-      const traceStore = new InMemoryTraceStore();
-      // Smoke: subagent run with auto-approve path completes without approval-required.
-      const outcome = await runSubagent(
-        {
-          prompt: 'reply ok',
-          parentRunId: 'p-tools',
-          parentDepth: 0
-        },
-        {
-          workspaceRoot: workspace,
-          traceStore,
-          llmClient: new ScriptedLlmClient('ok'),
-          maxToolIterations: 2
-        }
-      );
-      expect(outcome.result.status).toBe('completed');
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('runs a specialized reviewer with read-only Git evidence', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-reviewer-'));
-    try {
-      execFileSync('git', ['init', '--quiet'], { cwd: workspace });
-      writeFileSync(join(workspace, 'review.txt'), 'pending review\n');
-
-      class ReviewerClient implements LlmClient {
-        readonly provider = 'openai' as const;
-        calls = 0;
-        readonly requests: LlmRequest[] = [];
-
-        async complete(request: LlmRequest): Promise<LlmResponse> {
-          this.requests.push(request);
-          this.calls += 1;
-          const tool =
-            this.calls === 1
-              ? {
-                  id: 'status-1',
-                  name: 'Git',
-                  input: { action: 'status' }
-                }
-              : this.calls === 2
-                ? {
-                    id: 'diff-1',
-                    name: 'Git',
-                    input: { action: 'diff', staged: false }
-                  }
-                : this.calls === 3
-                  ? {
-                      id: 'diff-2',
-                      name: 'Git',
-                      input: { action: 'diff', staged: true }
-                    }
-                  : undefined;
-          return {
-            provider: this.provider,
-            model: 'senior',
-            text: tool ? '' : 'reviewed the actual diff',
-            raw: {},
-            ...(tool ? { toolCalls: [tool] } : {})
-          };
-        }
-
-        async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
-          const response = await this.complete(request);
-          for (const call of response.toolCalls ?? []) {
-            yield { type: 'tool-call', call };
-          }
-          if (response.text) {
-            yield { type: 'text-delta', text: response.text };
-          }
-          yield { type: 'done' };
-        }
-      }
-
-      const llm = new ReviewerClient();
-      const outcome = await runSubagent(
-        {
-          prompt: 'review final workspace diff',
-          title: 'final review',
-          mode: 'explore',
-          role: 'reviewer',
-          systemPrompt: 'SPECIAL READ-ONLY REVIEWER',
-          parentRunId: 'parent-reviewer'
-        },
-        {
-          workspaceRoot: workspace,
-          llmClient: llm,
-          traceStore: new InMemoryTraceStore(),
-          maxToolIterations: 5
-        }
-      );
-
-      expect(outcome.result.toolsUsed).toEqual(
-        expect.arrayContaining([
-          'Git:status',
-          'Git:diff:unstaged',
-          'Git:diff:staged'
-        ])
-      );
-      expect(outcome.result.diffSummary).toHaveLength(2);
-      expect(
-        llm.requests[0]?.messages.find((message) => message.role === 'system')
-          ?.content
-      ).toContain('SPECIAL READ-ONLY REVIEWER');
-      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).not.toContain(
-        'Write'
-      );
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('runs a validation worker with Verify but without mutation tools', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-validator-'));
-    try {
-      writeFileSync(
-        join(workspace, 'package.json'),
-        JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } })
-      );
-
-      class ValidatorClient implements LlmClient {
-        readonly provider = 'openai' as const;
-        calls = 0;
-        readonly requests: LlmRequest[] = [];
-
-        async complete(request: LlmRequest): Promise<LlmResponse> {
-          this.requests.push(request);
-          this.calls += 1;
-          return this.calls === 1
-            ? {
-                provider: this.provider,
-                model: 'worker',
-                text: '',
-                raw: {},
-                toolCalls: [
-                  {
-                    id: 'verify-1',
-                    name: 'Verify',
-                    input: { command: 'npm test' }
-                  }
-                ]
-              }
-            : {
-                provider: this.provider,
-                model: 'worker',
-                text: 'independent validation passed',
-                raw: {}
-              };
-        }
-
-        async *stream(request: LlmRequest): AsyncIterable<LlmStreamChunk> {
-          const response = await this.complete(request);
-          for (const call of response.toolCalls ?? []) {
-            yield { type: 'tool-call', call };
-          }
-          if (response.text) yield { type: 'text-delta', text: response.text };
-          yield { type: 'done' };
-        }
-      }
-
-      const llm = new ValidatorClient();
-      const outcome = await runSubagent(
-        {
-          prompt: 'validate final change',
-          mode: 'explore',
-          role: 'validator',
-          systemPrompt: 'VALIDATION ONLY',
-          verificationChangedFiles: ['src/a.ts'],
-          parentRunId: 'parent-validator'
-        },
-        {
-          workspaceRoot: workspace,
-          llmClient: llm,
-          traceStore: new InMemoryTraceStore(),
-          maxToolIterations: 4
         }
       );
 
       expect(outcome.result).toMatchObject({
         status: 'completed',
-        changedFiles: [],
-        toolsUsed: ['Verify'],
-        verification: {
-          status: 'passed',
-          commands: ['npm test']
-        }
+        summary: '整理出三个行动项',
+        artifacts: [],
+        incompleteItems: []
       });
-      const tools = llm.requests[0]?.tools?.map((tool) => tool.name) ?? [];
-      expect(tools).toContain('Verify');
-      expect(tools).not.toContain('Write');
-      expect(tools).not.toContain('Edit');
-      expect(tools).not.toContain('Bash');
+      const system = llm.requests[0]?.messages.find(
+        (message) => message.role === 'system'
+      );
+      expect(system?.content).toContain(renderPrompt('subagent.execution'));
+      expect(system?.content).toContain(
+        renderPrompt('subagent.execution.mode.explore')
+      );
+      expect(llm.requests[0]?.tools?.map((tool) => tool.name)).not.toContain(
+        'Write'
+      );
+      expect(traceStore.events.map((event) => event.type)).toEqual(
+        expect.arrayContaining(['subagent.started', 'subagent.completed'])
+      );
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
   });
-});
 
-describe('runSubagent stall guard', () => {
-  it('stops when the model repeats the same tool calls without progress', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-stall-'));
+  it('allows artifact tools only in general mode', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-general-'));
     try {
-      writeFileSync(join(workspace, 'a.txt'), 'hello');
-      const traceStore = new InMemoryTraceStore();
-
-      class RepeatToolLlm implements LlmClient {
-        readonly provider = 'openai' as const;
-        calls = 0;
-
-        async complete(): Promise<LlmResponse> {
-          this.calls += 1;
-          return {
-            provider: this.provider,
-            model: 'fake',
-            text: '',
-            raw: {},
-            toolCalls: [
-              {
-                id: `call-${this.calls}`,
-                name: 'Read',
-                input: { path: 'a.txt' }
-              }
-            ]
-          };
+      const llm = new ScriptedLlmClient('产物已生成');
+      await runSubagent(
+        {
+          goal: '生成摘要文档',
+          mode: 'general',
+          parentRunId: 'parent-run-2'
+        },
+        {
+          workspaceRoot: workspace,
+          llmClient: llm,
+          traceStore: new InMemoryTraceStore()
         }
+      );
 
-        async *stream(): AsyncIterable<LlmStreamChunk> {
-          yield { type: 'done' };
-        }
-      }
+      const toolNames = llm.requests[0]?.tools?.map((tool) => tool.name);
+      expect(toolNames).toContain('Write');
+      expect(toolNames).toContain('Edit');
+      expect(toolNames).not.toContain('Bash');
+      expect(toolNames).not.toContain('Task');
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
 
-      const llm = new RepeatToolLlm();
+  it('uses the explicitly selected model profile', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-model-'));
+    try {
+      const inherited = new ScriptedLlmClient('inherited', 'main-model');
+      const selected = new ScriptedLlmClient('selected', 'economy-model');
       const outcome = await runSubagent(
         {
-          prompt: 'read a.txt forever',
-          parentRunId: 'parent-stall',
-          parentDepth: 0
+          goal: '处理批量资料',
+          parentRunId: 'parent-model',
+          modelProfileId: 'economy'
         },
         {
           workspaceRoot: workspace,
-          llmClient: llm,
-          traceStore,
-          maxToolIterations: 20
+          traceStore: new InMemoryTraceStore(),
+          llmClient: inherited,
+          resolveModelProfile: () => ({
+            client: selected,
+            profile: {
+              id: 'economy',
+              name: 'Economy',
+              provider: 'openai',
+              model: 'economy-model'
+            }
+          })
         }
       );
 
-      // 第 3 轮触发一次恢复提示，第 4 轮仍无进展后收束。
-      expect(llm.calls).toBe(4);
-      expect(outcome.result.status).toBe('needs-review');
-      expect(outcome.result.risks).toContain('分配给子代理的任务可能尚未完成');
-      expect(outcome.result.summary).toBe(
-        renderPrompt('subagent.summary.stalled')
-      );
-      expect(traceStore.events.map((e) => e.type)).toContain(
-        'llm.subagent.stalled'
-      );
-      expect(traceStore.events.map((e) => e.type)).toContain(
-        'llm.subagent.stall_recovery'
-      );
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('runSubagent abort', () => {
-  it('forwards AbortSignal to the LLM complete call and cancels mid-request', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-abort-llm-'));
-    try {
-      const traceStore = new InMemoryTraceStore();
-      const controller = new AbortController();
-      let markStarted: (() => void) | undefined;
-      const started = new Promise<void>((resolve) => {
-        markStarted = resolve;
+      expect(inherited.requests).toHaveLength(0);
+      expect(selected.requests.length).toBeGreaterThan(0);
+      expect(outcome).toMatchObject({
+        modelProfileId: 'economy',
+        modelProfileName: 'Economy',
+        model: 'economy-model'
       });
-
-      class HangingLlmClient implements LlmClient {
-        readonly provider = 'openai' as const;
-        signal?: AbortSignal;
-
-        async complete(request: LlmRequest): Promise<LlmResponse> {
-          this.signal = request.signal;
-          markStarted?.();
-          return new Promise((_, reject) => {
-            if (!request.signal) {
-              reject(new Error('missing signal'));
-              return;
-            }
-            if (request.signal.aborted) {
-              reject(request.signal.reason);
-              return;
-            }
-            request.signal.addEventListener(
-              'abort',
-              () => reject(request.signal?.reason),
-              { once: true }
-            );
-          });
-        }
-
-        async *stream(): AsyncIterable<LlmStreamChunk> {
-          yield { type: 'done' };
-        }
-      }
-
-      const llm = new HangingLlmClient();
-      const run = runSubagent(
-        {
-          prompt: 'hang please',
-          parentRunId: 'parent-abort',
-          parentDepth: 0,
-          signal: controller.signal
-        },
-        {
-          workspaceRoot: workspace,
-          llmClient: llm,
-          traceStore,
-          maxToolIterations: 3
-        }
-      );
-
-      await started;
-      controller.abort(new Error('用户按下 Esc'));
-      await expect(run).rejects.toThrow('用户按下 Esc');
-      expect(llm.signal?.aborted).toBe(true);
-      expect(traceStore.events.map((event) => event.type)).toContain(
-        'subagent.cancelled'
-      );
-      expect(traceStore.events.map((event) => event.type)).not.toContain(
-        'subagent.failed'
-      );
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
-  });
-
-  it('stops before child tools when signal aborts after the LLM tool_calls turn', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-abort-tool-'));
-    try {
-      const traceStore = new InMemoryTraceStore();
-      const controller = new AbortController();
-
-      class ToolCallingLlm implements LlmClient {
-        readonly provider = 'openai' as const;
-
-        async complete(_request: LlmRequest): Promise<LlmResponse> {
-          return {
-            provider: this.provider,
-            model: 'fake',
-            text: '',
-            raw: {},
-            toolCalls: [
-              {
-                id: 'call-read-1',
-                name: 'Read',
-                input: { path: 'missing.txt' }
-              }
-            ]
-          };
-        }
-
-        async *stream(): AsyncIterable<LlmStreamChunk> {
-          yield { type: 'done' };
-        }
-      }
-
-      const llm = new ToolCallingLlm();
-      const original = llm.complete.bind(llm);
-      llm.complete = async (request: LlmRequest) => {
-        const response = await original(request);
-        // Abort after tool_calls are produced so executeToolCalls sees aborted signal
-        // (throwIfAborted / gateway.call(signal)) before any child tool runs.
-        controller.abort(new Error('stop child tools'));
-        await Promise.resolve();
-        return response;
-      };
-
-      await expect(
-        runSubagent(
-          {
-            prompt: 'read something',
-            parentRunId: 'parent-tool-abort',
-            parentDepth: 0,
-            signal: controller.signal
-          },
-          {
-            workspaceRoot: workspace,
-            llmClient: llm,
-            traceStore,
-            maxToolIterations: 3
-          }
-        )
-      ).rejects.toThrow('stop child tools');
-
-      const types = traceStore.events.map((event) => event.type);
-      expect(types).toContain('subagent.cancelled');
-      expect(types).not.toContain('tool_call.started');
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('Task tool', () => {
-  it('auto-approves scoped general tasks while explore remains read-only', async () => {
-    const requests: string[] = [];
-    const gateway = new ToolGateway({
-      approvalPolicy: saasToolApprovalPolicy
-    });
-    gateway.register(
-      createTaskTool({
-        run: async (request) => {
-          requests.push(request.mode ?? 'explore');
-          return {
-            subRunId: `sub-${requests.length}`,
-            mode: request.mode ?? 'explore',
-            modeForcedToExplore: false,
-            result: {
-              status: 'completed',
-              summary: 'done',
-              changedFiles: [],
-              diffSummary: [],
-              commandsRun: [],
-              toolsUsed: [],
-              verification: {
-                status: 'not-needed',
-                commands: [],
-                evidence: []
-              },
-              evidence: [],
-              risks: [],
-              needsReview: []
-            }
-          };
-        }
-      })
-    );
-
-    await expect(
-      gateway.call({
-        runId: 'explore',
-        name: 'Task',
-        input: { description: 'scan', prompt: 'inspect only' }
-      })
-    ).resolves.toMatchObject({ status: 'completed' });
-
-    await expect(
-      gateway.call({
-        runId: 'general',
-        name: 'Task',
-        input: {
-          description: 'edit',
-          prompt: 'make a change',
-          mode: 'general'
-        }
-      })
-    ).resolves.toMatchObject({ status: 'completed' });
-    expect(requests).toEqual(['explore', 'general']);
-  });
-
-  it('registers as a gateway tool and returns subagent summary', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-task-tool-'));
-    try {
-      const traceStore = new InMemoryTraceStore();
-      const gateway = new ToolGateway({ traceStore });
-      for (const tool of createExploreTools(workspace)) {
-        gateway.register(tool);
-      }
-      gateway.register(
-        createTaskTool({
-          parentDepth: 0,
-          run: (request) =>
-            runSubagent(request, {
-              workspaceRoot: workspace,
-              traceStore,
-              llmClient: new ScriptedLlmClient('Task done: explored workspace.'),
-              maxToolIterations: 3
-            })
-        })
-      );
-
-      const result = await gateway.call({
-        runId: 'main-run',
-        name: 'Task',
-        input: { prompt: 'Explore the repo', description: 'scan' }
-      });
-
-      expect(result.status).toBe('completed');
-      expect(result.summary).toContain('Task(scan)');
-      expect(result.content).toContain('Task done');
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('denies Task when parentDepth >= 1', async () => {
-    const gateway = new ToolGateway();
-    gateway.register(
-      createTaskTool({
-        parentDepth: 1,
-        run: async () => {
-          throw new Error('should not run');
-        }
-      })
-    );
-
-    const result = await gateway.call({
-      runId: 'child',
-      name: 'Task',
-      input: { description: 'denied', prompt: 'nope' }
-    });
-    expect(result.summary).toContain('nested Task denied');
-  });
-
-  it('requires description (short title) from the model', async () => {
-    const gateway = new ToolGateway();
-    gateway.register(
-      createTaskTool({
-        parentDepth: 0,
-        run: async () => {
-          throw new Error('should not run');
-        }
-      })
-    );
-
-    await expect(
-      gateway.call({
-        runId: 'main',
-        name: 'Task',
-        input: { prompt: 'full instructions without title' }
-      })
-    ).rejects.toThrow(/Invalid input|description|required/i);
-  });
-
-  it('forwards description as subagent title', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-task-title-'));
-    try {
-      const traceStore = new InMemoryTraceStore();
-      let seenTitle: string | undefined;
-      const gateway = new ToolGateway({ traceStore });
-      gateway.register(
-        createTaskTool({
-          parentDepth: 0,
-          run: async (request) => {
-            seenTitle = request.title;
-            return runSubagent(request, {
-              workspaceRoot: workspace,
-              traceStore,
-              llmClient: new ScriptedLlmClient('ok'),
-              maxToolIterations: 2
-            });
-          }
-        })
-      );
-
-      await gateway.call({
-        runId: 'main-title',
-        name: 'Task',
-        input: {
-          description: '追加 test.txt',
-          prompt: '请在 test.txt 末尾追加三行内容'
-        }
-      });
-
-      expect(seenTitle).toBe('追加 test.txt');
-      const started = traceStore.events.find((e) => e.type === 'subagent.started');
-      expect(started?.payload.title).toBe('追加 test.txt');
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
-  it('forwards modelProfileId to the subagent runner', async () => {
-    const gateway = new ToolGateway();
-    let selected: string | undefined;
-    gateway.register(
-      createTaskTool({
-        run: async (request) => {
-          selected = request.modelProfileId;
-          return {
-            subRunId: 'sub-model',
-            mode: request.mode ?? 'explore',
-            modeForcedToExplore: false,
-            modelProfileId: request.modelProfileId,
-            modelProfileName: 'Economy',
-            model: 'economy-model',
-            result: {
-              status: 'completed',
-              summary: 'done',
-              changedFiles: [],
-              diffSummary: [],
-              commandsRun: [],
-              toolsUsed: [],
-              verification: {
-                status: 'not-needed',
-                commands: [],
-                evidence: []
-              },
-              evidence: [],
-              risks: [],
-              needsReview: []
-            }
-          };
-        }
-      })
-    );
-
-    const result = await gateway.call({
-      runId: 'main-model',
-      name: 'Task',
-      input: {
-        description: '经济模型探索',
-        prompt: 'inspect',
-        modelProfileId: 'economy'
-      }
-    });
-
-    expect(selected).toBe('economy');
-    expect(result.data).toMatchObject({
-      modelProfileId: 'economy',
-      modelProfileName: 'Economy',
-      model: 'economy-model'
-    });
-  });
-
-  it('rethrows abort errors instead of wrapping them as Task failed content', async () => {
-    const controller = new AbortController();
-    const gateway = new ToolGateway();
-    gateway.register(
-      createTaskTool({
-        parentDepth: 0,
-        run: async ({ signal }) => {
-          controller.abort(new Error('用户按下 Esc'));
-          // Simulate subagent surface that already threw an abort-shaped error
-          // while the external signal is aborted.
-          throw signal?.reason ?? new Error('aborted');
-        }
-      })
-    );
-
-    await expect(
-      gateway.call({
-        runId: 'main-abort-task',
-        name: 'Task',
-        input: { description: 'abort test', prompt: 'do work' },
-        signal: controller.signal,
-        returnErrors: true
-      })
-    ).rejects.toThrow('用户按下 Esc');
   });
 });

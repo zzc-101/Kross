@@ -71,7 +71,7 @@ interface PendingToolSession {
   remainingCalls: LlmToolCall[];
   tools: ToolMetadata[];
   iteration: number;
-  verificationFollowupCount: number;
+  completionFollowupCount: number;
   completedCallIds: string[];
 }
 
@@ -87,7 +87,7 @@ export interface RuntimeToolLoopOptions {
     type: string,
     payload: Record<string, unknown>
   ): Promise<void>;
-  attachChangedFiles(result: AgentResult): Promise<AgentResult>;
+  attachArtifacts(result: AgentResult): Promise<AgentResult>;
   assessCompletionGate(
     runId: string,
     originalUserInput: string
@@ -100,10 +100,6 @@ export interface RuntimeToolLoopOptions {
     tools: ToolMetadata[];
     iteration: number;
   }): Promise<void>;
-  completeVerificationObservation(
-    runId: string,
-    options?: { force?: boolean; reason?: string }
-  ): Promise<void>;
   setRunPhase(
     runId: string,
     phase: RunPhase,
@@ -212,7 +208,7 @@ export class RuntimeToolLoop {
       remainingCalls: checkpoint.remainingCalls.map(toLlmToolCall),
       tools,
       iteration: checkpoint.iteration,
-      verificationFollowupCount: checkpoint.verificationFollowupCount,
+      completionFollowupCount: checkpoint.completionFollowupCount,
       completedCallIds: checkpoint.completedCallIds
     });
     return true;
@@ -350,7 +346,7 @@ export class RuntimeToolLoop {
       calls: session.remainingCalls,
       tools: session.tools,
       iteration: session.iteration,
-      verificationFollowupCount: session.verificationFollowupCount,
+      completionFollowupCount: session.completionFollowupCount,
       signal: input.signal
     });
     this.appendToolMessages(
@@ -362,7 +358,7 @@ export class RuntimeToolLoop {
     this.notifyCheckpointSynchronized(session.runId);
     throwIfAborted(input.signal);
     if (batch.kind === 'approval') {
-      const approval = await this.options.attachChangedFiles(batch.result);
+      const approval = await this.options.attachArtifacts(batch.result);
       await this.options.record(session.runId, 'run.awaiting_approval', {
         pendingApproval: approval.pendingApproval
       });
@@ -372,7 +368,7 @@ export class RuntimeToolLoop {
 
     if (!this.options.llmClient) {
       this.clearRunCheckpoint(session.runId);
-      const failed = await this.options.attachChangedFiles(
+      const failed = await this.options.attachArtifacts(
         createMissingLlmAfterApprovalResult(session.runId)
       );
       await this.options.record(session.runId, 'run.completed', { ...failed });
@@ -399,21 +395,21 @@ export class RuntimeToolLoop {
       startIteration: session.iteration,
       firstStreamPurpose: 'planner-tool-followup',
       streamMetadata: { approvalResolved: input.approved },
-      verificationFollowupCount: session.verificationFollowupCount,
+      completionFollowupCount: session.completionFollowupCount,
       signal: input.signal,
       handlers: {
         onSuccess: async ({ fullText, fullThinking }) => {
           this.clearRunCheckpoint(session.runId);
-          const result = await this.options.attachChangedFiles(
+          const result = await this.options.attachArtifacts(
             agentResultSchema.parse({
               runId: session.runId,
               status: 'completed',
               summary: fullText,
               thinking: fullThinking || undefined,
               report: {
-                changedFiles: [],
+                artifacts: [],
                 evidence: [],
-                risks: []
+                incompleteItems: []
               }
             })
           );
@@ -447,18 +443,18 @@ export class RuntimeToolLoop {
         },
         onFailure: async (message, classification) => {
           this.clearRunCheckpoint(session.runId);
-          const failed = await this.options.attachChangedFiles(
+          const failed = await this.options.attachArtifacts(
             agentResultSchema.parse({
               runId: session.runId,
               status: 'failed',
               summary: `工具审批后续请求失败：${message}`,
               report: {
-                changedFiles: [],
+                artifacts: [],
                 evidence: [
                   `LLM 请求失败: ${message}`,
                   `错误分类: ${classification.source}/${classification.category}; retryable=${classification.retryable}`
                 ],
-                risks: [classification.recovery]
+                incompleteItems: [classification.recovery]
               }
             })
           );
@@ -503,7 +499,7 @@ export class RuntimeToolLoop {
     calls: LlmToolCall[];
     tools: ToolMetadata[];
     iteration: number;
-    verificationFollowupCount?: number;
+    completionFollowupCount?: number;
     signal?: AbortSignal;
   }): Promise<ToolBatchOutcome> {
     const toolMessages: LlmMessage[] = [];
@@ -525,17 +521,11 @@ export class RuntimeToolLoop {
           ).phase
         : 'inspect',
       iteration: input.iteration,
-      verificationFollowupCount: input.verificationFollowupCount ?? 0,
-      verificationState:
-        (input.verificationFollowupCount ?? 0) > 0
-          ? 'pending'
-          : input.calls[0] &&
-              classifyToolCallPhase(
-                input.calls[0],
-                input.tools.find((tool) => tool.name === input.calls[0]!.name)
-              ).phase === 'verify'
-            ? 'in-progress'
-            : 'unknown',
+      completionFollowupCount: input.completionFollowupCount ?? 0,
+      completionState:
+        (input.completionFollowupCount ?? 0) > 0
+          ? 'in-progress'
+          : 'unknown',
       completedCallIds,
       remainingCalls: queue,
       updatedAt: this.now().toISOString()
@@ -619,7 +609,6 @@ export class RuntimeToolLoop {
                 content: result.content
               });
               completedCallIds.push(parallelCall.id);
-              await this.options.completeVerificationObservation(input.runId);
             }
             this.updateCheckpoint({
               ...this.activeCheckpoint!,
@@ -676,10 +665,6 @@ export class RuntimeToolLoop {
               },
               false
             );
-            await this.options.completeVerificationObservation(input.runId, {
-              force: true,
-              reason: `Tool ${call.name} was denied by policy.`
-            });
             continue;
           }
 
@@ -690,7 +675,7 @@ export class RuntimeToolLoop {
             remainingCalls: queue,
             tools: input.tools,
             iteration: input.iteration,
-            verificationFollowupCount: input.verificationFollowupCount ?? 0,
+            completionFollowupCount: input.completionFollowupCount ?? 0,
             completedCallIds: [...new Set(completedCallIds)]
           };
           return {
@@ -718,7 +703,6 @@ export class RuntimeToolLoop {
         remainingCalls: queue,
         updatedAt: this.now().toISOString()
       }, false);
-      await this.options.completeVerificationObservation(input.runId);
     }
 
     return { kind: 'completed', toolMessages };
@@ -778,15 +762,15 @@ export class RuntimeToolLoop {
     runId: string,
     message: string
   ): Promise<AgentResult> {
-    return this.options.attachChangedFiles(
+    return this.options.attachArtifacts(
       agentResultSchema.parse({
         runId,
         status: 'failed',
         summary: message || SOFT_LAND_FALLBACK,
         report: {
-          changedFiles: [],
+          artifacts: [],
           evidence: ['工具调用循环达到上限，已停止继续执行工具并尝试收尾'],
-          risks: ['部分计划可能未执行完，可继续对话推进']
+          incompleteItems: ['部分任务可能未执行完，可继续对话推进']
         }
       })
     );
@@ -796,19 +780,19 @@ export class RuntimeToolLoop {
     runId: string,
     summary: string
   ): Promise<AgentResult> {
-    return this.options.attachChangedFiles(
+    return this.options.attachArtifacts(
       agentResultSchema.parse({
         runId,
         status: 'failed',
         summary: summary || renderPrompt('agent.stall.summary'),
         report: {
-          changedFiles: [],
+          artifacts: [],
           evidence: [
             summary.includes('连续多轮')
               ? '主 Agent 连续多轮只有检索或读取，没有产生可识别的执行进展'
               : '主 Agent 在 Harness 恢复提示后仍重复相同工具调用，且工具结果没有变化'
           ],
-          risks: [
+          incompleteItems: [
             '任务尚未完成，需要调整策略后继续',
             ...(summary.startsWith('无法确认任务完成：') ? [summary] : [])
           ]
@@ -829,7 +813,7 @@ export class RuntimeToolLoop {
         this.options.record(runId, type, payload),
       executeToolBatch: (input) => this.executeToolBatch(input),
       streamSoftLand: (input) => this.streamSoftLand(input),
-      attachChangedFiles: (result) => this.options.attachChangedFiles(result),
+      attachArtifacts: (result) => this.options.attachArtifacts(result),
       assessCompletionGate: (runId, originalUserInput) =>
         this.options.assessCompletionGate(runId, originalUserInput),
       completionPolicy: this.options.completionPolicy,
@@ -859,7 +843,6 @@ export class RuntimeToolLoop {
       returnErrors: true,
       signal
     });
-    await this.options.completeVerificationObservation(session.runId);
 
     return {
       role: 'tool',
@@ -885,12 +868,6 @@ export class RuntimeToolLoop {
         session.call.name,
         session.call.input
       )
-    });
-    await this.options.completeVerificationObservation(session.runId, {
-      force: true,
-      reason: normalizedReason
-        ? `Tool ${session.call.name} was rejected by the user: ${normalizedReason}`
-        : `Tool ${session.call.name} was rejected by the user.`
     });
 
     return {
@@ -940,16 +917,9 @@ export class RuntimeToolLoop {
         session.tools.find((tool) => tool.name === session.call.name)
       ).phase,
       iteration: session.iteration,
-      verificationFollowupCount: session.verificationFollowupCount,
-      verificationState:
-        classifyToolCallPhase(
-          session.call,
-          session.tools.find((tool) => tool.name === session.call.name)
-        ).phase === 'verify'
-          ? 'in-progress'
-          : session.verificationFollowupCount > 0
-            ? 'pending'
-            : 'unknown',
+      completionFollowupCount: session.completionFollowupCount,
+      completionState:
+        session.completionFollowupCount > 0 ? 'in-progress' : 'unknown',
       completedCallIds: session.completedCallIds,
       pendingCall: session.call,
       remainingCalls: session.remainingCalls,
@@ -957,16 +927,16 @@ export class RuntimeToolLoop {
       updatedAt: this.now().toISOString()
     }, false);
 
-    return this.options.attachChangedFiles(
+    return this.options.attachArtifacts(
       agentResultSchema.parse({
         runId: session.runId,
         status: 'approval-required',
         summary: `需要确认工具调用：${session.call.name}`,
         pendingApproval,
         report: {
-          changedFiles: [],
+          artifacts: [],
           evidence: ['模型请求了需要用户确认的工具调用'],
-          risks: [`${pendingApproval.risk} tool requires approval`]
+          incompleteItems: [`${pendingApproval.risk} tool requires approval`]
         }
       })
     );
@@ -993,16 +963,16 @@ export class RuntimeToolLoop {
     if (this.options.sessionContext.getThread().getOpenTurnId()) {
       this.options.interruptTurn('用户中断了当前任务');
     }
-    const cancelled = await this.options.attachChangedFiles(
+    const cancelled = await this.options.attachArtifacts(
       agentResultSchema.parse({
         runId: session.runId,
         status: 'cancelled',
         cancellationReason: 'user-interrupt',
         summary: '已中断当前任务',
         report: {
-          changedFiles: [],
+          artifacts: [],
           evidence: [`用户在 ${stage} 阶段中断运行`],
-          risks: []
+          incompleteItems: []
         }
       })
     );
@@ -1042,16 +1012,16 @@ export class RuntimeToolLoop {
       });
     }
 
-    const cancelled = await this.options.attachChangedFiles(
+    const cancelled = await this.options.attachArtifacts(
       agentResultSchema.parse({
         runId: session.runId,
         status: 'cancelled',
         cancellationReason,
         summary,
         report: {
-          changedFiles: [],
+          artifacts: [],
           evidence: ['运行因审批未决被取消'],
-          risks: []
+          incompleteItems: []
         }
       })
     );

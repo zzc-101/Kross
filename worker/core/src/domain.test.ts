@@ -47,27 +47,19 @@ describe('domain schemas', () => {
     expect(result.success).toBe(false);
   });
 
-  it('parses subagent results with evidence and risks', () => {
+  it('parses a work-oriented subagent result', () => {
     const result = subagentResultSchema.parse({
       status: 'completed',
-      summary: '完成后端字段贯通',
-      changedFiles: ['src/task.ts'],
-      diffSummary: ['新增 taskSource 字段'],
-      commandsRun: ['npm test'],
-      toolsUsed: ['Read', 'Edit', 'Bash'],
-      verification: {
-        status: 'passed',
-        commands: ['npm test'],
-        evidence: ['npm test: passed']
-      },
-      evidence: ['测试通过'],
-      risks: ['未覆盖并发场景'],
-      needsReview: []
+      summary: '会议纪要已整理',
+      artifacts: ['meeting-notes.md'],
+      toolsUsed: ['Read', 'Write'],
+      evidence: ['已提取三个行动项'],
+      incompleteItems: []
     });
 
-    expect(result.evidence).toContain('测试通过');
-    expect(result.risks).toHaveLength(1);
-    expect(result.verification.status).toBe('passed');
+    expect(result.artifacts).toEqual(['meeting-notes.md']);
+    expect(result.evidence).toContain('已提取三个行动项');
+    expect(result.incompleteItems).toEqual([]);
   });
 
   it('parses a final agent result', () => {
@@ -76,14 +68,14 @@ describe('domain schemas', () => {
       status: 'completed',
       summary: '任务完成',
       report: {
-        changedFiles: [],
+        artifacts: [],
         evidence: ['trace 已保存'],
-        risks: []
+        incompleteItems: []
       }
     });
 
     expect(result.mode).toBe('auto');
     expect(result.report.evidence).toEqual(['trace 已保存']);
-    expect(result.report.verification.status).toBe('not-run');
+    expect(result.report.incompleteItems).toEqual([]);
   });
 });

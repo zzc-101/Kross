@@ -14,15 +14,11 @@ export function formatSubagentToolContent(outcome: SubagentRunOutcome): string {
     result.evidence.length > 0
       ? `\nEvidence:\n${result.evidence.map((item) => `- ${item}`).join('\n')}`
       : undefined,
-    result.risks.length > 0
-      ? `\nRisks:\n${result.risks.map((item) => `- ${item}`).join('\n')}`
+    result.incompleteItems.length > 0
+      ? `\nIncomplete items:\n${result.incompleteItems.map((item) => `- ${item}`).join('\n')}`
       : undefined,
-    result.changedFiles.length > 0
-      ? `\nChanged files:\n${result.changedFiles.map((item) => `- ${item}`).join('\n')}`
-      : undefined,
-    `\nVerification: ${result.verification.status}`,
-    result.verification.commands.length > 0
-      ? `Commands: ${result.verification.commands.join(', ')}`
+    result.artifacts.length > 0
+      ? `\nArtifacts:\n${result.artifacts.map((item) => `- ${item}`).join('\n')}`
       : undefined,
     result.toolsUsed.length > 0
       ? `Tools used: ${result.toolsUsed.join(', ')}`

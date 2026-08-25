@@ -33,10 +33,6 @@ import {
   type TraceEventListener
 } from '../trace/observableTraceStore';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
-import {
-  collectVerificationReport,
-  type KnownVerificationCommand
-} from '../verification';
 import type { ProjectInstructionsSnapshot } from '../workspace/projectInstructions';
 import type { SkillsSnapshot } from '../skills/skillDiscovery';
 import type { MutationRecord } from '../mutations/mutationJournal';
@@ -137,7 +133,6 @@ export class AgentRuntime extends EventEmitter {
   private readonly sessionServices: SessionServices;
   private readonly completionPolicy: AgentCompletionPolicy;
   private readonly runPhases = new Map<string, RunPhase>();
-  private readonly verificationPendingRuns = new Set<string>();
 
   constructor(private readonly options: AgentRuntimeOptions) {
     super();
@@ -161,14 +156,12 @@ export class AgentRuntime extends EventEmitter {
       sessionContext: this.sessionContext,
       maxToolIterations: options.maxToolIterations,
       record: (runId, type, payload) => this.record(runId, type, payload),
-      attachChangedFiles: (result) => this.attachChangedFiles(result),
+      attachArtifacts: (result) => this.attachArtifacts(result),
       assessCompletionGate: (runId, originalUserInput) =>
         this.assessRunCompletionGate(runId, originalUserInput),
       completionPolicy: this.completionPolicy,
       buildSystemPrompt: () => this.buildSystemPrompt('agent'),
       observeToolCall: (input) => this.observeToolCall(input),
-      completeVerificationObservation: (runId, options) =>
-        this.completeVerificationObservation(runId, options),
       setRunPhase: (runId, phase, details) =>
         this.setRunPhase(runId, phase, details),
       commitTurn: () => this.sessionContext.commitTurn(),
@@ -694,15 +687,15 @@ export class AgentRuntime extends EventEmitter {
       handlers: {
         onSuccess: async ({ fullText }) => {
           this.toolLoop.clearRunCheckpoint(runId);
-          const result = await this.attachChangedFiles(
+          const result = await this.attachArtifacts(
             agentResultSchema.parse({
               runId,
               status: 'completed',
               summary: fullText,
               report: {
-                changedFiles: [],
+                artifacts: [],
                 evidence: [],
-                risks: []
+                incompleteItems: []
               }
             })
           );
@@ -713,17 +706,17 @@ export class AgentRuntime extends EventEmitter {
         onSoftLand: async ({ summary }) => {
           this.toolLoop.clearRunCheckpoint(runId);
           this.sessionContext.appendAssistant(summary);
-          const landed = await this.attachChangedFiles(
+          const landed = await this.attachArtifacts(
             agentResultSchema.parse({
               runId,
               status: 'failed',
               summary,
               report: {
-                changedFiles: [],
+                artifacts: [],
                 evidence: [
                   `工具调用达到上限 ${this.options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS} 轮，已软着陆为总结`
                 ],
-                risks: ['部分计划可能未执行完，可继续对话推进']
+                incompleteItems: ['部分任务可能未执行完，可继续对话推进']
               }
             })
           );
@@ -734,19 +727,19 @@ export class AgentRuntime extends EventEmitter {
         onStalled: async ({ summary }) => {
           this.toolLoop.clearRunCheckpoint(runId);
           this.sessionContext.appendAssistant(summary);
-          const stalled = await this.attachChangedFiles(
+          const stalled = await this.attachArtifacts(
             agentResultSchema.parse({
               runId,
               status: 'failed',
               summary,
               report: {
-                changedFiles: [],
+                artifacts: [],
                 evidence: [
                   summary.includes('连续多轮')
                     ? '主 Agent 连续多轮只有检索或读取，没有产生可识别的执行进展'
                     : '主 Agent 在 Harness 恢复提示后仍重复相同工具调用，且工具结果没有变化'
                 ],
-                risks: [
+                incompleteItems: [
                   '任务尚未完成，需要调整策略后继续',
                   ...(summary.startsWith('无法确认任务完成：') ? [summary] : [])
                 ]
@@ -759,18 +752,18 @@ export class AgentRuntime extends EventEmitter {
         },
         onFailure: async (message, classification) => {
           this.toolLoop.clearRunCheckpoint(runId);
-          const failed = await this.attachChangedFiles(
+          const failed = await this.attachArtifacts(
             agentResultSchema.parse({
               runId,
               status: 'failed',
               summary: `模型请求失败：${message}`,
               report: {
-                changedFiles: [],
+                artifacts: [],
                 evidence: [
                   `LLM 请求失败: ${message}`,
                   `错误分类: ${classification.source}/${classification.category}; retryable=${classification.retryable}`
                 ],
-                risks: [classification.recovery]
+                incompleteItems: [classification.recovery]
               }
             })
           );
@@ -787,16 +780,16 @@ export class AgentRuntime extends EventEmitter {
   }
 
   private async finishRunWithoutLlm(runId: string): Promise<AgentResult> {
-    const missingModel = await this.attachChangedFiles(
+    const missingModel = await this.attachArtifacts(
       agentResultSchema.parse({
         runId,
         status: 'failed',
         summary:
           '未配置模型，无法生成真实回复。请配置 AGENT_LLM_PROVIDER 以及对应的 OPENAI_* 或 ANTHROPIC_* 环境变量后重试。',
         report: {
-          changedFiles: [],
+          artifacts: [],
           evidence: ['未检测到可用 LLM client'],
-          risks: []
+          incompleteItems: []
         }
       })
     );
@@ -912,42 +905,26 @@ export class AgentRuntime extends EventEmitter {
     return this.toolLoop.resolveToolApprovalStreaming(input);
   }
 
-  private async attachChangedFiles(result: AgentResult): Promise<AgentResult> {
+  private async attachArtifacts(result: AgentResult): Promise<AgentResult> {
     let events: TraceEvent[] = [];
-    let traceReadable = true;
     try {
       events = await this.options.traceStore.readRun(result.runId);
     } catch {
-      // A missing/corrupt trace must not make verification appear successful.
-      traceReadable = false;
+      // Trace-derived artifacts are best-effort; explicit result data is kept.
     }
-    const changedFiles = [
+    const artifacts = [
       ...new Set([
-        ...result.report.changedFiles,
+        ...result.report.artifacts,
         ...extractChangedFilesFromEvents(events)
       ])
     ].sort();
-    const attached = agentResultSchema.parse({
+    return agentResultSchema.parse({
       ...result,
       report: {
         ...result.report,
-        changedFiles
+        artifacts
       }
     });
-    const finalized = this.completionPolicy.finalizeResult
-      ? await this.completionPolicy.finalizeResult({
-          runId: result.runId,
-          originalUserInput: extractRunInput(events) ?? '',
-          events,
-          changedFiles,
-          traceReadable,
-          knownVerificationCommands: configuredVerificationCommands(
-            this.options
-          ),
-          result: attached
-        })
-      : attached;
-    return agentResultSchema.parse(finalized);
   }
 
   private async assessRunCompletionGate(
@@ -965,9 +942,7 @@ export class AgentRuntime extends EventEmitter {
       runId,
       originalUserInput,
       events,
-      changedFiles: extractChangedFilesFromEvents(events),
-      traceReadable,
-      knownVerificationCommands: configuredVerificationCommands(this.options)
+      traceReadable
     });
   }
 
@@ -978,66 +953,11 @@ export class AgentRuntime extends EventEmitter {
     iteration: number;
   }): Promise<void> {
     const metadata = input.tools.find((tool) => tool.name === input.call.name);
-    const verificationPending = this.verificationPendingRuns.has(input.runId);
-    const defaultClassification = classifyToolCallPhase(input.call, metadata, {
-      verificationPending
-    });
-    const classified = defaultClassification;
+    const classified = classifyToolCallPhase(input.call, metadata);
     await this.setRunPhase(input.runId, classified.phase, {
       trigger: 'tool-call',
       toolName: input.call.name,
       iteration: input.iteration
-    });
-    if (
-      !classified.verification
-    ) {
-      return;
-    }
-    this.verificationPendingRuns.add(input.runId);
-    await this.record(input.runId, 'run.verification.started', {
-      command: classified.verification.label,
-      kinds: classified.verification.kinds,
-      toolName: input.call.name,
-      callId: input.call.id,
-      iteration: input.iteration
-    });
-  }
-
-  private async completeVerificationObservation(
-    runId: string,
-    options: { force?: boolean; reason?: string } = {}
-  ): Promise<void> {
-    if (!this.verificationPendingRuns.has(runId)) {
-      return;
-    }
-    let report;
-    try {
-      const events = await this.options.traceStore.readRun(runId);
-      report = collectVerificationReport(events, {
-        changedFiles: extractChangedFilesFromEvents(events),
-        knownCommands: configuredVerificationCommands(this.options)
-      });
-    } catch {
-      if (!options.force) return;
-      report = {
-        status: 'not-run' as const,
-        commands: [],
-        evidence: [],
-        reason: options.reason ?? 'Verification trace was unavailable.'
-      };
-    }
-    if (report.status === 'not-run' && !options.force) {
-      return;
-    }
-    this.verificationPendingRuns.delete(runId);
-    await this.record(runId, 'run.verification.completed', {
-      status: report.status,
-      commands: report.commands,
-      commandCount: report.commands.length,
-      reason:
-        report.status === 'not-run' && options.reason
-          ? options.reason
-          : report.reason
     });
   }
 
@@ -1066,16 +986,16 @@ export class AgentRuntime extends EventEmitter {
     if (this.sessionContext.getThread().getOpenTurnId()) {
       this.sessionContext.interruptTurn('用户中断了当前任务');
     }
-    const cancelled = await this.attachChangedFiles(
+    const cancelled = await this.attachArtifacts(
       agentResultSchema.parse({
         runId: input.runId,
         status: 'cancelled',
         cancellationReason: 'user-interrupt',
         summary: '已中断当前任务',
         report: {
-          changedFiles: [],
+          artifacts: [],
           evidence: [`用户在 ${input.stage} 阶段中断运行`],
-          risks: []
+          incompleteItems: []
         }
       })
     );
@@ -1126,10 +1046,6 @@ export class AgentRuntime extends EventEmitter {
       await this.setRunPhase(runId, lifecyclePhase, { trigger: type });
     }
     if (type === 'run.completed') {
-      await this.completeVerificationObservation(runId, {
-        force: true,
-        reason: 'Run ended before verification produced a terminal result.'
-      });
       await this.setRunPhase(runId, 'complete', {
         trigger: type,
         outcome: payload.status
@@ -1137,7 +1053,6 @@ export class AgentRuntime extends EventEmitter {
     }
     await this.appendTraceEvent(runId, type, payload);
     if (type === 'run.completed') {
-      this.verificationPendingRuns.delete(runId);
       this.runPhases.delete(runId);
     }
   }
@@ -1160,28 +1075,4 @@ export class AgentRuntime extends EventEmitter {
     await this.options.traceStore.append(event);
     this.emit('event', event);
   }
-}
-
-function configuredVerificationCommands(
-  options: AgentRuntimeOptions
-): KnownVerificationCommand[] {
-  const commands: KnownVerificationCommand[] = [];
-  for (const [projectId, project] of Object.entries(
-    options.projectRegistry?.projects ?? {}
-  )) {
-    for (const repo of project.repos) {
-      if (!repo.testCommand) continue;
-      commands.push({
-        command: repo.testCommand,
-        label: `project test (${projectId}/${repo.id})`
-      });
-    }
-  }
-  return commands;
-}
-
-function extractRunInput(events: TraceEvent[]): string | undefined {
-  const started = events.find((event) => event.type === 'run.started');
-  const input = started?.payload.input;
-  return typeof input === 'string' ? input : undefined;
 }

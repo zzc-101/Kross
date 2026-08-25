@@ -1,14 +1,10 @@
-import type { AgentResult, TraceEvent } from '../domain';
+import type { TraceEvent } from '../domain';
 
 /** Policies shared by the single SaaS Work Agent runtime. */
 
 export type AgentExecutionPromptPhase = 'agent';
 
-export type AgentCompletionStatus =
-  | 'passed'
-  | 'failed'
-  | 'not-run'
-  | 'not-needed';
+export type AgentCompletionStatus = 'complete' | 'incomplete';
 
 export interface AgentCompletionAssessment {
   required: boolean;
@@ -44,14 +40,7 @@ export interface AgentCompletionPolicyContext {
   runId: string;
   originalUserInput: string;
   events: TraceEvent[];
-  changedFiles: string[];
   traceReadable: boolean;
-  knownVerificationCommands: Array<{ command: string; label: string }>;
-}
-
-export interface AgentResultPolicyContext
-  extends AgentCompletionPolicyContext {
-  result: AgentResult;
 }
 
 /** Completion gate used by the shared streaming loop and result finalizer. */
@@ -64,10 +53,6 @@ export interface AgentCompletionPolicy {
   assess(
     context: AgentCompletionPolicyContext
   ): AgentCompletionAssessment | Promise<AgentCompletionAssessment>;
-  /** Optional report decoration after changed files are attached. */
-  finalizeResult?(
-    context: AgentResultPolicyContext
-  ): AgentResult | Promise<AgentResult>;
   buildFollowupPrompt?(assessment: AgentCompletionAssessment): string;
   buildSatisfiedPrompt?(
     assessment: AgentCompletionAssessment
@@ -122,7 +107,7 @@ export function createSaasCompletionPolicy(): AgentCompletionPolicy {
       return {
         required: true,
         satisfied: hasResponse,
-        status: hasResponse ? 'passed' : 'failed',
+        status: hasResponse ? 'complete' : 'incomplete',
         reason: hasResponse
           ? 'A response was produced.'
           : 'No response has been produced yet.',

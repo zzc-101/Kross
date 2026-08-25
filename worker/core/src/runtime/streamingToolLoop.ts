@@ -10,10 +10,7 @@ import type { AgentRunStreamEvent } from './agentRuntimeTypes';
 import type { LlmToolDefinition } from '../llm/types';
 import { renderPrompt } from '../prompts';
 import { ToolLoopStallDetector } from './toolLoopStallDetector';
-import {
-  RunProgressMonitor,
-  VerificationFailureLedger
-} from './runProgressMonitor';
+import { RunProgressMonitor } from './runProgressMonitor';
 import { classifyToolCallPhase, type RunPhase } from './runPhase';
 import {
   classifyRuntimeError,
@@ -26,7 +23,7 @@ import type {
 import { sanitizeAgentCompletionMetadata } from './saasRuntimePolicy';
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 200;
-export const MAX_VERIFICATION_FOLLOWUPS = 1;
+export const MAX_COMPLETION_FOLLOWUPS = 1;
 
 const SOFT_LAND_FALLBACK =
   '已达到工具调用轮次上限。请查看上文工具结果；如需继续，请再发一条指令推进剩余工作。';
@@ -91,8 +88,8 @@ export interface StreamingToolLoopParams {
   firstIterationMetadata?: Record<string, unknown>;
   /** 合并到每一轮 stream metadata */
   streamMetadata?: Record<string, unknown>;
-  /** 审批暂停/续跑时保留已使用的确定性验证追问次数。 */
-  verificationFollowupCount?: number;
+  /** Preserve the number of completion follow-ups across approval resumes. */
+  completionFollowupCount?: number;
   handlers: StreamingToolLoopHandlers;
   signal?: AbortSignal;
   /** llm.planner.failed 的替代事件名（审批续跑路径不写 planner.failed） */
@@ -114,7 +111,7 @@ export interface StreamingToolLoopDeps {
     calls: LlmToolCall[];
     tools: ToolMetadata[];
     iteration: number;
-    verificationFollowupCount: number;
+    completionFollowupCount: number;
     signal?: AbortSignal;
   }): Promise<ToolBatchOutcome>;
   streamSoftLand(input: {
@@ -124,7 +121,7 @@ export interface StreamingToolLoopDeps {
     iteration: number;
     signal?: AbortSignal;
   }): AsyncIterable<Extract<AgentRunStreamEvent, { type: 'text-delta' }>>;
-  attachChangedFiles(result: AgentResult): Promise<AgentResult>;
+  attachArtifacts(result: AgentResult): Promise<AgentResult>;
   assessCompletionGate(
     runId: string,
     originalUserInput: string
@@ -171,13 +168,12 @@ export async function* runStreamingToolLoop(
   let fullThinking = '';
   let stage: CancellationStage = 'context';
   let stallRecoveryPending = false;
-  let verificationFollowupCount = params.verificationFollowupCount ?? 0;
+  let completionFollowupCount = params.completionFollowupCount ?? 0;
   let completionFollowup: AgentCompletionAssessment | undefined;
   let satisfiedCompletion: AgentCompletionAssessment | undefined;
   let convergenceIntervention: string | undefined;
   const stallDetector = new ToolLoopStallDetector();
   const progressMonitor = new RunProgressMonitor();
-  const verificationFailureLedger = new VerificationFailureLedger();
 
   try {
     while (true) {
@@ -348,13 +344,13 @@ export async function* runStreamingToolLoop(
         if (assessment && !assessment.satisfied) {
           const eventPrefix =
             deps.completionPolicy.eventPrefix ?? 'run.completion';
-          if (verificationFollowupCount < MAX_VERIFICATION_FOLLOWUPS) {
-            verificationFollowupCount += 1;
+          if (completionFollowupCount < MAX_COMPLETION_FOLLOWUPS) {
+            completionFollowupCount += 1;
             completionFollowup = assessment;
             await deps.record(params.runId, `${eventPrefix}.followup`, {
               iteration,
-              attempt: verificationFollowupCount,
-              maxAttempts: MAX_VERIFICATION_FOLLOWUPS,
+              attempt: completionFollowupCount,
+              maxAttempts: MAX_COMPLETION_FOLLOWUPS,
               status: assessment.status,
               reason: assessment.reason,
               metadata: sanitizeAgentCompletionMetadata(assessment.metadata)
@@ -366,7 +362,7 @@ export async function* runStreamingToolLoop(
           }
           await deps.record(params.runId, `${eventPrefix}.exhausted`, {
             iteration,
-            attempts: verificationFollowupCount,
+            attempts: completionFollowupCount,
             status: assessment.status,
             reason: assessment.reason,
             metadata: sanitizeAgentCompletionMetadata(assessment.metadata)
@@ -412,7 +408,7 @@ export async function* runStreamingToolLoop(
         calls: toolCalls,
         tools: params.tools,
         iteration,
-        verificationFollowupCount,
+        completionFollowupCount,
         signal: params.signal
       });
 
@@ -441,7 +437,7 @@ export async function* runStreamingToolLoop(
       throwIfAborted(params.signal);
 
       if (batch.kind === 'approval') {
-        const approval = await deps.attachChangedFiles(batch.result);
+        const approval = await deps.attachArtifacts(batch.result);
         await deps.record(params.runId, 'run.awaiting_approval', {
           pendingApproval: approval.pendingApproval
         });
@@ -454,63 +450,23 @@ export async function* runStreamingToolLoop(
         iteration
       });
 
-      const postToolVerification = await deps.assessCompletionGate(
+      const postToolCompletion = await deps.assessCompletionGate(
         params.runId,
         params.originalUserInput
       );
       if (
-        postToolVerification.satisfied &&
-        postToolVerification.status === 'passed'
+        postToolCompletion.satisfied &&
+        postToolCompletion.status === 'complete'
       ) {
-        satisfiedCompletion = postToolVerification;
+        satisfiedCompletion = postToolCompletion;
         await deps.record(params.runId, 'run.completion.recommended', {
           iteration,
-          verificationStatus: postToolVerification.status,
-          reason: postToolVerification.reason,
+          completionStatus: postToolCompletion.status,
+          reason: postToolCompletion.reason,
           metadata: sanitizeAgentCompletionMetadata(
-            postToolVerification.metadata
+            postToolCompletion.metadata
           )
         });
-        verificationFailureLedger.reset();
-      } else if (
-        postToolVerification.status === 'failed' &&
-        typeof postToolVerification.metadata?.lastMutationIndex === 'number' &&
-        toolCalls.some((call) =>
-          classifyToolCallPhase(
-            call,
-            params.tools.find((tool) => tool.name === call.name)
-          ).phase === 'verify'
-        )
-      ) {
-        const failedStrategy = verificationFailureLedger.observe({
-          lastMutationIndex: postToolVerification.metadata.lastMutationIndex,
-          reason: postToolVerification.reason
-        });
-        if (failedStrategy.state === 'rejected') {
-          convergenceIntervention =
-            'The same verification failed twice without any workspace mutation. This strategy is rejected: do not rerun it unchanged. Modify the implementation or choose a materially different hypothesis before verifying again.';
-          await deps.record(params.runId, 'run.strategy.rejected', {
-            iteration,
-            attempts: failedStrategy.attempts,
-            lastMutationIndex: failedStrategy.lastMutationIndex,
-            reason: failedStrategy.reason
-          });
-        } else if (failedStrategy.state === 'stalled') {
-          const summary = '同一工作区状态下连续三次得到相同的验证失败，且没有实施修复，已停止原样重试。';
-          await deps.record(params.runId, 'run.stagnation.terminated', {
-            iteration,
-            reason: 'repeated-failed-verification-without-mutation',
-            attempts: failedStrategy.attempts,
-            lastMutationIndex: failedStrategy.lastMutationIndex
-          });
-          const landed = await params.handlers.onStalled({
-            summary,
-            fullText,
-            fullThinking
-          });
-          yield { type: 'result', result: landed };
-          return;
-        }
       }
 
       const stall = stallDetector.observe({
@@ -654,9 +610,9 @@ export function createMissingLlmAfterApprovalResult(
     status: 'failed',
     summary: '工具审批后无法继续：未配置 LLM',
     report: {
-      changedFiles: [],
+      artifacts: [],
       evidence: ['tool approval resolved without llmClient'],
-      risks: ['请配置模型后重试']
+      incompleteItems: ['请配置模型后重试']
     }
   });
 }

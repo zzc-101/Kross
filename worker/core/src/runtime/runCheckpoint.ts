@@ -24,8 +24,8 @@ export const runCheckpointSchema = z
     status: z.enum(['running', 'awaiting-approval']),
     phase: z.enum(RUN_PHASES),
     iteration: z.number().int().positive(),
-    verificationFollowupCount: z.number().int().nonnegative(),
-    verificationState: z
+    completionFollowupCount: z.number().int().nonnegative(),
+    completionState: z
       .enum(['unknown', 'pending', 'in-progress'])
       .optional(),
     completedCallIds: z.array(z.string().min(1)).max(1000),
@@ -58,8 +58,8 @@ export interface RunCheckpointV1 {
   status: 'running' | 'awaiting-approval';
   phase: RunPhase;
   iteration: number;
-  verificationFollowupCount: number;
-  verificationState?: 'unknown' | 'pending' | 'in-progress';
+  completionFollowupCount: number;
+  completionState?: 'unknown' | 'pending' | 'in-progress';
   completedCallIds: string[];
   pendingCall?: DurableToolCall;
   remainingCalls: DurableToolCall[];

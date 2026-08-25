@@ -86,26 +86,11 @@ export const taskNodeSchema: z.ZodType<TaskNode, z.ZodTypeDef, TaskNodeInput> = 
 });
 
 export const agentReportSchema = z.object({
-  changedFiles: z.array(z.string()),
+  artifacts: z.array(z.string()),
   evidence: z.array(z.string()),
-  risks: z.array(z.string()),
-  verification: z
-    .object({
-      status: z.enum(['passed', 'failed', 'not-run', 'not-needed']),
-      commands: z.array(z.string()),
-      evidence: z.array(z.string()),
-      reason: z.string().optional()
-    })
-    .default({
-      status: 'not-run',
-      commands: [],
-      evidence: [],
-      reason: 'Verification evidence was not collected for this result.'
-    })
+  incompleteItems: z.array(z.string())
 });
 export type AgentReport = z.infer<typeof agentReportSchema>;
-export type VerificationReport = AgentReport['verification'];
-export type VerificationStatus = VerificationReport['status'];
 
 export const pendingToolApprovalSchema = z.object({
   runId: z.string().min(1),
@@ -140,15 +125,11 @@ export const agentResultSchema = z.object({
 export type AgentResult = z.infer<typeof agentResultSchema>;
 
 export const subagentResultSchema = z.object({
-  status: z.enum(['completed', 'failed', 'needs-review']),
+  status: z.enum(['completed', 'failed', 'incomplete']),
   summary: z.string(),
-  changedFiles: z.array(z.string()),
-  diffSummary: z.array(z.string()),
-  commandsRun: z.array(z.string()),
+  artifacts: z.array(z.string()),
   toolsUsed: z.array(z.string()).default([]),
-  verification: agentReportSchema.shape.verification,
   evidence: z.array(z.string()),
-  risks: z.array(z.string()),
-  needsReview: z.array(z.string())
+  incompleteItems: z.array(z.string())
 });
 export type SubagentResult = z.infer<typeof subagentResultSchema>;

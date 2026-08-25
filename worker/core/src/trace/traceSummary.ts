@@ -36,8 +36,6 @@ export interface RunTraceSummary {
   toolStats: RunToolStats;
   flags: string[];
   phase?: string;
-  verificationStatus?: string;
-  verificationCommandCount?: number;
   failureMessage?: string;
   llmStats: RunLlmStats;
 }
@@ -114,8 +112,6 @@ export function summarizeTraceEvents(
   let summaryPreview: string | undefined;
   let failureMessage: string | undefined;
   let phase: string | undefined;
-  let verificationStatus: string | undefined;
-  let verificationCommandCount: number | undefined;
   let startedAt: string | undefined;
   let endedAt: string | undefined;
 
@@ -133,22 +129,6 @@ export function summarizeTraceEvents(
         phase = asString(event.payload.phase) ?? phase;
         break;
       }
-      case 'run.verification.started': {
-        flags.add('verification-running');
-        break;
-      }
-      case 'run.verification.completed': {
-        verificationStatus =
-          asString(event.payload.status) ?? verificationStatus;
-        verificationCommandCount =
-          asNumber(event.payload.commandCount) ?? verificationCommandCount;
-        flags.delete('verification-running');
-        clearVerificationResultFlags(flags);
-        if (verificationStatus) {
-          flags.add(`verification-${verificationStatus}`);
-        }
-        break;
-      }
       case 'run.started': {
         inputPreview = previewText(asString(event.payload.input), 80);
         break;
@@ -156,23 +136,6 @@ export function summarizeTraceEvents(
       case 'run.completed': {
         status = asString(event.payload.status) ?? 'completed';
         summaryPreview = previewText(asString(event.payload.summary), 120);
-        const report = asRecord(event.payload.report);
-        const verification = asRecord(report?.verification);
-        verificationStatus =
-          asString(verification?.status) ?? verificationStatus;
-        verificationCommandCount = Array.isArray(verification?.commands)
-          ? verification.commands.length
-          : verificationCommandCount;
-        if (verificationStatus) {
-          flags.delete('verification-running');
-          clearVerificationResultFlags(flags);
-          flags.add(`verification-${verificationStatus}`);
-          if (verificationStatus === 'failed') {
-            failureMessage =
-              asString(verification?.reason) ??
-              'verification command failed';
-          }
-        }
         break;
       }
       case 'review.completed': {
@@ -292,8 +255,6 @@ export function summarizeTraceEvents(
     toolStats,
     flags: [...flags],
     phase,
-    verificationStatus,
-    verificationCommandCount,
     failureMessage,
     llmStats
   };
@@ -436,9 +397,6 @@ export function formatTraceDetail(detail: RunTraceDetail): string {
   return [
     `Trace: ${detail.runId}`,
     `status: ${detail.status} · phase: ${detail.phase ?? '-'} · events: ${detail.eventCount}`,
-    detail.verificationStatus
-      ? `verification: ${detail.verificationStatus} · commands: ${detail.verificationCommandCount ?? 0}`
-      : 'verification: (none)',
     `time: ${detail.startedAt ?? '-'} → ${detail.endedAt ?? '-'}`,
     `input: ${detail.inputPreview ?? '(none)'}`,
     `summary: ${detail.summaryPreview ?? '(none)'}`,
@@ -498,14 +456,6 @@ function addToolName(set: Set<string>, value: unknown): void {
   }
 }
 
-function clearVerificationResultFlags(flags: Set<string>): void {
-  for (const flag of flags) {
-    if (flag.startsWith('verification-') && flag !== 'verification-running') {
-      flags.delete(flag);
-    }
-  }
-}
-
 function isHighlightType(type: string): boolean {
   return (
     type === 'tool_call.failed' ||
@@ -522,8 +472,6 @@ function isHighlightType(type: string): boolean {
     type === 'run.awaiting_approval' ||
     type === 'run.interrupted' ||
     type === 'run.phase.changed' ||
-    type === 'run.verification.started' ||
-    type === 'run.verification.completed' ||
     type === 'context.built'
   );
 }
@@ -565,10 +513,6 @@ function highlightDetail(event: TraceEvent): string {
       }`;
     case 'run.phase.changed':
       return `${asString(event.payload.previous) ?? 'start'} → ${asString(event.payload.phase) ?? '?'}`;
-    case 'run.verification.started':
-      return `${asString(event.payload.command) ?? 'verification'} started`;
-    case 'run.verification.completed':
-      return `${asString(event.payload.status) ?? '?'} · ${asNumber(event.payload.commandCount) ?? 0} commands`;
     case 'context.built': {
       const chars = asNumber(event.payload.estimatedChars);
       const included = Array.isArray(event.payload.includedSources)

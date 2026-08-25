@@ -1,15 +1,10 @@
 import type { LlmToolCall } from '../llm/types';
 import type { ToolMetadata } from '../tools/toolGateway';
-import {
-  identifyVerificationCommand,
-  type VerificationCommandIdentity
-} from '../verification';
 
 export const RUN_PHASES = [
   'inspect',
   'plan',
   'act',
-  'verify',
   'review',
   'complete'
 ] as const;
@@ -18,7 +13,6 @@ export type RunPhase = (typeof RUN_PHASES)[number];
 
 export interface ToolCallPhaseClassification {
   phase: RunPhase;
-  verification?: VerificationCommandIdentity;
 }
 
 const MUTATION_TOOLS = new Set([
@@ -35,22 +29,8 @@ export function isRunPhase(value: unknown): value is RunPhase {
 
 export function classifyToolCallPhase(
   call: LlmToolCall,
-  metadata?: ToolMetadata,
-  context: { verificationPending?: boolean } = {}
+  metadata?: ToolMetadata
 ): ToolCallPhaseClassification {
-  if (call.name === 'Bash' || call.name === 'ProcessStart') {
-    const command = commandFromInput(call.input);
-    const verification = command
-      ? identifyVerificationCommand(command)
-      : undefined;
-    if (verification) {
-      return { phase: 'verify', verification };
-    }
-  }
-
-  if (call.name === 'ProcessPoll') {
-    return { phase: context.verificationPending ? 'verify' : 'act' };
-  }
   if (call.name === 'TodoWrite') {
     return { phase: 'plan' };
   }
@@ -70,12 +50,4 @@ export function phaseForLifecycleEvent(type: string): RunPhase | undefined {
     return 'review';
   }
   return undefined;
-}
-
-function commandFromInput(input: unknown): string | undefined {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    return undefined;
-  }
-  const command = (input as { command?: unknown }).command;
-  return typeof command === 'string' ? command : undefined;
 }

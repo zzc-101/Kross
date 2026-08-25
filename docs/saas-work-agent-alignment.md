@@ -99,7 +99,7 @@ Push、项目规则和本地 Host 扩展。
 - [x] 3. 将 SaaS Profile 设为唯一 Runtime，删除 Coding profile 与兼容开关。
 - [x] 4. 收敛 SaaS 默认工具集，开发工具移出平台默认组合。
 - [x] 5. 禁止 Bash 绕过外部操作确认；外部副作用只走结构化工具边界。
-- [ ] 6. 将 Task 和完成契约改为目标、产物、证据和未完成项，不再依赖 Git。
+- [x] 6. 将 Task 和完成契约改为目标、产物、证据和未完成项，不再依赖 Git。
 - [ ] 7. 删除 project registry、多 root 和 TUI 斜杠命令/inspection 门面。
 - [ ] 8. 以平台版本化 Skill 为唯一来源，删除本地 Skill CRUD 遗产。
 - [ ] 9. 重构普通用户工作台：文件/附件/产物优先，隐藏开发者诊断信息。

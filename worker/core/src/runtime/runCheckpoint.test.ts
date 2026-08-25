@@ -76,7 +76,7 @@ describe('run checkpoint recovery', () => {
         status: 'awaiting-approval' as const,
         phase: 'act' as const,
         iteration: 1,
-        verificationFollowupCount: 0,
+        completionFollowupCount: 0,
         completedCallIds: [],
         pendingCall: { id: 'write-1', name: 'fs.write', input: {} },
         remainingCalls: [],

@@ -29,14 +29,12 @@ describe('SaaS runtime policy', () => {
     const base = {
       runId: 'run-1',
       originalUserInput: 'hello',
-      changedFiles: [],
-      traceReadable: true,
-      knownVerificationCommands: []
+      traceReadable: true
     };
 
     expect(await policy.assess({ ...base, events: [] })).toMatchObject({
       satisfied: false,
-      status: 'failed'
+      status: 'incomplete'
     });
     expect(
       await policy.assess({
@@ -51,6 +49,6 @@ describe('SaaS runtime policy', () => {
           }
         ]
       })
-    ).toMatchObject({ satisfied: true, status: 'passed' });
+    ).toMatchObject({ satisfied: true, status: 'complete' });
   });
 });
