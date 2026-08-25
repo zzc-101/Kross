@@ -21,6 +21,7 @@
 | 理解包边界、Runtime、上下文与 Cloud 数据流 | [技术概览](technical-overview.md) |
 | 实现非 TypeScript Cloud 客户端或 Worker | [Cloud Protocol](cloud-protocol.md) |
 | 理解完成门、验证、恢复与工具调度 | [Agent Harness](harness.md) |
+| 跟踪 SaaS Work Agent 架构收敛 | [SaaS Work Agent 架构收敛清单](saas-work-agent-alignment.md) |
 | 添加 Skills、MCP、工具、模型或客户端 | [扩展 Kross](extensions.md) |
 | 理解模型能力检测和兼容边界 | [Provider 能力](provider-capabilities.md) |
 | 查看 LLM token、费用、延迟和错误观测边界 | [Provider 调用观测](provider-observability.md) |
