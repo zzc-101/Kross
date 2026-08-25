@@ -187,7 +187,6 @@ describe('createRuntimeOptionsFromEnv', () => {
         todoStore: first.todoStore!,
         setLlmClient,
         runSubagent: first.runSubagent!,
-        workspaceRoots: first.workspaceRoots!,
         skillRegistry: first.skillRegistry!,
         mutationCoordinator: first.mutationCoordinator!
       }

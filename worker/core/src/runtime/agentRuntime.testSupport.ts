@@ -14,7 +14,6 @@ import type {
   LlmStreamChunk
 } from '../llm/types';
 import { ToolGateway } from '../tools/toolGateway';
-import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { z } from 'zod';
 
 export { InMemoryTraceStore } from '../trace/inMemoryTraceStore';

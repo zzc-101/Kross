@@ -50,8 +50,6 @@ export interface CreateSaasToolsOptions {
   includeTask?: boolean;
   parentDepth?: number;
   runSubagent?: CreateTaskToolOptions['run'];
-  /** Resolve project-registry repoId → absolute path (multi-repo Task). */
-  resolveRepoPath?: CreateTaskToolOptions['resolveRepoPath'];
   /** Session todo store; when set, registers TodoWrite + TodoRead. */
   todoStore?: TodoStore;
   /** Dynamic personal/project Skill registry; when set, registers ReadSkill. */
@@ -102,8 +100,7 @@ export function createSaasTools(
     tools.push(
       createTaskTool({
         parentDepth: options.parentDepth ?? 0,
-        run: options.runSubagent,
-        resolveRepoPath: options.resolveRepoPath
+        run: options.runSubagent
       })
     );
   }

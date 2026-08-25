@@ -16,7 +16,6 @@ import type {
 } from '../llm/types';
 import { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
-import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { z } from 'zod';
 
 describe('isCasualChatInput', () => {

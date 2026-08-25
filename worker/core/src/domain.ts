@@ -10,47 +10,6 @@ export const runStatusSchema = z.enum([
 ]);
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
-export const repoConfigSchema = z.object({
-  id: z.string().min(1),
-  path: z.string().min(1),
-  type: z.string().min(1),
-  testCommand: z.string().min(1).optional()
-});
-export type RepoConfig = z.infer<typeof repoConfigSchema>;
-
-export const projectConfigSchema = z.object({
-  repos: z.array(repoConfigSchema).min(1)
-});
-export type ProjectConfig = z.infer<typeof projectConfigSchema>;
-
-/** ~/.kross/projects.json — multi-repo project registry (no codegraph required). */
-export const projectRegistrySchema = z.object({
-  /** Version 1 is optional only for compatibility with pre-v0.1 registries. */
-  version: z.literal(1).optional(),
-  /** Optional default project when cwd does not match a repo path. */
-  defaultProjectId: z.string().min(1).optional(),
-  projects: z.record(projectConfigSchema)
-});
-export type ProjectRegistry = z.infer<typeof projectRegistrySchema>;
-
-export const impactRepoSchema = z.object({
-  id: z.string().min(1),
-  path: z.string().min(1),
-  type: z.string().min(1).optional(),
-  reasons: z.array(z.string()).default([]),
-  focusPaths: z.array(z.string()).optional(),
-  /** Per-repo subagent task prompts (execution phase). */
-  tasks: z.array(z.string()).optional()
-});
-export type ImpactRepo = z.infer<typeof impactRepoSchema>;
-
-export const impactMapSchema = z.object({
-  strategy: z.enum(['registry+llm', 'registry-only', 'heuristic']),
-  projectId: z.string().min(1),
-  repos: z.array(impactRepoSchema)
-});
-export type ImpactMap = z.infer<typeof impactMapSchema>;
-
 export const traceEventSchema = z.object({
   id: z.string().min(1),
   runId: z.string().min(1),
@@ -60,30 +19,6 @@ export const traceEventSchema = z.object({
   payload: z.record(z.unknown()).default({})
 });
 export type TraceEvent = z.infer<typeof traceEventSchema>;
-
-export interface TaskNode {
-  id: string;
-  title: string;
-  status: RunStatus;
-  repoId?: string;
-  children: TaskNode[];
-}
-
-interface TaskNodeInput {
-  id: string;
-  title: string;
-  status: RunStatus;
-  repoId?: string;
-  children?: TaskNodeInput[];
-}
-
-export const taskNodeSchema: z.ZodType<TaskNode, z.ZodTypeDef, TaskNodeInput> = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  status: runStatusSchema,
-  repoId: z.string().min(1).optional(),
-  children: z.lazy(() => z.array(taskNodeSchema)).default([])
-});
 
 export const agentReportSchema = z.object({
   artifacts: z.array(z.string()),

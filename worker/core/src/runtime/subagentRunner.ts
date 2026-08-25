@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { basename, resolve } from 'node:path';
-
 import {
   isOperationAborted,
   throwIfAborted
@@ -43,17 +41,8 @@ export type {
 export { formatSubagentToolContent } from './subagentFormat';
 
 export interface SubagentRunDeps {
-  /** Default workspace when request.workspaceRoot is omitted. */
+  /** Platform-assigned workspace shared by all subagents. */
   workspaceRoot: string;
-  /**
-   * Absolute roots Task may target. When set, request.workspaceRoot must
-   * equal one of these (or be nested under one). When unset, only the default
-   * workspaceRoot is allowed for overrides.
-   * Prefer getAllowedWorkspaceRoots for live /add-dir updates.
-   */
-  allowedWorkspaceRoots?: string[];
-  /** Dynamic allowlist (e.g. WorkspaceRoots.allowedRoots). Overrides static list. */
-  getAllowedWorkspaceRoots?: () => string[];
   /** Default / senior model client */
   llmClient?: LlmClient;
   /** Optional cheaper/faster model for delegated subagents. */
@@ -115,8 +104,8 @@ export async function runSubagent(
     request.title?.trim() ||
     deriveSubagentTitle(goal);
 
-  const workspaceRoot = resolveSubagentWorkspaceRoot(request, deps);
-  const rootId = request.repoId?.trim() || basename(workspaceRoot) || 'primary';
+  const workspaceRoot = deps.workspaceRoot;
+  const rootId = 'workspace';
   const projectInstructions = loadProjectInstructions({
     roots: [{ id: rootId, path: workspaceRoot, primary: true }]
   });
@@ -150,7 +139,6 @@ export async function runSubagent(
     mode,
     parentDepth,
     title,
-    repoId: request.repoId,
     workspaceRoot,
     preferWorkerModel: request.preferWorkerModel === true,
     workerModel: useWorker,
@@ -187,7 +175,6 @@ export async function runSubagent(
     await appendTrace(deps.traceStore, request.parentRunId, 'subagent.failed', {
       ...lifecycleExtras,
       mode,
-      repoId: request.repoId,
       workspaceRoot,
       ...modelExtras,
       error: failed.summary
@@ -451,49 +438,6 @@ export function deriveSubagentTitle(goal: string, maxLen = 36): string {
     return oneLine;
   }
   return `${oneLine.slice(0, Math.max(0, maxLen - 1))}…`;
-}
-
-/**
- * Resolve and allowlist-check the workspace root for a subagent spawn.
- */
-export function resolveSubagentWorkspaceRoot(
-  request: Pick<SubagentRunRequest, 'workspaceRoot'>,
-  deps: Pick<
-    SubagentRunDeps,
-    'workspaceRoot' | 'allowedWorkspaceRoots' | 'getAllowedWorkspaceRoots'
-  >
-): string {
-  const fallback = resolve(deps.workspaceRoot);
-  const requested = request.workspaceRoot?.trim()
-    ? resolve(request.workspaceRoot.trim())
-    : fallback;
-
-  const dynamic = deps.getAllowedWorkspaceRoots?.() ?? [];
-  const staticList = deps.allowedWorkspaceRoots ?? [];
-  const combined =
-    dynamic.length > 0
-      ? dynamic
-      : staticList.length > 0
-        ? staticList
-        : [fallback];
-  const allow = combined.map((root) => resolve(root));
-
-  if (!isPathAllowed(requested, allow)) {
-    throw new Error(
-      `Subagent workspaceRoot not allowed: ${requested}. ` +
-        `Allowed roots: ${allow.join(', ')}`
-    );
-  }
-  return requested;
-}
-
-function isPathAllowed(target: string, allowList: string[]): boolean {
-  for (const root of allowList) {
-    if (target === root || target.startsWith(root + '/') || target.startsWith(root + '\\')) {
-      return true;
-    }
-  }
-  return false;
 }
 
 async function appendTrace(

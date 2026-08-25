@@ -25,7 +25,6 @@ export type ContextMaintenanceReason =
   | 'turn_compaction'
   | 'hard_truncation'
   | 'restore_truncation'
-  | 'manual'
   | 'pre_request';
 
 export interface ContextMaintenanceResult {
@@ -41,7 +40,7 @@ export interface ContextMaintenanceResult {
   historyCharsAfter: number;
   summaryChars?: number;
   droppedTurnCount?: number;
-  /** 治理发生时间（ISO），供 /context 展示 */
+  /** 治理发生时间（ISO），供运行追踪使用。 */
   at?: string;
 }
 
@@ -120,34 +119,6 @@ export class ContextGovernor {
     }
 
     return { maintenance, tokensAfter: tokens };
-  }
-
-  /**
-   * 手动触发一轮 Stage2 轮次压缩（/compact），不检查是否超阈值。
-   */
-  async compactTurnsNow(
-    thread: ConversationThread,
-    options: Pick<SummarizeOptions, 'instructions' | 'signal'> = {}
-  ): Promise<ContextMaintenanceResult> {
-    throwIfAborted(options.signal);
-    const tokensBefore = this.estimateThreadTokens(thread);
-    const selection = selectManualPrefix(
-      thread,
-      this.policy.preserveFullTurns
-    );
-    if (!selection) {
-      return {
-        compacted: false,
-        reason: 'manual',
-        droppedMessageCount: 0,
-        preservedMessageCount: thread.getEntries().length,
-        tokensBefore,
-        tokensAfter: tokensBefore,
-        historyCharsBefore: tokensBefore * 4,
-        historyCharsAfter: tokensBefore * 4
-      };
-    }
-    return this.compactPrefix(thread, selection, 'manual', options);
   }
 
   private applyToolAging(
@@ -266,7 +237,7 @@ export class ContextGovernor {
   private async compactPrefix(
     thread: ConversationThread,
     selection: CompactionSelection,
-    reason: 'manual' | 'turn_compaction',
+    reason: 'turn_compaction',
     options: Pick<SummarizeOptions, 'instructions' | 'signal'> = {}
   ): Promise<ContextMaintenanceResult> {
     const tokensBefore = this.estimateThreadTokens(thread);
@@ -440,20 +411,6 @@ interface CompactionSelection {
   previousSummary?: string;
   droppedMessageCount: number;
   droppedTurnCount: number;
-}
-
-function selectManualPrefix(
-  thread: ConversationThread,
-  preserveFullTurns: number
-): CompactionSelection | undefined {
-  const entries = [...thread.getEntries()];
-  const ranges = getCompactableRanges(thread, entries);
-  if (ranges.length <= preserveFullTurns) {
-    return undefined;
-  }
-  const firstPreserved = ranges[ranges.length - preserveFullTurns];
-  const entryCount = firstPreserved?.start ?? ranges.at(-1)!.end;
-  return buildCompactionSelection(entries, entryCount);
 }
 
 /**

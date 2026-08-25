@@ -112,31 +112,6 @@ describe('SessionContext', () => {
     ]);
   });
 
-  it('uses the latest LLM client for manual compaction', async () => {
-    resetThreadCounters();
-    const calls: string[] = [];
-    const ctx = new SessionContext({
-      llmClient: summarizingClient('old', calls),
-      policy: createContextPolicy({
-        contextWindow: 10_000,
-        preserveFullTurns: 1
-      })
-    });
-    for (let index = 1; index <= 2; index += 1) {
-      ctx.beginTurn(`question ${index}`);
-      ctx.appendAssistant(`answer ${index}`);
-      ctx.commitTurn();
-    }
-
-    ctx.setLlmClient(summarizingClient('new', calls));
-    const result = await ctx.compactNow({
-      systemPrompt: 'sys'
-    });
-
-    expect(result.compacted).toBe(true);
-    expect(calls).toEqual(['new']);
-  });
-
   it('resizes context policy when the runtime model changes', () => {
     const ctx = new SessionContext({ contextWindow: 256_000 });
     ctx.setLlmClient({
@@ -192,51 +167,6 @@ describe('SessionContext', () => {
     expect(ctx.getEstimator().getCalibrationFactor()).toBeCloseTo(2, 2);
   });
 
-  it('restores the exact compacted context instead of rebuilding visible dialog', async () => {
-    resetThreadCounters();
-    const original = new SessionContext({
-      policy: createContextPolicy({ contextWindow: 10_000, preserveFullTurns: 1 })
-    });
-    for (let index = 1; index <= 3; index += 1) {
-      original.beginTurn(`question ${index}`);
-      original.appendAssistant(`answer ${index}`);
-      original.commitTurn();
-    }
-    await original.compactNow({ systemPrompt: 'sys' });
-
-    const restored = new SessionContext();
-    expect(restored.restoreState(original.exportState())).toBe(true);
-    expect(restored.getThread().buildMessages()).toEqual(
-      original.getThread().buildMessages()
-    );
-    expect(
-      restored.getThread().getEntries().filter((entry) => entry.kind === 'compaction')
-    ).toHaveLength(1);
-    expect(restored.getAllMaintenance()).toHaveLength(1);
-    expect(restored.getLastMaintenance()?.reason).toBe('manual');
-  });
-
-  it('keeps a dedicated summarizer client when the runtime model changes', async () => {
-    resetThreadCounters();
-    const calls: string[] = [];
-    const ctx = new SessionContext({
-      llmClient: summarizingClient('runtime', calls),
-      summarizerClient: summarizingClient('dedicated', calls),
-      policy: createContextPolicy({ contextWindow: 10_000, preserveFullTurns: 1 })
-    });
-    for (let index = 1; index <= 2; index += 1) {
-      ctx.beginTurn(`question ${index}`);
-      ctx.appendAssistant(`answer ${index}`);
-      ctx.commitTurn();
-    }
-    ctx.setLlmClient(summarizingClient('new-runtime', calls));
-
-    await ctx.compactNow(
-      { systemPrompt: 'sys' },
-      '保留精确路径'
-    );
-    expect(calls).toEqual(['dedicated']);
-  });
 });
 
 function summarizingClient(label: string, calls: string[]): LlmClient {

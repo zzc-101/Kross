@@ -10,7 +10,7 @@ export interface TraceStore {
   readRun(runId: string): Promise<TraceEvent[]>;
   /**
    * 列出已知 runId，应按最近活动优先。
-   * 无法索引时返回 []（会使 /trace、/diff 降级）。
+   * 无法索引时返回 []。
    * 单条损坏的 run 不应拖垮整表。
    */
   listRunIds(): Promise<string[]>;

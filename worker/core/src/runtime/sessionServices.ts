@@ -1,18 +1,13 @@
-import { basename, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 import type { SessionContext } from '../context/sessionContext';
 import { saasToolApprovalPolicy } from '../tools/saasToolPolicy';
 import type { ToolGateway } from '../tools/toolGateway';
 import {
-  formatRegistryForPrompt,
-  selectActiveProject
-} from '../workspace/projectRegistry';
-import {
   formatProjectInstructionSource,
   loadProjectInstructions,
   type ProjectInstructionsSnapshot
 } from '../workspace/projectInstructions';
-import type { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { TodoStore } from '../todo/todoStore';
 import { SkillRegistry } from '../skills/skillRegistry';
 import type { SkillsSnapshot } from '../skills/skillDiscovery';
@@ -64,10 +59,9 @@ export class SessionServices {
    */
   syncToolPolicySource(): void {
     const workspace =
-      this.deps.options.workspaceRoots?.primary ??
-      (this.deps.options.workspaceRoot
+      this.deps.options.workspaceRoot
         ? resolve(this.deps.options.workspaceRoot)
-        : resolve(process.cwd()));
+        : resolve(process.cwd());
     this.deps.sessionContext.addSource({
       id: 'tool-permissions',
       kind: 'workspace',
@@ -76,20 +70,16 @@ export class SessionServices {
         '当前使用固定的 Cloud 工具策略。',
         '文件访问范围：workspace',
         `主工作目录：${workspace}`,
-        '- 工作区内读写、构建、测试和普通本地命令自动执行。',
+        '- 工作区内读取、检索和文件产物操作自动执行。',
         '- 外部系统写入和未知网络操作需要用户确认。',
-        '- 破坏工作区或容器边界的命令会直接拒绝。',
+        '- 破坏工作区或容器边界的操作会直接拒绝。',
         '- 相对路径始终以主工作目录为基准；不要重复拼接工作区目录名。',
-        '- 读取/搜索优先使用 Read、List、Glob、Grep 或 Rg；Git 操作优先使用 Git；仅在没有对应结构化工具时使用 Bash。',
+        '- 使用当前提供的结构化工具完成任务，不要假设 Bash、Git 或其他未提供工具可用。',
         '- 本上下文用于工具选择，不授予额外权限；ToolGateway 的实时判定是最终权限边界。'
       ].join('\n'),
       priority: 98,
       pinned: true
     });
-  }
-
-  getWorkspaceRoots(): WorkspaceRoots | undefined {
-    return this.deps.options.workspaceRoots;
   }
 
   syncModelProfilesSource(): void {
@@ -103,7 +93,7 @@ export class SessionServices {
       kind: 'workspace',
       title: 'Configured model profiles',
       content: [
-        '可用于 Task/Conductor 子代理的模型档案：',
+        '可用于 Task 子代理的模型档案：',
         ...profiles.map(
           (profile) =>
             `- id=${profile.id}; name=${profile.name}; provider=${profile.provider}; model=${profile.model}` +
@@ -139,55 +129,6 @@ export class SessionServices {
       title: 'Session todos',
       content: text,
       priority: 95,
-      pinned: true
-    });
-  }
-
-  syncProjectRegistrySource(): void {
-    const { options, sessionContext } = this.deps;
-    const roots = options.workspaceRoots;
-    if (roots) {
-      sessionContext.addSource({
-        id: 'workspace-roots',
-        kind: 'workspace',
-        title: 'Workspace roots',
-        content: roots.formatForPrompt(),
-        priority: 92,
-        pinned: true
-      });
-    } else {
-      sessionContext.removeSource('workspace-roots');
-    }
-
-    const registry = options.projectRegistry;
-    if (!registry) {
-      sessionContext.removeSource('project-registry');
-      return;
-    }
-    const selection = selectActiveProject(registry, {
-      activeProjectId: options.activeProjectId,
-      workspaceRoot: options.workspaceRoot
-    });
-    if (!selection) {
-      sessionContext.addSource({
-        id: 'project-registry',
-        kind: 'repo',
-        title: 'Project registry',
-        content:
-          'Project registry is configured but no active project could be selected. ' +
-          'Set defaultProjectId or ensure workspace is inside a registered repo path.\n' +
-          `Projects: ${Object.keys(registry.projects).join(', ')}`,
-        priority: 90,
-        pinned: true
-      });
-      return;
-    }
-    sessionContext.addSource({
-      id: 'project-registry',
-      kind: 'repo',
-      title: 'Project registry',
-      content: formatRegistryForPrompt(selection, options.projectRegistryPath),
-      priority: 90,
       pinned: true
     });
   }
@@ -278,15 +219,14 @@ export class SessionServices {
   }
 
   private getInstructionRoots() {
-    return this.deps.options.workspaceRoots?.list() ??
-      (this.deps.options.workspaceRoot
-        ? [
-            {
-              id: basename(resolve(this.deps.options.workspaceRoot)) || 'primary',
-              path: this.deps.options.workspaceRoot,
-              primary: true
-            }
-          ]
-        : []);
+    return this.deps.options.workspaceRoot
+      ? [
+          {
+            id: 'workspace',
+            path: this.deps.options.workspaceRoot,
+            primary: true
+          }
+        ]
+      : [];
   }
 }

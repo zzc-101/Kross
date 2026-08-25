@@ -2,40 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   agentResultSchema,
-  projectRegistrySchema,
   subagentResultSchema,
   traceEventSchema
 } from './domain';
 
 describe('domain schemas', () => {
-  it('parses a local project registry with multiple repos', () => {
-    const registry = projectRegistrySchema.parse({
-      projects: {
-        rcc: {
-          repos: [
-            {
-              id: 'backend',
-              path: '/Users/zc/IdeaProjects/jeecgboot',
-              type: 'java-backend',
-              testCommand: 'mvn test'
-            },
-            {
-              id: 'frontend',
-              path: '/Users/zc/WebstormProjects/jeecgboot-vue3',
-              type: 'vue-frontend',
-              testCommand: 'pnpm lint'
-            }
-          ]
-        }
-      }
-    });
-
-    expect(registry.projects.rcc?.repos.map((repo) => repo.id)).toEqual([
-      'backend',
-      'frontend'
-    ]);
-  });
-
   it('rejects a trace event without run id', () => {
     const result = traceEventSchema.safeParse({
       id: 'event-1',

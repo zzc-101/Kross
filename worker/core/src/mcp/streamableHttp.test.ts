@@ -5,10 +5,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { TraceEvent } from '../domain';
 import { ToolGateway } from '../tools/toolGateway';
-import { AgentRuntime } from '../runtime/agentRuntime';
-import type { TraceStore } from '../trace/traceStore';
 import { McpClient } from './mcpClient';
 import { connectAndRegisterMcpTools } from './register';
 import { StreamableHttpTransport } from './streamableHttp';
@@ -98,26 +95,6 @@ describe('StreamableHttpTransport', () => {
         })).result.messages?.[0]?.content.text
       ).toBe('Review README.md');
 
-      const runtime = new AgentRuntime({
-        traceStore: new MemoryTraceStore(),
-        mcpManager: manager
-      });
-      const attached = await runtime.runMcpCommand(
-        'resource remote file:///fixture/readme.md'
-      );
-      expect(attached).toContain('external / untrusted');
-      expect(
-        runtime.inspectContext({
-          currentUserInput: ''
-        }).includedSources
-      ).toContain(
-        'mcp-resource:remote:file:///fixture/readme.md'
-      );
-      const promptPreview = await runtime.runMcpCommand(
-        'prompt remote review {"target":"README.md"}'
-      );
-      expect(promptPreview).toContain('未自动执行');
-      expect(promptPreview).toContain('Review README.md');
     } finally {
       await manager.close();
     }
@@ -433,20 +410,4 @@ function sendJsonResult(
 ): void {
   response.writeHead(200, { 'Content-Type': 'application/json' });
   response.end(JSON.stringify({ jsonrpc: '2.0', id, result }));
-}
-
-class MemoryTraceStore implements TraceStore {
-  private readonly events: TraceEvent[] = [];
-
-  async append(event: TraceEvent): Promise<void> {
-    this.events.push(event);
-  }
-
-  async readRun(runId: string): Promise<TraceEvent[]> {
-    return this.events.filter((event) => event.runId === runId);
-  }
-
-  async listRunIds(): Promise<string[]> {
-    return [...new Set(this.events.map((event) => event.runId))];
-  }
 }

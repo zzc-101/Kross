@@ -1,28 +1,20 @@
 import type {
-  ContextSnapshot,
   ContextSource,
   SessionContext
 } from '../context/sessionContext';
-import type {
-  AgentResult,
-  ProjectRegistry,
-  TraceEvent
-} from '../domain';
+import type { AgentResult, TraceEvent } from '../domain';
 import type { LlmClient } from '../llm/types';
 import type { TodoStore } from '../todo/todoStore';
 import type { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
-import type { GitRunner } from '../workspace/workspaceDiff';
 import type {
   SubagentModelProfileSummary,
   SubagentRunOutcome,
   SubagentRunRequest
 } from './subagentRunner';
-import type { WorkspaceRoots } from '../workspace/workspaceRoots';
 import type { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationCoordinator } from '../mutations/mutationService';
 import type { ProcessManager } from '../process/processManager';
-import type { McpManager } from '../mcp/register';
 import type { SaasActiveSkill } from './saasRuntimePolicy';
 
 export interface AgentRuntimeOptions {
@@ -50,7 +42,6 @@ export interface AgentRuntimeOptions {
   createRunId?: () => string;
   now?: () => Date;
   workspaceRoot?: string;
-  runGit?: GitRunner;
   /**
    * Nesting depth for subagent runs (0 = main agent).
    * Used by Task tool to forbid nested spawn when depth >= 1.
@@ -58,10 +49,6 @@ export interface AgentRuntimeOptions {
   subagentDepth?: number;
   /** Session todo list shared with TodoWrite/TodoRead tools. */
   todoStore?: TodoStore;
-  /**
-   * Session multi-directory roots used by Task(repoId).
-   */
-  workspaceRoots?: WorkspaceRoots;
   /** Shared dynamic Skill registry. Runtime creates a fallback when omitted. */
   skillRegistry?: SkillRegistry;
   /** Personal Skill directory used by the fallback registry. */
@@ -70,14 +57,6 @@ export interface AgentRuntimeOptions {
   mutationCoordinator?: MutationCoordinator;
   /** Main-session background process owner. Handles are never persisted. */
   processManager?: ProcessManager;
-  /** Shared MCP catalog and explicit resource/prompt access. */
-  mcpManager?: McpManager;
-  /** Loaded ~/.kross/projects.json (optional project template / seed). */
-  projectRegistry?: ProjectRegistry;
-  /** Absolute path of the registry file (for prompts / errors). */
-  projectRegistryPath?: string;
-  /** Prefer this project id when selecting from registry. */
-  activeProjectId?: string;
   /**
    * Spawn a subagent through the Task tool.
    */
@@ -101,11 +80,17 @@ export interface ResolveToolApprovalInput {
   signal?: AbortSignal;
 }
 
-export interface ContextInspectionInput {
-  currentUserInput?: string;
+export interface RunUsage {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  estimatedCostUsd: number;
+  durationMs: number;
 }
-
-export type ContextInspection = ContextSnapshot;
 
 export type AgentRuntimeEvent = TraceEvent;
 

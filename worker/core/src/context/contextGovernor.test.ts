@@ -118,9 +118,9 @@ describe('ContextGovernor', () => {
     });
 
     addTurns(thread, 3);
-    await governor.compactTurnsNow(thread);
+    await governor.govern({ thread, threadTokenBudget: 1 });
     addTurns(thread, 2, 4);
-    await governor.compactTurnsNow(thread);
+    await governor.govern({ thread, threadTokenBudget: 1 });
 
     expect(calls[1]?.previousSummary).toContain('first summary');
     expect(thread.getEntries().filter((entry) => entry.kind === 'compaction')).toHaveLength(1);
@@ -206,7 +206,7 @@ describe('ContextGovernor', () => {
     expect(thread.buildMessages().at(-1)?.content).toBe('recent answer');
   });
 
-  it('never compacts an open turn when manual preserveFullTurns is zero', async () => {
+  it('never compacts an open turn when preserveFullTurns is zero', async () => {
     const estimator = new TokenEstimator();
     const thread = new ConversationThread({ estimator });
     const governor = new ContextGovernor({
@@ -224,7 +224,7 @@ describe('ContextGovernor', () => {
     thread.commitTurn();
     const openTurnId = thread.beginTurn('still running');
 
-    await governor.compactTurnsNow(thread);
+    await governor.govern({ thread, threadTokenBudget: 1 });
 
     expect(thread.getOpenTurnId()).toBe(openTurnId);
     expect(thread.getEntriesForTurn(openTurnId).map((entry) => entry.message.content)).toEqual([

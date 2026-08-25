@@ -6,20 +6,6 @@ import type { ContextSource } from '../core/src/context/sessionContext';
 import type { SaasActiveSkill } from '../core/src/runtime/saasRuntimePolicy';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
 
-interface RunTraceDetail {
-  llmStats: {
-    calls: number;
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-    cacheReadTokens: number;
-    cacheWriteTokens: number;
-    reasoningTokens: number;
-    estimatedCostUsd: number;
-    durationMs: number;
-  };
-}
-
 export interface AgentRuntimeHandle {
   restoreConversation(messages: Array<{
     role: 'user' | 'assistant';
@@ -35,8 +21,18 @@ export interface AgentRuntimeHandle {
     reason?: string;
     signal?: AbortSignal;
   }): AsyncIterable<AgentRunStreamEvent>;
-  inspectTrace(runId: string): Promise<RunTraceDetail | null>;
-  getContextUsage(input: { currentUserInput?: string }): {
+  getRunUsage(runId: string): Promise<{
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    reasoningTokens: number;
+    estimatedCostUsd: number;
+    durationMs: number;
+  } | undefined>;
+  getContextUsage(): {
     usedTokens: number;
     contextWindow: number;
     headerRatio: number;

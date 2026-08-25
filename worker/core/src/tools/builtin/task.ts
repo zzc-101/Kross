@@ -13,11 +13,6 @@ export interface CreateTaskToolOptions {
   /** Depth of the runtime that owns this Task tool (0 = main). */
   parentDepth?: number;
   run: SubagentRunner;
-  /**
-   * Resolve registry repo id → absolute workspace path.
-   * When set, Task accepts optional `repoId` for multi-repo spawn.
-   */
-  resolveRepoPath?: (repoId: string) => string | undefined;
   /** Override tool content formatting (defaults to formatSubagentToolContent). */
   formatOutcome?: (outcome: SubagentRunOutcome) => string;
 }
@@ -34,11 +29,6 @@ const taskInputSchema = z.object({
   goal: z.string().min(1),
   /** Explore is read-only by policy; general may use read+edit tools. */
   mode: z.enum(['explore', 'general']).optional(),
-  /**
-   * Optional project-registry repo id. Subagent tools bind to that repo's path
-   * (must be in the runtime allowlist). Prefer this over inventing absolute paths.
-   */
-  repoId: z.string().min(1).optional(),
   /** Optional configured Kross model profile id. */
   modelProfileId: z.string().trim().min(1).optional()
 });
@@ -60,7 +50,6 @@ export function createTaskTool(
     description:
       '派生子代理在独立上下文中完成聚焦工作并返回产物、证据和未完成项。' +
       '调用时必须同时提供 title（极短标题）与 goal（完整目标）。' +
-      '可选 repoId：在跨仓项目中指定 project registry 中的仓库 id，子代理将绑定该仓库路径。' +
       '可选 modelProfileId：指定已配置的 Kross 模型档案；不填则继承当前模型。' +
       '子代理基础可用 Read/Glob/Grep/Rg/List/Stat；' +
       'mode=explore 时只读调查，mode=general 时额外允许 Edit/Write 完成任务范围内的修改；' +
@@ -90,12 +79,6 @@ export function createTaskTool(
           description:
             '可选，默认 explore。explore=只读调查；general=可使用允许的编辑工具完成修改。两者均无 Bash/Delete/Move/Task。'
         },
-        repoId: {
-          type: 'string',
-          description:
-            '可选。project registry 中的仓库 id；指定后子代理在该仓库根目录下读写，' +
-            '用于多目录/指挥家编排（/add-dir 的 id 或 registry repo id）。不填则使用主工作区。'
-        },
         modelProfileId: {
           type: 'string',
           description:
@@ -118,29 +101,6 @@ export function createTaskTool(
 
       const mode = (input.mode ?? 'explore') as SubagentMode;
       const title = input.title.trim();
-      const repoId = input.repoId?.trim();
-
-      let workspaceRoot: string | undefined;
-      if (repoId) {
-        if (!options.resolveRepoPath) {
-          return {
-            content:
-              `Task failed: repoId=${repoId} 需要 project registry，` +
-              '请配置 ~/.kross/projects.json 后重试。',
-            summary: `Task repoId unresolved: ${repoId}`
-          };
-        }
-        const resolved = options.resolveRepoPath(repoId);
-        if (!resolved) {
-          return {
-            content:
-              `Task failed: unknown repoId "${repoId}"。` +
-              '请使用 registry 中已声明的仓库 id。',
-            summary: `unknown repoId: ${repoId}`
-          };
-        }
-        workspaceRoot = resolved;
-      }
 
       try {
         const outcome = await options.run({
@@ -150,16 +110,13 @@ export function createTaskTool(
           parentRunId: runId,
           parentDepth,
           signal,
-          repoId,
-          workspaceRoot,
           modelProfileId: input.modelProfileId?.trim()
         });
 
         const content = formatOutcome(outcome);
-        const label = repoId ? `${title}@${repoId}` : title;
         return {
           content,
-          summary: `Task(${label}) → ${outcome.result.status}: ${clip(
+          summary: `Task(${title}) → ${outcome.result.status}: ${clip(
             outcome.result.summary,
             160
           )}`,
@@ -167,8 +124,6 @@ export function createTaskTool(
             subRunId: outcome.subRunId,
             mode: outcome.mode,
             title,
-            repoId,
-            workspaceRoot,
             modelProfileId: outcome.modelProfileId,
             modelProfileName: outcome.modelProfileName,
             model: outcome.model,

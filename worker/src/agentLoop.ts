@@ -324,7 +324,7 @@ async function runTurn(
 }
 
 function readContextUsage(host: AgentHostHandle): AgentContextUsage {
-  const usage = host.runtime.getContextUsage({});
+  const usage = host.runtime.getContextUsage();
   return {
     usedTokens: usage.usedTokens,
     contextWindow: usage.contextWindow,
@@ -333,9 +333,8 @@ function readContextUsage(host: AgentHostHandle): AgentContextUsage {
 }
 
 async function readUsage(host: AgentHostHandle, runId: string): Promise<AgentTokenUsage | undefined> {
-  const trace = await host.runtime.inspectTrace(runId).catch(() => null);
-  if (!trace || trace.llmStats.calls === 0) return undefined;
-  const usage = trace.llmStats;
+  const usage = await host.runtime.getRunUsage(runId).catch(() => undefined);
+  if (!usage) return undefined;
   return {
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,

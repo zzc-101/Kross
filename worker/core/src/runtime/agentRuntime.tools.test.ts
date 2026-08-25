@@ -16,7 +16,6 @@ import type {
 } from '../llm/types';
 import { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
-import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { renderPrompt } from '../prompts';
 import { z } from 'zod';
 import {
@@ -310,109 +309,6 @@ describe('AgentRuntime tool loops and approvals', () => {
       });
       expect(JSON.stringify(rejection)).not.toContain('hello');
     });
-
-  it('preserves the verification follow-up limit across approval resumes', async () => {
-    const requests: LlmRequest[] = [];
-    const llmClient: LlmClient = {
-      provider: 'openai',
-      async complete(request): Promise<LlmResponse> {
-        requests.push(request);
-        if (requests.length === 1) {
-          return {
-            provider: 'openai',
-            model: 'fake',
-            text: '',
-            raw: {},
-            toolCalls: [
-              {
-                id: 'write-gated',
-                name: 'Write',
-                input: { path: 'src/gated.ts', content: 'export {}' }
-              }
-            ]
-          };
-        }
-        if (requests.length === 3) {
-          return {
-            provider: 'openai',
-            model: 'fake',
-            text: '',
-            raw: {},
-            toolCalls: [
-              {
-                id: 'verify-gated',
-                name: 'Bash',
-                input: { command: 'sudo npm test' }
-              }
-            ]
-          };
-        }
-        return {
-          provider: 'openai',
-          model: 'fake',
-          text: requests.length === 2 ? '修改完成' : '验证被拒绝，无法继续',
-          raw: {}
-        };
-      },
-      async *stream(request): AsyncIterable<LlmStreamChunk> {
-        yield* streamFromComplete(await this.complete(request));
-      }
-    };
-    const traceStore = new InMemoryTraceStore();
-    const toolGateway = new ToolGateway({ traceStore });
-    toolGateway.register({
-      name: 'Write',
-      description: 'write file',
-      risk: 'execute',
-      inputSchema: z.object({ path: z.string(), content: z.string() }),
-      execute: async () => ({ content: 'written', summary: 'wrote 10 bytes' })
-    });
-    toolGateway.register({
-      name: 'Bash',
-      description: 'run command',
-      risk: 'execute',
-      inputSchema: z.object({ command: z.string() }),
-      execute: async () => ({
-        content: 'should not execute',
-        data: { exitCode: 0 }
-      })
-    });
-    const runtime = new AgentRuntime({ traceStore, llmClient, toolGateway });
-    toolGateway.setApprovalPolicy(({ tool }) =>
-      tool.risk === 'execute' ? { action: 'ask' } : { action: 'allow' }
-    );
-
-    const writePending = await runtime.run({
-      input: '修改代码'
-    });
-    expect(writePending.status).toBe('approval-required');
-
-    const verificationPending = await runtime.resolveToolApproval({
-      runId: writePending.runId,
-      approved: true
-    });
-    expect(verificationPending).toMatchObject({
-      status: 'approval-required',
-      pendingApproval: { toolName: 'Bash' }
-    });
-
-    const result = await runtime.resolveToolApproval({
-      runId: writePending.runId,
-      approved: false
-    });
-    expect(result.report.verification.status).toBe('not-run');
-    expect(requests).toHaveLength(4);
-    expect(
-      traceStore.events.filter(
-        (event) => event.type === 'run.verification.followup'
-      )
-    ).toHaveLength(1);
-    expect(
-      traceStore.events.filter(
-        (event) => event.type === 'run.verification.exhausted'
-      )
-    ).toHaveLength(1);
-  });
 
   it('pauses for approval when a risky tool call appears in later iterations', async () => {
       const traceStore = new InMemoryTraceStore();
@@ -839,7 +735,9 @@ describe('AgentRuntime tool loops and approvals', () => {
           evidence: expect.arrayContaining([
             expect.stringContaining('Harness 恢复提示')
           ]),
-          risks: expect.arrayContaining([expect.stringContaining('尚未完成')])
+          incompleteItems: expect.arrayContaining([
+            expect.stringContaining('尚未完成')
+          ])
         }
       });
       expect(llmClient.streamRequests).toHaveLength(4);

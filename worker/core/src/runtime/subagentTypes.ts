@@ -18,13 +18,6 @@ export interface SubagentRunRequest {
   parentRunId: string;
   parentDepth?: number;
   signal?: AbortSignal;
-  /**
-   * Override tools workspace root for this spawn (/add-dir root).
-   * Must be under deps.allowedWorkspaceRoots when that list is set.
-   */
-  workspaceRoot?: string;
-  /** Optional label for trace / UI (e.g. /add-dir id). */
-  repoId?: string;
   /** Configured Kross model profile to use instead of the inherited model. */
   modelProfileId?: string;
   /**

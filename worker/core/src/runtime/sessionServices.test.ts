@@ -1,23 +1,13 @@
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { SessionContext } from '../context/sessionContext';
 import { TodoStore } from '../todo/todoStore';
-import type { TraceStore } from '../trace/traceStore';
+import { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 import { AgentRuntime } from './agentRuntime';
-
-const traceStore: TraceStore = {
-  async append() {},
-  async readRun() {
-    return [];
-  },
-  async listRunIds() {
-    return [];
-  }
-};
+import { FakeLlmClient } from './agentRuntime.testSupport';
 
 let workspace = '';
 
@@ -29,170 +19,70 @@ afterEach(() => {
 });
 
 function makeWorkspace(): string {
-  workspace = mkdtempSync(join(tmpdir(), 'kross-runtime-instructions-'));
+  workspace = mkdtempSync(join(tmpdir(), 'kross-runtime-workspace-'));
   return workspace;
 }
 
-describe('project instructions in AgentRuntime', () => {
-  it('loads project instructions during construction as pinned context sources', () => {
+describe('single-workspace session services', () => {
+  it('injects instructions only from the platform workspace', async () => {
     const root = makeWorkspace();
-    writeFileSync(join(root, 'AGENTS.md'), 'Always run focused tests.');
-
-    const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
-    const instructions = runtime.getProjectInstructions();
-    const context = runtime.inspectContext({});
-
-    expect(instructions.files).toHaveLength(1);
-    expect(context.includedSources).toContain(
-      `project-instruction:${instructions.files[0]?.rootId}:AGENTS.md`
-    );
-    expect(context.pinnedSources).toContain(
-      `project-instruction:${instructions.files[0]?.rootId}:AGENTS.md`
-    );
-    expect(context.messages[0]?.content).toContain('Always run focused tests.');
-  });
-
-  it('refreshes changed files and removes stale sources before inspection', () => {
-    const root = makeWorkspace();
-    const path = join(root, 'AGENTS.md');
-    writeFileSync(path, 'old rules');
-    const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
-    const oldSignature = runtime.getProjectInstructions().signature;
-
-    writeFileSync(path, 'new rules');
-    const refreshed = runtime.inspectContext({});
-
-    expect(runtime.getProjectInstructions().signature).not.toBe(oldSignature);
-    expect(refreshed.messages[0]?.content).toContain('new rules');
-    expect(refreshed.messages[0]?.content).not.toContain('old rules');
-
-    unlinkSync(path);
-    const removed = runtime.refreshProjectInstructions();
-    const withoutSource = runtime.inspectContext({});
-    expect(removed.files).toEqual([]);
-    expect(withoutSource.includedSources).not.toEqual(
-      expect.arrayContaining([expect.stringMatching(/^project-instruction:/)])
-    );
-  });
-
-  it('does not persist instruction bodies and reloads current disk rules after restore', () => {
-    const root = makeWorkspace();
-    const path = join(root, 'KROSS.md');
-    writeFileSync(path, 'rules from checkpoint time');
-    const first = new AgentRuntime({
-      traceStore,
-      workspaceRoot: root,
-      todoStore: new TodoStore()
-    });
-    const state = first.exportContextState();
-
-    expect(JSON.stringify(state)).not.toContain('rules from checkpoint time');
-
-    writeFileSync(path, 'rules from current disk');
-    const restored = new AgentRuntime({ traceStore, workspaceRoot: root });
-    expect(restored.restoreContextState(state)).toBe(true);
-
-    const context = restored.inspectContext({});
-    expect(context.messages[0]?.content).toContain('rules from current disk');
-    expect(context.messages[0]?.content).not.toContain('rules from checkpoint time');
-  });
-
-  it('keeps the existing context behavior when no instructions exist', () => {
-    const root = makeWorkspace();
-    const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
-
-    expect(runtime.getProjectInstructions().files).toEqual([]);
-    expect(runtime.inspectContext({}).includedSources).toEqual([
-      'tool-permissions'
-    ]);
-  });
-
-  it('injects the fixed Cloud tool policy and workspace path', () => {
-    const root = makeWorkspace();
-    const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
-
-    const context = runtime.inspectContext({});
-    expect(context.messages[0]?.content).toContain('固定的 Cloud 工具策略');
-    expect(context.messages[0]?.content).toContain('文件访问范围：workspace');
-    expect(context.messages[0]?.content).toContain(`主工作目录：${root}`);
-    expect(context.messages[0]?.content).toContain('Git 操作优先使用 Git');
-  });
-
-  it('injects live model profile ids for Task selection', () => {
-    const root = makeWorkspace();
-    let model = 'claude-fast';
+    writeFileSync(join(root, 'AGENTS.md'), 'Use the workspace source material.');
+    const llmClient = new FakeLlmClient('done');
     const runtime = new AgentRuntime({
-      traceStore,
+      traceStore: new InMemoryTraceStore(),
       workspaceRoot: root,
-      getModelProfiles: () => [
-        {
-          id: 'economy',
-          name: 'Economy',
-          provider: 'anthropic',
-          model,
-          contextWindow: 96_000
-        }
-      ]
+      llmClient
     });
 
-    let context = runtime.inspectContext({});
-    expect(context.includedSources).toContain('model-profiles');
-    expect(context.messages[0]?.content).toContain(
-      'id=economy; name=Economy'
-    );
-    expect(context.messages[0]?.content).toContain(
-      'Task 的 modelProfileId'
-    );
+    await runtime.run({ input: 'summarize' });
 
-    model = 'claude-next';
-    context = runtime.inspectContext({});
-    expect(context.messages[0]?.content).toContain('model=claude-next');
-    expect(context.messages[0]?.content).not.toContain('model=claude-fast');
+    const system = llmClient.requests[0]?.messages.find(
+      (message) => message.role === 'system'
+    );
+    expect(system?.content).toContain('Use the workspace source material.');
+    expect(system?.content).not.toContain('project registry');
+    expect(system?.content).not.toContain('workspace roots');
   });
-});
 
-describe('skills in AgentRuntime', () => {
-  it('injects scoped metadata without eagerly injecting the skill body', () => {
+  it('describes the fixed structured-tool policy without local shell guidance', async () => {
     const root = makeWorkspace();
-    const skillDir = join(root, '.agents', 'skills', 'review');
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(
-      join(skillDir, 'SKILL.md'),
-      '---\nname: Review\ndescription: Review changed code\n---\nSECRET SKILL BODY'
-    );
-
-    const runtime = new AgentRuntime({ traceStore, workspaceRoot: root });
-    const context = runtime.inspectContext({});
-
-    expect(runtime.getSkills().skills[0]).toMatchObject({
-      id: 'review',
-      name: 'Review',
-      description: 'Review changed code'
+    const llmClient = new FakeLlmClient('done');
+    const runtime = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      workspaceRoot: root,
+      llmClient
     });
-    expect(context.messages[0]?.content).toContain('Review changed code');
-    expect(context.messages[0]?.content).toContain('id=review');
-    expect(context.messages[0]?.content).not.toContain('SECRET SKILL BODY');
-  });
-});
 
-describe('durable work state in AgentRuntime', () => {
-  it('exports and restores todos', () => {
+    await runtime.run({ input: 'create a document' });
+
+    const system = llmClient.requests[0]?.messages.find(
+      (message) => message.role === 'system'
+    );
+    expect(system?.content).toContain('固定的 Cloud 工具策略');
+    expect(system?.content).toContain(`主工作目录：${root}`);
+    expect(system?.content).not.toContain('Git 操作优先');
+    expect(system?.content).not.toContain('使用 Bash');
+  });
+
+  it('restores the durable todo state', () => {
     const root = makeWorkspace();
-    const first = new AgentRuntime({ traceStore, workspaceRoot: root });
-    first.getTodoStore()?.write({
+    const firstTodos = new TodoStore();
+    const first = new AgentRuntime({
+      traceStore: new InMemoryTraceStore(),
+      workspaceRoot: root,
+      todoStore: firstTodos
+    });
+    firstTodos.write({
       todos: [{ id: 't1', content: 'Continue work', status: 'in_progress' }]
     });
-    const state = first.exportWorkState();
 
+    const secondTodos = new TodoStore();
     const second = new AgentRuntime({
-      traceStore,
+      traceStore: new InMemoryTraceStore(),
       workspaceRoot: root,
-      todoStore: new TodoStore()
+      todoStore: secondTodos
     });
-    expect(second.restoreWorkState(state)).toBe(true);
-    expect(second.getTodoStore()?.list()).toEqual(state.todos);
-    expect(
-      second.inspectContext({}).messages[0]?.content
-    ).toContain('固定的 Cloud 工具策略');
+    expect(second.restoreWorkState(first.exportWorkState())).toBe(true);
+    expect(secondTodos.list()).toEqual(firstTodos.list());
   });
 });

@@ -20,7 +20,6 @@ import { createSaasTools } from '../tools/builtin';
 import { ToolGateway } from '../tools/toolGateway';
 import { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 import { ObservableTraceStore } from '../trace/observableTraceStore';
-import { WorkspaceRoots } from '../workspace/workspaceRoots';
 import { SkillRegistry } from '../skills/skillRegistry';
 import { MutationCoordinator } from '../mutations/mutationService';
 import { ProcessManager } from '../process/processManager';
@@ -38,11 +37,10 @@ export interface AgentHostTooling {
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
   todoStore: TodoStore;
-  workspaceRoots: WorkspaceRoots;
   skillRegistry: SkillRegistry;
   mutationCoordinator: MutationCoordinator;
   processManager: ProcessManager;
-  /** Update LLM used by Task subagents (e.g. after /import). */
+  /** Keep the Task subagent model binding in sync with the active model. */
   setLlmClient: (client: LlmClient | undefined) => void;
   /** Shared subagent runner used by the Task tool. */
   runSubagent: NonNullable<AgentRuntimeOptions['runSubagent']>;
@@ -70,7 +68,7 @@ export interface AgentHost {
 }
 
 /**
- * Shared composition root for local Runtime hosts.
+ * Shared composition root for the containerized Worker runtime.
  *
  * The host owns Tooling resources and may create replacement Runtime instances
  * over the same gateway/session services. Callers still own foreground run
@@ -144,10 +142,8 @@ export function createRuntimeOptionsFromEnv(
     | 'todoStore'
     | 'setLlmClient'
     | 'runSubagent'
-    | 'workspaceRoots'
     | 'skillRegistry'
     | 'mutationCoordinator'
-    | 'mcpManager'
   > & Partial<Pick<AgentHostTooling, 'processManager'>>
 ): AgentRuntimeOptions {
   const llmClient = createLlmClientFromEnv(env, fetch);
@@ -162,7 +158,6 @@ export function createRuntimeOptionsFromEnv(
   let traceStore = tooling?.traceStore;
   let todoStore = tooling?.todoStore;
   let runSubagent: AgentRuntimeOptions['runSubagent'] = tooling?.runSubagent;
-  let workspaceRoots = tooling?.workspaceRoots;
   let skillRegistry = tooling?.skillRegistry;
   let mutationCoordinator = tooling?.mutationCoordinator;
   let processManager = tooling?.processManager ?? new ProcessManager(cwd);
@@ -171,7 +166,6 @@ export function createRuntimeOptionsFromEnv(
     !traceStore ||
     !todoStore ||
     !runSubagent ||
-    !workspaceRoots ||
     !skillRegistry ||
     !mutationCoordinator
   ) {
@@ -180,7 +174,6 @@ export function createRuntimeOptionsFromEnv(
     traceStore = traceStore ?? created.traceStore;
     todoStore = todoStore ?? created.todoStore;
     runSubagent = runSubagent ?? created.runSubagent;
-    workspaceRoots = workspaceRoots ?? created.workspaceRoots;
     skillRegistry = skillRegistry ?? created.skillRegistry;
     mutationCoordinator = mutationCoordinator ?? created.mutationCoordinator;
   } else {
@@ -192,12 +185,10 @@ export function createRuntimeOptionsFromEnv(
     toolGateway,
     todoStore,
     workspaceRoot: cwd,
-    workspaceRoots,
     skillRegistry,
     personalSkillsDir: resolvePersonalSkillsDir(options),
     mutationCoordinator,
     processManager,
-    mcpManager: tooling?.mcpManager,
     maxToolIterations: parseMaxToolIterations(env),
     llmClient,
     onLlmClientChanged: tooling?.setLlmClient,
@@ -209,7 +200,7 @@ export function createRuntimeOptionsFromEnv(
 
 /**
  * One-shot tooling bootstrap: SaaS tools (Task + Todos) + MCP servers (stdio).
- * Reuse across runtime recreations so MCP/Task/todo wiring survives /import.
+ * Reuse across runtime recreations so MCP, Task, and todo wiring stays stable.
  */
 export async function bootstrapRuntimeTooling(
   cwd: string,
@@ -242,7 +233,6 @@ export async function bootstrapRuntimeTooling(
     toolGateway: created.toolGateway,
     traceStore: created.traceStore,
     todoStore: created.todoStore,
-    workspaceRoots: created.workspaceRoots,
     skillRegistry: created.skillRegistry,
     mutationCoordinator: created.mutationCoordinator,
     processManager: created.processManager,
@@ -262,7 +252,6 @@ function createLocalTooling(
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
   todoStore: TodoStore;
-  workspaceRoots: WorkspaceRoots;
   skillRegistry: SkillRegistry;
   mutationCoordinator: MutationCoordinator;
   processManager: ProcessManager;
@@ -277,9 +266,8 @@ function createLocalTooling(
     defaultTimeoutMs: 120_000
   });
   const todoStore = new TodoStore();
-  const workspaceRoots = new WorkspaceRoots(cwd);
   const skillRegistry = new SkillRegistry({
-    getRoots: () => workspaceRoots.list(),
+    getRoots: () => [{ id: 'workspace', path: cwd, primary: true }],
     personalSkillsDir: resolvePersonalSkillsDir(options)
   });
   const mutationCoordinator = new MutationCoordinator(resolveKrossHome(options));
@@ -287,7 +275,6 @@ function createLocalTooling(
 
   const subagentDeps: SubagentRunDeps = {
     workspaceRoot: cwd,
-    getAllowedWorkspaceRoots: () => workspaceRoots.allowedRoots(),
     traceStore,
     llmClient: initialLlmClient,
     // worker 默认与主模型相同；后续可从 config 注入更便宜的 workerLlmClient
@@ -316,7 +303,6 @@ function createLocalTooling(
     toolGateway,
     traceStore,
     todoStore,
-    workspaceRoots,
     skillRegistry,
     mutationCoordinator,
     processManager,

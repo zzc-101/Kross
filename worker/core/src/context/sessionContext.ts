@@ -64,7 +64,7 @@ export interface SessionContextOptions {
 export interface SessionContextState {
   version: 1;
   thread: ConversationThreadState;
-  /** 最近治理记录，供恢复后的 /context 继续展示。 */
+  /** 最近治理记录，供运行追踪和恢复使用。 */
   maintenance?: ContextMaintenanceResult[];
 }
 
@@ -278,28 +278,6 @@ export class SessionContext {
 
   getAllMaintenance(): ContextMaintenanceResult[] {
     return [...this.lastMaintenance];
-  }
-
-  /**
-   * 手动触发 Stage2 轮次压缩；无可压缩轮次时 compacted=false。
-   */
-  async compactNow(
-    _input: BuildContextInput,
-    instructions?: string,
-    signal?: AbortSignal
-  ): Promise<ContextMaintenanceResult> {
-    const combinedInstructions = [this.compactionInstructions, instructions]
-      .map((value) => value?.trim())
-      .filter((value): value is string => !!value)
-      .join('\n');
-    const result = await this.governor.compactTurnsNow(this.thread, {
-      instructions: combinedInstructions || undefined,
-      signal
-    });
-    if (result.compacted) {
-      this.rememberMaintenance(result);
-    }
-    return result;
   }
 
   clearMaintenanceHistory(): void {
