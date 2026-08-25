@@ -10,6 +10,7 @@ import {
   type McpManager
 } from '../mcp';
 import type { AgentRuntimeOptions } from '../runtime/agentRuntimeTypes';
+import type { SaasActiveSkill } from '../runtime/saasRuntimePolicy';
 import { AgentRuntime } from '../runtime/agentRuntime';
 import {
   createDefaultSubagentRunner,
@@ -20,7 +21,6 @@ import { createSaasTools } from '../tools/builtin';
 import { ToolGateway } from '../tools/toolGateway';
 import { InMemoryTraceStore } from '../trace/inMemoryTraceStore';
 import { ObservableTraceStore } from '../trace/observableTraceStore';
-import { SkillRegistry } from '../skills/skillRegistry';
 import { MutationCoordinator } from '../mutations/mutationService';
 import { ProcessManager } from '../process/processManager';
 import {
@@ -37,7 +37,6 @@ export interface AgentHostTooling {
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
   todoStore: TodoStore;
-  skillRegistry: SkillRegistry;
   mutationCoordinator: MutationCoordinator;
   processManager: ProcessManager;
   /** Keep the Task subagent model binding in sync with the active model. */
@@ -83,7 +82,8 @@ export async function createAgentHost(
     options.workspaceRoot,
     env,
     config,
-    options.fetch
+    options.fetch,
+    options.runtimeOptions?.activeSkill
   );
   const lifecycleHooks = options.experimentalLifecycleHooks
     ? new ExperimentalLifecycleHooks(options.experimentalLifecycleHooks)
@@ -142,7 +142,6 @@ export function createRuntimeOptionsFromEnv(
     | 'todoStore'
     | 'setLlmClient'
     | 'runSubagent'
-    | 'skillRegistry'
     | 'mutationCoordinator'
   > & Partial<Pick<AgentHostTooling, 'processManager'>>
 ): AgentRuntimeOptions {
@@ -158,7 +157,6 @@ export function createRuntimeOptionsFromEnv(
   let traceStore = tooling?.traceStore;
   let todoStore = tooling?.todoStore;
   let runSubagent: AgentRuntimeOptions['runSubagent'] = tooling?.runSubagent;
-  let skillRegistry = tooling?.skillRegistry;
   let mutationCoordinator = tooling?.mutationCoordinator;
   let processManager = tooling?.processManager ?? new ProcessManager(cwd);
   if (
@@ -166,7 +164,6 @@ export function createRuntimeOptionsFromEnv(
     !traceStore ||
     !todoStore ||
     !runSubagent ||
-    !skillRegistry ||
     !mutationCoordinator
   ) {
     const created = createLocalTooling(cwd, llmClient, options);
@@ -174,7 +171,6 @@ export function createRuntimeOptionsFromEnv(
     traceStore = traceStore ?? created.traceStore;
     todoStore = todoStore ?? created.todoStore;
     runSubagent = runSubagent ?? created.runSubagent;
-    skillRegistry = skillRegistry ?? created.skillRegistry;
     mutationCoordinator = mutationCoordinator ?? created.mutationCoordinator;
   } else {
     tooling?.setLlmClient?.(llmClient);
@@ -185,8 +181,6 @@ export function createRuntimeOptionsFromEnv(
     toolGateway,
     todoStore,
     workspaceRoot: cwd,
-    skillRegistry,
-    personalSkillsDir: resolvePersonalSkillsDir(options),
     mutationCoordinator,
     processManager,
     maxToolIterations: parseMaxToolIterations(env),
@@ -206,10 +200,11 @@ export async function bootstrapRuntimeTooling(
   cwd: string,
   env: Record<string, string | undefined> = process.env,
   options: CreateAgentHostConfigOptions = {},
-  fetch?: LlmFetch
+  fetch?: LlmFetch,
+  activeSkill?: SaasActiveSkill
 ): Promise<AgentHostTooling> {
   const llmClient = createLlmClientFromEnv(env);
-  const created = createLocalTooling(cwd, llmClient, options);
+  const created = createLocalTooling(cwd, llmClient, options, activeSkill);
   const mcpManager = await connectReloadableMcpManager(created.toolGateway, {
     workspaceRoot: cwd,
     env,
@@ -233,7 +228,6 @@ export async function bootstrapRuntimeTooling(
     toolGateway: created.toolGateway,
     traceStore: created.traceStore,
     todoStore: created.todoStore,
-    skillRegistry: created.skillRegistry,
     mutationCoordinator: created.mutationCoordinator,
     processManager: created.processManager,
     setLlmClient: created.setLlmClient,
@@ -247,12 +241,12 @@ export async function bootstrapRuntimeTooling(
 function createLocalTooling(
   cwd: string,
   initialLlmClient?: LlmClient,
-  options: CreateAgentHostConfigOptions = {}
+  options: CreateAgentHostConfigOptions = {},
+  activeSkill?: SaasActiveSkill
 ): {
   toolGateway: ToolGateway;
   traceStore: ObservableTraceStore;
   todoStore: TodoStore;
-  skillRegistry: SkillRegistry;
   mutationCoordinator: MutationCoordinator;
   processManager: ProcessManager;
   setLlmClient: (client: LlmClient | undefined) => void;
@@ -266,22 +260,18 @@ function createLocalTooling(
     defaultTimeoutMs: 120_000
   });
   const todoStore = new TodoStore();
-  const skillRegistry = new SkillRegistry({
-    getRoots: () => [{ id: 'workspace', path: cwd, primary: true }],
-    personalSkillsDir: resolvePersonalSkillsDir(options)
-  });
   const mutationCoordinator = new MutationCoordinator(resolveKrossHome(options));
   const processManager = new ProcessManager(cwd);
 
   const subagentDeps: SubagentRunDeps = {
     workspaceRoot: cwd,
+    activeSkill,
     traceStore,
     llmClient: initialLlmClient,
     // worker 默认与主模型相同；后续可从 config 注入更便宜的 workerLlmClient
     workerLlmClient: initialLlmClient,
     maxDepth: 1,
     maxToolIterations: 40,
-    personalSkillsDir: resolvePersonalSkillsDir(options),
     getMutationService: (root) => mutationCoordinator.forWorkspace(root)
   };
 
@@ -292,7 +282,6 @@ function createLocalTooling(
     parentDepth: 0,
     runSubagent,
     todoStore,
-    skillRegistry,
     mutationService: mutationCoordinator.forWorkspace(cwd),
     mutationCoordinator
   })) {
@@ -303,7 +292,6 @@ function createLocalTooling(
     toolGateway,
     traceStore,
     todoStore,
-    skillRegistry,
     mutationCoordinator,
     processManager,
     runSubagent,
@@ -315,10 +303,6 @@ function createLocalTooling(
       innerTraceStore.close();
     }
   };
-}
-
-function resolvePersonalSkillsDir(options: CreateAgentHostConfigOptions): string {
-  return join(resolveKrossHome(options), 'skills');
 }
 
 function resolveKrossHome(options: CreateAgentHostConfigOptions): string {

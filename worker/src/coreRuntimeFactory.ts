@@ -59,8 +59,7 @@ export async function createPersistentAgentHost(input: {
     config: { homeDir: input.workspaceRoot, krossHome },
     runtimeOptions: {
       ...(input.activeSkill ? { activeSkill: input.activeSkill } : {}),
-      memoryContextSources: input.memoryContextSources,
-      personalSkillsDir: join(input.workspaceRoot, 'skills')
+      memoryContextSources: input.memoryContextSources
     }
   });
   const runtime = host.createRuntime();

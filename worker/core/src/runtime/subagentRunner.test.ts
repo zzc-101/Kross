@@ -74,6 +74,13 @@ describe('runSubagent', () => {
           workspaceRoot: workspace,
           llmClient: llm,
           traceStore,
+          activeSkill: {
+            id: 'meeting-notes',
+            name: 'Meeting Notes',
+            description: 'Create structured meeting notes',
+            content: 'Always include decisions and owners.',
+            revision: 3
+          },
           maxToolIterations: 5
         }
       );
@@ -91,6 +98,8 @@ describe('runSubagent', () => {
       expect(system?.content).toContain(
         renderPrompt('subagent.execution.mode.explore')
       );
+      expect(system?.content).toContain('meeting-notes, revision 3');
+      expect(system?.content).toContain('Always include decisions and owners.');
       expect(llm.requests[0]?.tools?.map((tool) => tool.name)).not.toContain(
         'Write'
       );

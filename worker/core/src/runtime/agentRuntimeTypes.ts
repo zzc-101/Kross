@@ -12,7 +12,6 @@ import type {
   SubagentRunOutcome,
   SubagentRunRequest
 } from './subagentRunner';
-import type { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationCoordinator } from '../mutations/mutationService';
 import type { ProcessManager } from '../process/processManager';
 import type { SaasActiveSkill } from './saasRuntimePolicy';
@@ -49,10 +48,6 @@ export interface AgentRuntimeOptions {
   subagentDepth?: number;
   /** Session todo list shared with TodoWrite/TodoRead tools. */
   todoStore?: TodoStore;
-  /** Shared dynamic Skill registry. Runtime creates a fallback when omitted. */
-  skillRegistry?: SkillRegistry;
-  /** Personal Skill directory used by the fallback registry. */
-  personalSkillsDir?: string;
   /** Workspace-aware mutation journal and undo coordinator. */
   mutationCoordinator?: MutationCoordinator;
   /** Main-session background process owner. Handles are never persisted. */

@@ -9,8 +9,6 @@ import {
   type ProjectInstructionsSnapshot
 } from '../workspace/projectInstructions';
 import type { TodoStore } from '../todo/todoStore';
-import { SkillRegistry } from '../skills/skillRegistry';
-import type { SkillsSnapshot } from '../skills/skillDiscovery';
 import type { AgentRuntimeOptions } from './agentRuntimeTypes';
 import {
   cloneSessionWorkState,
@@ -29,19 +27,9 @@ export interface SessionServicesOptions {
 export class SessionServices {
   private projectInstructionSourceIds = new Set<string>();
   private projectInstructions = loadProjectInstructions({ roots: [] });
-  private skillIds = new Set<string>();
-  private readonly skillRegistry: SkillRegistry;
-  private skills: SkillsSnapshot;
   private restoringWorkState = false;
 
   constructor(private readonly deps: SessionServicesOptions) {
-    this.skillRegistry =
-      deps.options.skillRegistry ??
-      new SkillRegistry({
-        getRoots: () => this.getInstructionRoots(),
-        personalSkillsDir: deps.options.personalSkillsDir
-      });
-    this.skills = this.skillRegistry.getSnapshot();
     deps.options.todoStore?.onChange(() => {
       this.syncTodoContextSource();
       if (!this.restoringWorkState) {
@@ -162,37 +150,6 @@ export class SessionServices {
 
   getProjectInstructions(): ProjectInstructionsSnapshot {
     return this.projectInstructions;
-  }
-
-  refreshSkills(): SkillsSnapshot {
-    const next = this.skillRegistry.refresh();
-    if (next.signature === this.skills.signature) {
-      return this.skills;
-    }
-    for (const id of this.skillIds) {
-      this.deps.sessionContext.removeSkill(id);
-    }
-    this.skillIds.clear();
-    for (const skill of next.skills) {
-      this.deps.sessionContext.registerSkill({
-        id: skill.descriptorId,
-        name: skill.name,
-        description: skill.description,
-        location: [
-          `id=${skill.id}`,
-          `scope=${skill.scope}`,
-          `rootId=${skill.rootId}`,
-          `path=${skill.entryPath}`
-        ].join(' ')
-      });
-      this.skillIds.add(skill.descriptorId);
-    }
-    this.skills = next;
-    return next;
-  }
-
-  getSkills(): SkillsSnapshot {
-    return this.skills;
   }
 
   exportWorkState(): SessionWorkStateV1 {

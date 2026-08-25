@@ -29,7 +29,6 @@ export interface ContextSource {
     | 'trace'
     | 'memory'
     | 'user'
-    | 'skill'
     | 'mcp'
     | 'compaction';
   title: string;
@@ -37,14 +36,6 @@ export interface ContextSource {
   priority?: number;
   /** 固定注入，不因预算被静默 drop */
   pinned?: boolean;
-}
-
-export interface SkillMetadata {
-  id: string;
-  name: string;
-  description: string;
-  location: string;
-  body?: string;
 }
 
 export interface SessionContextOptions {
@@ -78,7 +69,6 @@ export type ContextSection =
   | 'thread'
   | 'history'
   | 'sources'
-  | 'skills'
   | 'tools';
 
 export type ContextContributorStatus = 'included' | 'dropped' | 'pruned' | 'elided';
@@ -119,7 +109,7 @@ export interface PrepareRequestResult extends ContextSnapshot {
 }
 
 /**
- * 会话上下文门面：Thread + Governor + sources/skills。
+ * 会话上下文门面：Thread + Governor + sources。
  * prepareRequest 触发治理；snapshot 纯读无副作用。
  */
 export class SessionContext {
@@ -132,7 +122,6 @@ export class SessionContext {
   private readonly compactionInstructions: string | undefined;
   private readonly isSubagent: boolean;
   private readonly sources = new Map<string, ContextSource>();
-  private readonly skills = new Map<string, SkillMetadata>();
   private lastMaintenance: ContextMaintenanceResult[] = [];
 
   constructor(options: SessionContextOptions = {}) {
@@ -258,14 +247,6 @@ export class SessionContext {
 
   removeSource(id: string): void {
     this.sources.delete(id);
-  }
-
-  registerSkill(skill: SkillMetadata): void {
-    this.skills.set(skill.id, skill);
-  }
-
-  removeSkill(id: string): void {
-    this.skills.delete(id);
   }
 
   clearSources(): void {
@@ -457,11 +438,9 @@ export class SessionContext {
     content: string;
     includedSources: string[];
     droppedSources: string[];
-    skillContributors: ContextContributor[];
     toolContributors: ContextContributor[];
     sourceContributors: ContextContributor[];
   } {
-    const skillBlock = renderSkills([...this.skills.values()], this.estimator);
     const toolBlock = renderTools(input.tools ?? []);
     const toolTokens = this.estimator.estimateText(toolBlock);
 
@@ -470,7 +449,6 @@ export class SessionContext {
       .reduce((sum, entry) => sum + entry.tokensEst, 0);
     const baseTokens =
       this.estimator.estimateText(input.systemPrompt) +
-      skillBlock.tokens +
       toolTokens +
       threadTokens;
 
@@ -487,7 +465,6 @@ export class SessionContext {
     const systemContent = [
       input.systemPrompt,
       toolBlock,
-      skillBlock.content,
       renderSources(selected.included)
     ]
       .filter((part) => part.trim().length > 0)
@@ -519,7 +496,6 @@ export class SessionContext {
       content: systemContent,
       includedSources: selected.included.map((source) => source.id),
       droppedSources: selected.dropped.map((source) => source.id),
-      skillContributors: skillBlock.contributors,
       toolContributors,
       sourceContributors
     };
@@ -529,7 +505,6 @@ export class SessionContext {
     systemContent: string;
     threadMessages: LlmMessage[];
     systemBlock: {
-      skillContributors: ContextContributor[];
       toolContributors: ContextContributor[];
       sourceContributors: ContextContributor[];
     };
@@ -569,7 +544,6 @@ export class SessionContext {
       },
       ...input.systemBlock.sourceContributors,
       ...input.systemBlock.toolContributors,
-      ...input.systemBlock.skillContributors,
       ...threadContributors.filter((item) => item.id !== 'thread')
     ];
 
@@ -578,7 +552,6 @@ export class SessionContext {
       thread: 0,
       history: 0,
       sources: 0,
-      skills: 0,
       tools: 0
     };
 
@@ -689,47 +662,6 @@ function renderTools(tools: ToolMetadata[]): string {
   }
   const lines = tools.map(renderTool);
   return ['Available tools:', ...lines].join('\n');
-}
-
-function renderSkills(
-  skills: SkillMetadata[],
-  estimator: TokenEstimator
-): {
-  content: string;
-  tokens: number;
-  contributors: ContextContributor[];
-} {
-  if (skills.length === 0) {
-    return { content: '', tokens: 0, contributors: [] };
-  }
-
-  const lines = skills.map(
-    (skill) =>
-      `- ${skill.name}: ${skill.description} (${skill.location})`
-  );
-  const content = [
-    'Available skills (metadata only; load body only when needed):',
-    ...lines
-  ].join('\n');
-  const contributors = skills.map((skill) => {
-    const injected = `${skill.name}: ${skill.description} (${skill.location})`;
-    const injectedTokens = estimator.estimateText(injected);
-    const rawTokens = estimator.estimateText(skill.body ?? injected);
-    return {
-      id: `skill:${skill.id}`,
-      section: 'skills' as const,
-      title: skill.name,
-      rawTokens,
-      injectedTokens,
-      status: 'included' as const
-    };
-  });
-
-  return {
-    content,
-    tokens: estimator.estimateText(content),
-    contributors
-  };
 }
 
 function renderSources(sources: ContextSource[]): string {

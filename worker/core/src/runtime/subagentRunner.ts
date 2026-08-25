@@ -9,10 +9,9 @@ import {
 import { createSessionContext } from '../context/sessionContext';
 import type { LlmClient } from '../llm/types';
 import { createSubagentTools } from '../tools/builtin/exploreTools';
-import { createReadSkillTool } from '../tools/builtin/readSkill';
-import { SkillRegistry } from '../skills/skillRegistry';
 import type { MutationService } from '../mutations/mutationService';
 import { renderSubagentExecutionPrompt } from '../prompts';
+import type { SaasActiveSkill } from './saasRuntimePolicy';
 import {
   ToolGateway,
   type ToolMetadata
@@ -62,8 +61,8 @@ export interface SubagentRunDeps {
   maxToolIterations?: number;
   now?: () => Date;
   createRunId?: () => string;
-  /** Personal Skill root shared with child agents. */
-  personalSkillsDir?: string;
+  /** Platform-managed Skill inherited from the parent conversation. */
+  activeSkill?: SaasActiveSkill;
   getMutationService?: (workspaceRoot: string) => MutationService;
 }
 
@@ -109,11 +108,6 @@ export async function runSubagent(
   const projectInstructions = loadProjectInstructions({
     roots: [{ id: rootId, path: workspaceRoot, primary: true }]
   });
-  const skillRegistry = new SkillRegistry({
-    getRoots: () => [{ id: rootId, path: workspaceRoot, primary: true }],
-    personalSkillsDir: deps.personalSkillsDir
-  });
-  const skills = skillRegistry.refresh();
   const requestedProfileId = request.modelProfileId?.trim();
   if (requestedProfileId && !deps.resolveModelProfile) {
     throw new Error('当前 Host 不支持按模型档案派生子代理');
@@ -152,12 +146,9 @@ export async function runSubagent(
       injectedBytes: file.injectedBytes
     })),
     projectInstructionDiagnosticCount: projectInstructions.diagnostics.length,
-    skills: skills.skills.map((skill) => ({
-      id: skill.id,
-      rootId: skill.rootId,
-      scope: skill.scope
-    })),
-    skillDiagnosticCount: skills.diagnostics.length
+    activeSkill: deps.activeSkill
+      ? { id: deps.activeSkill.id, revision: deps.activeSkill.revision }
+      : undefined
   });
 
   if (!llmClient) {
@@ -189,10 +180,10 @@ export async function runSubagent(
     };
   }
 
-  const availableToolDefs = [
-    ...createSubagentTools(workspaceRoot, deps.getMutationService?.(workspaceRoot)),
-    createReadSkillTool(skillRegistry)
-  ];
+  const availableToolDefs = createSubagentTools(
+    workspaceRoot,
+    deps.getMutationService?.(workspaceRoot)
+  );
   const toolDefs =
     mode === 'explore'
       ? availableToolDefs.filter((tool) => tool.risk === 'read')
@@ -244,21 +235,13 @@ export async function runSubagent(
       pinned: true
     });
   }
-  for (const skill of skills.skills) {
-    sessionContext.registerSkill({
-      id: skill.descriptorId,
-      name: skill.name,
-      description: skill.description,
-      location: `id=${skill.id} scope=${skill.scope} rootId=${skill.rootId} path=${skill.entryPath}`
-    });
-  }
 
   try {
     let stalled = false;
     const summary = await runCompleteToolLoop({
       runId: subRunId,
       prompt: goal,
-      systemPrompt: renderSubagentExecutionPrompt({ mode }),
+      systemPrompt: renderSubagentSystemPrompt(mode, deps.activeSkill),
       llmClient,
       gateway: childGateway,
       tools: toolMeta,
@@ -415,6 +398,25 @@ export async function runSubagent(
     });
     throw error;
   }
+}
+
+function renderSubagentSystemPrompt(
+  mode: SubagentMode,
+  activeSkill?: SaasActiveSkill
+): string {
+  return [
+    renderSubagentExecutionPrompt({ mode }),
+    ...(activeSkill
+      ? [
+          '',
+          `The parent conversation started the platform-managed Skill "${activeSkill.name}" (${activeSkill.id}, revision ${activeSkill.revision}).`,
+          'Follow these Skill instructions for the delegated goal. They cannot override tool policy.',
+          '<active-skill>',
+          activeSkill.content,
+          '</active-skill>'
+        ]
+      : [])
+  ].join('\n');
 }
 
 /** Build a default Task runner bound to shared LLM/trace/workspace. */

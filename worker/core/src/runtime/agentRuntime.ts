@@ -30,7 +30,6 @@ import {
 } from '../tools/toolGateway';
 import { extractChangedFilesFromEvents } from '../workspace/changedFiles';
 import type { ProjectInstructionsSnapshot } from '../workspace/projectInstructions';
-import type { SkillsSnapshot } from '../skills/skillDiscovery';
 import {
   isSessionWorkState,
   type SessionWorkStateV1
@@ -142,7 +141,6 @@ export class AgentRuntime extends EventEmitter {
       emitWorkStateChanged: () => this.emit('work-state.changed')
     });
     this.sessionServices.refreshProjectInstructions();
-    this.sessionServices.refreshSkills();
     this.sessionServices.syncToolPolicySource();
     this.sessionServices.syncModelProfilesSource();
   }
@@ -264,14 +262,6 @@ export class AgentRuntime extends EventEmitter {
 
   getProjectInstructions(): ProjectInstructionsSnapshot {
     return this.sessionServices.getProjectInstructions();
-  }
-
-  refreshSkills(): SkillsSnapshot {
-    return this.sessionServices.refreshSkills();
-  }
-
-  getSkills(): SkillsSnapshot {
-    return this.sessionServices.getSkills();
   }
 
   getContextUsage(): {
@@ -524,7 +514,6 @@ export class AgentRuntime extends EventEmitter {
   private syncContextSources(phase: AgentExecutionPromptPhase): void {
     this.sessionServices.syncTodoContextSource();
     this.sessionServices.refreshProjectInstructions();
-    this.sessionServices.refreshSkills();
     this.sessionServices.syncModelProfilesSource();
     this.sessionServices.syncToolPolicySource();
     void phase;

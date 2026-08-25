@@ -33,8 +33,7 @@ describe('SaaS tools integration', () => {
       (name) =>
         name !== 'Task' &&
         name !== 'TodoWrite' &&
-        name !== 'TodoRead' &&
-        name !== 'ReadSkill'
+        name !== 'TodoRead'
     );
     expect(names.sort()).toEqual(coreOnly.sort());
     expect(names).not.toEqual(

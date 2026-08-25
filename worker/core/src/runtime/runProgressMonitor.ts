@@ -19,8 +19,7 @@ const READ_ONLY_TOOLS = new Set([
   'Glob',
   'Grep',
   'Stat',
-  'TodoRead',
-  'ReadSkill'
+  'TodoRead'
 ]);
 
 /**

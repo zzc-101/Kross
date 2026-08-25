@@ -7,13 +7,11 @@ import { createListTool } from './list';
 import { createRgTool } from './rg';
 import { createMoveTool } from './move';
 import { createReadTool } from './read';
-import { createReadSkillTool } from './readSkill';
 import { createStatTool } from './stat';
 import { createTaskTool, type CreateTaskToolOptions } from './task';
 import { createTodoReadTool, createTodoWriteTool } from './todo';
 import { createWriteTool } from './write';
 import type { TodoStore } from '../../todo/todoStore';
-import type { SkillRegistry } from '../../skills/skillRegistry';
 import type {
   MutationCoordinator,
   MutationService
@@ -24,13 +22,11 @@ export { createRgTool, buildRgArgs, resolveRgBinary } from './rg';
 export { createTaskTool, type CreateTaskToolOptions } from './task';
 export { createDefaultSubagentRunner } from '../../runtime/subagentRunner';
 export { createTodoReadTool, createTodoWriteTool } from './todo';
-export { createReadSkillTool } from './readSkill';
 export { createApplyPatchTool } from './applyPatch';
 export { createProcessTools } from './processTools';
 
 export const saasToolNames = [
   'Read',
-  'ReadSkill',
   'Write',
   'Edit',
   'Delete',
@@ -52,8 +48,6 @@ export interface CreateSaasToolsOptions {
   runSubagent?: CreateTaskToolOptions['run'];
   /** Session todo store; when set, registers TodoWrite + TodoRead. */
   todoStore?: TodoStore;
-  /** Dynamic personal/project Skill registry; when set, registers ReadSkill. */
-  skillRegistry?: SkillRegistry;
   /** Durable pre/post image journal for all file mutation tools. */
   mutationService?: MutationService;
   /** Optional coordinator for additional explicitly authorized workspaces. */
@@ -110,10 +104,6 @@ export function createSaasTools(
       createTodoWriteTool(options.todoStore),
       createTodoReadTool(options.todoStore)
     );
-  }
-
-  if (options.skillRegistry) {
-    tools.push(createReadSkillTool(options.skillRegistry));
   }
 
   return tools;
