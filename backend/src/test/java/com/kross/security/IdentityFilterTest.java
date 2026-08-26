@@ -7,9 +7,7 @@ import static org.mockito.Mockito.when;
 import com.kross.config.KrossProperties;
 import com.kross.identity.AuthService;
 import com.kross.identity.Identity;
-import com.kross.identity.IdentityMapper;
-import com.kross.identity.entity.User;
-import java.util.Optional;
+import com.kross.identity.IdentityDirectory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.env.Environment;
@@ -26,10 +24,11 @@ class IdentityFilterTest {
 
   @Test
   void refreshesPlatformRoleFromDatabaseOnEveryRequest() throws Exception {
-    IdentityMapper identities = mock(IdentityMapper.class);
-    User current = user("user-1", "super_admin", "active");
-    when(identities.findUserById("user-1")).thenReturn(Optional.of(current));
-    IdentityFilter filter = filter(identities);
+    IdentityDirectory directory = mock(IdentityDirectory.class);
+    IdentityDirectory.CachedUser current =
+        new IdentityDirectory.CachedUser("user-1", "alice", "Alice", "super_admin", "active");
+    when(directory.findUser("user-1")).thenReturn(current);
+    IdentityFilter filter = filter(directory);
     MockHttpServletRequest request = requestWithIdentity(
         new Identity("user-1", "alice", "Alice", "user"));
 
@@ -43,9 +42,10 @@ class IdentityFilterTest {
 
   @Test
   void invalidatesSessionWhenAccountIsDisabled() throws Exception {
-    IdentityMapper identities = mock(IdentityMapper.class);
-    when(identities.findUserById("user-1")).thenReturn(Optional.of(user("user-1", "user", "disabled")));
-    IdentityFilter filter = filter(identities);
+    IdentityDirectory directory = mock(IdentityDirectory.class);
+    when(directory.findUser("user-1"))
+        .thenReturn(new IdentityDirectory.CachedUser("user-1", "alice", "Alice", "user", "disabled"));
+    IdentityFilter filter = filter(directory);
     MockHttpServletRequest request = requestWithIdentity(
         new Identity("user-1", "alice", "Alice", "user"));
 
@@ -57,8 +57,7 @@ class IdentityFilterTest {
 
   @Test
   void doesNotTrustSecurityContextWithoutKrossIdentitySession() throws Exception {
-    IdentityMapper identities = mock(IdentityMapper.class);
-    IdentityFilter filter = filter(identities);
+    IdentityFilter filter = filter(mock(IdentityDirectory.class));
     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v2/me");
     SecurityContextHolder.getContext().setAuthentication(
         new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
@@ -69,11 +68,11 @@ class IdentityFilterTest {
     assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
   }
 
-  private static IdentityFilter filter(IdentityMapper identities) {
+  private static IdentityFilter filter(IdentityDirectory directory) {
     return new IdentityFilter(
         new KrossProperties(),
         mock(AuthService.class),
-        identities,
+        directory,
         mock(Environment.class));
   }
 
@@ -81,15 +80,5 @@ class IdentityFilterTest {
     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v2/me");
     AuthSessions.establish(request, identity);
     return request;
-  }
-
-  private static User user(String id, String role, String status) {
-    User user = new User();
-    user.setId(id);
-    user.setUsername("alice");
-    user.setDisplayName("Alice");
-    user.setPlatformRole(role);
-    user.setStatus(status);
-    return user;
   }
 }

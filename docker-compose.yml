@@ -36,6 +36,18 @@ services:
         aliases: [minio]
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    # 纯缓存用途：关闭持久化，Redis 丢失后由控制面回源 PostgreSQL 重建
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [kross-control]
+    restart: unless-stopped
+
   worker-image:
     image: kross-worker:local
     build:
@@ -73,6 +85,9 @@ services:
       KROSS_S3_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-minio-1
       KROSS_S3_ENDPOINT: http://minio:9000
       KROSS_S3_PUBLIC_ENDPOINT: ${KROSS_S3_PUBLIC_ENDPOINT:-http://127.0.0.1:9000}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      KROSS_CACHE_ENABLED: ${KROSS_CACHE_ENABLED:-true}
       KROSS_S3_BUCKET: ${KROSS_S3_BUCKET:-kross}
       KROSS_S3_ACCESS_KEY: ${KROSS_S3_ACCESS_KEY:-kross}
       KROSS_S3_SECRET_KEY: ${KROSS_S3_SECRET_KEY:?请设置 KROSS_S3_SECRET_KEY}
@@ -85,6 +100,8 @@ services:
       postgres:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       worker-image:
         condition: service_completed_successfully

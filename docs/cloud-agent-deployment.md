@@ -11,6 +11,7 @@
 | `server` | Java 控制面：账号 / SSO、平台模型、对话、Agent 生命周期 |
 | `postgres` | 控制面权威数据（用户、组织、对话 `parts`、Agent 运行时状态） |
 | `minio` | 对象存储：产物 bucket 默认 `kross`；集群 JuiceFS 底仓建议另用 `kross-jfs` |
+| `redis` | 控制面热点读缓存（可选）：关闭持久化，故障时自动回源 PostgreSQL |
 | `worker` | 按人拉起的持久容器，在 `/work` 跑 Agent Runtime |
 | `kross-node` | 仅集群：各 Worker 机上的 Go 进程，出站连控制面并在本机 Docker 起容器 |
 
@@ -115,6 +116,8 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 | `KROSS_CONTROL_PLANE_URL` | 仅 `kross-node`：控制面可达地址。同 Compose 默认 `http://kross-server:8787`；额外机器用 `http://10.0.0.10:8788` |
 | `KROSS_NODE_ID` | 仅 `kross-node`：节点稳定 ID，必须与控制面令牌表中的键一致 |
 | `KROSS_S3_*` | MinIO / S3：产物与（可选）JuiceFS 底仓 |
+| `KROSS_CACHE_ENABLED` | 控制面 Redis 缓存开关，默认开启；设为 `false` 直连 PostgreSQL |
+| `SPRING_DATA_REDIS_*` | 控制面连接 Redis 的地址 / 端口 / 密码（Compose 内默认 `redis:6379`） |
 | `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | 开发期注入 Worker 默认模型；生产请由超级管理员在管理中心登记平台模型 |
 
 生产环境不要把 Provider 密钥写入 Run 事件、审计、容器标签或 URL。平台模型密钥

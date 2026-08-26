@@ -25,6 +25,8 @@ flowchart TB
 
 依赖方向保持单向：Web 不引用 Core，Core 不依赖 Java 或 UI。
 
+控制面使用 Redis 缓存热点读（每请求的身份校验、组织/成员鉴权、Worker token 认证、模型与 Skill 目录），Redis 故障时自动回源 PostgreSQL，TTL 即集群下的一致性边界。详见[配置参考](configuration.md#缓存层)。
+
 ## 唯一 Runtime
 
 每个会话使用同一套自动工作闭环。Runtime 根据用户目标直接回答或调用工具，不读取用户选择的运行模式。用户要求“先给方案”只是普通语言约束，不生成特殊模式状态。

@@ -53,6 +53,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -256,6 +257,7 @@ public class AdminService {
   }
 
   @Transactional
+  @CacheEvict(cacheNames = {"models", "modelList"}, allEntries = true)
   public ModelProfileView createModel(CreateModelRequest request) {
     auth.requireSuperAdmin();
     String userId = access.currentIdentity().userId();
@@ -295,6 +297,7 @@ public class AdminService {
   }
 
   @Transactional
+  @CacheEvict(cacheNames = {"models", "modelList"}, allEntries = true)
   public ModelProfileView updateModel(String modelId, UpdateModelRequest request) {
     auth.requireSuperAdmin();
     ModelProfile row = catalog.findModel(modelId)
@@ -339,6 +342,7 @@ public class AdminService {
   }
 
   @Transactional
+  @CacheEvict(cacheNames = {"models", "modelList"}, allEntries = true)
   public void deleteModel(String modelId) {
     auth.requireSuperAdmin();
     ModelProfile row = catalog.findModel(modelId)

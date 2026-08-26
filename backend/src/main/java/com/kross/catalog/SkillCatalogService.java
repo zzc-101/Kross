@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +35,7 @@ public class SkillCatalogService {
   private final ObjectMapper mapper;
   private final SkillPackageArtifactService artifacts;
   private final ObjectStorage storage;
+  private final SkillDirectory directory;
 
   public List<PlatformSkillView> listPlatformSkills() {
     auth.requireSuperAdmin();
@@ -41,6 +43,7 @@ public class SkillCatalogService {
   }
 
   @Transactional
+  @CacheEvict(cacheNames = {"orgSkills", "orgSkill"}, allEntries = true)
   public PlatformSkillView createPlatformSkill(CreateSkillRequest request, MultipartFile file) {
     auth.requireSuperAdmin();
     String id = requireId(request.id());
@@ -68,6 +71,7 @@ public class SkillCatalogService {
   }
 
   @Transactional
+  @CacheEvict(cacheNames = {"orgSkills", "orgSkill"}, allEntries = true)
   public PlatformSkillView updatePlatformSkill(String skillId, UpdateSkillRequest request) {
     auth.requireSuperAdmin();
     PlatformSkill row = requireSkill(skillId);
@@ -92,6 +96,7 @@ public class SkillCatalogService {
   }
 
   @Transactional
+  @CacheEvict(cacheNames = {"orgSkills", "orgSkill"}, allEntries = true)
   public void deletePlatformSkill(String skillId) {
     auth.requireSuperAdmin();
     PlatformSkill skill = requireSkill(skillId);
@@ -118,6 +123,7 @@ public class SkillCatalogService {
   }
 
   @Transactional
+  @CacheEvict(cacheNames = {"orgSkills", "orgSkill"}, allEntries = true)
   public PlatformSkillView publishVersion(String skillId, long version) {
     auth.requireSuperAdmin();
     PlatformSkill skill = requireSkill(skillId);
@@ -153,6 +159,7 @@ public class SkillCatalogService {
   }
 
   @Transactional
+  @CacheEvict(cacheNames = {"orgSkills", "orgSkill"}, allEntries = true)
   public OrganizationSkillView install(String organizationId, String skillId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.SKILL_MANAGE);
     PlatformSkill skill = requireSkill(skillId);
@@ -170,6 +177,7 @@ public class SkillCatalogService {
   }
 
   @Transactional
+  @CacheEvict(cacheNames = {"orgSkills", "orgSkill"}, allEntries = true)
   public void uninstall(String organizationId, String skillId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.SKILL_MANAGE);
     if (catalog.uninstallOrganizationSkill(context.organizationId(), requireId(skillId)) == 0) {
@@ -182,11 +190,11 @@ public class SkillCatalogService {
 
   public List<PlatformSkill> listInstalledSkills(String organizationId) {
     access.require(organizationId, OrganizationAction.AGENT_READ);
-    return catalog.listInstalledSkills(organizationId);
+    return directory.installedSkills(organizationId);
   }
 
   public Optional<PlatformSkill> findInstalledSkill(String organizationId, String skillId) {
-    return catalog.findInstalledSkill(organizationId, requireId(skillId));
+    return Optional.ofNullable(directory.installedSkill(organizationId, requireId(skillId)));
   }
 
   private PlatformSkillVersion insertVersion(

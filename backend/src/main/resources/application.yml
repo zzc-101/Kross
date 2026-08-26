@@ -34,6 +34,13 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:127.0.0.1}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      connect-timeout: 500ms
+      timeout: 500ms
 
 mybatis:
   configuration:
@@ -62,6 +69,8 @@ logging:
 
 kross:
   dev-identity-enabled: ${KROSS_DEV_IDENTITY:false}
+  cache:
+    enabled: ${KROSS_CACHE_ENABLED:true}
   public-base-url: ${KROSS_PUBLIC_BASE_URL:http://127.0.0.1:8787}
   external-base-url: ${KROSS_EXTERNAL_BASE_URL:http://127.0.0.1:8787}
   credential-master-key: ${KROSS_CREDENTIAL_MASTER_KEY:}

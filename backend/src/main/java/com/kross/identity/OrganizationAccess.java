@@ -11,7 +11,7 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class OrganizationAccess {
-  private final IdentityMapper identities;
+  private final IdentityDirectory directory;
 
   public Identity currentIdentity() {
     return findCurrentIdentity()
@@ -28,14 +28,15 @@ public class OrganizationAccess {
   public OrganizationContext require(String organizationId, OrganizationAction action) {
     Identity identity = currentIdentity();
     String parsed = Ids.requireResourceId(organizationId, "Invalid Organization identifier");
-    identities.findOrganization(parsed)
-        .filter(organization -> "active".equals(organization.getStatus()))
-        .orElseThrow(() -> new ApiException("organization_unavailable", "Organization is not active", 403));
-    var membership = identities
-        .findActiveMembership(parsed, identity.userId())
-        .orElseThrow(() -> new ApiException("organization_access_denied", "Organization access denied", 403));
-    MembershipRole role = MembershipRole.fromWire(membership.getRole());
+    if (!"active".equals(directory.activeOrganizationStatus(parsed))) {
+      throw new ApiException("organization_unavailable", "Organization is not active", 403);
+    }
+    IdentityDirectory.MembershipGrant grant = directory.activeMembership(parsed, identity.userId());
+    if (grant == null) {
+      throw new ApiException("organization_access_denied", "Organization access denied", 403);
+    }
+    MembershipRole role = MembershipRole.fromWire(grant.role());
     Rbac.assertCanPerform(role, action);
-    return new OrganizationContext(parsed, identity.userId(), membership.getId(), role);
+    return new OrganizationContext(parsed, identity.userId(), grant.membershipId(), role);
   }
 }

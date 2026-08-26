@@ -66,3 +66,25 @@ Worker 不扫描 `/work` 或用户目录中的本地 Skill，也不提供本地 
 | Skill ZIP 和其他对象产物 | MinIO / S3 |
 | 成员文件与工作产物 | `/work`（volume 或 JuiceFS） |
 | Runtime checkpoint、mutation journal、受管工具运行配置 | Worker 的受管目录 |
+| 热点读缓存（身份/鉴权/目录） | Redis（可选） |
+
+## 缓存层
+
+控制面对高频、慢变的读路径使用 Redis 缓存（`spring-boot-starter-cache` + Redis），业务代码统一走 Spring Cache 抽象：
+
+| Cache | 内容 | TTL | 失效方式 |
+|---|---|---|---|
+| `users` | 用户基础信息（不含密码哈希等敏感列） | 60s | TTL 到期回源 |
+| `organizations` | 组织 active 状态 | 60s | TTL 到期回源 |
+| `memberships` | (组织, 用户) 的有效成员角色 | 60s | TTL 到期回源 |
+| `agentSessions` | Worker token 认证结果（key 为 SHA-256 哈希，原始 token 不入缓存） | 30s | TTL 到期回源 |
+| `models` / `modelList` | 可用模型目录（不含凭据密文） | 5min | 管理端增删改时逐出 |
+| `orgSkills` / `orgSkill` | 组织已安装 Skill 列表与详情 | 5min | 安装/卸载/发布时逐出 |
+
+行为约定：
+
+- **容错降级**：Redis 不可用时自动回源 PostgreSQL，请求不失败；恢复后自动重新启用。缓存是加速器，不是依赖项。
+- **一致性边界**：TTL 即集群下的收敛上界——封禁用户、改角色、撤销 Worker token 最迟一个 TTL 生效（60s / 30s）。模型和 Skill 目录在管理端写路径主动逐出，跨节点即时生效。
+- **安全边界**：密码哈希与凭据密文永不入缓存；Worker token 以哈希为 key。
+- **开关**：`KROSS_CACHE_ENABLED=false` 完全关闭缓存层（直连 PostgreSQL）。单机部署默认开启；集群部署建议保持开启。
+- 连接配置：`SPRING_DATA_REDIS_HOST` / `SPRING_DATA_REDIS_PORT` / `SPRING_DATA_REDIS_PASSWORD`；Compose 部署中 Redis 仅在内网 `kross-control` 网络内暴露，关闭持久化（纯缓存用途，重启后由控制面回源重建）。

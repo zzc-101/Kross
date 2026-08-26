@@ -88,12 +88,14 @@ public class AgentService {
   private final PlatformTransactionManager transactionManager;
   private final AgentMemoryService memories;
   private final SkillCatalogService skills;
+  private final AgentTokenDirectory tokenSessions;
+  private final ModelCatalog models;
   private final ReentrantLock[] runtimeLocks = createLocks(RUNTIME_LOCK_STRIPES);
 
   public List<AgentModelView> listModels(String organizationId) {
     access.require(organizationId, OrganizationAction.AGENT_READ);
-    return agents.listUsableModels().stream()
-        .map(AgentViews::model)
+    return models.listUsable().stream()
+        .map(ModelCatalog.UsableModel::toView)
         .toList();
   }
 
@@ -118,13 +120,13 @@ public class AgentService {
         .orElse(null);
     String title = Optional.ofNullable(request.title()).map(String::trim).filter(value -> !value.isEmpty())
         .orElseGet(() -> skill == null ? DEFAULT_TITLE : skill.getName());
-    AgentModel model = Optional.ofNullable(request.modelId())
+    String modelId = Optional.ofNullable(request.modelId())
         .map(String::trim)
         .filter(value -> !value.isEmpty())
-        .map(this::requireUsableModel)
+        .map(this::requireUsableModelId)
         .orElse(null);
     return AgentViews.conversation(insertConversation(context.organizationId(), agent, title,
-        skill == null ? null : skill.getId(), model == null ? null : model.getId()));
+        skill == null ? null : skill.getId(), modelId));
   }
 
   @Transactional
@@ -149,7 +151,7 @@ public class AgentService {
       if (trimmed.isEmpty()) {
         conversation.setModelId(null);
       } else {
-        conversation.setModelId(requireUsableModel(trimmed).getId());
+        conversation.setModelId(requireUsableModelId(trimmed));
       }
     });
     agents.updateConversation(conversation);
@@ -515,8 +517,8 @@ public class AgentService {
       String modelId = Optional.ofNullable(conversation)
           .map(AgentConversation::getModelId)
           .filter(value -> !value.isBlank())
-          .flatMap(agents::findUsableModelById)
-          .map(AgentModel::getId)
+          .map(models::findUsable)
+          .map(ModelCatalog.UsableModel::id)
           .orElse(null);
       AgentProtocol.ActiveSkill activeSkill = Optional.ofNullable(conversation)
           .map(AgentConversation::getSkillId)
@@ -811,17 +813,22 @@ public class AgentService {
     }
   }
 
-  private AgentModel requireUsableModel(String modelId) {
-    return agents.findUsableModelById(modelId)
+  private String requireUsableModelId(String modelId) {
+    return Optional.ofNullable(models.findUsable(modelId))
+        .map(ModelCatalog.UsableModel::id)
         .orElseThrow(() -> ApiException.invalidRequest("Model is not available"));
   }
 
   private AgentModel resolveUsableModel(Optional<String> modelId) {
-    return modelId
-        .map(String::trim)
-        .filter(value -> !value.isEmpty())
-        .map(this::requireUsableModel)
-        .or(agents::findUsableModel)
+    String requested = modelId.map(String::trim).filter(value -> !value.isEmpty()).orElse(null);
+    String resolved = requested != null && models.findUsable(requested) != null
+        ? requested
+        : models.defaultModelId().orElse(null);
+    if (resolved == null) {
+      throw ApiException.conflict(
+          "model_credential_unavailable", "No usable model credential is configured");
+    }
+    return agents.findUsableModelById(resolved)
         .orElseThrow(() -> ApiException.conflict(
             "model_credential_unavailable", "No usable model credential is configured"));
   }
@@ -974,9 +981,8 @@ public class AgentService {
 
   private AgentSession authenticate(String token) {
     String calculated = Tokens.sha256Hex(Optional.ofNullable(token).orElse(""));
-    AgentSession session = agents.authenticateToken(calculated)
-        .orElseThrow(() -> new ApiException("agent_unauthenticated", "Invalid or expired agent token", 401));
-    if (!Tokens.hashEquals(calculated, session.getTokenHash())) {
+    AgentSession session = tokenSessions.findSession(calculated);
+    if (session == null || !Tokens.hashEquals(calculated, session.getTokenHash())) {
       throw new ApiException("agent_unauthenticated", "Invalid or expired agent token", 401);
     }
     return session;

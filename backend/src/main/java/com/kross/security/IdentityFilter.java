@@ -5,7 +5,7 @@ import com.kross.config.KrossProperties;
 import com.kross.identity.AuthCredentials;
 import com.kross.identity.AuthService;
 import com.kross.identity.Identity;
-import com.kross.identity.IdentityMapper;
+import com.kross.identity.IdentityDirectory;
 import com.kross.support.Ids;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -25,17 +25,17 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class IdentityFilter extends OncePerRequestFilter {
   private final KrossProperties properties;
   private final AuthService auth;
-  private final IdentityMapper identities;
+  private final IdentityDirectory directory;
   private final Environment environment;
 
   public IdentityFilter(
       KrossProperties properties,
       AuthService auth,
-      IdentityMapper identities,
+      IdentityDirectory directory,
       Environment environment) {
     this.properties = properties;
     this.auth = auth;
-    this.identities = identities;
+    this.directory = directory;
     this.environment = environment;
   }
 
@@ -61,18 +61,16 @@ public class IdentityFilter extends OncePerRequestFilter {
     if (stored.isEmpty()) {
       return Optional.empty();
     }
-    Optional<Identity> current = identities.findUserById(stored.get().userId())
-        .filter(user -> "active".equals(user.getStatus()))
-        .map(user -> new Identity(
-            user.getId(), user.getUsername(), user.getDisplayName(), user.getPlatformRole()));
-    if (current.isEmpty()) {
+    IdentityDirectory.CachedUser user = directory.findUser(stored.get().userId());
+    if (user == null || !"active".equals(user.status())) {
       AuthSessions.clear(request);
       return Optional.empty();
     }
-    if (!current.get().equals(stored.get())) {
-      AuthSessions.refresh(request, current.get());
+    Identity current = new Identity(user.id(), user.username(), user.displayName(), user.platformRole());
+    if (!current.equals(stored.get())) {
+      AuthSessions.refresh(request, current);
     }
-    return current;
+    return Optional.of(current);
   }
 
   private Optional<Identity> developmentIdentity(HttpServletRequest request) {

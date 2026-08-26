@@ -104,7 +104,7 @@ wait_for_web() {
     sleep 1
   done
   echo "Web 入口未能在 60 秒内就绪，最近日志如下：" >&2
-  docker compose logs --tail 100 web server minio postgres >&2
+  docker compose logs --tail 100 web server minio postgres redis >&2
   return 1
 }
 
@@ -140,14 +140,14 @@ case "$command" in
     require_docker
     ensure_env
     cd "$PROJECT_DIR"
-    docker compose logs -f web server minio postgres
+    docker compose logs -f web server minio postgres redis
     ;;
   --migrate | --migrate-apply)
     require_docker
     ensure_env
     validate_single_node_env
     cd "$PROJECT_DIR"
-    docker compose up -d postgres minio
+    docker compose up -d postgres minio redis
     docker compose up -d --force-recreate --no-deps server
     echo "控制面已启动，Flyway 会在进程启动时执行迁移。"
     ;;
