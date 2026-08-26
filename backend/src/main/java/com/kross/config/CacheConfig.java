@@ -54,21 +54,22 @@ public class CacheConfig {
   @Bean
   @ConditionalOnProperty(prefix = "kross.cache", name = "enabled", havingValue = "true", matchIfMissing = true)
   public CacheManager redisCacheManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
-    Map<String, RedisCacheConfiguration> caches = new LinkedHashMap<>();
-    caches.put(USERS, cache(objectMapper, IdentityDirectory.CachedUser.class, IDENTITY_TTL));
-    caches.put(ORGANIZATIONS, cache(objectMapper, String.class, IDENTITY_TTL));
-    caches.put(MEMBERSHIPS, cache(objectMapper, IdentityDirectory.MembershipGrant.class, IDENTITY_TTL));
-    caches.put(AGENT_SESSIONS, cache(objectMapper, AgentSession.class, AGENT_SESSION_TTL));
-    caches.put(MODELS, cache(objectMapper, ModelCatalog.UsableModel.class, CATALOG_TTL));
-    caches.put(MODEL_LIST, cache(objectMapper, listOf(objectMapper, ModelCatalog.UsableModel.class), CATALOG_TTL));
-    caches.put(ORG_SKILLS, cache(objectMapper, listOf(objectMapper, PlatformSkill.class), CATALOG_TTL));
-    caches.put(ORG_SKILL, cache(objectMapper, PlatformSkill.class, CATALOG_TTL));
-
-    RedisCacheConfiguration defaults = RedisCacheConfiguration.defaultCacheConfig()
+    RedisCacheConfiguration base = RedisCacheConfiguration.defaultCacheConfig()
         .computePrefixWith(name -> "kross:cache:" + name + ":")
         .disableCachingNullValues();
+
+    Map<String, RedisCacheConfiguration> caches = new LinkedHashMap<>();
+    caches.put(USERS, cache(base, objectMapper, IdentityDirectory.CachedUser.class, IDENTITY_TTL));
+    caches.put(ORGANIZATIONS, cache(base, objectMapper, String.class, IDENTITY_TTL));
+    caches.put(MEMBERSHIPS, cache(base, objectMapper, IdentityDirectory.MembershipGrant.class, IDENTITY_TTL));
+    caches.put(AGENT_SESSIONS, cache(base, objectMapper, AgentSession.class, AGENT_SESSION_TTL));
+    caches.put(MODELS, cache(base, objectMapper, ModelCatalog.UsableModel.class, CATALOG_TTL));
+    caches.put(MODEL_LIST, cache(base, objectMapper, listOf(objectMapper, ModelCatalog.UsableModel.class), CATALOG_TTL));
+    caches.put(ORG_SKILLS, cache(base, objectMapper, listOf(objectMapper, PlatformSkill.class), CATALOG_TTL));
+    caches.put(ORG_SKILL, cache(base, objectMapper, PlatformSkill.class, CATALOG_TTL));
+
     RedisCacheManager redis = RedisCacheManager.builder(connectionFactory)
-        .cacheDefaults(defaults)
+        .cacheDefaults(base)
         .withInitialCacheConfigurations(caches)
         .transactionAware()
         .build();
@@ -81,20 +82,22 @@ public class CacheConfig {
     return new NoOpCacheManager();
   }
 
-  private RedisCacheConfiguration cache(ObjectMapper objectMapper, Class<?> viewType, Duration ttl) {
-    return serializer(new Jackson2JsonRedisSerializer<>(objectMapper, viewType), ttl);
+  private RedisCacheConfiguration cache(
+      RedisCacheConfiguration base, ObjectMapper objectMapper, Class<?> viewType, Duration ttl) {
+    return serializer(base, new Jackson2JsonRedisSerializer<>(objectMapper, viewType), ttl);
   }
 
-  private RedisCacheConfiguration cache(ObjectMapper objectMapper, JavaType type, Duration ttl) {
-    return serializer(new Jackson2JsonRedisSerializer<>(objectMapper, type), ttl);
+  private RedisCacheConfiguration cache(
+      RedisCacheConfiguration base, ObjectMapper objectMapper, JavaType type, Duration ttl) {
+    return serializer(base, new Jackson2JsonRedisSerializer<>(objectMapper, type), ttl);
   }
 
   private JavaType listOf(ObjectMapper objectMapper, Class<?> elementType) {
     return objectMapper.getTypeFactory().constructCollectionType(List.class, elementType);
   }
 
-  private RedisCacheConfiguration serializer(Jackson2JsonRedisSerializer<?> serializer, Duration ttl) {
-    return RedisCacheConfiguration.defaultCacheConfig()
+  private RedisCacheConfiguration serializer(RedisCacheConfiguration base, Jackson2JsonRedisSerializer<?> serializer, Duration ttl) {
+    return base
         .entryTtl(ttl)
         .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(serializer));
   }

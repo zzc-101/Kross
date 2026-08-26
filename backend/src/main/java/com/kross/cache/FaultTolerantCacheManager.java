@@ -5,6 +5,8 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 
@@ -12,15 +14,34 @@ import org.springframework.cache.CacheManager;
  * Wraps the Redis cache manager so that a Redis outage degrades to direct
  * database reads instead of failing requests. The cache is an accelerator:
  * callers must never depend on its availability.
+ *
+ * <p>Bean lifecycle callbacks are delegated to the wrapped manager; without
+ * this, {@code afterPropertiesSet} never reaches RedisCacheManager, which
+ * then skips pre-creating configured caches and serves every cache from the
+ * default configuration (JDK serialization, no TTL).
  */
 @Slf4j
-public class FaultTolerantCacheManager implements CacheManager {
+public class FaultTolerantCacheManager implements CacheManager, InitializingBean, DisposableBean {
 
   private final CacheManager target;
   private final Set<String> degraded = ConcurrentHashMap.newKeySet();
 
   public FaultTolerantCacheManager(CacheManager target) {
     this.target = target;
+  }
+
+  @Override
+  public void afterPropertiesSet() throws Exception {
+    if (target instanceof InitializingBean initializing) {
+      initializing.afterPropertiesSet();
+    }
+  }
+
+  @Override
+  public void destroy() throws Exception {
+    if (target instanceof DisposableBean disposable) {
+      disposable.destroy();
+    }
   }
 
   @Override
