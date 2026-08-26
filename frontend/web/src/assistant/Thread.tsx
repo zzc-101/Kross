@@ -8,14 +8,12 @@ import {
   ErrorPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
-  unstable_useComposerInput,
-  useAuiState
+  unstable_useComposerInput
 } from '@assistant-ui/react';
 import {
   ArrowDown,
   ArrowUp,
   BarChart3,
-  BrainCircuit,
   Check,
   ChevronDown,
   Copy,
@@ -30,7 +28,7 @@ import {
 } from 'lucide-react';
 
 import { messagePartComponents } from './MessageParts';
-import { AgentApiClient, ApiError } from '../api/client';
+import { AgentApiClient } from '../api/client';
 import type { AgentModel, Skill } from '../api/types';
 import { AgentContextUsageContext } from './AgentRuntimeProvider';
 import { ContextUsageRing } from './ContextUsageRing';
@@ -79,7 +77,7 @@ export function Thread({
         <ThreadPrimitive.If empty={false}>
           <div className="message-list">
             <ThreadPrimitive.Messages components={{
-              Message: () => <ConversationMessage api={api} conversationId={conversationId} />
+              Message: () => <ConversationMessage />
             }} />
             <ThreadPrimitive.If running>
               <AssistantLoading />
@@ -275,22 +273,13 @@ function Footer() {
   );
 }
 
-function ConversationMessage({
-  api,
-  conversationId
-}: {
-  api: AgentApiClient;
-  conversationId?: string;
-}) {
+function ConversationMessage() {
   return (
     <MessagePrimitive.Root className="bubble">
       <MessagePrimitive.If user>
         <div className="bubble-row user">
           <div className="bubble-body"><MessagePrimitive.Content components={messagePartComponents} /></div>
-          <div className="message-actions-wrap">
-            <RememberButton api={api} conversationId={conversationId} />
-            <MessageActions />
-          </div>
+          <MessageActions />
         </div>
       </MessagePrimitive.If>
       <MessagePrimitive.If assistant>
@@ -314,40 +303,6 @@ function MessageActions() {
         <AuiIf condition={(state) => !state.message.isCopied}><Copy /></AuiIf>
       </ActionBarPrimitive.Copy>
     </ActionBarPrimitive.Root>
-  );
-}
-
-function RememberButton({
-  api,
-  conversationId
-}: {
-  api: AgentApiClient;
-  conversationId?: string;
-}) {
-  const messageId = useAuiState((state) => state.message.id);
-  const [state, setState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
-  const [error, setError] = useState('');
-  if (!conversationId || !messageId) return null;
-  return (
-    <button
-      type="button"
-      className="message-action"
-      aria-label="记住这条"
-      title={state === 'done' ? '已记住' : error || '写入永久记忆'}
-      disabled={state === 'saving'}
-      onClick={() => {
-        setState('saving');
-        setError('');
-        void api.rememberMemory({ conversationId, messageId }).then(() => {
-          setState('done');
-        }).catch((cause) => {
-          setState('error');
-          setError(cause instanceof ApiError ? cause.message : '记住失败');
-        });
-      }}
-    >
-      {state === 'done' ? <Check /> : <BrainCircuit />}
-    </button>
   );
 }
 
