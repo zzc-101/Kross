@@ -2,23 +2,31 @@
 
 [English](README.md) | **简体中文**
 
-[![CI](https://github.com/zzc-101/Kross/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross/actions/workflows/ci.yml)
+[![CI](https://github.com/zzc-101/Kross-Work/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross-Work/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Kross 是面向组织的可自托管 SaaS Work Agent。每位成员拥有长期、隔离的工作区，Agent 可以整理资料、创建工作产物、记住长期偏好、使用平台版本化 Skill，并在需要时调用受管外部工具。
+Kross 是组织可自托管的**云端电脑 Agent**。
 
-Kross 是 Web 产品，不发布或兼容终端 UI、本地 CLI、编程 Agent 运行模式、仓库管理和用户可选权限档位。
+每位成员有一台远程电脑：长期工作区、独立 Worker、自己的文件和记忆。成员用浏览器描述要完成的工作，Agent 在远端整理资料、写出产物。合上笔记本，任务还在跑。它不操作用户自己的电脑。
 
-## 产品模型
+和 ChatGPT Work、Grok Bot、Cursor Cloud Agent 同一类，区别是电脑跑在你自己的 Docker 或 k3s 上，组织治理开箱即有，不必再买一层企业版。
 
-- 每位成员一个长期工作区和独立 Docker Worker。
-- 只有自动工作闭环；用户描述目标，不选择运行模式。
-- 模型档案和版本化 Skill 由平台管理。
-- 对话持久化在 PostgreSQL，文件和产物持久化在 `/work`。
-- 个人偏好与事实同步到 `USER.md` 和 `MEMORY.md`。
-- 工作区文件操作不反复打断用户；访问或修改外部系统前明确确认。
-- 任务结果统一为产物、证据和未完成项。
-- 浏览器通过 HTTP 发消息、SSE 接收直播；Worker 只在控制面后保持 WebSocket。
+## 适合谁
+
+- 团队要把 Agent 放进自己的基础设施，而不是把工作区交给模型厂商。
+- 需要多组织、角色、企业登录和按人隔离，而不是一台共享电脑给所有人用。
+- 要的是摘要、方案、表格、纪要这类工作产物，不是改仓库、提 PR。
+
+Kross 是 Web 产品。不提供终端 UI、本地 CLI，也不是编程 Agent。
+
+## 开箱即有
+
+- **一人一机**：每位成员独立 Worker 和持久 `/work`，不是共享磁盘上的会话。
+- **多租户与角色**：平台超级管理员、组织管理员、普通成员；数据按组织切开。
+- **企业登录**：控制面验证 OIDC IdP；模型密钥和 SSO 密钥加密存放。
+- **平台管模型与 Skill**：成员不填 API Key、不选运行模式、不配权限档位。
+- **外部才确认**：工作区读写自动进行；访问或修改外部系统前明确确认。
+- **两种部署**：单机 Docker Compose；集群用 k3s Helm，Worker 是独立 Pod。
 
 ## 快速开始
 
@@ -28,7 +36,10 @@ Kross 是 Web 产品，不发布或兼容终端 UI、本地 CLI、编程 Agent �
 ./scripts/start-cloud.sh
 ```
 
-工作台位于 `http://localhost:8787`，管理中心位于 `http://localhost:8787/admin/`。第一个注册账号会成为平台超级管理员。先配置可用模型、创建组织并为成员开通权限，再开始正常工作。
+- 工作台：`http://localhost:8787`
+- 管理中心：`http://localhost:8787/admin/`
+
+第一个注册账号成为平台超级管理员。先启用模型、创建组织、邀请成员，再开始工作。
 
 ```bash
 ./scripts/start-cloud.sh --no-build
@@ -36,7 +47,13 @@ Kross 是 Web 产品，不发布或兼容终端 UI、本地 CLI、编程 Agent �
 ./scripts/start-cloud.sh --stop
 ```
 
-公网部署必须在 Web 入口前配置 TLS。只有负责启动 Worker 的控制面组件可以访问 Docker Socket。细节见[部署与运维](docs/cloud-agent-deployment.md)。
+公网部署必须在 Web 入口前配置 TLS。单机只有控制面可以访问 Docker Socket；集群由控制面调 Kubernetes API 起 Pod，不挂 Docker Socket。细节见[部署与运维](docs/cloud-agent-deployment.md)。
+
+集群安装：
+
+```bash
+helm upgrade --install kross deploy/cluster -n kross --create-namespace
+```
 
 ## 使用方式
 
@@ -46,9 +63,11 @@ Kross 是 Web 产品，不发布或兼容终端 UI、本地 CLI、编程 Agent �
 读取工作区里的客户反馈，提炼主要问题，并生成一份下一步行动文档。
 ```
 
-工作台提供对话、已安装 Skill、个人记忆、文件与产物。模型由平台选择。只有受管工具将访问或修改外部系统时，工作台才显示确认面板。
+工作台提供对话、已安装 Skill、个人记忆、文件与产物。结果以产物、证据和未完成项表达。只有受管工具将访问或修改外部系统时，才会出现确认面板。
 
 ## 架构
+
+浏览器只连控制面。控制面负责身份、组织、对话、模型凭证、Skill 版本、直播和 Worker 生命周期；每位成员的 Worker 负责 Agent 闭环和 `/work`。
 
 ```mermaid
 flowchart TB
@@ -57,14 +76,16 @@ flowchart TB
     WEB --> CP["Java 控制面"]
     ADMIN --> CP
     CP --> DB["PostgreSQL / 对象存储"]
-    CP --> W["每成员 Worker"]
+    CP --> W["每成员远程 Worker"]
     W --> R["SaaS Work Runtime"]
     R --> FS["/work 文件与产物"]
     R --> LLM["平台模型"]
     R --> EXT["受管外部工具"]
 ```
 
-浏览器不直连 Worker。控制面负责身份、组织、对话、模型凭证、Skill 版本、直播和 Worker 生命周期；Worker 负责 Agent 闭环和成员工作区。
+- 对话在 PostgreSQL，文件在 `/work`（单机 volume，集群 JuiceFS）。
+- 偏好与事实写入 `USER.md` 和 `MEMORY.md`。
+- 浏览器 HTTP 发消息、SSE 收直播；Worker 只在控制面后保持 WebSocket。
 
 ## 目录
 

@@ -2,23 +2,31 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-[![CI](https://github.com/zzc-101/Kross/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross/actions/workflows/ci.yml)
+[![CI](https://github.com/zzc-101/Kross-Work/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross-Work/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Kross is a self-hosted SaaS Work Agent for organizations. Each member gets a persistent, isolated workspace where an Agent can organize files, create work products, remember durable preferences, use platform-managed Skills, and call managed external tools when needed.
+Kross is a self-hosted **cloud computer agent** for organizations.
 
-Kross is a Web product. It does not ship or preserve a terminal UI, local CLI, coding-agent modes, repository management, or user-selectable permission profiles.
+Each member gets a remote computer: a long-lived workspace, an isolated Worker, and their own files and memory. Members describe the work in a browser. The agent organizes material and writes artifacts on that remote machine. Closing a laptop does not stop the job. Kross does not operate the user's personal computer.
 
-## Product model
+It sits in the same category as ChatGPT Work, Grok Bot, and Cursor Cloud Agent. The difference is that the computer runs on your Docker host or k3s cluster, and organization controls ship in the product instead of a paid enterprise tier.
 
-- One long-lived workspace and Docker Worker per member.
-- One automatic work loop; users describe outcomes instead of choosing execution modes.
-- Platform-managed model profiles and versioned Skills.
-- Durable conversations in PostgreSQL and durable files under `/work`.
-- Personal memory synchronized into `USER.md` and `MEMORY.md`.
-- Workspace file operations run without repeated prompts; external services require a clear confirmation.
-- Task results are expressed as artifacts, evidence, and incomplete items.
-- HTTP input, SSE streaming to the browser, and a Worker WebSocket behind the control plane.
+## Who it is for
+
+- Teams that want the agent on their own infrastructure, not a vendor-held workspace.
+- Organizations that need multiple tenants, roles, enterprise login, and per-person isolation rather than one shared machine.
+- Knowledge work that produces briefs, plans, tables, and notes — not repository edits and pull requests.
+
+Kross is a Web product. It does not ship a terminal UI, a local CLI, or a coding-agent mode.
+
+## Included
+
+- **One computer per member**: an independent Worker and durable `/work`, not a session on a shared disk.
+- **Tenants and roles**: platform super admin, organization admin, and members, with data scoped by organization.
+- **Enterprise login**: the control plane verifies an OIDC identity provider; model and SSO secrets are encrypted at rest.
+- **Platform-managed models and Skills**: members do not paste API keys, pick execution modes, or choose permission profiles.
+- **Confirm only the outside world**: workspace reads and writes run without prompts; access to external systems requires a clear confirmation.
+- **Two deployments**: Docker Compose on one host, or k3s with Helm, where each Worker is its own Pod.
 
 ## Quick start
 
@@ -28,7 +36,10 @@ Requirements: Docker Engine and Docker Compose v2.
 ./scripts/start-cloud.sh
 ```
 
-Open the workbench at `http://localhost:8787` and administration at `http://localhost:8787/admin/`. The first registered account becomes the platform super administrator. Configure an enabled model, create an organization, and onboard members before starting normal work.
+- Workbench: `http://localhost:8787`
+- Administration: `http://localhost:8787/admin/`
+
+The first registered account becomes the platform super administrator. Enable a model, create an organization, and onboard members before normal work.
 
 ```bash
 ./scripts/start-cloud.sh --no-build
@@ -36,7 +47,13 @@ Open the workbench at `http://localhost:8787` and administration at `http://loca
 ./scripts/start-cloud.sh --stop
 ```
 
-Public deployments need TLS in front of the Web entry. Only the control-plane component responsible for starting Workers may access the Docker Socket. See [deployment and operations](docs/cloud-agent-deployment.md).
+Public deployments need TLS in front of the Web entry. On a single host, only the control plane may access the Docker Socket. In a cluster, the control plane starts Worker Pods through the Kubernetes API and does not mount the Docker Socket. See [deployment and operations](docs/cloud-agent-deployment.md).
+
+Cluster install:
+
+```bash
+helm upgrade --install kross deploy/cluster -n kross --create-namespace
+```
 
 ## Using Kross
 
@@ -46,9 +63,11 @@ Describe the desired result directly:
 Read the files in my workspace, summarize the customer feedback, and create an action-plan document.
 ```
 
-The workbench provides conversations, installed Skills, personal memory, and generated files. The platform chooses the model. A confirmation appears only before a managed tool accesses or modifies an external system.
+The workbench provides conversations, installed Skills, personal memory, and generated files. Results are artifacts, evidence, and incomplete items. A confirmation appears only before a managed tool accesses or modifies an external system.
 
 ## Architecture
+
+The browser talks only to the control plane. The control plane owns identity, organizations, conversations, model credentials, Skill versions, streaming, and Worker lifecycle. Each member's Worker owns the agent loop and `/work`.
 
 ```mermaid
 flowchart TB
@@ -57,14 +76,16 @@ flowchart TB
     WEB --> CP["Java control plane"]
     ADMIN --> CP
     CP --> DB["PostgreSQL / object storage"]
-    CP --> W["Per-member Worker"]
+    CP --> W["Per-member remote Worker"]
     W --> R["SaaS Work Runtime"]
     R --> FS["/work files and artifacts"]
     R --> LLM["Platform model"]
     R --> EXT["Managed external tools"]
 ```
 
-The browser never connects directly to a Worker. The control plane owns identity, organizations, conversations, model credentials, Skill versions, streaming, and Worker lifecycle. The Worker owns the Agent loop and member workspace.
+- Conversations live in PostgreSQL; files live under `/work` (a local volume, or JuiceFS in a cluster).
+- Preferences and facts sync into `USER.md` and `MEMORY.md`.
+- The browser sends HTTP and receives SSE. The Worker keeps a WebSocket only behind the control plane.
 
 ## Repository layout
 
@@ -72,7 +93,7 @@ The browser never connects directly to a Worker. The control plane owns identity
 - `frontend/admin-web`: platform and organization administration.
 - `backend`: Spring Boot control plane.
 - `worker`: Node.js container runtime; Agent Core is under `worker/core`.
-- `deploy/local`: Docker Compose and images for single-host.
+- `deploy/local`: Docker Compose and images for a single host.
 - `deploy/cluster`: Helm chart for k3s.
 - `docs`: operations, architecture, protocol, and security guides.
 
