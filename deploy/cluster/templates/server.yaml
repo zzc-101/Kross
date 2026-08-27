@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: server
+  namespace: {{ include "kross.namespace" . }}
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  ports:
+    - name: http
+      port: 8787
+      targetPort: 8787
+  selector:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: {{ include "kross.namespace" . }}
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "kross.labels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+    spec:
+      serviceAccountName: kross-server
+      automountServiceAccountToken: true
+      {{- with .Values.server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ .Values.images.server }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - name: PORT
+              value: "8787"
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres:5432/kross
+            - name: SPRING_DATASOURCE_USERNAME
+              value: kross
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: postgres-password
+            - name: KROSS_CREDENTIAL_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: credential-master-key
+            - name: KROSS_PUBLIC_BASE_URL
+              value: {{ .Values.kross.publicBaseUrl | quote }}
+            - name: KROSS_EXTERNAL_BASE_URL
+              value: {{ .Values.kross.externalBaseUrl | quote }}
+            - name: KROSS_WORKER_IMAGE
+              value: {{ .Values.images.worker | quote }}
+            - name: KROSS_WORKER_RUNTIME
+              value: {{ .Values.kross.workerRuntime | quote }}
+            - name: KROSS_WORKER_STORAGE
+              value: {{ .Values.kross.workerStorage | quote }}
+            - name: KROSS_KUBERNETES_NAMESPACE
+              value: {{ include "kross.namespace" . | quote }}
+            - name: KROSS_KUBERNETES_STORAGE_CLASS
+              value: {{ .Values.kross.storageClass | quote }}
+            - name: KROSS_KUBERNETES_WORKSPACE_SIZE
+              value: {{ .Values.kross.workspaceSize | quote }}
+            - name: KROSS_CACHE_ENABLED
+              value: {{ .Values.kross.cacheEnabled | quote }}
+            - name: SPRING_DATA_REDIS_HOST
+              value: redis
+            - name: SPRING_DATA_REDIS_PORT
+              value: "6379"
+            - name: KROSS_S3_ENDPOINT
+              value: http://minio:9000
+            - name: KROSS_S3_PUBLIC_ENDPOINT
+              value: {{ .Values.kross.externalBaseUrl | quote }}
+            - name: KROSS_S3_BUCKET
+              value: kross
+            - name: KROSS_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: s3-access-key
+            - name: KROSS_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: s3-secret-key
+            - name: KROSS_DEV_IDENTITY
+              value: "0"
+          ports:
+            - containerPort: 8787
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8787
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8787
+            initialDelaySeconds: 40
+            periodSeconds: 20

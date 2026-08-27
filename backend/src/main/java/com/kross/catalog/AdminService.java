@@ -21,8 +21,6 @@ import com.kross.catalog.entity.CredentialHandle;
 import com.kross.catalog.entity.ModelProfile;
 import com.kross.catalog.entity.TokenUsageTotals;
 import com.kross.channel.AgentSocketHub;
-import com.kross.fleet.WorkerNode;
-import com.kross.fleet.WorkerNodeMapper;
 import com.kross.identity.AuthService;
 import com.kross.identity.IdentityMapper;
 import com.kross.identity.MembershipRole;
@@ -45,6 +43,7 @@ import com.kross.identity.dto.UsageView;
 import com.kross.identity.entity.Member;
 import com.kross.identity.entity.OrganizationInvite;
 import com.kross.identity.entity.User;
+import com.kross.orchestrator.KubernetesNodeDirectory;
 import com.kross.support.Ids;
 import com.kross.support.Tokens;
 import java.time.Duration;
@@ -53,6 +52,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -69,7 +69,7 @@ public class AdminService {
   private final CredentialVault vault;
   private final ObjectMapper mapper;
   private final AgentSocketHub sockets;
-  private final WorkerNodeMapper nodes;
+  private final ObjectProvider<KubernetesNodeDirectory> kubernetesNodes;
 
   public DashboardResponse dashboard(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AUDIT_READ);
@@ -77,10 +77,9 @@ public class AdminService {
     List<AgentRuntimeView> runtimes = agents.listRuntimes(context.organizationId()).stream()
         .map(row -> toRuntimeView(row))
         .toList();
-    Instant onlineSince = Instant.now().minus(Duration.ofMinutes(2));
-    List<NodeHealthView> nodeViews = nodes.listAll().stream()
-        .map(node -> toNodeView(node, onlineSince))
-        .toList();
+    List<NodeHealthView> nodeViews = Optional.ofNullable(kubernetesNodes.getIfAvailable())
+        .map(KubernetesNodeDirectory::listHealth)
+        .orElseGet(List::of);
     return new DashboardResponse(
         IdentityViews.counts(identities.dashboardCounts(context.organizationId())),
         new UsageView(
@@ -134,19 +133,6 @@ public class AdminService {
         row.getLastError(),
         row.getLastActiveAt(),
         sockets.isConnected(row.getId()));
-  }
-
-  private static NodeHealthView toNodeView(WorkerNode node, Instant onlineSince) {
-    boolean connected = "online".equals(node.getStatus())
-        && Optional.ofNullable(node.getLastSeenAt()).filter(seen -> !seen.isBefore(onlineSince)).isPresent();
-    return new NodeHealthView(
-        node.getId(),
-        node.getHostname(),
-        node.getStatus(),
-        node.getRunningAgents(),
-        node.isJuicefsOk(),
-        node.getLastSeenAt(),
-        connected);
   }
 
   public List<InviteView> listInvites(String organizationId) {

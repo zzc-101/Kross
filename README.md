@@ -57,9 +57,7 @@ flowchart TB
     WEB --> CP["Java control plane"]
     ADMIN --> CP
     CP --> DB["PostgreSQL / object storage"]
-    CP --> W["Per-member Docker Worker"]
-    CP -. cluster .-> N["kross-node"]
-    N -. starts .-> W
+    CP --> W["Per-member Worker"]
     W --> R["SaaS Work Runtime"]
     R --> FS["/work files and artifacts"]
     R --> LLM["Platform model"]
@@ -74,18 +72,18 @@ The browser never connects directly to a Worker. The control plane owns identity
 - `frontend/admin-web`: platform and organization administration.
 - `backend`: Spring Boot control plane.
 - `worker`: Node.js container runtime; Agent Core is under `worker/core`.
-- `node`: optional multi-host Worker launcher.
+- `deploy/local`: Docker Compose and images for single-host.
+- `deploy/cluster`: Helm chart for k3s.
 - `docs`: operations, architecture, protocol, and security guides.
 
 ## Development
 
-Source-development baselines are Node.js `>= 22.19.0`, Java 21, pnpm `10.14`, and Go 1.25.
+Source-development baselines are Node.js `>= 22.19.0`, Java 21, and pnpm `10.14`.
 
 ```bash
 cd frontend && pnpm typecheck && pnpm test && pnpm build
 cd worker && pnpm typecheck && pnpm test && pnpm build
 cd backend && ./mvnw test
-cd node && go test ./...
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
 ```

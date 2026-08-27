@@ -45,12 +45,12 @@ docker compose version
 
 确认 Skill 版本已发布且安装到当前组织。会话使用启动时版本；发布新版本不会静默改变已有会话。Kross 不扫描工作区中的本地 Skill。
 
-## 集群节点不上线
+## 集群 Worker 起不来
 
-- `KROSS_NODE_TOKEN` 必须与 `KROSS_NODE_ID` 绑定。
-- 节点应连接控制面内部地址，不要连接公网 Web 入口。
-- JuiceFS 必须在所有 Worker 节点挂载一致。
-- 内部端口只向节点网络开放，公网 Nginx 对 `/internal/` 返回 404 是预期行为。
+- `KROSS_WORKER_RUNTIME` 必须是 `kubernetes`，且 `KROSS_WORKER_STORAGE=juicefs`。
+- 控制面需要本命名空间的 Pod/PVC 权限；旧 Pod 未消失时唤醒会 fencing 超时。
+- JuiceFS CSI Driver 与 StorageClass `kross-juicefs` 必须已安装。
+- Ingress 对 `/internal/` 不可达是预期行为；Worker 应连 Service `server:8787`。
 
 ## 上下文遗忘
 

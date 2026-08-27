@@ -1,0 +1,15 @@
+1. Install JuiceFS CSI Driver if it is not already present:
+
+   helm repo add juicefs https://juicedata.github.io/charts/
+   helm upgrade --install juicefs-csi-driver juicefs/juicefs-csi-driver -n kube-system
+
+2. Import or push images so every k3s node can pull:
+   {{ .Values.images.server }}, {{ .Values.images.web }}, {{ .Values.images.worker }}
+
+   k3s ctr images import kross-server.tar
+   k3s ctr images import kross-web.tar
+   k3s ctr images import kross-worker.tar
+
+3. Change default secrets in values before any real deployment.
+
+4. Browse through Ingress to the web service. /internal/ is ClusterIP-only via Service server.

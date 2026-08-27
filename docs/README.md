@@ -8,7 +8,7 @@
 |---|---|
 | 安装并完成第一个任务 | [快速上手](getting-started.md) |
 | 配置身份、模型、Worker 与存储 | [配置参考](configuration.md) |
-| 部署单机或多机环境 | [部署与运维](cloud-agent-deployment.md) |
+| 部署单机或多机环境 | [部署与运维](cloud-agent-deployment.md)、[k3s 选型](deployment-k3s-decision.md) |
 | 理解身份、文件和外部工具边界 | [安全模型](security.md) |
 | 排查登录、直播、Worker 和文件问题 | [故障排查](troubleshooting.md) |
 | 查看支持环境 | [支持范围](support.md) |

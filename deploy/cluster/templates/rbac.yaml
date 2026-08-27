@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kross-server
+  namespace: {{ include "kross.namespace" . }}
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kross-server
+  namespace: {{ include "kross.namespace" . }}
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kross-server
+  namespace: {{ include "kross.namespace" . }}
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kross-server
+subjects:
+  - kind: ServiceAccount
+    name: kross-server
+    namespace: {{ include "kross.namespace" . }}
+{{- if .Values.rbac.listNodes }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-kross-server-nodes
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-kross-server-nodes
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-kross-server-nodes
+subjects:
+  - kind: ServiceAccount
+    name: kross-server
+    namespace: {{ include "kross.namespace" . }}
+{{- end }}

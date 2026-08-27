@@ -19,6 +19,7 @@
 ### Removed
 
 - 终端 UI、本地 CLI、斜杠命令和旧客户端门面。
+- 自研 `kross-node`、节点 WebSocket 与 Compose 集群叠加文件。
 - 多运行模式及其计划确认、编排和兼容状态。
 - 三档权限模式与组织级审批策略配置。
 - 项目注册表、多工作区根和仓库路由字段。
@@ -29,11 +30,13 @@
 
 - 每成员长期 Docker Worker 与持久 `/work` 工作区。
 - PostgreSQL 对话、SSE 直播、Worker WebSocket 和任务租约恢复。
-- 平台模型档案、版本化 Skill 包、个人记忆、OIDC SSO 和多机 Worker 调度。
-- 单机 volume 与集群 JuiceFS 工作区存储。
+- 平台模型档案、版本化 Skill 包、个人记忆、OIDC SSO。
+- 单机 Docker volume 与集群 JuiceFS CSI 工作区。
+- k3s Helm 安装：控制面用 Kubernetes API 调度 Worker Pod。
 
 ### Migration notes
 
 - 普通用户客户端必须停止调用 `/api/v2/agent/model`、`/models`、`/mcp` 和 `/workspace/git*`。
 - 不再读取工作区中的本地 Skill 或编程项目规则；需要稳定行为时由管理员发布版本化 Skill。
 - 后端数据库迁移由 Flyway 自动执行；升级前仍应备份 PostgreSQL、对象存储和 `/work`。
+- `KROSS_WORKER_RUNTIME=cluster` 与 `kross-node` 已移除，多机改为 k3s Helm（`kubernetes` + JuiceFS CSI）。`worker_nodes` 表在 V25 删除。

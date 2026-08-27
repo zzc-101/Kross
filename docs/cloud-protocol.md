@@ -36,8 +36,4 @@ SSE 发送通用 channel event。直播文本、思考和工具状态只做即�
 
 租约失效时 Worker 必须取消当前生成。最终消息重发复用同一 `deliveryId`。只有在线且持有有效租约的 Worker 可以接收确认结果。
 
-## 集群节点
-
-节点通道：`/internal/v2/nodes/ws?nodeId=<KROSS_NODE_ID>`。令牌必须与节点 ID 绑定。节点上报 hello/heartbeat，控制面下发 start/stop/inspect。该端口只对内部网络开放，不经过公网 Nginx。
-
 破坏性协议变化必须提升协议版本、同步 Worker 与控制面，并写入 `CHANGELOG.md`。

@@ -36,7 +36,7 @@ public class SecurityConfig {
             .accessDeniedHandler((request, response, error) -> writeError(response, 403, "Access denied")))
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/health").permitAll()
-            .requestMatchers("/internal/v2/agents/**", "/internal/v2/nodes/**").permitAll()
+            .requestMatchers("/internal/v2/agents/**").permitAll()
             .requestMatchers(HttpMethod.GET, api + "/auth/config").permitAll()
             .requestMatchers(HttpMethod.GET, api + "/auth/sso/start", api + "/auth/sso/callback").permitAll()
             .requestMatchers(HttpMethod.GET, api + "/auth/invites/*").permitAll()

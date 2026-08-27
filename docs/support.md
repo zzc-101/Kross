@@ -15,7 +15,7 @@
 
 | 环境 | 运行时 | 支持级别 |
 |---|---|---|
-| Ubuntu 最新 GitHub Runner | Node.js 22.19.0、24.x；Java 21；Go 1.25 | 持续集成验证 |
+| Ubuntu 最新 GitHub Runner | Node.js 22.19.0、24.x；Java 21 | 持续集成验证 |
 | macOS 最新 GitHub Runner | Node.js 22.19.0 | 持续集成验证（frontend / worker） |
 | Windows 最新 GitHub Runner | Node.js 22.19.0 | 持续集成验证（frontend / worker） |
 | 其他 Linux、macOS、Windows 版本 | Node.js `>= 22.19.0` | 社区支持 |
@@ -23,12 +23,12 @@
 `frontend/package.json` 与 `worker/package.json` 的 `engines.node` 和仓库
 `.nvmrc` 共同定义最低 Node.js 版本。两套 pnpm lockfile 是依赖安装的权威来源，
 贡献者应分别在 `frontend/` 和 `worker/` 使用 `pnpm install --frozen-lockfile`
-验证干净安装。控制面用 Maven（JDK 21），`node/` 用 Go 1.25 与提交的 `go.sum`。
+验证干净安装。控制面用 Maven（JDK 21）。
 
 ## Cloud Agent
 
 生产目标是 Linux Docker Engine 与 Docker Compose v2。CI 会在 Ubuntu Runner 上
-解析 Compose 配置，构建 Web、控制面、Worker、`kross-node` 镜像，并做容器 smoke
+解析 Compose 配置，构建 Web、控制面、Worker 镜像，并做容器 smoke
 （进程健康、控制面鉴权 API 与 Nginx 反向代理）。
 
 Docker Desktop on macOS/Windows 适合本地开发和自托管试用，属于社区支持范围。
@@ -36,7 +36,7 @@ Docker Desktop on macOS/Windows 适合本地开发和自托管试用，属于社
 和 Safari；浏览器、移动端、弱网与公网反向代理应按
 [Cloud Agent 部署与运维](cloud-agent-deployment.md) 在实际环境复验。
 
-单机 Compose 把 Docker Socket 挂到控制面；集群应只给 `kross-node`。Socket 权限
+单机 Compose 把 Docker Socket 挂到控制面。集群控制面使用 Kubernetes API，不挂 Socket。Socket 权限
 近似宿主机 root。支持范围不等于生产安全承诺；公网部署前必须遵循
 [安全模型](security.md)和[Cloud Agent 部署与运维](cloud-agent-deployment.md)。
 

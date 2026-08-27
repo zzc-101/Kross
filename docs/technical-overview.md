@@ -9,8 +9,6 @@ flowchart TB
     WEB["frontend/web"] --> BACKEND["backend"]
     ADMIN["frontend/admin-web"] --> BACKEND
     BACKEND --> WORKER["worker"]
-    BACKEND -. cluster .-> NODE["node"]
-    NODE --> WORKER
     WORKER --> CORE["worker/core"]
 ```
 
@@ -18,10 +16,11 @@ flowchart TB
 |---|---|
 | `frontend/web` | 对话、Skill、记忆、文件与产物 |
 | `frontend/admin-web` | 平台模型、组织、成员、Skill 包和基础设施管理 |
-| `backend` | 身份、数据、SSE、Worker 租约与容器生命周期 |
-| `node` | 多机部署时在目标节点启动 Worker |
+| `backend` | 身份、数据、SSE、Worker 租约与容器 / Pod 生命周期 |
 | `worker` | 成员容器中的控制面协议适配与会话宿主 |
 | `worker/core` | SaaS Runtime、上下文、工具、子任务与恢复 |
+| `deploy/local` | 单机 Compose 与容器镜像 |
+| `deploy/cluster` | k3s Helm chart（控制面单副本 + JuiceFS CSI 工作区） |
 
 依赖方向保持单向：Web 不引用 Core，Core 不依赖 Java 或 UI。
 
@@ -82,7 +81,7 @@ sequenceDiagram
     W-->>C: final message snapshot
 ```
 
-对话与最终 `parts` 在 PostgreSQL；Token delta 只做内存扇出。工作区文件位于 `/work`。单机使用 Docker volume，多机可使用 JuiceFS。
+对话与最终 `parts` 在 PostgreSQL；Token delta 只做内存扇出。工作区文件位于 `/work`。单机使用 Docker volume，多机使用 JuiceFS CSI。
 
 ## 当前边界
 

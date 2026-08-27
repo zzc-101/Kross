@@ -12,7 +12,7 @@ COPY frontend/admin-web admin-web
 RUN pnpm --filter web build && pnpm --filter admin-web build
 
 FROM nginx:1.27-alpine AS runtime
-COPY docker/web.nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/local/docker/web.nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/web/dist /usr/share/nginx/html
 COPY --from=build /app/admin-web/dist /usr/share/nginx/html/admin
 EXPOSE 8787

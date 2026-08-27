@@ -1,6 +1,8 @@
 package com.kross.orchestrator;
 
 import com.kross.config.KrossProperties;
+import java.util.Locale;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
@@ -13,15 +15,21 @@ public class WorkerStorageValidator implements ApplicationListener<ApplicationRe
 
   @Override
   public void onApplicationEvent(ApplicationReadyEvent event) {
-    if ("cluster".equalsIgnoreCase(properties.getWorkerRuntime())) {
+    String runtime = Optional.ofNullable(properties.getWorkerRuntime()).orElse("local").toLowerCase(Locale.ROOT);
+    if ("cluster".equals(runtime)) {
+      throw new IllegalStateException(
+          "KROSS_WORKER_RUNTIME=cluster has been removed; use kubernetes with a k3s Helm install");
+    }
+    if ("kubernetes".equals(runtime)) {
       if (WorkerStorageMode.from(properties.getWorkerStorage()) != WorkerStorageMode.JUICEFS) {
-        throw new IllegalStateException("KROSS_WORKER_RUNTIME=cluster requires KROSS_WORKER_STORAGE=juicefs");
+        throw new IllegalStateException("KROSS_WORKER_RUNTIME=kubernetes requires KROSS_WORKER_STORAGE=juicefs");
       }
-      if (!properties.hasNodeTokens()) {
-        throw new IllegalStateException(
-            "KROSS_WORKER_RUNTIME=cluster requires KROSS_NODE_TOKEN bound to KROSS_NODE_ID, or KROSS_NODE_TOKENS");
-      }
+      properties.getKubernetes().requireNamespace();
       return;
+    }
+    if (!"local".equals(runtime)) {
+      throw new IllegalStateException(
+          "Unknown KROSS_WORKER_RUNTIME=" + properties.getWorkerRuntime() + "; expected local or kubernetes");
     }
     WorkerStorageMode.from(properties.getWorkerStorage()).validate(properties);
   }

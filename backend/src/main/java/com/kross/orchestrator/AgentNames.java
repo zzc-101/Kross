@@ -15,6 +15,10 @@ public final class AgentNames {
     return "kross-agent-vol-" + digest(agentId);
   }
 
+  public static String workspaceClaim(String agentId) {
+    return "kross-work-" + digest(agentId);
+  }
+
   private static String digest(String agentId) {
     try {
       return HexFormat.of().formatHex(

@@ -15,7 +15,7 @@ WORKDIR /work
 RUN apk add --no-cache git openssh-client ripgrep su-exec ca-certificates \
   && rm -rf /var/cache/apk/*
 COPY --from=build /app/build/worker.mjs /app/dist/worker.mjs
-COPY docker/worker-entrypoint.sh /usr/local/bin/kross-worker-entrypoint
+COPY deploy/local/docker/worker-entrypoint.sh /usr/local/bin/kross-worker-entrypoint
 RUN chmod +x /usr/local/bin/kross-worker-entrypoint
 ENTRYPOINT ["/usr/local/bin/kross-worker-entrypoint"]
 CMD ["node", "/app/dist/worker.mjs"]

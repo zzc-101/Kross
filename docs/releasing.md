@@ -14,7 +14,7 @@ Kross 使用一个应用版本：
 
 - `frontend/package.json`、`frontend/web`、`frontend/admin-web`、`worker/package.json` 必须同版本，并各自提交 pnpm lockfile。
 - Worker 内 MCP 客户端的运行时兜底版本必须与应用版本一致。
-- Web、控制面、Worker、Node 镜像应使用同一应用标签。
+- Web、控制面、Worker 镜像应使用同一应用标签。
 - Protocol、checkpoint 和持久化 schema 有独立版本，不能因为应用版本变化而
   自动递增；只有格式发生不兼容变化时才升级并提供迁移策略。
 
@@ -48,7 +48,7 @@ Node.js 最低版本和 `CHANGELOG.md` 基本结构。
 cd frontend && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
 cd ../worker && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
 cd ../backend && ./mvnw -B -DskipTests compile
-cd ../node && go build -o /tmp/kross-node .
+helm template kross deploy/cluster --namespace kross >/dev/null
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
 pnpm --dir frontend audit --prod
@@ -75,8 +75,8 @@ git push origin v0.1.0
 输入一个已经存在的标签重新验证。Workflow 会：
 
 1. checkout 指定标签并验证 tag、package version 和 changelog；
-2. 分别在 frontend、worker、backend、node 跑检查；
-3. 使用应用版本和 12 位 commit SHA 分别标记 Web、Server、Worker、Node 本地镜像；
+2. 分别在 frontend、worker、backend 跑检查；
+3. 使用应用版本和 12 位 commit SHA 分别标记 Web、Server、Worker 本地镜像；
 4. 运行 Cloud 容器 smoke；
 5. 上传保留 14 天的候选 artifact，其中包含容器镜像元数据、
    `release-metadata.json` 和 `SHA256SUMS`。
@@ -89,7 +89,7 @@ git push origin v0.1.0
 
 ## 安装、升级与回滚验收
 
-Cloud 发布需要分别验证 Web、控制面、Worker（以及集群时的 `kross-node`）使用同一标签，执行
+Cloud 发布需要分别验证 Web、控制面、Worker 使用同一标签，执行
 [Cloud Agent 部署与运维](cloud-agent-deployment.md)，并保留上一版本镜像。
 数据卷不应随容器回滚自动删除。
 

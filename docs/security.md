@@ -45,8 +45,9 @@ Kross 通过平台身份、每成员 Docker Worker、单工作区路径边界和
 - 每位成员使用独立非 root Worker、独立工作区和资源限制。
 - Worker 丢弃多余 Linux capabilities，并启用 `no-new-privileges`、CPU、内存和 PID 限额。
 - Worker 仍可能访问外网；生产应按需要增加 egress 控制。
-- 单机控制面或集群 `kross-node` 需要 Docker Socket。该权限近似宿主机 root，必须与公网入口隔离。
-- 浏览器入口不代理 `/internal/` Worker 和节点通道。
+- 单机控制面需要 Docker Socket。该权限近似宿主机 root，必须与公网入口隔离。
+- 集群控制面使用 Kubernetes ServiceAccount 起 Worker Pod，不挂 Docker Socket。
+- 浏览器入口不代理 `/internal/` Worker 通道。
 
 ## Secrets 与日志
 

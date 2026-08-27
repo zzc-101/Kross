@@ -57,9 +57,7 @@ flowchart TB
     WEB --> CP["Java 控制面"]
     ADMIN --> CP
     CP --> DB["PostgreSQL / 对象存储"]
-    CP --> W["每成员 Docker Worker"]
-    CP -. 集群 .-> N["kross-node"]
-    N -. 启动 .-> W
+    CP --> W["每成员 Worker"]
     W --> R["SaaS Work Runtime"]
     R --> FS["/work 文件与产物"]
     R --> LLM["平台模型"]
@@ -74,18 +72,18 @@ flowchart TB
 - `frontend/admin-web`：平台与组织管理中心。
 - `backend`：Spring Boot 控制面。
 - `worker`：Node.js 容器运行时，Agent Core 位于 `worker/core`。
-- `node`：可选的多机 Worker 启动器。
+- `deploy/local`：单机 Docker Compose 与镜像。
+- `deploy/cluster`：k3s Helm chart。
 - `docs`：运维、架构、协议与安全文档。
 
 ## 开发
 
-源码开发基线为 Node.js `>= 22.19.0`、Java 21、pnpm `10.14` 和 Go 1.25。
+源码开发基线为 Node.js `>= 22.19.0`、Java 21 与 pnpm `10.14`。
 
 ```bash
 cd frontend && pnpm typecheck && pnpm test && pnpm build
 cd worker && pnpm typecheck && pnpm test && pnpm build
 cd backend && ./mvnw test
-cd node && go test ./...
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
 ```

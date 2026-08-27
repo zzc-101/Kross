@@ -919,7 +919,8 @@ public class AgentService {
           agent.getId(),
           token,
           properties.getPublicBaseUrl(),
-          new ResourceLimits(settings.getCpuMillis(), settings.getMemoryBytes(), settings.getMaxPids())));
+          new ResourceLimits(settings.getCpuMillis(), settings.getMemoryBytes(), settings.getMaxPids()),
+          Optional.ofNullable(agent.getNodeId()).filter(value -> !value.isBlank())));
       agent.setStatus("running");
       agent.setContainerId(handle.containerId());
       agent.setNodeId(Optional.ofNullable(handle.nodeId()).filter(value -> !value.isBlank()).orElse(agent.getNodeId()));

@@ -83,9 +83,10 @@ kross:
   worker-runtime: ${KROSS_WORKER_RUNTIME:local}
   worker-storage: ${KROSS_WORKER_STORAGE:local}
   juicefs-mount: ${KROSS_JUICEFS_MOUNT:}
-  node-token: ${KROSS_NODE_TOKEN:}
-  node-id: ${KROSS_NODE_ID:node-1}
-  node-tokens: ${KROSS_NODE_TOKENS:}
+  kubernetes:
+    namespace: ${KROSS_KUBERNETES_NAMESPACE:}
+    storage-class: ${KROSS_KUBERNETES_STORAGE_CLASS:kross-juicefs}
+    workspace-size: ${KROSS_KUBERNETES_WORKSPACE_SIZE:10Gi}
   api:
     prefix: ${KROSS_API_PREFIX:/api/v2}
   scheduler:

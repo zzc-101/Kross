@@ -1,8 +1,8 @@
 package com.kross.config;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Optional;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -21,13 +21,11 @@ public class KrossProperties {
   private String workerRuntime = "local";
   private String workerStorage = "local";
   private String juicefsMount = "";
-  private String nodeToken = "";
-  private String nodeId = "node-1";
-  private String nodeTokens = "";
   private final Api api = new Api();
   private final Scheduler scheduler = new Scheduler();
   private final Agent agent = new Agent();
   private final S3 s3 = new S3();
+  private final Kubernetes kubernetes = new Kubernetes();
 
   public boolean isDevIdentityEnabled() {
     return "1".equals(devIdentityEnabled) || Boolean.parseBoolean(devIdentityEnabled);
@@ -137,60 +135,8 @@ public class KrossProperties {
     this.workerRuntime = Optional.ofNullable(workerRuntime).filter(value -> !value.isBlank()).orElse("local");
   }
 
-  public String getNodeToken() {
-    return nodeToken;
-  }
-
-  public void setNodeToken(String nodeToken) {
-    this.nodeToken = Optional.ofNullable(nodeToken).orElse("");
-  }
-
-  public String getNodeId() {
-    return nodeId;
-  }
-
-  public void setNodeId(String nodeId) {
-    this.nodeId = Optional.ofNullable(nodeId).filter(value -> !value.isBlank()).orElse("node-1");
-  }
-
-  public String getNodeTokens() {
-    return nodeTokens;
-  }
-
-  public void setNodeTokens(String nodeTokens) {
-    this.nodeTokens = Optional.ofNullable(nodeTokens).orElse("");
-  }
-
-  public Optional<String> tokenForNode(String id) {
-    String node = Optional.ofNullable(id).map(String::trim).filter(value -> !value.isBlank()).orElse("");
-    if (node.isBlank()) {
-      return Optional.empty();
-    }
-    return Optional.ofNullable(nodeTokenMap().get(node)).filter(value -> !value.isBlank());
-  }
-
-  public boolean hasNodeTokens() {
-    return !nodeTokenMap().isEmpty();
-  }
-
-  private Map<String, String> nodeTokenMap() {
-    Map<String, String> tokens = new LinkedHashMap<>();
-    for (String part : Optional.ofNullable(nodeTokens).orElse("").split(",")) {
-      String pair = part.trim();
-      int colon = pair.indexOf(':');
-      if (colon <= 0 || colon >= pair.length() - 1) {
-        continue;
-      }
-      String id = pair.substring(0, colon).trim();
-      String token = pair.substring(colon + 1).trim();
-      if (!id.isBlank() && !token.isBlank()) {
-        tokens.put(id, token);
-      }
-    }
-    String fallbackId = Optional.ofNullable(nodeId).filter(value -> !value.isBlank()).orElse("node-1");
-    Optional.ofNullable(nodeToken).filter(value -> !value.isBlank())
-        .ifPresent(token -> tokens.putIfAbsent(fallbackId, token));
-    return tokens;
+  public boolean isKubernetesRuntime() {
+    return "kubernetes".equalsIgnoreCase(workerRuntime);
   }
 
   public Api getApi() {
@@ -207,6 +153,10 @@ public class KrossProperties {
 
   public S3 getS3() {
     return s3;
+  }
+
+  public Kubernetes getKubernetes() {
+    return kubernetes;
   }
 
   public static class Api {
@@ -433,6 +383,59 @@ public class KrossProperties {
 
     public void setPresignTtl(Duration presignTtl) {
       this.presignTtl = presignTtl;
+    }
+  }
+
+  public static class Kubernetes {
+    private static final Path SERVICE_ACCOUNT_NAMESPACE =
+        Path.of("/var/run/secrets/kubernetes.io/serviceaccount/namespace");
+
+    private String namespace = "";
+    private String storageClass = "kross-juicefs";
+    private String workspaceSize = "10Gi";
+
+    public String getNamespace() {
+      return namespace;
+    }
+
+    public void setNamespace(String namespace) {
+      this.namespace = Optional.ofNullable(namespace).orElse("");
+    }
+
+    public String getStorageClass() {
+      return storageClass;
+    }
+
+    public void setStorageClass(String storageClass) {
+      this.storageClass = Optional.ofNullable(storageClass).filter(value -> !value.isBlank()).orElse("kross-juicefs");
+    }
+
+    public String getWorkspaceSize() {
+      return workspaceSize;
+    }
+
+    public void setWorkspaceSize(String workspaceSize) {
+      this.workspaceSize = Optional.ofNullable(workspaceSize).filter(value -> !value.isBlank()).orElse("10Gi");
+    }
+
+    public Optional<String> resolveNamespace() {
+      Optional<String> configured = Optional.ofNullable(namespace).map(String::trim).filter(value -> !value.isBlank());
+      if (configured.isPresent()) {
+        return configured;
+      }
+      if (!Files.isRegularFile(SERVICE_ACCOUNT_NAMESPACE)) {
+        return Optional.empty();
+      }
+      try {
+        return Optional.of(Files.readString(SERVICE_ACCOUNT_NAMESPACE).trim()).filter(value -> !value.isBlank());
+      } catch (Exception error) {
+        return Optional.empty();
+      }
+    }
+
+    public String requireNamespace() {
+      return resolveNamespace().orElseThrow(() -> new IllegalStateException(
+          "KROSS_WORKER_RUNTIME=kubernetes requires KROSS_KUBERNETES_NAMESPACE or an in-cluster ServiceAccount namespace"));
     }
   }
 }

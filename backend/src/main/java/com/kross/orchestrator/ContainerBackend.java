@@ -17,7 +17,22 @@ public interface ContainerBackend {
       String agentId,
       String agentToken,
       String controlPlaneUrl,
-      ResourceLimits resourceLimits) {}
+      ResourceLimits resourceLimits,
+      Optional<String> preferredNodeId) {
+    public StartRequest(
+        String agentId,
+        String agentToken,
+        String controlPlaneUrl,
+        ResourceLimits resourceLimits) {
+      this(agentId, agentToken, controlPlaneUrl, resourceLimits, Optional.empty());
+    }
+
+    public StartRequest {
+      preferredNodeId = preferredNodeId == null
+          ? Optional.empty()
+          : preferredNodeId.map(String::trim).filter(value -> !value.isBlank());
+    }
+  }
 
   record ResourceLimits(int cpuMillis, long memoryBytes, int maxPids) {}
 

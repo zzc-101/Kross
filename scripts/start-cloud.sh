@@ -6,6 +6,13 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_DIR=$(dirname "$SCRIPT_DIR")
 ENV_FILE="$PROJECT_DIR/.env"
 ENV_EXAMPLE="$PROJECT_DIR/.env.example"
+COMPOSE_FILE="$PROJECT_DIR/deploy/local/docker-compose.yml"
+
+compose() {
+  COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$PROJECT_DIR")}"
+  export COMPOSE_PROJECT_NAME
+  docker compose --project-directory "$PROJECT_DIR" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
 
 usage() {
   cat <<'EOF'
@@ -76,7 +83,6 @@ ensure_env() {
   ensure_secret KROSS_POSTGRES_PASSWORD
   ensure_secret KROSS_CREDENTIAL_MASTER_KEY
   ensure_secret KROSS_S3_SECRET_KEY
-  ensure_secret KROSS_NODE_TOKEN
 }
 
 validate_single_node_env() {
@@ -86,7 +92,7 @@ validate_single_node_env() {
   if [ -z "$storage" ]; then storage=local; fi
   if [ "$runtime" != "local" ] || [ "$storage" != "local" ]; then
     echo "错误：start-cloud.sh 启动的是单机 Compose，但 .env 当前为 KROSS_WORKER_RUNTIME=$runtime、KROSS_WORKER_STORAGE=$storage。" >&2
-    echo "请改为 KROSS_WORKER_RUNTIME=local、KROSS_WORKER_STORAGE=local；多节点 JuiceFS 集群请按集群部署文档启动控制面与 kross-node。" >&2
+    echo "请改为 KROSS_WORKER_RUNTIME=local、KROSS_WORKER_STORAGE=local；多机请按部署文档使用 k3s 与 helm install deploy/cluster。" >&2
     exit 1
   fi
 }
@@ -104,7 +110,7 @@ wait_for_web() {
     sleep 1
   done
   echo "Web 入口未能在 60 秒内就绪，最近日志如下：" >&2
-  docker compose logs --tail 100 web server minio postgres redis >&2
+  compose logs --tail 100 web server minio postgres redis >&2
   return 1
 }
 
@@ -114,13 +120,12 @@ case "$command" in
     require_docker
     ensure_env
     validate_single_node_env
-    cd "$PROJECT_DIR"
     if [ "$command" = "start" ]; then
       echo "正在构建用户端、管理端、Java 控制面和 Worker 镜像……"
-      docker compose build
+      compose build
     fi
     echo "正在启动 SaaS Work Agent……"
-    docker compose up -d --remove-orphans web
+    compose up -d --remove-orphans web
     wait_for_web
     port=$(read_env_value KROSS_PORT)
     if [ -z "$port" ]; then port=8787; fi
@@ -132,23 +137,20 @@ case "$command" in
   --stop)
     require_docker
     ensure_env
-    cd "$PROJECT_DIR"
-    docker compose down --remove-orphans
+    compose down --remove-orphans
     echo "服务已停止，PostgreSQL 与 MinIO 数据卷已保留。"
     ;;
   --logs)
     require_docker
     ensure_env
-    cd "$PROJECT_DIR"
-    docker compose logs -f web server minio postgres redis
+    compose logs -f web server minio postgres redis
     ;;
   --migrate | --migrate-apply)
     require_docker
     ensure_env
     validate_single_node_env
-    cd "$PROJECT_DIR"
-    docker compose up -d postgres minio redis
-    docker compose up -d --force-recreate --no-deps server
+    compose up -d postgres minio redis
+    compose up -d --force-recreate --no-deps server
     echo "控制面已启动，Flyway 会在进程启动时执行迁移。"
     ;;
   --help | -h)

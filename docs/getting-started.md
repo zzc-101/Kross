@@ -65,4 +65,4 @@ Agent 会自动选择是否读取文件、更新 Todo、派生受限子任务并
 ./scripts/start-cloud.sh --stop
 ```
 
-`docker compose down -v` 会删除 Compose 数据卷，属于破坏性操作。生产部署、备份和集群配置见[部署与运维](cloud-agent-deployment.md)。
+`docker compose --project-directory . -f deploy/local/docker-compose.yml down -v` 会删除 Compose 数据卷，属于破坏性操作。生产部署、备份和集群配置见[部署与运维](cloud-agent-deployment.md)。

@@ -71,28 +71,21 @@ jobs:
 
       - name: Build versioned Worker image
         run: |
-          docker build --file docker/worker.Dockerfile \
+          docker build --file deploy/local/docker/worker.Dockerfile \
             --tag "kross-worker:$VERSION" \
             --tag "kross-worker:$SHORT_SHA" \
             --tag kross-worker:local .
 
       - name: Build versioned Server image
         run: |
-          docker build --file docker/control-plane.Dockerfile \
+          docker build --file deploy/local/docker/control-plane.Dockerfile \
             --tag "kross-server:$VERSION" \
             --tag "kross-server:$SHORT_SHA" \
             --tag kross-server:local .
 
-      - name: Build versioned Node image
-        run: |
-          docker build --file docker/node.Dockerfile \
-            --tag "kross-node:$VERSION" \
-            --tag "kross-node:$SHORT_SHA" \
-            --tag kross-node:local .
-
       - name: Build versioned Web image
         run: |
-          docker build --file docker/web.Dockerfile \
+          docker build --file deploy/local/docker/web.Dockerfile \
             --tag "kross-web:$VERSION" \
             --tag "kross-web:$SHORT_SHA" \
             --tag kross-web:local .
@@ -103,7 +96,7 @@ jobs:
       - name: Record container image metadata
         run: |
           mkdir -p release
-          for component in web server worker node; do
+          for component in web server worker; do
             printf '%s ' "$component" >> release/container-images.txt
             docker image inspect \
               "kross-$component:$VERSION" \

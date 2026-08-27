@@ -1,0 +1,94 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kross-init
+  namespace: {{ include "kross.namespace" . }}
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook-weight: "5"
+spec:
+  backoffLimit: 8
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: database
+          image: {{ .Values.postgres.image }}
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: postgres-password
+            - name: JFS_DB
+              value: {{ .Values.juicefs.metaDatabase | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              until pg_isready -h postgres -U kross -d kross >/dev/null 2>&1; do sleep 2; done
+              if ! psql -h postgres -U kross -d kross -tAc "SELECT 1 FROM pg_database WHERE datname='${JFS_DB}'" | grep -q 1; then
+                psql -h postgres -U kross -d kross -c "CREATE DATABASE ${JFS_DB}"
+              fi
+        - name: buckets
+          image: minio/mc:latest
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: s3-access-key
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: s3-secret-key
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              until mc alias set local http://minio:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"; do sleep 2; done
+              mc mb -p local/kross || true
+              mc mb -p local/{{ .Values.juicefs.bucket }} || true
+      containers:
+        - name: format
+          image: {{ .Values.juicefs.formatImage }}
+          env:
+            - name: JUICEFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: s3-access-key
+            - name: JUICEFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: s3-secret-key
+            - name: JUICEFS_BUCKET
+              value: {{ printf "http://minio:9000/%s" .Values.juicefs.bucket | quote }}
+            - name: JUICEFS_VOLUME_NAME
+              value: {{ .Values.juicefs.volumeName | quote }}
+            - name: JUICEFS_META_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kross-secrets
+                  key: juicefs-metaurl
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              if ! juicefs status "${JUICEFS_META_URL}" >/dev/null 2>&1; then
+                juicefs format \
+                  --storage minio \
+                  --bucket "${JUICEFS_BUCKET}" \
+                  --access-key "${JUICEFS_ACCESS_KEY}" \
+                  --secret-key "${JUICEFS_SECRET_KEY}" \
+                  "${JUICEFS_META_URL}" \
+                  "${JUICEFS_VOLUME_NAME}"
+              fi

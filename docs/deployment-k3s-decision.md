@@ -1,6 +1,6 @@
 # 多机部署方案对比与选型声明
 
-状态：已决策
+状态：执行中（自研节点层已删除，集群安装为 k3s + Helm + JuiceFS CSI）
 日期：2026-08-24
 关联：[review-2026-08-24](./review-2026-08-24.md)、[cloud-agent-deployment](./cloud-agent-deployment.md)
 
@@ -9,8 +9,8 @@
 本项目采用双路线部署形态：
 
 - **单机（local）**：Docker Compose，保持现状不变；
-- **多机（cluster）**：目标形态为 k3s + Kubernetes，现有自研节点层
-  （`node/`、NodeFleetBackend、JuiceFS sidecar 编排）逐步退役。
+- **多机（cluster）**：k3s + Kubernetes；自研节点层
+  （`node/`、NodeFleetBackend、JuiceFS sidecar 编排）已删除。
 
 两条路线共用同一控制面镜像与业务代码，仅编排层实现不同。
 
@@ -27,7 +27,7 @@
 | 节点接入方式 | 无 | 每台部署 kross-node + 手动配 token | 一条 agent join 命令 |
 | 入口 | Nginx 容器 :8787 | 同左 + 内部口 8788 | Ingress（Traefik 内置）+ cert-manager |
 | Worker 存活保障 | 自研 reconcile 轮询 | 同左 | liveness probe 原生 |
-| 部署文件 | docker-compose.yml ×1 | compose ×4 叠加 | Helm chart ×1 |
+| 部署文件 | `deploy/local` Compose ×1 | compose ×4 叠加（已删除） | `deploy/cluster` Helm chart ×1 |
 
 ### 2.2 现有 cluster 方案的结构性问题
 
@@ -72,12 +72,12 @@
 | 现有组件 | 去向 |
 |---|---|
 | postgres / minio | Deployment/StatefulSet 或外部托管服务 |
-| server 控制面 | Deployment（接口 `ContainerBackend` 已抽象，新增 K8s 实现） |
-| web（Nginx 容器） | 替换为 Ingress 资源 |
-| worker-image 构建容器 | 概念消失，镜像推 registry |
-| juicefs sidecar / vm-shared-mounts / rshared 脚本 | 替换为 JuiceFS CSI driver + StorageClass |
-| kross-node（Go 节点进程） | 删除，kubelet 即节点代理 |
-| node token / 8788 内部端口 / per-node compose | 删除，RBAC ServiceAccount + Service DNS |
+| server 控制面 | Deployment（`KubernetesContainerBackend`，单副本） |
+| web（Nginx 容器） | Ingress 指向 web Service |
+| worker-image 构建容器 | 概念消失，镜像推 registry 或 `k3s ctr images import` |
+| juicefs sidecar / vm-shared-mounts / rshared 脚本 | JuiceFS CSI driver + StorageClass |
+| kross-node（Go 节点进程） | 已删除，kubelet 即节点代理 |
+| node token / 8788 内部端口 / per-node compose | 已删除，RBAC ServiceAccount + Service DNS |
 
 Worker 本身零改动：仍是连回控制面的长驻容器，仅连接地址变为 Service DNS。
 
@@ -85,7 +85,7 @@ Worker 本身零改动：仍是连回控制面的长驻容器，仅连接地址�
 
 K8s 提供的是**调度与存活**，「多副本」不等于「集群化」：
 
-- **Worker**：天然无状态（状态在工作区 PVC），上 K8s 即获得水平扩展与漂移，零改造；
+- **Worker**：工作区在 JuiceFS PVC（RWX），上 k3s 可换节点；必须保持每个 agent 唯一 Pod 以防双挂载；
 - **Java 控制面**：多副本前需完成两项改造——事件总线外置（当前 `ChannelEventBus`
   为进程内 Map，跨副本会丢流式事件）、调度器选主（advisory lock）；在完成前控制面
   保持单副本；

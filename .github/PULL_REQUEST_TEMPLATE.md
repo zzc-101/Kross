@@ -6,7 +6,7 @@
 
 - [ ] Core / Harness
 - [ ] Cloud Web
-- [ ] Backend / Worker / Node / Protocol
+- [ ] Backend / Worker / Protocol
 - [ ] 配置、持久化或安全边界
 - [ ] 文档或开发体验
 
@@ -18,7 +18,7 @@
 cd frontend && pnpm typecheck && pnpm test && pnpm build
 cd worker && pnpm typecheck && pnpm test
 cd backend && ./mvnw -B -DskipTests compile
-cd node && go build -o /tmp/kross-node .
+helm template kross deploy/cluster --namespace kross >/dev/null
 node scripts/check-doc-links.mjs
 ```
 

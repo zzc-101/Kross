@@ -64,7 +64,7 @@ Worker 不扫描 `/work` 或用户目录中的本地 Skill，也不提供本地 
 |---|---|
 | 账号、组织、模型、对话、记忆、Skill 元数据 | PostgreSQL |
 | Skill ZIP 和其他对象产物 | MinIO / S3 |
-| 成员文件与工作产物 | `/work`（volume 或 JuiceFS） |
+| 成员文件与工作产物 | `/work`（单机 volume，集群 JuiceFS） |
 | Runtime checkpoint、mutation journal、受管工具运行配置 | Worker 的受管目录 |
 | 热点读缓存（身份/鉴权/目录） | Redis（可选） |
 

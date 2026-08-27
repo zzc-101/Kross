@@ -103,18 +103,6 @@ jobs:
         working-directory: backend
         run: ./mvnw -B -DskipTests compile
 
-  node:
-    name: Node
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-      - name: Compile node
-        working-directory: node
-        run: go build -o /tmp/kross-node .
-
   docs:
     name: Docs and version
     runs-on: ubuntu-latest
@@ -125,6 +113,10 @@ jobs:
           node-version: 22.19.0
       - run: node scripts/check-version-consistency.mjs
       - run: node scripts/check-doc-links.mjs
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - run: helm template kross deploy/cluster --namespace kross >/dev/null
 
   cloud-containers:
     name: Cloud container build
@@ -138,19 +130,16 @@ jobs:
           KROSS_POSTGRES_PASSWORD: ci-placeholder-password
           KROSS_CREDENTIAL_MASTER_KEY: abcdef0123456789abcdef0123456789
           KROSS_S3_SECRET_KEY: kross-minio-ci-secret
-        run: docker compose config --quiet
+        run: docker compose --project-directory . -f deploy/local/docker-compose.yml config --quiet
 
       - name: Build worker image
-        run: docker build --file docker/worker.Dockerfile --tag kross-worker:local .
+        run: docker build --file deploy/local/docker/worker.Dockerfile --tag kross-worker:local .
 
       - name: Build backend image
-        run: docker build --file docker/control-plane.Dockerfile --tag kross-server:local .
-
-      - name: Build node image
-        run: docker build --file docker/node.Dockerfile --tag kross-node:local .
+        run: docker build --file deploy/local/docker/control-plane.Dockerfile --tag kross-server:local .
 
       - name: Build web image
-        run: docker build --file docker/web.Dockerfile --tag kross-web:local .
+        run: docker build --file deploy/local/docker/web.Dockerfile --tag kross-web:local .
 
       - name: Smoke test Cloud containers
         run: ./scripts/cloud-container-smoke.sh

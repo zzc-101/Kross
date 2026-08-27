@@ -1,0 +1,64 @@
+# Control plane remains replicas: 1 until the in-process event bus is externalized.
+replicaCount: 1
+
+namespace: kross
+
+images:
+  server: kross-server:local
+  web: kross-web:local
+  worker: kross-worker:local
+  pullPolicy: IfNotPresent
+
+ingress:
+  enabled: true
+  className: traefik
+  host: ""
+  tls: false
+
+secrets:
+  postgresPassword: changeme
+  credentialMasterKey: changeme-credential-master-key-32b
+  s3AccessKey: kross
+  s3SecretKey: changeme-s3-secret
+
+kross:
+  externalBaseUrl: http://localhost
+  publicBaseUrl: http://server:8787
+  workerRuntime: kubernetes
+  workerStorage: juicefs
+  cacheEnabled: true
+  storageClass: kross-juicefs
+  workspaceSize: 10Gi
+
+postgres:
+  image: postgres:17-alpine
+  persistence:
+    size: 20Gi
+    storageClass: ""
+  nodeSelector: {}
+  tolerations: []
+
+minio:
+  image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+  persistence:
+    size: 40Gi
+    storageClass: ""
+  nodeSelector: {}
+  tolerations: []
+
+redis:
+  image: redis:7-alpine
+
+server:
+  nodeSelector: {}
+  tolerations: []
+
+juicefs:
+  volumeName: kross-work
+  metaDatabase: kross_jfs
+  bucket: kross-jfs
+  formatImage: juicedata/mount:ce-v1.4.1
+
+rbac:
+  # Dashboard node list. Disable if the cluster forbids listing Node objects.
+  listNodes: true
