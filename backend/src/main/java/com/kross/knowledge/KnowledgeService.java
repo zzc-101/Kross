@@ -166,7 +166,7 @@ public class KnowledgeService {
   }
 
   public boolean available() {
-    return properties.getKnowledge().isConfigured();
+    return properties.getKnowledge().isConfigured() && client.embeddingReady();
   }
 
   public boolean enabled() {

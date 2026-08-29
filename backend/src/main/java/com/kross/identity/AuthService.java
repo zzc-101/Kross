@@ -3,7 +3,7 @@ package com.kross.identity;
 import com.kross.agent.AgentService;
 import com.kross.api.ApiException;
 import com.kross.api.PageResponse;
-import com.kross.config.KrossProperties;
+import com.kross.knowledge.KnowledgeClient;
 import com.kross.identity.dto.AcceptInviteRequest;
 import com.kross.identity.dto.AuthConfigView;
 import com.kross.identity.dto.CreateUserRequest;
@@ -39,7 +39,7 @@ public class AuthService {
   private final OrganizationAccess access;
   private final PasswordEncoder passwords;
   private final AgentService agents;
-  private final KrossProperties properties;
+  private final KnowledgeClient knowledge;
   private final String dummyPasswordHash;
 
   public AuthService(
@@ -48,13 +48,13 @@ public class AuthService {
       OrganizationAccess access,
       PasswordEncoder passwords,
       @Lazy AgentService agents,
-      KrossProperties properties) {
+      KnowledgeClient knowledge) {
     this.identities = identities;
     this.identityService = identityService;
     this.access = access;
     this.passwords = passwords;
     this.agents = agents;
-    this.properties = properties;
+    this.knowledge = knowledge;
     this.dummyPasswordHash = passwords.encode("kross-dummy-password-not-valid");
   }
 
@@ -130,15 +130,22 @@ public class AuthService {
   public PlatformSettingsView updatePlatform(UpdatePlatformRequest request) {
     requireSuperAdmin();
     Optional.ofNullable(request.registrationEnabled()).ifPresent(identities::setRegistrationEnabled);
-    Optional.ofNullable(request.knowledgeEnabled()).ifPresent(identities::setKnowledgeEnabled);
+    Optional.ofNullable(request.knowledgeEnabled()).ifPresent(enabled -> {
+      if (Boolean.TRUE.equals(enabled) && !knowledge.embeddingReady()) {
+        throw ApiException.invalidRequest(
+            "Knowledge cannot be enabled without a GPU or a remote embedding endpoint");
+      }
+      identities.setKnowledgeEnabled(enabled);
+    });
     return platformView();
   }
 
   private PlatformSettingsView platformView() {
+    boolean available = knowledge.embeddingReady();
     return new PlatformSettingsView(
         identities.isRegistrationEnabled(),
-        identities.isKnowledgeEnabled(),
-        properties.getKnowledge().isConfigured());
+        identities.isKnowledgeEnabled() && available,
+        available);
   }
 
   public PageResponse<UserAccountView> listUsers(int page, int pageSize) {

@@ -67,8 +67,12 @@ knowledge:
   enabled: false
   image: kross-knowledge:local
   internalToken: ""
-  embeddingProvider: hash
+  embeddingProvider: auto
   embeddingBaseUrl: ""
   embeddingApiKey: ""
+  embeddingSize: 2b
   embeddingModel: ""
-  embeddingDim: 1024
+  embeddingDim: 0
+  embeddingModelDir: ""
+  embeddingHub: huggingface
+  embeddingDevice: auto

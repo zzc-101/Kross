@@ -77,8 +77,8 @@ export function PlatformSettingsPage({ api }: { api: AdminApiClient }) {
                     title="启用知识库"
                     description={
                       settings.knowledgeAvailable
-                        ? '开启后工作台可检索已发布的平台文档、PDF、Word 和图片。未部署 knowledge 服务时开关不可用。'
-                        : '尚未部署 knowledge 服务。本地可用 ./scripts/start-cloud.sh --knowledge 启动。'
+                        ? '开启后工作台可检索已发布的平台文档、PDF、Word 和图片。'
+                        : '知识库需要 GPU 本机向量，或配置远程向量服务（KNOWLEDGE_EMBEDDING_BASE_URL）后才能启用。'
                     }
                   >
                     <Switch

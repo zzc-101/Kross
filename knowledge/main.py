@@ -18,8 +18,17 @@ def _authorize(token: str | None) -> None:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, object]:
+    spec = settings.embedding_spec()
+    runtime = settings.embedding_runtime()
+    return {
+        "status": "ok" if runtime.ready else "unavailable",
+        "ready": runtime.ready,
+        "reason": runtime.reason,
+        "embedding": runtime.backend,
+        "model": spec.model_id,
+        "dim": spec.dim,
+    }
 
 
 @app.post("/v1/ingest")
@@ -28,6 +37,7 @@ def ingest(
     x_kross_knowledge_token: str | None = Header(default=None),
 ):
     _authorize(x_kross_knowledge_token)
+    _require_ready()
     return pipeline.ingest(request)
 
 
@@ -48,6 +58,7 @@ def search(
     x_kross_knowledge_token: str | None = Header(default=None),
 ):
     _authorize(x_kross_knowledge_token)
+    _require_ready()
     query = (request.query or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -64,3 +75,9 @@ def job(
     if found is None:
         raise HTTPException(status_code=404, detail="job not found")
     return found
+
+
+def _require_ready() -> None:
+    runtime = settings.embedding_runtime()
+    if not runtime.ready:
+        raise HTTPException(status_code=503, detail=runtime.reason)

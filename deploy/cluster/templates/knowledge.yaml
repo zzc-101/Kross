@@ -46,15 +46,23 @@ spec:
             - name: KNOWLEDGE_DATABASE_URL
               value: {{ printf "postgresql://kross:%s@postgres:5432/kross" .Values.secrets.postgresPassword | quote }}
             - name: KNOWLEDGE_EMBEDDING_PROVIDER
-              value: {{ .Values.knowledge.embeddingProvider | default "hash" | quote }}
+              value: {{ .Values.knowledge.embeddingProvider | default "auto" | quote }}
             - name: KNOWLEDGE_EMBEDDING_BASE_URL
               value: {{ .Values.knowledge.embeddingBaseUrl | default "" | quote }}
             - name: KNOWLEDGE_EMBEDDING_API_KEY
               value: {{ .Values.knowledge.embeddingApiKey | default "" | quote }}
+            - name: KNOWLEDGE_EMBEDDING_SIZE
+              value: {{ .Values.knowledge.embeddingSize | default "2b" | quote }}
             - name: KNOWLEDGE_EMBEDDING_MODEL
               value: {{ .Values.knowledge.embeddingModel | default "" | quote }}
             - name: KNOWLEDGE_EMBEDDING_DIM
-              value: {{ .Values.knowledge.embeddingDim | default 1024 | quote }}
+              value: {{ .Values.knowledge.embeddingDim | toString | quote }}
+            - name: KNOWLEDGE_EMBEDDING_MODEL_DIR
+              value: {{ .Values.knowledge.embeddingModelDir | default "" | quote }}
+            - name: KNOWLEDGE_EMBEDDING_HUB
+              value: {{ .Values.knowledge.embeddingHub | default "huggingface" | quote }}
+            - name: KNOWLEDGE_EMBEDDING_DEVICE
+              value: {{ .Values.knowledge.embeddingDevice | default "auto" | quote }}
           ports:
             - containerPort: 8090
           readinessProbe:

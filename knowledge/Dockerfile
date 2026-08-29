@@ -4,7 +4,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends antiword \
   && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml .
-COPY main.py settings.py models.py service.py embedder.py ./
+COPY main.py settings.py models.py service.py embedder.py embedding.py pull_model.py ./
 COPY pipeline pipeline
 COPY parsers parsers
 COPY index index

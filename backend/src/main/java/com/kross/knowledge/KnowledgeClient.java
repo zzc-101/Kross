@@ -28,6 +28,17 @@ public class KnowledgeClient {
     this.properties = properties;
   }
 
+  public boolean embeddingReady() {
+    if (properties.getKnowledge().getBaseUrl().isEmpty()) {
+      return false;
+    }
+    try {
+      return Optional.ofNullable(get("/health", RemoteHealth.class).ready()).orElse(false);
+    } catch (Exception error) {
+      return false;
+    }
+  }
+
   public IngestResult ingest(IngestPayload payload) {
     RemoteIngestResponse response = post("/v1/ingest", payload, RemoteIngestResponse.class, Duration.ofSeconds(120));
     return new IngestResult(
@@ -137,6 +148,9 @@ public class KnowledgeClient {
     }
     return 502;
   }
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record RemoteHealth(String status, Boolean ready, String reason, String embedding, String model, Integer dim) {}
 
   public record IngestPayload(
       String documentId,
