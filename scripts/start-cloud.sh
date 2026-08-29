@@ -7,11 +7,18 @@ PROJECT_DIR=$(dirname "$SCRIPT_DIR")
 ENV_FILE="$PROJECT_DIR/.env"
 ENV_EXAMPLE="$PROJECT_DIR/.env.example"
 COMPOSE_FILE="$PROJECT_DIR/deploy/local/docker-compose.yml"
+KNOWLEDGE_FILE="$PROJECT_DIR/deploy/local/docker-compose.knowledge.yml"
+WITH_KNOWLEDGE=0
 
 compose() {
   COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$PROJECT_DIR")}"
   export COMPOSE_PROJECT_NAME
-  docker compose --project-directory "$PROJECT_DIR" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  if [ "$WITH_KNOWLEDGE" = 1 ]; then
+    docker compose --project-directory "$PROJECT_DIR" --env-file "$ENV_FILE" \
+      -f "$COMPOSE_FILE" -f "$KNOWLEDGE_FILE" --profile knowledge "$@"
+  else
+    docker compose --project-directory "$PROJECT_DIR" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  fi
 }
 
 usage() {
@@ -19,6 +26,7 @@ usage() {
 用法：
   ./scripts/start-cloud.sh             构建并启动 SaaS Work Agent
   ./scripts/start-cloud.sh --no-build  使用现有镜像启动
+  ./scripts/start-cloud.sh --knowledge   同时启动可选知识库服务
   ./scripts/start-cloud.sh --stop      停止服务并保留 PostgreSQL / MinIO 数据卷
   ./scripts/start-cloud.sh --logs      持续查看服务日志
   ./scripts/start-cloud.sh --migrate   启动控制面以执行 Flyway 迁移
@@ -110,11 +118,21 @@ wait_for_web() {
     sleep 1
   done
   echo "Web 入口未能在 60 秒内就绪，最近日志如下：" >&2
-  compose logs --tail 100 web server minio postgres redis >&2
+  if [ "$WITH_KNOWLEDGE" = 1 ]; then
+    compose logs --tail 100 web server minio postgres redis knowledge >&2
+  else
+    compose logs --tail 100 web server minio postgres redis >&2
+  fi
   return 1
 }
 
 command=${1:-start}
+if [ "$1" = "--knowledge" ]; then
+  WITH_KNOWLEDGE=1
+  command=${2:-start}
+elif [ "${2:-}" = "--knowledge" ]; then
+  WITH_KNOWLEDGE=1
+fi
 case "$command" in
   start | --no-build)
     require_docker
@@ -131,6 +149,9 @@ case "$command" in
     if [ -z "$port" ]; then port=8787; fi
     echo "SaaS Work Agent 用户端已启动：http://localhost:$port"
     echo "SaaS Work Agent 管理端已启动：http://localhost:$port/admin/"
+    if [ "$WITH_KNOWLEDGE" = 1 ]; then
+      echo "知识库服务已启动。请在管理端打开「启用知识库」，再上传 Markdown。"
+    fi
     echo "Java 控制面日志：$PROJECT_DIR/runs/logs/server/server.log"
     echo "实时查看全部容器日志：./scripts/start-cloud.sh --logs"
     ;;
@@ -143,7 +164,11 @@ case "$command" in
   --logs)
     require_docker
     ensure_env
-    compose logs -f web server minio postgres redis
+    if [ "$WITH_KNOWLEDGE" = 1 ]; then
+      compose logs -f web server minio postgres redis knowledge
+    else
+      compose logs -f web server minio postgres redis
+    fi
     ;;
   --migrate | --migrate-apply)
     require_docker

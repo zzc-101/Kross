@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kross.knowledge.KnowledgeMapper">
+  <insert id="insertDocument">
+    INSERT INTO knowledge_documents
+      (id, space_id, title, filename, mime, status, source_key, created_by, error_message)
+    VALUES
+      (#{id}, #{spaceId}, #{title}, #{filename}, #{mime}, #{status}, #{sourceKey}, #{createdBy}, #{errorMessage})
+  </insert>
+
+  <select id="findDocument" resultType="com.kross.knowledge.entity.KnowledgeDocument">
+    SELECT id, space_id, title, filename, mime, status, source_key, created_by, created_at, published_at, error_message
+    FROM knowledge_documents
+    WHERE id = #{id}
+  </select>
+
+  <select id="listDocuments" resultType="com.kross.knowledge.entity.KnowledgeDocument">
+    SELECT id, space_id, title, filename, mime, status, source_key, created_by, created_at, published_at, error_message
+    FROM knowledge_documents
+    WHERE space_id = #{spaceId}
+    ORDER BY created_at DESC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <select id="countDocuments" resultType="int">
+    SELECT count(*)::int FROM knowledge_documents WHERE space_id = #{spaceId}
+  </select>
+
+  <update id="updateDocumentStatus">
+    UPDATE knowledge_documents
+    SET status = #{status},
+        error_message = #{errorMessage},
+        published_at = CASE WHEN #{published} THEN now() ELSE published_at END
+    WHERE id = #{id}
+  </update>
+
+  <insert id="insertJob">
+    INSERT INTO knowledge_jobs (id, document_id, kind, status, error_message)
+    VALUES (#{id}, #{documentId}, #{kind}, #{status}, #{errorMessage})
+  </insert>
+
+  <select id="findJob" resultType="com.kross.knowledge.entity.KnowledgeJob">
+    SELECT id, document_id, kind, status, error_message, created_at, updated_at
+    FROM knowledge_jobs
+    WHERE id = #{id}
+  </select>
+
+  <update id="updateJob">
+    UPDATE knowledge_jobs
+    SET status = #{status},
+        error_message = #{errorMessage},
+        updated_at = now()
+    WHERE id = #{id}
+  </update>
+</mapper>

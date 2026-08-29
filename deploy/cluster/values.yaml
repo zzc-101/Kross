@@ -31,7 +31,7 @@ kross:
   workspaceSize: 10Gi
 
 postgres:
-  image: postgres:17-alpine
+  image: pgvector/pgvector:pg17
   persistence:
     size: 20Gi
     storageClass: ""
@@ -62,3 +62,13 @@ juicefs:
 rbac:
   # Dashboard node list. Disable if the cluster forbids listing Node objects.
   listNodes: true
+
+knowledge:
+  enabled: false
+  image: kross-knowledge:local
+  internalToken: ""
+  embeddingProvider: hash
+  embeddingBaseUrl: ""
+  embeddingApiKey: ""
+  embeddingModel: ""
+  embeddingDim: 1024

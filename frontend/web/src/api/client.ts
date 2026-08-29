@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type {
-  AgentMemory, AgentMessage, AgentModel, AuthConfig, Conversation, InvitePreview, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing
+  AgentMemory, AgentMessage, AgentModel, AuthConfig, Conversation, InvitePreview, KnowledgeHit, KnowledgeStatus, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing
 } from './types';
 import type { ChannelEvent } from './channelEvents';
 
@@ -166,6 +166,21 @@ const memorySchema: z.ZodType<AgentMemory> = z.object({
   content: z.string().min(1),
   createdAt: instant,
   updatedAt: instant
+});
+
+const knowledgeStatusSchema: z.ZodType<KnowledgeStatus> = z.object({
+  enabled: z.boolean(),
+  available: z.boolean(),
+  spaceIds: z.array(z.string())
+});
+
+const knowledgeHitSchema: z.ZodType<KnowledgeHit> = z.object({
+  documentId: id,
+  title: z.string().min(1),
+  spaceId: z.string().min(1),
+  excerpt: z.string(),
+  score: z.number(),
+  modality: z.enum(['text', 'image']).optional()
 });
 
 const envelopeSchema = z.object({
@@ -344,6 +359,18 @@ export class AgentApiClient {
     kind?: AgentMemory['kind'];
   }): Promise<AgentMemory> {
     return this.request('/api/v2/agent/memories/remember', memorySchema, { method: 'POST', body: input });
+  }
+
+  knowledgeStatus(): Promise<KnowledgeStatus> {
+    return this.request('/api/v2/knowledge/status', knowledgeStatusSchema);
+  }
+
+  searchKnowledge(query: string, topK = 8): Promise<KnowledgeHit[]> {
+    return this.request(
+      '/api/v2/knowledge/search',
+      z.object({ hits: z.array(knowledgeHitSchema) }),
+      { method: 'POST', body: { query, topK } }
+    ).then((result) => result.hits);
   }
 
   async subscribeConversationEvents(

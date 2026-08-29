@@ -72,12 +72,21 @@
   </select>
 
   <select id="findPlatformSettings" resultType="com.kross.identity.entity.PlatformSettings">
-    SELECT registration_enabled, sso_enabled, sso_display_name, sso_issuer, sso_client_id, sso_client_secret_cipher
+    SELECT registration_enabled, sso_enabled, sso_display_name, sso_issuer, sso_client_id, sso_client_secret_cipher,
+           knowledge_enabled
     FROM platform_settings WHERE id = 'default'
   </select>
 
   <update id="setRegistrationEnabled">
     UPDATE platform_settings SET registration_enabled = #{enabled}, updated_at = now() WHERE id = 'default'
+  </update>
+
+  <select id="isKnowledgeEnabled" resultType="boolean">
+    SELECT knowledge_enabled FROM platform_settings WHERE id = 'default'
+  </select>
+
+  <update id="setKnowledgeEnabled">
+    UPDATE platform_settings SET knowledge_enabled = #{enabled}, updated_at = now() WHERE id = 'default'
   </update>
 
   <update id="updateSsoSettings">

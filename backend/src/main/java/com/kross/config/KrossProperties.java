@@ -26,6 +26,7 @@ public class KrossProperties {
   private final Agent agent = new Agent();
   private final S3 s3 = new S3();
   private final Kubernetes kubernetes = new Kubernetes();
+  private final Knowledge knowledge = new Knowledge();
 
   public boolean isDevIdentityEnabled() {
     return "1".equals(devIdentityEnabled) || Boolean.parseBoolean(devIdentityEnabled);
@@ -157,6 +158,10 @@ public class KrossProperties {
 
   public Kubernetes getKubernetes() {
     return kubernetes;
+  }
+
+  public Knowledge getKnowledge() {
+    return knowledge;
   }
 
   public static class Api {
@@ -436,6 +441,31 @@ public class KrossProperties {
     public String requireNamespace() {
       return resolveNamespace().orElseThrow(() -> new IllegalStateException(
           "KROSS_WORKER_RUNTIME=kubernetes requires KROSS_KUBERNETES_NAMESPACE or an in-cluster ServiceAccount namespace"));
+    }
+  }
+
+  public static class Knowledge {
+    private String baseUrl = "";
+    private String internalToken = "";
+
+    public Optional<String> getBaseUrl() {
+      return Optional.ofNullable(baseUrl).map(String::trim).filter(value -> !value.isBlank());
+    }
+
+    public void setBaseUrl(String baseUrl) {
+      this.baseUrl = Optional.ofNullable(baseUrl).orElse("");
+    }
+
+    public Optional<String> getInternalToken() {
+      return Optional.ofNullable(internalToken).map(String::trim).filter(value -> !value.isBlank());
+    }
+
+    public void setInternalToken(String internalToken) {
+      this.internalToken = Optional.ofNullable(internalToken).orElse("");
+    }
+
+    public boolean isConfigured() {
+      return getBaseUrl().isPresent();
     }
   }
 }

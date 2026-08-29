@@ -14,4 +14,5 @@ public class PlatformSettings {
   private String ssoIssuer;
   private String ssoClientId;
   private String ssoClientSecretCipher;
+  private Boolean knowledgeEnabled;
 }

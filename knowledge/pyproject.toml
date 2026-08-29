@@ -1,0 +1,26 @@
+[project]
+name = "kross-knowledge"
+version = "0.1.0"
+description = "Kross knowledge pipeline: parse, chunk, and hybrid search"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic-settings>=2.6",
+  "psycopg[binary]>=3.2",
+  "pgvector>=0.3",
+  "httpx>=0.27",
+  "pypdf>=5.0",
+  "python-docx>=1.1",
+  "olefile>=0.47",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main", "settings", "models", "service", "embedder"]
+
+[tool.setuptools.packages.find]
+include = ["pipeline*", "parsers*", "index*"]

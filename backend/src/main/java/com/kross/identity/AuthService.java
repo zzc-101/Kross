@@ -3,6 +3,7 @@ package com.kross.identity;
 import com.kross.agent.AgentService;
 import com.kross.api.ApiException;
 import com.kross.api.PageResponse;
+import com.kross.config.KrossProperties;
 import com.kross.identity.dto.AcceptInviteRequest;
 import com.kross.identity.dto.AuthConfigView;
 import com.kross.identity.dto.CreateUserRequest;
@@ -38,6 +39,7 @@ public class AuthService {
   private final OrganizationAccess access;
   private final PasswordEncoder passwords;
   private final AgentService agents;
+  private final KrossProperties properties;
   private final String dummyPasswordHash;
 
   public AuthService(
@@ -45,12 +47,14 @@ public class AuthService {
       IdentityService identityService,
       OrganizationAccess access,
       PasswordEncoder passwords,
-      @Lazy AgentService agents) {
+      @Lazy AgentService agents,
+      KrossProperties properties) {
     this.identities = identities;
     this.identityService = identityService;
     this.access = access;
     this.passwords = passwords;
     this.agents = agents;
+    this.properties = properties;
     this.dummyPasswordHash = passwords.encode("kross-dummy-password-not-valid");
   }
 
@@ -119,14 +123,22 @@ public class AuthService {
 
   public PlatformSettingsView platform() {
     requireSuperAdmin();
-    return new PlatformSettingsView(identities.isRegistrationEnabled());
+    return platformView();
   }
 
   @Transactional
   public PlatformSettingsView updatePlatform(UpdatePlatformRequest request) {
     requireSuperAdmin();
     Optional.ofNullable(request.registrationEnabled()).ifPresent(identities::setRegistrationEnabled);
-    return new PlatformSettingsView(identities.isRegistrationEnabled());
+    Optional.ofNullable(request.knowledgeEnabled()).ifPresent(identities::setKnowledgeEnabled);
+    return platformView();
+  }
+
+  private PlatformSettingsView platformView() {
+    return new PlatformSettingsView(
+        identities.isRegistrationEnabled(),
+        identities.isKnowledgeEnabled(),
+        properties.getKnowledge().isConfigured());
   }
 
   public PageResponse<UserAccountView> listUsers(int page, int pageSize) {

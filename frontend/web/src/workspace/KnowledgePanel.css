@@ -1,0 +1,9 @@
+.knowledge-panel { gap: 10px; }
+.knowledge-form { display: grid; gap: 8px; }
+.knowledge-form input { width: 100%; border: 1px solid #d8d8d8; border-radius: 8px; background: #fff; padding: 7px; font-size: 12px; }
+.knowledge-form button { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 8px; background: #222; color: #fff; padding: 8px; font-size: 12px; }
+.knowledge-list { display: grid; gap: 8px; min-height: 0; overflow: auto; }
+.knowledge-hit { display: grid; gap: 4px; border-radius: 8px; padding: 8px; background: #f6f6f6; }
+.knowledge-hit strong { font-size: 13px; }
+.knowledge-hit p { margin: 0; color: #333; font-size: 12px; line-height: 1.45; }
+.knowledge-hit small { color: #888; font-size: 10px; }

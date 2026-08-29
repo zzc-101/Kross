@@ -66,6 +66,10 @@ public interface IdentityMapper {
 
   void setRegistrationEnabled(@Param("enabled") boolean enabled);
 
+  boolean isKnowledgeEnabled();
+
+  void setKnowledgeEnabled(@Param("enabled") boolean enabled);
+
   void updateSsoSettings(
       @Param("enabled") boolean enabled,
       @Param("displayName") String displayName,

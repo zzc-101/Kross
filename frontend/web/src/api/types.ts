@@ -136,3 +136,18 @@ export interface AgentMemory {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface KnowledgeStatus {
+  enabled: boolean;
+  available: boolean;
+  spaceIds: string[];
+}
+
+export interface KnowledgeHit {
+  documentId: string;
+  title: string;
+  spaceId: string;
+  excerpt: string;
+  score: number;
+  modality?: 'text' | 'image';
+}

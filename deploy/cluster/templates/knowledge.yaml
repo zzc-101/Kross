@@ -1,0 +1,72 @@
+{{- if .Values.knowledge.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: knowledge
+  namespace: {{ include "kross.namespace" . }}
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+    app.kubernetes.io/component: knowledge
+spec:
+  ports:
+    - name: http
+      port: 8090
+      targetPort: 8090
+  selector:
+    app.kubernetes.io/component: knowledge
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowledge
+  namespace: {{ include "kross.namespace" . }}
+  labels:
+    {{- include "kross.labels" . | nindent 4 }}
+    app.kubernetes.io/component: knowledge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: knowledge
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "kross.labels" . | nindent 8 }}
+        app.kubernetes.io/component: knowledge
+    spec:
+      containers:
+        - name: knowledge
+          image: {{ .Values.knowledge.image }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - name: KNOWLEDGE_INTERNAL_TOKEN
+              value: {{ .Values.knowledge.internalToken | quote }}
+            - name: KNOWLEDGE_DATABASE_URL
+              value: {{ printf "postgresql://kross:%s@postgres:5432/kross" .Values.secrets.postgresPassword | quote }}
+            - name: KNOWLEDGE_EMBEDDING_PROVIDER
+              value: {{ .Values.knowledge.embeddingProvider | default "hash" | quote }}
+            - name: KNOWLEDGE_EMBEDDING_BASE_URL
+              value: {{ .Values.knowledge.embeddingBaseUrl | default "" | quote }}
+            - name: KNOWLEDGE_EMBEDDING_API_KEY
+              value: {{ .Values.knowledge.embeddingApiKey | default "" | quote }}
+            - name: KNOWLEDGE_EMBEDDING_MODEL
+              value: {{ .Values.knowledge.embeddingModel | default "" | quote }}
+            - name: KNOWLEDGE_EMBEDDING_DIM
+              value: {{ .Values.knowledge.embeddingDim | default 1024 | quote }}
+          ports:
+            - containerPort: 8090
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 20
+{{- end }}

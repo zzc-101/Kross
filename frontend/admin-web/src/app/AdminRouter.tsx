@@ -29,6 +29,10 @@ const TokenUsagePage = lazyNamed(() => import('../pages/token-usage/TokenUsagePa
 const PlatformSkillsPage = lazyNamed(
   () => import('../pages/platform/skills/PlatformSkillsPage'), 'PlatformSkillsPage'
 );
+const PlatformKnowledgePage = lazyNamed(
+  () => import('../pages/platform/knowledge/PlatformKnowledgePage'),
+  'PlatformKnowledgePage'
+);
 const OrganizationSkillsPage = lazyNamed(
   () => import('../pages/organization/skills/OrganizationSkillsPage'), 'OrganizationSkillsPage'
 );
@@ -75,6 +79,7 @@ export function AdminRouter({
               />
               <Route path="models" element={<ModelsPage api={api} />} />
               <Route path="skills" element={<PlatformSkillsPage api={api} />} />
+              <Route path="knowledge" element={<PlatformKnowledgePage api={api} />} />
               <Route path="settings" element={<PlatformSettingsPage api={api} />} />
               <Route path="logins" element={<AuthLogsPage api={api} />} />
             </Route>

@@ -13,6 +13,7 @@ import {
   platformOrganizationSchema,
   platformSchema,
   platformSkillSchema,
+  knowledgeDocumentSchema,
   skillPackageDownloadSchema,
   skillVersionSchema,
   platformSsoSchema,
@@ -295,6 +296,30 @@ export class AdminApiClient {
       body: input,
       organization: false
     });
+  }
+  knowledgeDocuments(pageNo = 1, pageSize = 20) {
+    return this.request(
+      `/api/v2/admin/knowledge/documents?page=${pageNo}&pageSize=${pageSize}`,
+      page(knowledgeDocumentSchema),
+      { organization: false }
+    );
+  }
+  ingestKnowledgeDocument(input: { title?: string; file: File }) {
+    const body = new FormData();
+    if (input.title) body.set('title', input.title);
+    body.set('file', input.file);
+    return this.request('/api/v2/admin/knowledge/documents', knowledgeDocumentSchema, {
+      method: 'POST',
+      body,
+      organization: false
+    });
+  }
+  publishKnowledgeDocument(documentId: string) {
+    return this.request(
+      `/api/v2/admin/knowledge/documents/${encodeURIComponent(documentId)}/publish`,
+      knowledgeDocumentSchema,
+      { method: 'POST', organization: false }
+    );
   }
   users() {
     return this.request('/api/v2/admin/users', page(userAccountSchema), { organization: false }).then(

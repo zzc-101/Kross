@@ -4,6 +4,7 @@ import {
   AuditOutlined,
   BuildOutlined,
   BulbOutlined,
+  BookOutlined,
   DashboardOutlined,
   SettingOutlined,
   ThunderboltOutlined,
@@ -27,6 +28,7 @@ export function createAdminMenu(superAdmin: boolean, current?: Membership): Menu
               { key: '/platform/organizations', icon: <ApartmentOutlined />, label: '组织管理' },
               { key: '/platform/models', icon: <BuildOutlined />, label: '模型配置' },
               { key: '/platform/skills', icon: <BulbOutlined />, label: '技能库' },
+              { key: '/platform/knowledge', icon: <BookOutlined />, label: '知识库' },
               { key: '/platform/settings', icon: <SettingOutlined />, label: '平台设置' },
               { key: '/platform/logins', icon: <AuditOutlined />, label: '登录日志' }
             ]

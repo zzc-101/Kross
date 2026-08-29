@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import './Sidebar.css';
 import {
   Archive,
+  BookOpen,
   BrainCircuit,
   ChevronDown,
   ChevronRight,
@@ -18,6 +19,7 @@ import {
 import type { Conversation, Membership } from '../api/types';
 import type { AgentApiClient } from '../api/client';
 import { FilesPanel } from './FilesPanel';
+import { KnowledgePanel } from './KnowledgePanel';
 import { MemoryPanel } from './MemoryPanel';
 import { SkillsPanel } from './SkillsPanel';
 
@@ -25,7 +27,8 @@ export type SidebarSection =
   | 'conversations'
   | 'skills'
   | 'memory'
-  | 'files';
+  | 'files'
+  | 'knowledge';
 
 const RAIL: Array<{ id: SidebarSection; label: string; icon: typeof MessagesSquare }> = [
   { id: 'conversations', label: '对话', icon: MessagesSquare },
@@ -87,11 +90,35 @@ export function Sidebar({
   const [accountOpen, setAccountOpen] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState('');
+  const [knowledgeEnabled, setKnowledgeEnabled] = useState(false);
   const letter = (displayName.trim()[0] || username[0] || '?').toUpperCase();
   const visibleConversations = useMemo(
     () => conversations.filter((item) => item.title !== '新对话' || item.id === activeId),
     [activeId, conversations]
   );
+  const rail = knowledgeEnabled
+    ? [...RAIL, { id: 'knowledge' as const, label: '知识库', icon: BookOpen }]
+    : RAIL;
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.knowledgeStatus()
+      .then((status) => {
+        if (!cancelled) setKnowledgeEnabled(status.enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setKnowledgeEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, organizationId]);
+
+  useEffect(() => {
+    if (!knowledgeEnabled && section === 'knowledge') {
+      onSection('conversations');
+    }
+  }, [knowledgeEnabled, onSection, section]);
 
   return (
     <>
@@ -102,7 +129,7 @@ export function Sidebar({
           <button type="button" className="rail-button" aria-label="新对话" onClick={onNew}><SquarePen /></button>
           <div className="rail-divider" />
           <div className="rail-links">
-            {RAIL.map(({ id, label, icon: Icon }) => (
+            {rail.map(({ id, label, icon: Icon }) => (
               <button
                 type="button"
                 key={id}
@@ -183,6 +210,8 @@ export function Sidebar({
             <SkillsPanel api={api} onApply={onApplySkill} />
           ) : section === 'memory' ? (
             <MemoryPanel api={api} />
+          ) : section === 'knowledge' ? (
+            <KnowledgePanel api={api} />
           ) : (
             <div className="sidebar-section conversation-section">
                 <button type="button" className="section-toggle" aria-expanded={conversationsOpen} onClick={() => setConversationsOpen((value) => !value)}>

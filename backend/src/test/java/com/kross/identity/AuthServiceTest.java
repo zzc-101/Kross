@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.kross.agent.AgentService;
 import com.kross.api.ApiException;
+import com.kross.config.KrossProperties;
 import com.kross.identity.dto.LoginRequest;
 import com.kross.identity.entity.User;
 import java.util.Optional;
@@ -30,7 +31,8 @@ class AuthServiceTest {
         mock(IdentityService.class),
         mock(OrganizationAccess.class),
         passwords,
-        mock(AgentService.class));
+        mock(AgentService.class),
+        mock(KrossProperties.class));
   }
 
   @Test

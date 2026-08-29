@@ -53,7 +53,9 @@ export const authConfigSchema = z
 
 export const platformSchema = z
   .object({
-    registrationEnabled: z.boolean()
+    registrationEnabled: z.boolean(),
+    knowledgeEnabled: z.boolean(),
+    knowledgeAvailable: z.boolean()
   })
   .strict();
 
@@ -313,6 +315,21 @@ export const authLoginEventSchema = z
   })
   .strict();
 
+export const knowledgeDocumentSchema = z
+  .object({
+    id,
+    spaceId: id,
+    title: z.string().min(1),
+    filename: z.string().min(1),
+    mime: z.string().min(1),
+    status: z.enum(['draft', 'processing', 'published', 'failed']),
+    createdBy: z.string().min(1).nullish(),
+    createdAt: date,
+    publishedAt: date.nullish(),
+    errorMessage: z.string().min(1).nullish()
+  })
+  .strict();
+
 export const page = <T extends z.ZodTypeAny>(item: T) =>
   z
     .object({
@@ -337,6 +354,7 @@ export type Invite = z.infer<typeof inviteSchema>;
 export type CreatedInvite = z.infer<typeof createdInviteSchema>;
 export type Member = z.infer<typeof memberSchema>;
 export type PlatformSkill = z.infer<typeof platformSkillSchema>;
+export type KnowledgeDocument = z.infer<typeof knowledgeDocumentSchema>;
 export type OrganizationSkill = z.infer<typeof organizationSkillSchema>;
 export type SkillVersion = z.infer<typeof skillVersionSchema>;
 export type ModelConfig = z.infer<typeof modelSchema>;

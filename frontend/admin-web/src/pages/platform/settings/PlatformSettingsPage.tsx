@@ -61,17 +61,38 @@ export function PlatformSettingsPage({ api }: { api: AdminApiClient }) {
           <Card title="注册策略">
             <ResourceState state={platform}>
               {(settings) => (
-                <SettingRow title="允许自助注册" description="关闭后仅超级管理员或组织邀请链接可以创建账号。">
-                  <Switch
-                    checked={settings.registrationEnabled}
-                    onChange={(checked) =>
-                      void api
-                        .updatePlatform({ registrationEnabled: checked })
-                        .then(platform.setData)
-                        .then(() => message.success('注册策略已更新'))
+                <>
+                  <SettingRow title="允许自助注册" description="关闭后仅超级管理员或组织邀请链接可以创建账号。">
+                    <Switch
+                      checked={settings.registrationEnabled}
+                      onChange={(checked) =>
+                        void api
+                          .updatePlatform({ registrationEnabled: checked })
+                          .then(platform.setData)
+                          .then(() => message.success('注册策略已更新'))
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="启用知识库"
+                    description={
+                      settings.knowledgeAvailable
+                        ? '开启后工作台可检索已发布的平台文档、PDF、Word 和图片。未部署 knowledge 服务时开关不可用。'
+                        : '尚未部署 knowledge 服务。本地可用 ./scripts/start-cloud.sh --knowledge 启动。'
                     }
-                  />
-                </SettingRow>
+                  >
+                    <Switch
+                      checked={settings.knowledgeEnabled}
+                      disabled={!settings.knowledgeAvailable}
+                      onChange={(checked) =>
+                        void api
+                          .updatePlatform({ knowledgeEnabled: checked })
+                          .then(platform.setData)
+                          .then(() => message.success('知识库开关已更新'))
+                      }
+                    />
+                  </SettingRow>
+                </>
               )}
             </ResourceState>
           </Card>

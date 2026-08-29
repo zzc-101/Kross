@@ -101,6 +101,9 @@ kross:
     cpu-millis: ${KROSS_AGENT_CPU_MILLIS:2000}
     memory-bytes: ${KROSS_AGENT_MEMORY_BYTES:1073741824}
     max-pids: ${KROSS_AGENT_MAX_PIDS:512}
+  knowledge:
+    base-url: ${KROSS_KNOWLEDGE_BASE_URL:}
+    internal-token: ${KROSS_KNOWLEDGE_INTERNAL_TOKEN:}
   s3:
     endpoint: ${KROSS_S3_ENDPOINT:http://127.0.0.1:9000}
     public-endpoint: ${KROSS_S3_PUBLIC_ENDPOINT:http://127.0.0.1:9000}

@@ -106,6 +106,12 @@ spec:
                   key: s3-secret-key
             - name: KROSS_DEV_IDENTITY
               value: "0"
+            {{- if .Values.knowledge.enabled }}
+            - name: KROSS_KNOWLEDGE_BASE_URL
+              value: http://knowledge:8090
+            - name: KROSS_KNOWLEDGE_INTERNAL_TOKEN
+              value: {{ .Values.knowledge.internalToken | quote }}
+            {{- end }}
           ports:
             - containerPort: 8787
           readinessProbe:
