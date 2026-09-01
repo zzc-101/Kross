@@ -72,7 +72,7 @@
 | 现有组件 | 去向 |
 |---|---|
 | postgres / minio | Deployment/StatefulSet 或外部托管服务 |
-| server 控制面 | Deployment（`KubernetesContainerBackend`，单副本） |
+| server 控制面 | Deployment（`KubernetesContainerBackend`，默认可单副本，事件总线已外置后可水平扩展） |
 | web（Nginx 容器） | Ingress 指向 web Service |
 | worker-image 构建容器 | 概念消失，镜像推 registry 或 `k3s ctr images import` |
 | juicefs sidecar / vm-shared-mounts / rshared 脚本 | JuiceFS CSI driver + StorageClass |
@@ -86,8 +86,6 @@ Worker 本身零改动：仍是连回控制面的长驻容器，仅连接地址�
 K8s 提供的是**调度与存活**，「多副本」不等于「集群化」：
 
 - **Worker**：工作区在 JuiceFS PVC（RWX），上 k3s 可换节点；必须保持每个 agent 唯一 Pod 以防双挂载；
-- **Java 控制面**：多副本前需完成两项改造——事件总线外置（当前 `ChannelEventBus`
-  为进程内 Map，跨副本会丢流式事件）、调度器选主（advisory lock）；在完成前控制面
-  保持单副本；
+- **Java 控制面**：SSE 与 Worker job offer 已走 Redis Pub/Sub（故障降级为进程内扇出），`replicaCount` 可大于 1；调度器仍每副本执行，租约回收依赖 `SKIP LOCKED`，尚未做 advisory lock 选主。工作区文件 RPC 仍要求打到持有该 Worker WebSocket 的副本；
 - **PostgreSQL**：装入集群不会自动 HA，需 CloudNativePG operator 或外部 RDS；
   且不建议 kine 数据与业务库共用实例（故障域耦合）。

@@ -1,6 +1,6 @@
 package com.kross.identity;
 
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentLeaseService;
 import com.kross.api.ApiException;
 import com.kross.api.PageResponse;
 import com.kross.identity.dto.AssignOrgAdminRequest;
@@ -27,7 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PlatformService {
   private final AuthService auth;
   private final IdentityMapper identities;
-  private final AgentService agents;
+  private final AgentLeaseService agents;
 
   public PageResponse<PlatformOrganizationView> listOrganizations(int page, int pageSize) {
     auth.requireSuperAdmin();

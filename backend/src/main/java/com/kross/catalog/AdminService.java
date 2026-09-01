@@ -3,7 +3,8 @@ package com.kross.catalog;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentConversationService;
+import com.kross.agent.AgentLeaseService;
 import com.kross.agent.entity.AgentRuntimeRow;
 import com.kross.agent.entity.UsageCounts;
 import com.kross.api.ApiException;
@@ -64,7 +65,8 @@ public class AdminService {
   private final OrganizationAccess access;
   private final IdentityMapper identities;
   private final AuthService auth;
-  private final AgentService agents;
+  private final AgentConversationService conversations;
+  private final AgentLeaseService agents;
   private final CatalogMapper catalog;
   private final CredentialVault vault;
   private final ObjectMapper mapper;
@@ -73,8 +75,8 @@ public class AdminService {
 
   public DashboardResponse dashboard(String organizationId) {
     OrganizationContext context = access.require(organizationId, OrganizationAction.AUDIT_READ);
-    UsageCounts usage = agents.usageCounts(context.organizationId());
-    List<AgentRuntimeView> runtimes = agents.listRuntimes(context.organizationId()).stream()
+    UsageCounts usage = conversations.usageCounts(context.organizationId());
+    List<AgentRuntimeView> runtimes = conversations.listRuntimes(context.organizationId()).stream()
         .map(row -> toRuntimeView(row))
         .toList();
     List<NodeHealthView> nodeViews = Optional.ofNullable(kubernetesNodes.getIfAvailable())

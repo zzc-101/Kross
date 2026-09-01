@@ -2,7 +2,8 @@ package com.kross.channel;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentLeaseService;
+import com.kross.agent.AgentWorkerProtocolService;
 import com.kross.agent.dto.AgentProtocol;
 import com.kross.api.ApiException;
 import com.kross.observability.RequestLogContext;
@@ -20,7 +21,8 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 @Component
 @RequiredArgsConstructor
 public class AgentWebSocketHandler extends TextWebSocketHandler {
-  private final AgentService agents;
+  private final AgentWorkerProtocolService agents;
+  private final AgentLeaseService leases;
   private final AgentSocketHub hub;
   private final ObjectMapper mapper;
 
@@ -35,7 +37,7 @@ public class AgentWebSocketHandler extends TextWebSocketHandler {
         AgentProtocol.Registered registered = agents.register(
             token, new AgentProtocol.RegisterRequest("agent.register", agentId));
         hub.send(agentId, registered);
-        agents.offerJobToWorker(agentId);
+        leases.offerJobToWorker(agentId);
       } catch (RuntimeException error) {
         sendError(agentId, error);
         session.close(CloseStatus.POLICY_VIOLATION);

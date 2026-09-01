@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class AgentScheduler {
-  private final AgentService agents;
+  private final AgentLeaseService agents;
   private final AtomicBoolean running = new AtomicBoolean(false);
 
   @Scheduled(fixedDelayString = "${kross.scheduler.poll-ms:5000}")

@@ -1,6 +1,6 @@
 package com.kross.identity;
 
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentLeaseService;
 import com.kross.api.ApiException;
 import com.kross.api.PageResponse;
 import com.kross.knowledge.KnowledgeClient;
@@ -38,7 +38,7 @@ public class AuthService {
   private final IdentityService identityService;
   private final OrganizationAccess access;
   private final PasswordEncoder passwords;
-  private final AgentService agents;
+  private final AgentLeaseService agents;
   private final KnowledgeClient knowledge;
   private final String dummyPasswordHash;
 
@@ -47,7 +47,7 @@ public class AuthService {
       IdentityService identityService,
       OrganizationAccess access,
       PasswordEncoder passwords,
-      @Lazy AgentService agents,
+      @Lazy AgentLeaseService agents,
       KnowledgeClient knowledge) {
     this.identities = identities;
     this.identityService = identityService;

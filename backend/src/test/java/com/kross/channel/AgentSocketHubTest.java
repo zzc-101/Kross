@@ -9,7 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentLeaseService;
+import com.kross.agent.AgentWorkerProtocolService;
 import com.kross.agent.dto.AgentProtocol;
 import java.io.IOException;
 import java.time.Instant;
@@ -23,7 +24,8 @@ import org.springframework.web.socket.WebSocketSession;
 class AgentSocketHubTest {
   @Test
   void doesNotHoldSocketLockWhileClaimingDatabaseJob() throws Exception {
-    AgentService agents = mock(AgentService.class);
+    AgentWorkerProtocolService agents = mock(AgentWorkerProtocolService.class);
+    AgentLeaseService leases = mock(AgentLeaseService.class);
     WebSocketSession session = mock(WebSocketSession.class);
     when(session.getId()).thenReturn("session-1");
     when(session.isOpen()).thenReturn(true);
@@ -34,7 +36,7 @@ class AgentSocketHubTest {
       release.await(2, TimeUnit.SECONDS);
       return Optional.empty();
     }).when(agents).claimIfIdle("token-1");
-    AgentSocketHub hub = new AgentSocketHub(new ObjectMapper().findAndRegisterModules(), agents);
+    AgentSocketHub hub = new AgentSocketHub(new ObjectMapper().findAndRegisterModules(), agents, leases);
     hub.attach("agent-1", "token-1", session);
 
     Thread offer = Thread.ofVirtual().start(() -> hub.offerJob("agent-1"));
@@ -49,7 +51,8 @@ class AgentSocketHubTest {
 
   @Test
   void releasesClaimWhenWebSocketDeliveryFails() throws Exception {
-    AgentService agents = mock(AgentService.class);
+    AgentWorkerProtocolService agents = mock(AgentWorkerProtocolService.class);
+    AgentLeaseService leases = mock(AgentLeaseService.class);
     WebSocketSession session = mock(WebSocketSession.class);
     when(session.getId()).thenReturn("session-1");
     when(session.isOpen()).thenReturn(true);
@@ -65,11 +68,11 @@ class AgentSocketHubTest {
         null);
     when(agents.claimIfIdle("token-1")).thenReturn(Optional.of(job));
     doThrow(new IOException("send failed")).when(session).sendMessage(any());
-    AgentSocketHub hub = new AgentSocketHub(new ObjectMapper().findAndRegisterModules(), agents);
+    AgentSocketHub hub = new AgentSocketHub(new ObjectMapper().findAndRegisterModules(), agents, leases);
     hub.attach("agent-1", "token-1", session);
 
     hub.offerJob("agent-1");
 
-    verify(agents).releaseClaimedJob("agent-1", "message-1", "lease-1");
+    verify(leases).releaseClaimedJob("agent-1", "message-1", "lease-1");
   }
 }

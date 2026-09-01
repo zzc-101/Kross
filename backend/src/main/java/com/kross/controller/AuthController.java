@@ -1,6 +1,6 @@
 package com.kross.controller;
 
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentLeaseService;
 import com.kross.api.ApiException;
 import com.kross.api.Res;
 import com.kross.identity.AuthLogService;
@@ -40,7 +40,7 @@ public class AuthController {
   private final AuthService auth;
   private final AuthLogService authLogs;
   private final SsoService sso;
-  private final AgentService agents;
+  private final AgentLeaseService agents;
 
   @GetMapping("/config")
   public Res<AuthConfigView> config() {

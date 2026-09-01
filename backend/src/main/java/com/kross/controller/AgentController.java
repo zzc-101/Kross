@@ -1,6 +1,6 @@
 package com.kross.controller;
 
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentConversationService;
 import com.kross.agent.dto.AgentMessageView;
 import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AppendAgentMessageRequest;
@@ -40,7 +40,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequiredArgsConstructor
 @RequestMapping("/agent")
 public class AgentController {
-  private final AgentService agents;
+  private final AgentConversationService agents;
 
   @GetMapping("/models")
   public Res<ItemList<AgentModelView>> models(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {

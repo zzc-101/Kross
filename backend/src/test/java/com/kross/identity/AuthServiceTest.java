@@ -6,7 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentLeaseService;
 import com.kross.api.ApiException;
 import com.kross.knowledge.KnowledgeClient;
 import com.kross.identity.dto.LoginRequest;
@@ -31,7 +31,7 @@ class AuthServiceTest {
         mock(IdentityService.class),
         mock(OrganizationAccess.class),
         passwords,
-        mock(AgentService.class),
+        mock(AgentLeaseService.class),
         mock(KnowledgeClient.class));
   }
 

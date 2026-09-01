@@ -1,6 +1,6 @@
 package com.kross.channel;
 
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentWorkerProtocolService;
 import com.kross.api.ApiException;
 import java.util.Map;
 import java.util.Optional;
@@ -15,7 +15,7 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 @Component
 @RequiredArgsConstructor
 public class AgentHandshakeInterceptor implements HandshakeInterceptor {
-  private final AgentService agents;
+  private final AgentWorkerProtocolService agents;
 
   @Override
   public boolean beforeHandshake(

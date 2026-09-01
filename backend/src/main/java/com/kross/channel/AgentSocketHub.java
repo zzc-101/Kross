@@ -1,7 +1,8 @@
 package com.kross.channel;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kross.agent.AgentService;
+import com.kross.agent.AgentLeaseService;
+import com.kross.agent.AgentWorkerProtocolService;
 import com.kross.agent.dto.AgentProtocol;
 import com.kross.api.ApiException;
 import java.io.IOException;
@@ -31,16 +32,21 @@ public class AgentSocketHub {
   public static final String ATTR_AGENT_ID = "agentId";
 
   private final ObjectMapper mapper;
-  private final AgentService agents;
+  private final AgentWorkerProtocolService agents;
+  private final AgentLeaseService leases;
   private final ConcurrentHashMap<String, SocketState> byAgent = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, String> sessionToAgent = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, PendingCommand> pending = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, CopyOnWriteArrayList<CompletableFuture<Void>>> connectWaiters =
       new ConcurrentHashMap<>();
 
-  public AgentSocketHub(ObjectMapper mapper, @Lazy AgentService agents) {
+  public AgentSocketHub(
+      ObjectMapper mapper,
+      @Lazy AgentWorkerProtocolService agents,
+      @Lazy AgentLeaseService leases) {
     this.mapper = mapper;
     this.agents = agents;
+    this.leases = leases;
   }
 
   public void attach(String agentId, String token, WebSocketSession session) {
@@ -188,7 +194,7 @@ public class AgentSocketHub {
     }
     if (release) {
       AgentProtocol.Job claimed = job.orElseThrow();
-      agents.releaseClaimedJob(agentId, claimed.id(), claimed.leaseId());
+      leases.releaseClaimedJob(agentId, claimed.id(), claimed.leaseId());
     }
   }
 

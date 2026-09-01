@@ -1,4 +1,8 @@
-# Control plane remains replicas: 1 until the in-process event bus is externalized.
+# Control-plane replicas. Keep 1 unless Redis is reachable from every pod:
+# SSE and worker job offers then fan out over Redis Pub/Sub (lossy; clients
+# reconnect and the final message snapshot is in Postgres). Redis outage
+# degrades each pod to in-process delivery, which is the single-replica path.
+# Workspace file RPC still needs the pod that holds that Worker WebSocket.
 replicaCount: 1
 
 namespace: kross
