@@ -58,6 +58,23 @@ Worker 不扫描 `/work` 或用户目录中的本地 Skill，也不提供本地 
 
 外部工具配置属于平台基础设施，由控制面下发到 Worker。普通用户不能编辑 transport、命令、环境变量或认证信息。网络及外部副作用必须经过固定审批策略。
 
+### 知识库 Agent 工具
+
+平台级开关复用 `platform_settings.knowledge_enabled`（管理中心「平台知识库」页与「平台设置」均可切换）。开启且知识服务就绪时，控制面在 `workerSettings()` 运行时合入 `knowledge` MCP server：
+
+| 字段 | 值 |
+|---|---|
+| `transport` | `streamable-http` |
+| `url` | `{KROSS_PUBLIC_BASE_URL}/mcp/knowledge` |
+| `risk` | `read`（免外部确认） |
+| `authorization` | `{ type: "bearer-env", env: "KROSS_AGENT_TOKEN" }` |
+
+Worker 容器创建时已注入 `KROSS_AGENT_TOKEN`，与 WebSocket 控制面协议共用同一 agent token。facade 按 token 解析组织，只检索该组织可访问的已发布文档；当前知识库文档仍入库平台空间 `platform`，组织专属 space 表结构已预留但尚未用于 ingest。
+
+关闭开关或 `KROSS_KNOWLEDGE_BASE_URL` 未配置 / 嵌入服务未就绪时，不注入该 server，已有会话在 Worker 下次拉取设置后不再注册 `knowledge_search`。
+
+Worker 的 Streamable HTTP 客户端允许 HTTP 访问本机、无点号的 Compose 服务名、Kubernetes `*.svc` / `*.cluster.local` 以及 RFC1918 地址，以便 `KROSS_PUBLIC_BASE_URL` 使用 `http://kross-server:8787` 这类内网地址；公网 HTTP 端点仍要求 HTTPS。
+
 ## 数据位置
 
 | 数据 | 位置 |

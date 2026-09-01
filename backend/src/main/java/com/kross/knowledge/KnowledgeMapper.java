@@ -9,6 +9,8 @@ import org.apache.ibatis.annotations.Param;
 
 @Mapper
 public interface KnowledgeMapper {
+  List<String> listSearchableSpaceIds(@Param("organizationId") String organizationId);
+
   void insertDocument(KnowledgeDocument row);
 
   Optional<KnowledgeDocument> findDocument(@Param("id") String id);

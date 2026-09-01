@@ -490,17 +490,47 @@ function validateEndpoint(value: string): URL {
     throw new Error('MCP HTTP endpoint cannot contain credentials or a fragment');
   }
   if (endpoint.protocol === 'https:') return endpoint;
-  if (
-    endpoint.protocol === 'http:' &&
-    (endpoint.hostname === 'localhost' ||
-      endpoint.hostname === '127.0.0.1' ||
-      endpoint.hostname === '[::1]')
-  ) {
+  if (endpoint.protocol === 'http:' && isPrivateHttpHost(endpoint.hostname)) {
     return endpoint;
   }
   throw new Error(
-    'MCP Streamable HTTP requires HTTPS except for localhost endpoints'
+    'MCP Streamable HTTP requires HTTPS except for localhost or private control-plane endpoints'
   );
+}
+
+function isPrivateHttpHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+    return true;
+  }
+  if (!host.includes('.')) {
+    return true;
+  }
+  if (
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.cluster.local') ||
+    host.includes('.svc.')
+  ) {
+    return true;
+  }
+  return isPrivateIpv4(host);
+}
+
+function isPrivateIpv4(host: string): boolean {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!match) return false;
+  const octets = match.slice(1, 5).map(Number);
+  if (octets.some((octet) => !Number.isInteger(octet) || octet > 255)) {
+    return false;
+  }
+  const a = octets[0] ?? 0;
+  const b = octets[1] ?? 0;
+  if (a === 10 || a === 127) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
 }
 
 function waitForRetry(ms: number, signal: AbortSignal): Promise<void> {

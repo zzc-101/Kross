@@ -33,6 +33,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class KnowledgeService {
   public static final String PLATFORM_SPACE_ID = "platform";
+  public static final int DEFAULT_TOP_K = 8;
   private static final int MAX_TEXT_BYTES = 2 * 1024 * 1024;
   private static final int MAX_BINARY_BYTES = 10 * 1024 * 1024;
   private static final Set<String> MARKDOWN_TYPES = Set.of(
@@ -61,17 +62,27 @@ public class KnowledgeService {
     return new KnowledgeStatusView(
         enabled,
         available,
-        enabled ? List.of(PLATFORM_SPACE_ID) : List.of());
+        enabled ? searchableSpaceIds(organizationId) : List.of());
   }
 
   public KnowledgeSearchView search(String organizationId, KnowledgeSearchRequest request) {
     access.require(organizationId, OrganizationAction.AGENT_READ);
-    requireEnabled();
     String query = Optional.ofNullable(request).map(KnowledgeSearchRequest::query).map(String::trim)
         .filter(value -> !value.isBlank())
         .orElseThrow(() -> ApiException.invalidRequest("query is required"));
-    int topK = Optional.ofNullable(request).map(KnowledgeSearchRequest::topK).orElse(8);
-    return client.search(query, List.of(PLATFORM_SPACE_ID), Math.min(Math.max(topK, 1), 20));
+    int topK = Optional.ofNullable(request).map(KnowledgeSearchRequest::topK).orElse(DEFAULT_TOP_K);
+    return searchPublished(organizationId, query, topK);
+  }
+
+  public KnowledgeSearchView searchPublished(String organizationId, String query, int topK) {
+    requireEnabled();
+    String trimmed = Optional.ofNullable(query).map(String::trim).filter(value -> !value.isBlank())
+        .orElseThrow(() -> ApiException.invalidRequest("query is required"));
+    List<String> spaceIds = searchableSpaceIds(organizationId);
+    if (spaceIds.isEmpty()) {
+      return new KnowledgeSearchView(List.of());
+    }
+    return client.search(trimmed, spaceIds, Math.min(Math.max(topK, 1), 20));
   }
 
   public PageResponse<KnowledgeDocumentView> listDocuments(int page, int pageSize) {
@@ -171,6 +182,15 @@ public class KnowledgeService {
 
   public boolean enabled() {
     return available() && identities.isKnowledgeEnabled();
+  }
+
+  private List<String> searchableSpaceIds(String organizationId) {
+    String orgId = Optional.ofNullable(organizationId).map(String::trim).filter(value -> !value.isBlank()).orElse("");
+    if (orgId.isBlank()) {
+      return List.of(PLATFORM_SPACE_ID);
+    }
+    List<String> ids = Optional.ofNullable(documents.listSearchableSpaceIds(orgId)).orElse(List.of());
+    return ids.isEmpty() ? List.of(PLATFORM_SPACE_ID) : List.copyOf(ids);
   }
 
   private void requireAvailable() {

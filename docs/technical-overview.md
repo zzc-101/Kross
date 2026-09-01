@@ -20,11 +20,11 @@ flowchart TB
 | `worker` | 成员容器中的控制面协议适配与会话宿主 |
 | `worker/core` | SaaS Runtime、上下文、工具、子任务与恢复 |
 | `deploy/local` | 单机 Compose 与容器镜像 |
-| `deploy/cluster` | k3s Helm chart（控制面单副本 + JuiceFS CSI 工作区） |
+| `deploy/cluster` | k3s Helm chart（控制面可多副本 + JuiceFS CSI 工作区） |
 
 依赖方向保持单向：Web 不引用 Core，Core 不依赖 Java 或 UI。
 
-控制面使用 Redis 缓存热点读（每请求的身份校验、组织/成员鉴权、Worker token 认证、模型与 Skill 目录），Redis 故障时自动回源 PostgreSQL，TTL 即集群下的一致性边界。详见[配置参考](configuration.md#缓存层)。
+控制面使用 Redis 缓存热点读（每请求的身份校验、组织/成员鉴权、Worker token 认证、模型与 Skill 目录），Redis 故障时自动回源 PostgreSQL，TTL 即集群下的一致性边界。SSE 与 Worker job offer 经 Redis Pub/Sub 跨副本扇出，故障时降级为进程内投递。详见[配置参考](configuration.md#缓存层)。
 
 ## 唯一 Runtime
 
@@ -51,6 +51,8 @@ flowchart TB
 Runtime 不注册 Shell、Git、Patch、后台进程或代码验证工具。Task 子任务最多一层，使用同一工作区和 Skill；调查子任务只读，执行子任务只额外获得 Write/Edit。
 
 受管外部工具可以由平台连接，但仍通过 Tool Gateway。工作区 read/write 自动允许；network 和未知副作用要求确认。调度器只并发独立只读调用，写入与外部调用保持有序。
+
+知识库是可选的受管 MCP 插件。平台开启知识库且知识服务就绪时，控制面在 Worker 设置中运行时合入 `knowledge` server（`transport: streamable-http`，`risk: read`），不写入 `AgentSettings`。Worker 用已持有的 `KROSS_AGENT_TOKEN` 调用控制面 `/mcp/knowledge`，只暴露 MCP 工具 `knowledge_search`（注册到 Tool Gateway 的名称为 `knowledge__knowledge_search`，只读免确认）；space 范围由控制面按组织解析，调用方不能指定任意 spaceId。关闭开关或知识服务不可用时，该条目不会下发，会话其余工具不受影响。ingest / publish 仍走管理端 REST，不作为 Agent 工具。
 
 ## 结果与恢复
 

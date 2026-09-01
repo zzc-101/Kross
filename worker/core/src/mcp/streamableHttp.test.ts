@@ -20,6 +20,27 @@ afterEach(async () => {
 });
 
 describe('StreamableHttpTransport', () => {
+  it('allows HTTP to private control-plane hostnames used by Worker containers', () => {
+    expect(
+      () =>
+        new StreamableHttpTransport({
+          endpoint: 'http://kross-server:8787/mcp/knowledge'
+        })
+    ).not.toThrow();
+    expect(
+      () =>
+        new StreamableHttpTransport({
+          endpoint: 'http://server.kross.svc.cluster.local:8787/mcp/knowledge'
+        })
+    ).not.toThrow();
+    expect(
+      () =>
+        new StreamableHttpTransport({
+          endpoint: 'http://mcp.example.com/mcp'
+        })
+    ).toThrow(/HTTPS/);
+  });
+
   it('registers remote tools with auth, reconnects sessions, resumes SSE, and deletes sessions', async () => {
     const fixture = await startFixtureServer();
     cleanups.push(fixture.close);

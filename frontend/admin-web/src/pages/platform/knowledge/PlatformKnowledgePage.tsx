@@ -1,17 +1,19 @@
 import { useState } from 'react';
 import { BookOutlined, CloudUploadOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Button, Form, Input, Modal, Space, Table, Tag, Typography, Upload } from 'antd';
+import { App, Button, Card, Form, Input, Modal, Space, Switch, Table, Tag, Typography, Upload } from 'antd';
 import type { UploadFile } from 'antd';
 import { AdminApiClient } from '../../../apiClient';
 import type { KnowledgeDocument } from '../../../contracts';
 import { Page } from '../../../components/Page';
 import { RefreshButton } from '../../../components/RefreshButton';
 import { ResourceState } from '../../../components/ResourceState';
+import { SettingRow } from '../../../components/SettingRow';
 import { useResource } from '../../../hooks/useResource';
 import { formatDate } from '../../../utils/format';
 
 export function PlatformKnowledgePage({ api }: { api: AdminApiClient }) {
   const documents = useResource(() => api.knowledgeDocuments().then((page) => page.items), [api]);
+  const platform = useResource(() => api.platform(), [api]);
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File>();
@@ -46,13 +48,43 @@ export function PlatformKnowledgePage({ api }: { api: AdminApiClient }) {
       subtitle="上传 Markdown、PDF、Word 或图片到平台空间。未发布的切片不会进入检索。"
       action={
         <Space>
-          <RefreshButton onClick={documents.reload} />
+          <RefreshButton
+            onClick={() => {
+              documents.reload();
+              platform.reload();
+            }}
+          />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
             上传文档
           </Button>
         </Space>
       }
     >
+      <Card title="知识库 Agent 工具" style={{ marginBottom: 20 }}>
+        <ResourceState state={platform}>
+          {(settings) => (
+            <SettingRow
+              title="向会话注入知识库检索"
+              description={
+                settings.knowledgeAvailable
+                  ? '开启后，成员新会话可通过 knowledge_search 检索已发布文档，且不要求外部确认。关闭或知识服务不可用时，该工具不会出现在会话中。'
+                  : '知识库需要 GPU 本机向量，或配置远程向量服务（KNOWLEDGE_EMBEDDING_BASE_URL）后才能启用。'
+              }
+            >
+              <Switch
+                checked={settings.knowledgeEnabled}
+                disabled={!settings.knowledgeAvailable}
+                onChange={(checked) =>
+                  void api
+                    .updatePlatform({ knowledgeEnabled: checked })
+                    .then(platform.setData)
+                    .then(() => message.success('知识库 Agent 工具开关已更新'))
+                }
+              />
+            </SettingRow>
+          )}
+        </ResourceState>
+      </Card>
       <ResourceState state={documents} empty="还没有知识文档。">
         {(items) => (
           <Table
@@ -145,7 +177,7 @@ function fileOf(file: UploadFile | File) {
 }
 
 function documentKind(row: KnowledgeDocument) {
-  const mime = (row.mime || '').split(';', 1)[0].trim().toLowerCase();
+  const mime = (row.mime || '').split(';', 1)[0]?.trim().toLowerCase() ?? '';
   const name = (row.filename || '').toLowerCase();
   if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/.test(name)) return '图片';
   if (mime === 'application/pdf' || name.endsWith('.pdf')) return 'PDF';

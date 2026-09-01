@@ -1,3 +1,4 @@
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -338,4 +339,138 @@ describe('connectAndRegisterMcpTools', () => {
       rmSync(homeDir, { recursive: true, force: true });
     }
   });
+
+  it('registers knowledge_search from a streamable-http server as read risk', async () => {
+    const fixture = await startKnowledgeFixtureServer();
+    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-knowledge-'));
+    try {
+      const kross = join(homeDir, '.kross');
+      mkdirSync(kross, { recursive: true });
+      writeFileSync(
+        join(kross, 'mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            knowledge: {
+              transport: 'streamable-http',
+              url: fixture.endpoint,
+              risk: 'read',
+              authorization: {
+                type: 'bearer-env',
+                env: 'KROSS_AGENT_TOKEN'
+              }
+            }
+          }
+        })
+      );
+
+      const gateway = new ToolGateway();
+      const manager = await connectAndRegisterMcpTools(gateway, {
+        homeDir,
+        env: { KROSS_AGENT_TOKEN: 'agent-token' }
+      });
+      try {
+        expect(manager.snapshot().results[0]?.error).toBeUndefined();
+        expect(manager.snapshot().registeredToolNames).toContain(
+          'knowledge__knowledge_search'
+        );
+        const tool = gateway
+          .listTools()
+          .find((item) => item.name === 'knowledge__knowledge_search');
+        expect(tool?.risk).toBe('read');
+      } finally {
+        await manager.close();
+      }
+    } finally {
+      await fixture.close();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
 });
+
+async function startKnowledgeFixtureServer(): Promise<{
+  endpoint: string;
+  close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    void handleKnowledgeFixture(request, response);
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('missing knowledge fixture server address');
+  }
+  return {
+    endpoint: `http://127.0.0.1:${address.port}/mcp/knowledge`,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      })
+  };
+}
+
+async function handleKnowledgeFixture(
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<void> {
+  if (request.method === 'DELETE') {
+    response.writeHead(204).end();
+    return;
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const message = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+    id?: number;
+    method?: string;
+  };
+  if (message.method === 'initialize') {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: message.id,
+        result: {
+          protocolVersion: '2025-11-25',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'kross-knowledge', version: '1.0.0' }
+        }
+      })
+    );
+    return;
+  }
+  if (message.method === 'notifications/initialized') {
+    response.writeHead(202).end();
+    return;
+  }
+  if (message.method === 'tools/list') {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: message.id,
+        result: {
+          tools: [
+            {
+              name: 'knowledge_search',
+              description: 'Search published knowledge documents',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string' },
+                  topK: { type: 'integer' }
+                },
+                required: ['query']
+              },
+              annotations: { readOnlyHint: true }
+            }
+          ]
+        }
+      })
+    );
+    return;
+  }
+  response.writeHead(400).end();
+}
