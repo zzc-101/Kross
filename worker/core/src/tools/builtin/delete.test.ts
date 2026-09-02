@@ -10,7 +10,7 @@ import { createDeleteTool } from './delete';
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-del-'));
+  root = await mkdtemp(join(tmpdir(), 'app-del-'));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });

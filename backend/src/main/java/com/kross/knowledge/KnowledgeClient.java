@@ -4,7 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.kross.api.ApiException;
-import com.kross.config.KrossProperties;
+import com.kross.api.ApiHeaders;
+import com.kross.config.AppProperties;
 import com.kross.knowledge.dto.KnowledgeHitView;
 import com.kross.knowledge.dto.KnowledgeSearchView;
 import java.net.URI;
@@ -21,9 +22,9 @@ import org.springframework.stereotype.Component;
 public class KnowledgeClient {
   private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
   private final ObjectMapper mapper;
-  private final KrossProperties properties;
+  private final AppProperties properties;
 
-  public KnowledgeClient(ObjectMapper mapper, KrossProperties properties) {
+  public KnowledgeClient(ObjectMapper mapper, AppProperties properties) {
     this.mapper = mapper.copy().setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
     this.properties = properties;
   }
@@ -89,7 +90,7 @@ public class KnowledgeClient {
           .header("accept", "application/json")
           .header("content-type", "application/json")
           .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body), StandardCharsets.UTF_8));
-      tokenHeader().ifPresent(token -> builder.header("x-kross-knowledge-token", token));
+      tokenHeader().ifPresent(token -> builder.header(ApiHeaders.KNOWLEDGE_TOKEN, token));
       HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
       if (response.statusCode() >= 400) {
         throw new ApiException("knowledge_upstream_failed", "Knowledge service rejected the request",
@@ -109,7 +110,7 @@ public class KnowledgeClient {
           .timeout(Duration.ofSeconds(10))
           .header("accept", "application/json")
           .GET();
-      tokenHeader().ifPresent(token -> builder.header("x-kross-knowledge-token", token));
+      tokenHeader().ifPresent(token -> builder.header(ApiHeaders.KNOWLEDGE_TOKEN, token));
       HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
       if (response.statusCode() == 404) {
         throw ApiException.notFound("Knowledge job");

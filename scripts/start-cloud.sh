@@ -88,25 +88,25 @@ ensure_env() {
     cp "$ENV_EXAMPLE" "$ENV_FILE"
     echo "已根据 .env.example 创建 .env。"
   fi
-  ensure_secret KROSS_POSTGRES_PASSWORD
-  ensure_secret KROSS_CREDENTIAL_MASTER_KEY
-  ensure_secret KROSS_S3_SECRET_KEY
+  ensure_secret APP_POSTGRES_PASSWORD
+  ensure_secret APP_CREDENTIAL_MASTER_KEY
+  ensure_secret APP_S3_SECRET_KEY
 }
 
 validate_single_node_env() {
-  runtime=$(read_env_value KROSS_WORKER_RUNTIME)
-  storage=$(read_env_value KROSS_WORKER_STORAGE)
+  runtime=$(read_env_value APP_WORKER_RUNTIME)
+  storage=$(read_env_value APP_WORKER_STORAGE)
   if [ -z "$runtime" ]; then runtime=local; fi
   if [ -z "$storage" ]; then storage=local; fi
   if [ "$runtime" != "local" ] || [ "$storage" != "local" ]; then
-    echo "错误：start-cloud.sh 启动的是单机 Compose，但 .env 当前为 KROSS_WORKER_RUNTIME=$runtime、KROSS_WORKER_STORAGE=$storage。" >&2
-    echo "请改为 KROSS_WORKER_RUNTIME=local、KROSS_WORKER_STORAGE=local；多机请按部署文档使用 k3s 与 helm install deploy/cluster。" >&2
+    echo "错误：start-cloud.sh 启动的是单机 Compose，但 .env 当前为 APP_WORKER_RUNTIME=$runtime、APP_WORKER_STORAGE=$storage。" >&2
+    echo "请改为 APP_WORKER_RUNTIME=local、APP_WORKER_STORAGE=local；多机请按部署文档使用 k3s 与 helm install deploy/cluster。" >&2
     exit 1
   fi
 }
 
 wait_for_web() {
-  port=$(read_env_value KROSS_PORT)
+  port=$(read_env_value APP_PORT)
   if [ -z "$port" ]; then port=8787; fi
   attempt=0
   while [ "$attempt" -lt 60 ]; do
@@ -145,7 +145,7 @@ case "$command" in
     echo "正在启动 SaaS Work Agent……"
     compose up -d --remove-orphans web
     wait_for_web
-    port=$(read_env_value KROSS_PORT)
+    port=$(read_env_value APP_PORT)
     if [ -z "$port" ]; then port=8787; fi
     echo "SaaS Work Agent 用户端已启动：http://localhost:$port"
     echo "SaaS Work Agent 管理端已启动：http://localhost:$port/admin/"

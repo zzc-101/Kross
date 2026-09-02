@@ -38,11 +38,11 @@ export class MutationService {
   readonly workspaceRoot: string;
   readonly journal: MutationJournal;
 
-  constructor(workspaceRoot: string, krossHome: string) {
+  constructor(workspaceRoot: string, appHome: string) {
     this.workspaceRoot = existsSync(workspaceRoot)
       ? realpathSync(workspaceRoot)
       : resolve(workspaceRoot);
-    this.journal = new MutationJournal(this.workspaceRoot, krossHome);
+    this.journal = new MutationJournal(this.workspaceRoot, appHome);
     this.recoverIncomplete();
   }
 
@@ -204,7 +204,7 @@ export class MutationService {
 export class MutationCoordinator {
   private readonly services = new Map<string, MutationService>();
 
-  constructor(private readonly krossHome: string) {}
+  constructor(private readonly appHome: string) {}
 
   forWorkspace(workspaceRoot: string): MutationService {
     const canonical = existsSync(workspaceRoot)
@@ -212,7 +212,7 @@ export class MutationCoordinator {
       : resolve(workspaceRoot);
     let service = this.services.get(canonical);
     if (!service) {
-      service = new MutationService(canonical, this.krossHome);
+      service = new MutationService(canonical, this.appHome);
       this.services.set(canonical, service);
     }
     return service;

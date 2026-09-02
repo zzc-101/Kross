@@ -10,7 +10,7 @@ import { createReadTool } from './read';
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-read-'));
+  root = await mkdtemp(join(tmpdir(), 'app-read-'));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -57,7 +57,7 @@ describe('Read', () => {
   });
 
   it('rejects symlinks that resolve outside workspace', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'kross-read-outside-'));
+    const outside = await mkdtemp(join(tmpdir(), 'app-read-outside-'));
     try {
       await writeFile(join(outside, 'secret.txt'), 'secret');
       await symlink(join(outside, 'secret.txt'), join(root, 'secret-link.txt'));

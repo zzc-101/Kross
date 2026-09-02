@@ -52,7 +52,7 @@ Runtime 不注册 Shell、Git、Patch、后台进程或代码验证工具。Task
 
 受管外部工具可以由平台连接，但仍通过 Tool Gateway。工作区 read/write 自动允许；network 和未知副作用要求确认。调度器只并发独立只读调用，写入与外部调用保持有序。
 
-知识库是可选的受管 MCP 插件。平台开启知识库且知识服务就绪时，控制面在 Worker 设置中运行时合入 `knowledge` server（`transport: streamable-http`，`risk: read`），不写入 `AgentSettings`。Worker 用已持有的 `KROSS_AGENT_TOKEN` 调用控制面 `/mcp/knowledge`，只暴露 MCP 工具 `knowledge_search`（注册到 Tool Gateway 的名称为 `knowledge__knowledge_search`，只读免确认）；space 范围由控制面按组织解析，调用方不能指定任意 spaceId。关闭开关或知识服务不可用时，该条目不会下发，会话其余工具不受影响。ingest / publish 仍走管理端 REST，不作为 Agent 工具。
+知识库是可选的受管 MCP 插件。平台开启知识库且知识服务就绪时，控制面在 Worker 设置中运行时合入 `knowledge` server（`transport: streamable-http`，`risk: read`），不写入 `AgentSettings`。Worker 用已持有的 `APP_AGENT_TOKEN` 调用控制面 `/mcp/knowledge`，只暴露 MCP 工具 `knowledge_search`（注册到 Tool Gateway 的名称为 `knowledge__knowledge_search`，只读免确认）；space 范围由控制面按组织解析，调用方不能指定任意 spaceId。关闭开关或知识服务不可用时，该条目不会下发，会话其余工具不受影响。ingest / publish 仍走管理端 REST，不作为 Agent 工具。
 
 ## 结果与恢复
 

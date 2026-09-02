@@ -50,8 +50,8 @@ type MessagePart =
 export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
   await ensureWorkspaceLayout(options.workspaceRoot);
   const log = createWorkerLogger({
-    agentId: options.processEnv.KROSS_AGENT_ID,
-    nodeId: options.processEnv.KROSS_NODE_ID
+    agentId: options.processEnv.APP_AGENT_ID,
+    nodeId: options.processEnv.APP_NODE_ID
   });
   const registered = await options.transport.register();
   log.info('Worker registered', { idleMs: registered.idleMs });

@@ -11,7 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.kross.channel.AgentSocketHub;
 import com.kross.channel.WorkerOfferBus;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.identity.OrganizationAccess;
 import com.kross.orchestrator.ContainerBackend;
 import java.time.Instant;
@@ -31,7 +31,7 @@ class AgentLeaseServiceTest {
   void setUp() {
     mapper = mock(AgentMapper.class);
     offers = mock(WorkerOfferBus.class);
-    KrossProperties properties = new KrossProperties();
+    AppProperties properties = new AppProperties();
     service = new AgentLeaseService(
         mapper,
         mock(OrganizationAccess.class),

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-const KEY = 'kross.conversation-id';
+const KEY = 'app.conversation-id';
 
 export function useConversationRoute() {
   const [conversationId, setConversationIdState] = useState<string | undefined>(() => {

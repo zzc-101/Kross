@@ -1,7 +1,7 @@
 package com.kross.storage;
 
 import com.kross.api.ApiException;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -33,12 +33,12 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
 public class ObjectStorage {
   public enum Audience { INTERNAL, PUBLIC }
 
-  private final KrossProperties.S3 properties;
+  private final AppProperties.S3 properties;
   private final S3Client client;
   private final S3Presigner internalPresigner;
   private final S3Presigner publicPresigner;
 
-  public ObjectStorage(KrossProperties properties) {
+  public ObjectStorage(AppProperties properties) {
     this.properties = properties.getS3();
     AwsBasicCredentials credentials =
         AwsBasicCredentials.create(this.properties.getAccessKey(), this.properties.getSecretKey());

@@ -9,7 +9,7 @@ import httpx
 
 from settings import Settings
 
-log = logging.getLogger("kross.knowledge.embedding")
+log = logging.getLogger("knowledge.embedding")
 
 DOCUMENT_INSTRUCTION = "Represent this document for retrieval"
 

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import type { KrossHomeOptions } from '../config/krossPaths';
+import type { AppHomeOptions } from '../config/appPaths';
 import type { McpServerConfig, McpServersConfig } from './types';
 import type { ToolRisk } from '../tools/toolGateway';
 
@@ -20,7 +20,7 @@ const RESERVED_HTTP_HEADERS = new Set([
   'mcp-session-id'
 ]);
 
-export interface LoadMcpConfigOptions extends KrossHomeOptions {
+export interface LoadMcpConfigOptions extends AppHomeOptions {
   /** Optional absolute path override for mcp.json */
   mcpConfigPath?: string;
 }
@@ -41,9 +41,9 @@ export function resolveMcpConfigPath(
   if (options.mcpConfigPath) {
     return options.mcpConfigPath;
   }
-  const krossRoot =
-    options.krossHome ?? join(options.homeDir ?? homedir(), '.kross');
-  return join(krossRoot, 'mcp.json');
+  const appRoot =
+    options.appHome ?? join(options.homeDir ?? homedir(), '.kross');
+  return join(appRoot, 'mcp.json');
 }
 
 function readMcpJson(options: LoadMcpConfigOptions): unknown {

@@ -8,7 +8,7 @@ export function resolveModelContextWindow(
   catalogWindow?: number
 ): number {
   const override = parsePositiveInt(
-    env.AGENT_CONTEXT_WINDOW ?? env.KROSS_CONTEXT_WINDOW
+    env.AGENT_CONTEXT_WINDOW ?? env.APP_CONTEXT_WINDOW
   );
   if (override !== undefined) {
     return override;

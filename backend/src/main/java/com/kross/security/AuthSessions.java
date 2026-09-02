@@ -11,7 +11,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 
 public final class AuthSessions {
-  static final String IDENTITY_ATTR = "kross.identity";
+  static final String IDENTITY_ATTR = "app.identity";
 
   private AuthSessions() {}
 

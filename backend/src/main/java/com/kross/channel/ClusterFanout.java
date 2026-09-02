@@ -30,8 +30,8 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class ClusterFanout implements InitializingBean, DisposableBean {
-  public static final String CHANNEL_EVENTS = "kross:bus:channel";
-  public static final String WORKER_OFFER = "kross:bus:worker-offer";
+  public static final String CHANNEL_EVENTS = "app:bus:channel";
+  public static final String WORKER_OFFER = "app:bus:worker-offer";
 
   private final String instanceId = UUID.randomUUID().toString();
   private final ObjectMapper mapper;

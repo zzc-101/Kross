@@ -16,7 +16,7 @@ import com.kross.channel.AgentSocketHub;
 import com.kross.channel.ChannelEvent;
 import com.kross.channel.MessageParts;
 import com.kross.channel.WorkerOfferBus;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.knowledge.KnowledgeMcpService;
 import com.kross.observability.RequestLogContext;
 import java.time.Instant;
@@ -38,7 +38,7 @@ public class AgentWorkerProtocolService {
 
   private final AgentMapper agents;
   private final CredentialVault vault;
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final AgentSocketHub sockets;
   private final WorkerOfferBus offers;
   private final ObjectMapper mapper;

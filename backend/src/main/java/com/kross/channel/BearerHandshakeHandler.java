@@ -5,7 +5,7 @@ import java.util.Optional;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.support.DefaultHandshakeHandler;
 
-public class KrossBearerHandshakeHandler extends DefaultHandshakeHandler {
+public class BearerHandshakeHandler extends DefaultHandshakeHandler {
   @Override
   protected String selectProtocol(List<String> requestedProtocols, WebSocketHandler webSocketHandler) {
     return Optional.ofNullable(requestedProtocols).orElse(List.of()).stream()

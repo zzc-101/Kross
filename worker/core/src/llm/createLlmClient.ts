@@ -98,7 +98,7 @@ function createLlmClientFromCredentials(
   const thinkingEffort =
     credentials.thinkingEffort ??
     parseThinkingEffort(env.AGENT_THINKING_EFFORT) ??
-    parseThinkingEffort(env.KROSS_THINKING_EFFORT) ??
+    parseThinkingEffort(env.APP_THINKING_EFFORT) ??
     DEFAULT_THINKING_EFFORT;
 
   if (credentials.provider === 'anthropic') {

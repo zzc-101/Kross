@@ -1,6 +1,6 @@
 package com.kross.orchestrator;
 
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import java.nio.file.Files;
 import java.util.Locale;
 import java.util.Optional;
@@ -16,11 +16,11 @@ public enum WorkerStorageMode {
     return switch (value) {
       case "local" -> LOCAL;
       case "juicefs" -> JUICEFS;
-      default -> throw new IllegalArgumentException("Unknown KROSS_WORKER_STORAGE: " + raw);
+      default -> throw new IllegalArgumentException("Unknown APP_WORKER_STORAGE: " + raw);
     };
   }
 
-  public void validate(KrossProperties properties) {
+  public void validate(AppProperties properties) {
     if (this != JUICEFS) {
       return;
     }

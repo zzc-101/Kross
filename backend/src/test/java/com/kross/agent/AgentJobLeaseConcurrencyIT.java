@@ -17,20 +17,20 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 /**
  * Exercises PostgreSQL {@code FOR UPDATE SKIP LOCKED} — the uniqueness mechanism
- * behind {@code AgentMapper.claimJob}. Skipped unless {@code KROSS_IT_POSTGRES=1}.
+ * behind {@code AgentMapper.claimJob}. Skipped unless {@code APP_IT_POSTGRES=1}.
  *
  * <p>Prerequisite: a reachable Postgres (Compose {@code postgres} is enough).
- * Optional overrides: {@code KROSS_IT_POSTGRES_URL}, {@code KROSS_IT_POSTGRES_USER},
- * {@code KROSS_IT_POSTGRES_PASSWORD} (defaults {@code jdbc:postgresql://127.0.0.1:5432/kross},
- * {@code kross}, and {@code KROSS_POSTGRES_PASSWORD} or {@code kross}).
+ * Optional overrides: {@code APP_IT_POSTGRES_URL}, {@code APP_IT_POSTGRES_USER},
+ * {@code APP_IT_POSTGRES_PASSWORD} (defaults {@code jdbc:postgresql://127.0.0.1:5432/kross},
+ * {@code kross}, and {@code APP_POSTGRES_PASSWORD} or {@code kross}).
  */
-@EnabledIfEnvironmentVariable(named = "KROSS_IT_POSTGRES", matches = "1")
+@EnabledIfEnvironmentVariable(named = "APP_IT_POSTGRES", matches = "1")
 class AgentJobLeaseConcurrencyIT {
   @Test
   void skipLockedLetsOnlyOneSessionClaimTheRow() throws Exception {
-    String url = env("KROSS_IT_POSTGRES_URL", "jdbc:postgresql://127.0.0.1:5432/kross");
-    String user = env("KROSS_IT_POSTGRES_USER", "kross");
-    String password = env("KROSS_IT_POSTGRES_PASSWORD", "kross");
+    String url = env("APP_IT_POSTGRES_URL", "jdbc:postgresql://127.0.0.1:5432/kross");
+    String user = env("APP_IT_POSTGRES_USER", "kross");
+    String password = env("APP_IT_POSTGRES_PASSWORD", "kross");
     String table = "lease_it_" + UUID.randomUUID().toString().replace("-", "");
     try (Connection setup = DriverManager.getConnection(url, user, password);
          Statement ddl = setup.createStatement()) {

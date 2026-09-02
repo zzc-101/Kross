@@ -14,7 +14,7 @@ import com.github.dockerjava.api.model.Volume;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,7 +27,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnProperty(name = "kross.worker-runtime", havingValue = "local", matchIfMissing = true)
+@ConditionalOnProperty(name = "app.worker-runtime", havingValue = "local", matchIfMissing = true)
 public class DockerContainerBackend implements ContainerBackend {
   static final String LABEL_PREFIX = "dev.kross.agent";
   static final String AGENT_LABEL = LABEL_PREFIX + ".id";
@@ -35,9 +35,9 @@ public class DockerContainerBackend implements ContainerBackend {
   static final String VOLUME_LABEL = LABEL_PREFIX + ".volume";
 
   private final DockerClient docker;
-  private final KrossProperties properties;
+  private final AppProperties properties;
 
-  public DockerContainerBackend(KrossProperties properties) {
+  public DockerContainerBackend(AppProperties properties) {
     this.properties = properties;
     var config = DefaultDockerClientConfig.createDefaultConfigBuilder().build();
     var http = new ApacheDockerHttpClient.Builder()
@@ -101,10 +101,10 @@ public class DockerContainerBackend implements ContainerBackend {
     String containerId = docker.createContainerCmd(properties.getWorkerImage())
         .withName(names.containerName)
         .withEnv(
-            "KROSS_AGENT_ID=" + request.agentId(),
-            "KROSS_AGENT_TOKEN=" + request.agentToken(),
-            "KROSS_CONTROL_PLANE_URL=" + request.controlPlaneUrl(),
-            "KROSS_PHYSICAL_WORK_ROOT=/work")
+            "APP_AGENT_ID=" + request.agentId(),
+            "APP_AGENT_TOKEN=" + request.agentToken(),
+            "APP_CONTROL_PLANE_URL=" + request.controlPlaneUrl(),
+            "APP_PHYSICAL_WORK_ROOT=/work")
         .withLabels(labels)
         .withWorkingDir("/work")
         .withStopTimeout(15)

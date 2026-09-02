@@ -8,12 +8,12 @@ import { loadMcpServersConfig } from './config';
 
 describe('loadMcpServersConfig', () => {
   it('accepts bare server maps in mcp.json', () => {
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-bare-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-mcp-bare-'));
     try {
-      const kross = join(homeDir, '.kross');
-      mkdirSync(kross, { recursive: true });
+      const appHome = join(homeDir, '.kross');
+      mkdirSync(appHome, { recursive: true });
       writeFileSync(
-        join(kross, 'mcp.json'),
+        join(appHome, 'mcp.json'),
         JSON.stringify({
           demo: { command: 'npx', args: ['-y', 'fake'] }
         })
@@ -26,12 +26,12 @@ describe('loadMcpServersConfig', () => {
   });
 
   it('normalizes Streamable HTTP config and drops reserved secret headers', () => {
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-http-config-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-mcp-http-config-'));
     try {
-      const kross = join(homeDir, '.kross');
-      mkdirSync(kross, { recursive: true });
+      const appHome = join(homeDir, '.kross');
+      mkdirSync(appHome, { recursive: true });
       writeFileSync(
-        join(kross, 'mcp.json'),
+        join(appHome, 'mcp.json'),
         JSON.stringify({
           mcpServers: {
             remote: {

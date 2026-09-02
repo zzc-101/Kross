@@ -10,7 +10,7 @@ import { createEditTool } from './edit';
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-edit-'));
+  root = await mkdtemp(join(tmpdir(), 'app-edit-'));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });

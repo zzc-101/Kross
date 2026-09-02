@@ -21,19 +21,19 @@ afterEach(() => {
 });
 
 function createManagedHome(): string {
-  const homeDir = mkdtempSync(join(tmpdir(), 'kross-host-managed-home-'));
+  const homeDir = mkdtempSync(join(tmpdir(), 'app-host-managed-home-'));
   managedHomes.push(homeDir);
   return homeDir;
 }
 
 describe('createRuntimeOptionsFromEnv', () => {
   it('creates replacement runtimes over shared tooling and closes once', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-agent-host-'));
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-agent-host-home-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'app-agent-host-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-agent-host-home-'));
     const host = await createAgentHost({
       workspaceRoot: workspace,
       env: {},
-      config: { homeDir, krossHome: join(homeDir, '.kross') }
+      config: { homeDir, appHome: join(homeDir, '.kross') }
     });
     const closeSpy = vi.spyOn(host.tooling, 'close');
     try {
@@ -54,8 +54,8 @@ describe('createRuntimeOptionsFromEnv', () => {
   });
 
   it('dispatches redacted lifecycle hooks once at the shared host boundary', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-host-hooks-'));
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-host-hooks-home-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'app-host-hooks-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-host-hooks-home-'));
     const hook = vi.fn(async (_event: unknown) => undefined);
     const host = await createAgentHost({
       workspaceRoot: workspace,
@@ -112,7 +112,7 @@ describe('createRuntimeOptionsFromEnv', () => {
   });
 
   it('omits LLM client when provider env is not configured', () => {
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-runtime-home-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-runtime-home-'));
     try {
       const options = createRuntimeOptionsFromEnv(
         '/tmp/local-agent',

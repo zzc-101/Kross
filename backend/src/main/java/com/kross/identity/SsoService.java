@@ -2,7 +2,7 @@ package com.kross.identity;
 
 import com.kross.api.ApiException;
 import com.kross.catalog.CredentialVault;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.identity.dto.PlatformSsoView;
 import com.kross.identity.dto.UpdateSsoRequest;
 import com.kross.identity.entity.PlatformSettings;
@@ -26,17 +26,17 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Service
 @RequiredArgsConstructor
 public class SsoService {
-  static final String STATE_ATTR = "kross.sso.state";
-  static final String NONCE_ATTR = "kross.sso.nonce";
-  static final String VERIFIER_ATTR = "kross.sso.verifier";
-  static final String REDIRECT_ATTR = "kross.sso.redirect";
-  static final String RETURN_ATTR = "kross.sso.return";
+  static final String STATE_ATTR = "app.sso.state";
+  static final String NONCE_ATTR = "app.sso.nonce";
+  static final String VERIFIER_ATTR = "app.sso.verifier";
+  static final String REDIRECT_ATTR = "app.sso.redirect";
+  static final String RETURN_ATTR = "app.sso.return";
 
   private final IdentityMapper identities;
   private final AuthService auth;
   private final OidcClient oidc;
   private final CredentialVault vault;
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final SecureRandom random = new SecureRandom();
 
   public PlatformSsoView view() {

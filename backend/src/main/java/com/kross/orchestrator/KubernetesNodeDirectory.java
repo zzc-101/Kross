@@ -1,6 +1,6 @@
 package com.kross.orchestrator;
 
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.identity.dto.NodeHealthView;
 import io.fabric8.kubernetes.api.model.Node;
 import io.fabric8.kubernetes.api.model.NodeCondition;
@@ -19,9 +19,9 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "kross.worker-runtime", havingValue = "kubernetes")
+@ConditionalOnProperty(name = "app.worker-runtime", havingValue = "kubernetes")
 public class KubernetesNodeDirectory {
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final KubernetesRuntimeClient runtime;
 
   public List<NodeHealthView> listHealth() {

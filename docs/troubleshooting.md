@@ -18,7 +18,7 @@ docker compose version
 
 - 确认 IdP 回调地址与当前 Origin 一致。
 - Issuer 必须与 discovery 文档完全一致。
-- 更换 `KROSS_CREDENTIAL_MASTER_KEY` 后，旧 Client Secret 和模型密钥无法解密。
+- 更换 `APP_CREDENTIAL_MASTER_KEY` 后，旧 Client Secret 和模型密钥无法解密。
 - 启用 SSO 后普通用户只使用企业入口，超级管理员保留应急密码入口。
 
 ## 没有模型回复
@@ -47,7 +47,7 @@ docker compose version
 
 ## 集群 Worker 起不来
 
-- `KROSS_WORKER_RUNTIME` 必须是 `kubernetes`，且 `KROSS_WORKER_STORAGE=juicefs`。
+- `APP_WORKER_RUNTIME` 必须是 `kubernetes`，且 `APP_WORKER_STORAGE=juicefs`。
 - 控制面需要本命名空间的 Pod/PVC 权限；旧 Pod 未消失时唤醒会 fencing 超时。
 - JuiceFS CSI Driver 与 StorageClass `kross-juicefs` 必须已安装。
 - Ingress 对 `/internal/` 不可达是预期行为；Worker 应连 Service `server:8787`。

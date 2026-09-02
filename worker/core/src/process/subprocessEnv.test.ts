@@ -8,7 +8,7 @@ describe('buildSubprocessEnv', () => {
       HOME: '/home/node',
       PATH: '/usr/bin',
       OPENAI_API_KEY: 'secret',
-      KROSS_AGENT_TOKEN: 'agent-secret'
+      APP_AGENT_TOKEN: 'agent-secret'
     });
 
     expect(env).toEqual({ HOME: '/home/node', PATH: '/usr/bin' });

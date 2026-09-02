@@ -11,7 +11,7 @@ import { createSaasTools } from './index';
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-read-tools-'));
+  root = await mkdtemp(join(tmpdir(), 'app-read-tools-'));
 });
 
 afterEach(async () => {

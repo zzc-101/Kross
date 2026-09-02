@@ -61,10 +61,10 @@ export class MutationJournal {
 
   constructor(
     readonly workspaceRoot: string,
-    krossHome: string
+    appHome: string
   ) {
     const key = createHash('sha256').update(workspaceRoot).digest('hex').slice(0, 24);
-    this.workspaceDir = join(krossHome, 'mutations', key);
+    this.workspaceDir = join(appHome, 'mutations', key);
     this.blobsDir = join(this.workspaceDir, 'blobs');
     this.journalPath = join(this.workspaceDir, 'journal.jsonl');
     mkdirSync(this.blobsDir, { recursive: true });

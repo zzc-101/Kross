@@ -347,7 +347,7 @@ export class AdminApiClient {
   private async request<T>(path: string, schema: z.ZodType<T>, options: RequestOptions = {}): Promise<T> {
     const headers = new Headers({ accept: 'application/json' });
     if ((options.organization ?? true) && this.organizationId)
-      headers.set('x-kross-organization-id', this.organizationId);
+      headers.set('x-app-organization-id', this.organizationId);
     if (options.body !== undefined && !(options.body instanceof FormData))
       headers.set('content-type', 'application/json');
     const response = await this.fetcher(new URL(path, this.options.baseUrl ?? location.origin), {

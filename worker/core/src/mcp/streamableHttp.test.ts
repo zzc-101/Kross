@@ -44,7 +44,7 @@ describe('StreamableHttpTransport', () => {
   it('registers remote tools with auth, reconnects sessions, resumes SSE, and deletes sessions', async () => {
     const fixture = await startFixtureServer();
     cleanups.push(fixture.close);
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-http-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-mcp-http-'));
     cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
     mkdirSync(join(homeDir, '.kross'), { recursive: true });
     writeFileSync(
@@ -55,12 +55,12 @@ describe('StreamableHttpTransport', () => {
             transport: 'streamable-http',
             url: fixture.endpoint,
             headers: {
-              'X-Kross-Test': 'fixture',
+              'X-App-Test': 'fixture',
               Authorization: 'must-be-rejected'
             },
             authorization: {
               type: 'bearer-env',
-              env: 'KROSS_TEST_MCP_TOKEN'
+              env: 'APP_TEST_MCP_TOKEN'
             }
           }
         }
@@ -70,7 +70,7 @@ describe('StreamableHttpTransport', () => {
     const gateway = new ToolGateway();
     const manager = await connectAndRegisterMcpTools(gateway, {
       homeDir,
-      env: { KROSS_TEST_MCP_TOKEN: 'secret-token' }
+      env: { APP_TEST_MCP_TOKEN: 'secret-token' }
     });
     try {
       expect(manager.snapshot().results[0]?.error).toBeUndefined();
@@ -243,7 +243,7 @@ async function handleFixtureRequest(
   }
   if (
     request.headers.authorization === 'Bearer must-be-rejected' ||
-    request.headers['x-kross-test'] === undefined
+    request.headers['x-app-test'] === undefined
   ) {
     state.badAuthorizationHeader = true;
   }

@@ -10,7 +10,7 @@ import { createWriteTool } from './write';
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-write-'));
+  root = await mkdtemp(join(tmpdir(), 'app-write-'));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -60,7 +60,7 @@ describe('Write', () => {
   });
 
   it('rejects writes through symlinked directories outside workspace', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'kross-write-outside-'));
+    const outside = await mkdtemp(join(tmpdir(), 'app-write-outside-'));
     try {
       await symlink(outside, join(root, 'outside-link'));
 

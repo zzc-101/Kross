@@ -6,7 +6,7 @@ Kross 的用户配置由 Java 控制面管理；Worker 在每位成员的 `/work
 
 ## 平台模型
 
-超级管理员在管理中心登记显示名、Provider、模型 ID、上下文长度、API Key 和可选 Base URL。密钥用 `KROSS_CREDENTIAL_MASTER_KEY` 加密，接口不回显明文。普通会话使用平台当前可用模型。
+超级管理员在管理中心登记显示名、Provider、模型 ID、上下文长度、API Key 和可选 Base URL。密钥用 `APP_CREDENTIAL_MASTER_KEY` 加密，接口不回显明文。普通会话使用平台当前可用模型。
 
 支持的 Provider 环境变量包括：
 
@@ -32,9 +32,9 @@ Kross 只有一套 SaaS Runtime 和固定工具策略，不存在运行模式或
 
 ## 身份与组织
 
-- 默认使用 HttpOnly `KROSS_SESSION` Cookie。
+- 默认使用 HttpOnly `APP_SESSION` Cookie。
 - 超级管理员可配置 OIDC Issuer、Client ID 和 Client Secret。
-- `KROSS_DEV_IDENTITY=1` 只允许本机冒烟，生产必须关闭。
+- `APP_DEV_IDENTITY=1` 只允许本机冒烟，生产必须关闭。
 - 组织管理员管理本组织成员和已安装 Skill；平台模型由超级管理员维护。
 
 ## Skill
@@ -65,15 +65,15 @@ Worker 不扫描 `/work` 或用户目录中的本地 Skill，也不提供本地 
 | 字段 | 值 |
 |---|---|
 | `transport` | `streamable-http` |
-| `url` | `{KROSS_PUBLIC_BASE_URL}/mcp/knowledge` |
+| `url` | `{APP_PUBLIC_BASE_URL}/mcp/knowledge` |
 | `risk` | `read`（免外部确认） |
-| `authorization` | `{ type: "bearer-env", env: "KROSS_AGENT_TOKEN" }` |
+| `authorization` | `{ type: "bearer-env", env: "APP_AGENT_TOKEN" }` |
 
-Worker 容器创建时已注入 `KROSS_AGENT_TOKEN`，与 WebSocket 控制面协议共用同一 agent token。facade 按 token 解析组织，只检索该组织可访问的已发布文档；当前知识库文档仍入库平台空间 `platform`，组织专属 space 表结构已预留但尚未用于 ingest。
+Worker 容器创建时已注入 `APP_AGENT_TOKEN`，与 WebSocket 控制面协议共用同一 agent token。facade 按 token 解析组织，只检索该组织可访问的已发布文档；当前知识库文档仍入库平台空间 `platform`，组织专属 space 表结构已预留但尚未用于 ingest。
 
-关闭开关或 `KROSS_KNOWLEDGE_BASE_URL` 未配置 / 嵌入服务未就绪时，不注入该 server，已有会话在 Worker 下次拉取设置后不再注册 `knowledge_search`。
+关闭开关或 `APP_KNOWLEDGE_BASE_URL` 未配置 / 嵌入服务未就绪时，不注入该 server，已有会话在 Worker 下次拉取设置后不再注册 `knowledge_search`。
 
-Worker 的 Streamable HTTP 客户端允许 HTTP 访问本机、无点号的 Compose 服务名、Kubernetes `*.svc` / `*.cluster.local` 以及 RFC1918 地址，以便 `KROSS_PUBLIC_BASE_URL` 使用 `http://kross-server:8787` 这类内网地址；公网 HTTP 端点仍要求 HTTPS。
+Worker 的 Streamable HTTP 客户端允许 HTTP 访问本机、无点号的 Compose 服务名、Kubernetes `*.svc` / `*.cluster.local` 以及 RFC1918 地址，以便 `APP_PUBLIC_BASE_URL` 使用 `http://kross-server:8787` 这类内网地址；公网 HTTP 端点仍要求 HTTPS。
 
 ## 数据位置
 
@@ -103,5 +103,5 @@ Worker 的 Streamable HTTP 客户端允许 HTTP 访问本机、无点号的 Comp
 - **容错降级**：Redis 不可用时自动回源 PostgreSQL，请求不失败；恢复后自动重新启用。缓存是加速器，不是依赖项。
 - **一致性边界**：TTL 即集群下的收敛上界——封禁用户、改角色、撤销 Worker token 最迟一个 TTL 生效（60s / 30s）。模型和 Skill 目录在管理端写路径主动逐出，跨节点即时生效。
 - **安全边界**：密码哈希与凭据密文永不入缓存；Worker token 以哈希为 key。
-- **开关**：`KROSS_CACHE_ENABLED=false` 完全关闭缓存层（直连 PostgreSQL）。单机部署默认开启；集群部署建议保持开启。
+- **开关**：`APP_CACHE_ENABLED=false` 完全关闭缓存层（直连 PostgreSQL）。单机部署默认开启；集群部署建议保持开启。
 - 连接配置：`SPRING_DATA_REDIS_HOST` / `SPRING_DATA_REDIS_PORT` / `SPRING_DATA_REDIS_PASSWORD`；Compose 部署中 Redis 仅在内网 `kross-control` 网络内暴露，关闭持久化（纯缓存用途，重启后由控制面回源重建）。

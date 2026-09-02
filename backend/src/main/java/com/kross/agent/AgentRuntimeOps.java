@@ -11,7 +11,7 @@ import com.kross.agent.entity.AgentSettings;
 import com.kross.api.ApiException;
 import com.kross.channel.AgentSocketHub;
 import com.kross.channel.MessageParts;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.identity.OrganizationContext;
 import com.kross.observability.RequestLogContext;
 import com.kross.orchestrator.AgentNames;
@@ -43,7 +43,7 @@ class AgentRuntimeOps {
 
   private final AgentMapper agents;
   private final ContainerBackend containers;
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final AgentSocketHub sockets;
   private final ObjectMapper mapper;
   private final PlatformTransactionManager transactionManager;
@@ -201,7 +201,7 @@ class AgentRuntimeOps {
     agents.updateRuntime(agent);
     log.info("Starting agent workspace");
     try {
-      KrossProperties.Agent settings = properties.getAgent();
+      AppProperties.Agent settings = properties.getAgent();
       BackendHandle handle = containers.start(new ContainerBackend.StartRequest(
           agent.getId(),
           token,

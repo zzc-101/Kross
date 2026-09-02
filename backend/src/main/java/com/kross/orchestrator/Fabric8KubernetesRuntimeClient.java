@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "kross.worker-runtime", havingValue = "kubernetes")
+@ConditionalOnProperty(name = "app.worker-runtime", havingValue = "kubernetes")
 public class Fabric8KubernetesRuntimeClient implements KubernetesRuntimeClient {
   private final KubernetesClient client;
 

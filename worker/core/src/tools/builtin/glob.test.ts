@@ -16,7 +16,7 @@ import {
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-glob-'));
+  root = await mkdtemp(join(tmpdir(), 'app-glob-'));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });

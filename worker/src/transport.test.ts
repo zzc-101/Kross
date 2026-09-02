@@ -14,7 +14,7 @@ describe('WsAgentControlTransport', () => {
     await Promise.resolve();
     expect(sockets[0]?.url).toContain('/internal/v2/agents/ws');
     expect(sockets[0]?.url).not.toContain('token=');
-    expect(sockets[0]?.protocols).toEqual(['kross.bearer.short-token']);
+    expect(sockets[0]?.protocols).toEqual(['app.bearer.short-token']);
     expect(sockets[0]?.url.startsWith('wss://')).toBe(true);
     sockets[0]?.open();
     sockets[0]?.emit({

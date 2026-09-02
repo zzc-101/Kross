@@ -61,55 +61,55 @@ spec:
                 secretKeyRef:
                   name: kross-secrets
                   key: postgres-password
-            - name: KROSS_CREDENTIAL_MASTER_KEY
+            - name: APP_CREDENTIAL_MASTER_KEY
               valueFrom:
                 secretKeyRef:
                   name: kross-secrets
                   key: credential-master-key
-            - name: KROSS_PUBLIC_BASE_URL
-              value: {{ .Values.kross.publicBaseUrl | quote }}
-            - name: KROSS_EXTERNAL_BASE_URL
-              value: {{ .Values.kross.externalBaseUrl | quote }}
-            - name: KROSS_WORKER_IMAGE
+            - name: APP_PUBLIC_BASE_URL
+              value: {{ .Values.app.publicBaseUrl | quote }}
+            - name: APP_EXTERNAL_BASE_URL
+              value: {{ .Values.app.externalBaseUrl | quote }}
+            - name: APP_WORKER_IMAGE
               value: {{ .Values.images.worker | quote }}
-            - name: KROSS_WORKER_RUNTIME
-              value: {{ .Values.kross.workerRuntime | quote }}
-            - name: KROSS_WORKER_STORAGE
-              value: {{ .Values.kross.workerStorage | quote }}
-            - name: KROSS_KUBERNETES_NAMESPACE
+            - name: APP_WORKER_RUNTIME
+              value: {{ .Values.app.workerRuntime | quote }}
+            - name: APP_WORKER_STORAGE
+              value: {{ .Values.app.workerStorage | quote }}
+            - name: APP_KUBERNETES_NAMESPACE
               value: {{ include "kross.namespace" . | quote }}
-            - name: KROSS_KUBERNETES_STORAGE_CLASS
-              value: {{ .Values.kross.storageClass | quote }}
-            - name: KROSS_KUBERNETES_WORKSPACE_SIZE
-              value: {{ .Values.kross.workspaceSize | quote }}
-            - name: KROSS_CACHE_ENABLED
-              value: {{ .Values.kross.cacheEnabled | quote }}
+            - name: APP_KUBERNETES_STORAGE_CLASS
+              value: {{ .Values.app.storageClass | quote }}
+            - name: APP_KUBERNETES_WORKSPACE_SIZE
+              value: {{ .Values.app.workspaceSize | quote }}
+            - name: APP_CACHE_ENABLED
+              value: {{ .Values.app.cacheEnabled | quote }}
             - name: SPRING_DATA_REDIS_HOST
               value: redis
             - name: SPRING_DATA_REDIS_PORT
               value: "6379"
-            - name: KROSS_S3_ENDPOINT
+            - name: APP_S3_ENDPOINT
               value: http://minio:9000
-            - name: KROSS_S3_PUBLIC_ENDPOINT
-              value: {{ .Values.kross.externalBaseUrl | quote }}
-            - name: KROSS_S3_BUCKET
+            - name: APP_S3_PUBLIC_ENDPOINT
+              value: {{ .Values.app.externalBaseUrl | quote }}
+            - name: APP_S3_BUCKET
               value: kross
-            - name: KROSS_S3_ACCESS_KEY
+            - name: APP_S3_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: kross-secrets
                   key: s3-access-key
-            - name: KROSS_S3_SECRET_KEY
+            - name: APP_S3_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: kross-secrets
                   key: s3-secret-key
-            - name: KROSS_DEV_IDENTITY
+            - name: APP_DEV_IDENTITY
               value: "0"
             {{- if .Values.knowledge.enabled }}
-            - name: KROSS_KNOWLEDGE_BASE_URL
+            - name: APP_KNOWLEDGE_BASE_URL
               value: http://knowledge:8090
-            - name: KROSS_KNOWLEDGE_INTERNAL_TOKEN
+            - name: APP_KNOWLEDGE_INTERNAL_TOKEN
               value: {{ .Values.knowledge.internalToken | quote }}
             {{- end }}
           ports:

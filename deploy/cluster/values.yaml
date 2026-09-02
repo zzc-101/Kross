@@ -25,7 +25,7 @@ secrets:
   s3AccessKey: kross
   s3SecretKey: changeme-s3-secret
 
-kross:
+app:
   externalBaseUrl: http://localhost
   publicBaseUrl: http://server:8787
   workerRuntime: kubernetes

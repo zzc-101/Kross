@@ -52,10 +52,10 @@ public class CacheConfig {
   private static final Duration CATALOG_TTL = Duration.ofMinutes(5);
 
   @Bean
-  @ConditionalOnProperty(prefix = "kross.cache", name = "enabled", havingValue = "true", matchIfMissing = true)
+  @ConditionalOnProperty(prefix = "app.cache", name = "enabled", havingValue = "true", matchIfMissing = true)
   public CacheManager redisCacheManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
     RedisCacheConfiguration base = RedisCacheConfiguration.defaultCacheConfig()
-        .computePrefixWith(name -> "kross:cache:" + name + ":")
+        .computePrefixWith(name -> "app:cache:" + name + ":")
         .disableCachingNullValues();
 
     Map<String, RedisCacheConfiguration> caches = new LinkedHashMap<>();
@@ -77,7 +77,7 @@ public class CacheConfig {
   }
 
   @Bean
-  @ConditionalOnProperty(prefix = "kross.cache", name = "enabled", havingValue = "false")
+  @ConditionalOnProperty(prefix = "app.cache", name = "enabled", havingValue = "false")
   public CacheManager noOpCacheManager() {
     return new NoOpCacheManager();
   }

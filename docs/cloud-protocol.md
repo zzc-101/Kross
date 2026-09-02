@@ -22,7 +22,7 @@ SSE 发送通用 channel event。直播文本、思考和工具状态只做即�
 
 ## Worker WebSocket
 
-路径：`/internal/v2/agents/ws`。认证通过 `Sec-WebSocket-Protocol: kross.bearer.<token>` 或 `Authorization: Bearer`，不要把 token 放进 URL query。
+路径：`/internal/v2/agents/ws`。认证通过 `Sec-WebSocket-Protocol: app.bearer.<token>` 或 `Authorization: Bearer`，不要把 token 放进 URL query。
 
 当前协议版本由控制面注册响应提供。主要帧：
 

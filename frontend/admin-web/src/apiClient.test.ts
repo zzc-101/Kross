@@ -66,8 +66,8 @@ describe('AdminApiClient', () => {
     });
     api.selectOrganization('org-1');
     await api.dashboard();
-    expect(headers?.get('x-kross-user-id')).toBeNull();
-    expect(headers?.get('x-kross-organization-id')).toBe('org-1');
+    expect(headers?.get('x-app-user-id')).toBeNull();
+    expect(headers?.get('x-app-organization-id')).toBe('org-1');
     expect(credentials).toBe('include');
   });
 
@@ -142,7 +142,7 @@ describe('AdminApiClient', () => {
       defaultTimezone: 'Asia/Shanghai',
       adminUsername: 'devuser'
     });
-    expect(headers?.has('x-kross-organization-id')).toBe(false);
+    expect(headers?.has('x-app-organization-id')).toBe(false);
     expect(result.slug).toBe('kross');
     expect(body).toContain('devuser');
   });
@@ -161,7 +161,7 @@ describe('AdminApiClient', () => {
     api.selectOrganization('org-1');
     await api.models();
     expect(requestUrl).toContain('/api/v2/admin/platform/models');
-    expect(headers?.has('x-kross-organization-id')).toBe(false);
+    expect(headers?.has('x-app-organization-id')).toBe(false);
   });
 
   it('keeps organization token statistics inside the selected organization', async () => {
@@ -178,7 +178,7 @@ describe('AdminApiClient', () => {
     api.selectOrganization('org-1');
     await expect(api.organizationTokenUsage(30)).resolves.toMatchObject({ totalTokens: 1500 });
     expect(requestUrl).toContain('/api/v2/admin/token-usage?days=30');
-    expect(headers?.get('x-kross-organization-id')).toBe('org-1');
+    expect(headers?.get('x-app-organization-id')).toBe('org-1');
   });
 
   it('lets the platform token dashboard filter organizations without an organization header', async () => {
@@ -198,6 +198,6 @@ describe('AdminApiClient', () => {
       organizationId: null
     });
     expect(requestUrl).toContain('days=7&organizationId=org-2');
-    expect(headers?.has('x-kross-organization-id')).toBe(false);
+    expect(headers?.has('x-app-organization-id')).toBe(false);
   });
 });

@@ -13,7 +13,7 @@ import javax.crypto.spec.SecretKeySpec;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.kross.api.ApiException;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -24,7 +24,7 @@ public class CredentialVault {
   private final ObjectMapper mapper = new ObjectMapper();
   private final SecureRandom random = new SecureRandom();
 
-  public CredentialVault(KrossProperties properties) {
+  public CredentialVault(AppProperties properties) {
     String secret = Optional.ofNullable(properties.getCredentialMasterKey()).orElse("").trim();
     if (secret.length() < 32) {
       throw new ApiException(

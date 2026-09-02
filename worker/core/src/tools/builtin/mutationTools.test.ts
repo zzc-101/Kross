@@ -34,7 +34,7 @@ function context<T>(runId: string, toolName: string, input: T) {
 
 describe('journaled builtin mutation tools', () => {
   it('can undo Write, Edit, Delete and Move including directory contents', async () => {
-    temp = mkdtempSync(join(tmpdir(), 'kross-mutation-tools-'));
+    temp = mkdtempSync(join(tmpdir(), 'app-mutation-tools-'));
     const workspace = join(temp, 'workspace');
     mkdirSync(workspace);
     const mutations = new MutationService(workspace, join(temp, 'home'));

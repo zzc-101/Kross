@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@ConditionalOnProperty(name = "kross.worker-runtime", havingValue = "kubernetes")
+@ConditionalOnProperty(name = "app.worker-runtime", havingValue = "kubernetes")
 public class KubernetesClientConfig {
   @Bean(destroyMethod = "close")
   KubernetesClient kubernetesClient() {

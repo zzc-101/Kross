@@ -6,8 +6,8 @@ services:
       context: knowledge
       dockerfile: Dockerfile
     environment:
-      KNOWLEDGE_INTERNAL_TOKEN: ${KROSS_KNOWLEDGE_INTERNAL_TOKEN:-}
-      KNOWLEDGE_DATABASE_URL: postgresql://kross:${KROSS_POSTGRES_PASSWORD}@postgres:5432/kross
+      KNOWLEDGE_INTERNAL_TOKEN: ${APP_KNOWLEDGE_INTERNAL_TOKEN:-}
+      KNOWLEDGE_DATABASE_URL: postgresql://kross:${APP_POSTGRES_PASSWORD}@postgres:5432/kross
       KNOWLEDGE_EMBEDDING_PROVIDER: ${KNOWLEDGE_EMBEDDING_PROVIDER:-auto}
       KNOWLEDGE_EMBEDDING_BASE_URL: ${KNOWLEDGE_EMBEDDING_BASE_URL:-}
       KNOWLEDGE_EMBEDDING_API_KEY: ${KNOWLEDGE_EMBEDDING_API_KEY:-}
@@ -38,8 +38,8 @@ services:
 
   server:
     environment:
-      KROSS_KNOWLEDGE_BASE_URL: http://knowledge:8090
-      KROSS_KNOWLEDGE_INTERNAL_TOKEN: ${KROSS_KNOWLEDGE_INTERNAL_TOKEN:-}
+      APP_KNOWLEDGE_BASE_URL: http://knowledge:8090
+      APP_KNOWLEDGE_INTERNAL_TOKEN: ${APP_KNOWLEDGE_INTERNAL_TOKEN:-}
     depends_on:
       knowledge:
         condition: service_healthy

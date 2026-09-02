@@ -14,10 +14,10 @@ export interface WorkerMainConfig {
 
 export function parseWorkerMainConfig(env: Record<string, string | undefined>): WorkerMainConfig {
   return {
-    agentId: required(env, 'KROSS_AGENT_ID'),
-    agentToken: required(env, 'KROSS_AGENT_TOKEN'),
-    controlPlaneUrl: required(env, 'KROSS_CONTROL_PLANE_URL'),
-    physicalWorkRoot: required(env, 'KROSS_PHYSICAL_WORK_ROOT')
+    agentId: required(env, 'APP_AGENT_ID'),
+    agentToken: required(env, 'APP_AGENT_TOKEN'),
+    controlPlaneUrl: required(env, 'APP_CONTROL_PLANE_URL'),
+    physicalWorkRoot: required(env, 'APP_PHYSICAL_WORK_ROOT')
   };
 }
 
@@ -62,7 +62,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     process.exitCode = await runWorkerMain();
   } catch (error) {
-    createWorkerLogger({ agentId: process.env.KROSS_AGENT_ID }).error(
+    createWorkerLogger({ agentId: process.env.APP_AGENT_ID }).error(
       error instanceof Error ? error.message : String(error)
     );
     process.exitCode = 1;

@@ -1,7 +1,7 @@
 package com.kross.orchestrator;
 
 import com.kross.api.ApiException;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import io.fabric8.kubernetes.api.model.ContainerBuilder;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
@@ -26,9 +26,9 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "kross.worker-runtime", havingValue = "kubernetes")
+@ConditionalOnProperty(name = "app.worker-runtime", havingValue = "kubernetes")
 public class KubernetesContainerBackend implements ContainerBackend {
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final KubernetesRuntimeClient runtime;
 
   @Override
@@ -38,7 +38,7 @@ public class KubernetesContainerBackend implements ContainerBackend {
     if (runtime.getPvc(namespace, pvcName).isPresent()) {
       return;
     }
-    KrossProperties.Kubernetes kubernetes = properties.getKubernetes();
+    AppProperties.Kubernetes kubernetes = properties.getKubernetes();
     PersistentVolumeClaim claim = new PersistentVolumeClaimBuilder()
         .withNewMetadata()
         .withName(pvcName)
@@ -124,12 +124,12 @@ public class KubernetesContainerBackend implements ContainerBackend {
         .withImage(properties.getWorkerImage())
         .withImagePullPolicy("IfNotPresent")
         .withEnv(List.of(
-            new EnvVar("KROSS_AGENT_ID", agentId, null),
-            new EnvVar("KROSS_AGENT_TOKEN", request.agentToken(), null),
-            new EnvVar("KROSS_CONTROL_PLANE_URL", request.controlPlaneUrl(), null),
-            new EnvVar("KROSS_PHYSICAL_WORK_ROOT", "/work", null),
+            new EnvVar("APP_AGENT_ID", agentId, null),
+            new EnvVar("APP_AGENT_TOKEN", request.agentToken(), null),
+            new EnvVar("APP_CONTROL_PLANE_URL", request.controlPlaneUrl(), null),
+            new EnvVar("APP_PHYSICAL_WORK_ROOT", "/work", null),
             new io.fabric8.kubernetes.api.model.EnvVarBuilder()
-                .withName("KROSS_NODE_ID")
+                .withName("APP_NODE_ID")
                 .withNewValueFrom()
                 .withNewFieldRef()
                 .withFieldPath("spec.nodeName")

@@ -13,7 +13,7 @@ public class AgentScheduler {
   private final AgentLeaseService agents;
   private final AtomicBoolean running = new AtomicBoolean(false);
 
-  @Scheduled(fixedDelayString = "${kross.scheduler.poll-ms:5000}")
+  @Scheduled(fixedDelayString = "${app.scheduler.poll-ms:5000}")
   public void tick() {
     if (!running.compareAndSet(false, true)) {
       return;

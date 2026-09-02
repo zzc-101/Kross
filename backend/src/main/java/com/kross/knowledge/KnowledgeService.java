@@ -2,7 +2,7 @@ package com.kross.knowledge;
 
 import com.kross.api.ApiException;
 import com.kross.api.PageResponse;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.identity.AuthService;
 import com.kross.identity.Identity;
 import com.kross.identity.IdentityMapper;
@@ -52,7 +52,7 @@ public class KnowledgeService {
   private final IdentityMapper identities;
   private final OrganizationAccess access;
   private final AuthService auth;
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final ObjectStorage storage;
 
   public KnowledgeStatusView status(String organizationId) {

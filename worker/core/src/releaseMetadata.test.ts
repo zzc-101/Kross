@@ -26,7 +26,7 @@ afterEach(() => {
 
 describe('release metadata', () => {
   it('writes checksums and versioned image tags without publication flags', () => {
-    temporary = mkdtempSync(join(tmpdir(), 'kross-release-'));
+    temporary = mkdtempSync(join(tmpdir(), 'app-release-'));
     const artifactName = `kross-${packageVersion}.tgz`;
     writeFileSync(join(temporary, artifactName), 'artifact');
 
@@ -67,7 +67,7 @@ describe('release metadata', () => {
   });
 
   it('rejects a tag that differs from the package version', () => {
-    temporary = mkdtempSync(join(tmpdir(), 'kross-release-'));
+    temporary = mkdtempSync(join(tmpdir(), 'app-release-'));
     writeFileSync(join(temporary, 'artifact.tgz'), 'artifact');
 
     expect(() =>

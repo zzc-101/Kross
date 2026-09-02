@@ -50,12 +50,12 @@ export async function createPersistentAgentHost(input: {
   activeSkill?: SaasActiveSkill;
   memoryContextSources: ContextSource[];
 }): Promise<AgentHostHandle> {
-  const krossHome = join(input.workspaceRoot, '.kross');
-  await mkdir(krossHome, { recursive: true });
+  const appHome = join(input.workspaceRoot, '.kross');
+  await mkdir(appHome, { recursive: true });
   const host = await createAgentHost({
     workspaceRoot: input.workspaceRoot,
     env: input.env,
-    config: { homeDir: input.workspaceRoot, krossHome },
+    config: { homeDir: input.workspaceRoot, appHome },
     runtimeOptions: {
       ...(input.activeSkill ? { activeSkill: input.activeSkill } : {}),
       memoryContextSources: input.memoryContextSources

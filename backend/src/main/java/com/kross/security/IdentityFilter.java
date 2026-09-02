@@ -1,7 +1,8 @@
 package com.kross.security;
 
 import com.kross.api.ApiException;
-import com.kross.config.KrossProperties;
+import com.kross.api.ApiHeaders;
+import com.kross.config.AppProperties;
 import com.kross.identity.AuthCredentials;
 import com.kross.identity.AuthService;
 import com.kross.identity.Identity;
@@ -23,13 +24,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 public class IdentityFilter extends OncePerRequestFilter {
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final AuthService auth;
   private final IdentityDirectory directory;
   private final Environment environment;
 
   public IdentityFilter(
-      KrossProperties properties,
+      AppProperties properties,
       AuthService auth,
       IdentityDirectory directory,
       Environment environment) {
@@ -78,11 +79,11 @@ public class IdentityFilter extends OncePerRequestFilter {
         || !environment.acceptsProfiles(Profiles.of("dev"))) {
       return Optional.empty();
     }
-    String userId = Optional.ofNullable(request.getHeader("x-kross-user-id")).orElse("");
+    String userId = Optional.ofNullable(request.getHeader(ApiHeaders.USER_ID)).orElse("");
     if (!Ids.isResourceId(userId)) {
       return Optional.empty();
     }
-    String displayName = Optional.ofNullable(request.getHeader("x-kross-user-name"))
+    String displayName = Optional.ofNullable(request.getHeader(ApiHeaders.USER_NAME))
         .map(String::trim)
         .filter(value -> !value.isBlank())
         .orElse(userId);

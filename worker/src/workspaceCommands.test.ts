@@ -10,8 +10,8 @@ let root: string;
 let outside: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-workspace-command-'));
-  outside = await mkdtemp(join(tmpdir(), 'kross-workspace-outside-'));
+  root = await mkdtemp(join(tmpdir(), 'app-workspace-command-'));
+  outside = await mkdtemp(join(tmpdir(), 'app-workspace-outside-'));
 });
 
 afterEach(async () => {

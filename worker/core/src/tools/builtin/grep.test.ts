@@ -10,7 +10,7 @@ import { createGrepTool } from './grep';
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-grep-'));
+  root = await mkdtemp(join(tmpdir(), 'app-grep-'));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });

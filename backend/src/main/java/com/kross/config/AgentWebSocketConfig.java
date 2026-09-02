@@ -2,7 +2,7 @@ package com.kross.config;
 
 import com.kross.channel.AgentHandshakeInterceptor;
 import com.kross.channel.AgentWebSocketHandler;
-import com.kross.channel.KrossBearerHandshakeHandler;
+import com.kross.channel.BearerHandshakeHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,7 +22,7 @@ public class AgentWebSocketConfig implements WebSocketConfigurer {
   public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
     registry.addHandler(handler, "/internal/v2/agents/ws")
         .addInterceptors(handshake)
-        .setHandshakeHandler(new KrossBearerHandshakeHandler())
+        .setHandshakeHandler(new BearerHandshakeHandler())
         .setAllowedOriginPatterns("*");
   }
 

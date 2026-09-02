@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.identity.AuthService;
 import com.kross.identity.Identity;
 import com.kross.identity.IdentityDirectory;
@@ -56,7 +56,7 @@ class IdentityFilterTest {
   }
 
   @Test
-  void doesNotTrustSecurityContextWithoutKrossIdentitySession() throws Exception {
+  void doesNotTrustSecurityContextWithoutIdentitySession() throws Exception {
     IdentityFilter filter = filter(mock(IdentityDirectory.class));
     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v2/me");
     SecurityContextHolder.getContext().setAuthentication(
@@ -70,7 +70,7 @@ class IdentityFilterTest {
 
   private static IdentityFilter filter(IdentityDirectory directory) {
     return new IdentityFilter(
-        new KrossProperties(),
+        new AppProperties(),
         mock(AuthService.class),
         directory,
         mock(Environment.class));

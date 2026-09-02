@@ -127,9 +127,9 @@ jobs:
 
       - name: Validate Compose configuration
         env:
-          KROSS_POSTGRES_PASSWORD: ci-placeholder-password
-          KROSS_CREDENTIAL_MASTER_KEY: abcdef0123456789abcdef0123456789
-          KROSS_S3_SECRET_KEY: kross-minio-ci-secret
+          APP_POSTGRES_PASSWORD: ci-placeholder-password
+          APP_CREDENTIAL_MASTER_KEY: abcdef0123456789abcdef0123456789
+          APP_S3_SECRET_KEY: kross-minio-ci-secret
         run: docker compose --project-directory . -f deploy/local/docker-compose.yml config --quiet
 
       - name: Build worker image

@@ -379,7 +379,7 @@ export class AgentApiClient {
     signal: AbortSignal
   ): Promise<void> {
     const headers = new Headers({ accept: 'text/event-stream' });
-    if (this.organizationId) headers.set('x-kross-organization-id', this.organizationId);
+    if (this.organizationId) headers.set('x-app-organization-id', this.organizationId);
     const response = await this.fetcher(
       new URL(
         `/api/v2/agent/conversations/${encodeURIComponent(conversationId)}/events`,
@@ -413,7 +413,7 @@ export class AgentApiClient {
   } = {}): Promise<T> {
     const headers = new Headers({ accept: 'application/json' });
     if ((init.organization ?? true) && this.organizationId) {
-      headers.set('x-kross-organization-id', this.organizationId);
+      headers.set('x-app-organization-id', this.organizationId);
     }
     if (init.body !== undefined) headers.set('content-type', 'application/json');
     const response = await this.fetcher(new URL(path, this.options.baseUrl ?? location.origin), {

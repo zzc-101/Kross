@@ -39,12 +39,12 @@ describe('connectAndRegisterMcpTools', () => {
   });
 
   it('connects a stdio MCP server and registers tools on the gateway', async () => {
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-reg-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-mcp-reg-'));
     try {
-      const kross = join(homeDir, '.kross');
-      mkdirSync(kross, { recursive: true });
+      const appHome = join(homeDir, '.kross');
+      mkdirSync(appHome, { recursive: true });
       writeFileSync(
-        join(kross, 'mcp.json'),
+        join(appHome, 'mcp.json'),
         JSON.stringify({
           mcpServers: {
             mock: {
@@ -83,12 +83,12 @@ describe('connectAndRegisterMcpTools', () => {
   });
 
   it('soft-fails a broken server without throwing', async () => {
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-bad-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-mcp-bad-'));
     try {
-      const kross = join(homeDir, '.kross');
-      mkdirSync(kross, { recursive: true });
+      const appHome = join(homeDir, '.kross');
+      mkdirSync(appHome, { recursive: true });
       writeFileSync(
-        join(kross, 'mcp.json'),
+        join(appHome, 'mcp.json'),
         JSON.stringify({
           mcpServers: {
             broken: {
@@ -119,12 +119,12 @@ describe('connectAndRegisterMcpTools', () => {
   });
 
   it('redacts raw stderr from manager warnings', async () => {
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-diagnostic-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-mcp-diagnostic-'));
     try {
-      const kross = join(homeDir, '.kross');
-      mkdirSync(kross, { recursive: true });
+      const appHome = join(homeDir, '.kross');
+      mkdirSync(appHome, { recursive: true });
       writeFileSync(
-        join(kross, 'mcp.json'),
+        join(appHome, 'mcp.json'),
         JSON.stringify({
           mcpServers: {
             mock: { command: 'unused' }
@@ -169,12 +169,12 @@ describe('connectAndRegisterMcpTools', () => {
   });
 
   it('lists only advertised catalogs and enforces resource payload limits', async () => {
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-catalog-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-mcp-catalog-'));
     try {
-      const kross = join(homeDir, '.kross');
-      mkdirSync(kross, { recursive: true });
+      const appHome = join(homeDir, '.kross');
+      mkdirSync(appHome, { recursive: true });
       writeFileSync(
-        join(kross, 'mcp.json'),
+        join(appHome, 'mcp.json'),
         JSON.stringify({
           mcpServers: {
             catalog: { command: 'unused' }
@@ -234,10 +234,10 @@ describe('connectAndRegisterMcpTools', () => {
   });
 
   it('atomically reloads tools and drains the previous active generation', async () => {
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-reload-'));
-    const kross = join(homeDir, '.kross');
-    const configPath = join(kross, 'mcp.json');
-    mkdirSync(kross, { recursive: true });
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-mcp-reload-'));
+    const appHome = join(homeDir, '.kross');
+    const configPath = join(appHome, 'mcp.json');
+    mkdirSync(appHome, { recursive: true });
     const writeGeneration = (command: string) =>
       writeFileSync(
         configPath,
@@ -342,12 +342,12 @@ describe('connectAndRegisterMcpTools', () => {
 
   it('registers knowledge_search from a streamable-http server as read risk', async () => {
     const fixture = await startKnowledgeFixtureServer();
-    const homeDir = mkdtempSync(join(tmpdir(), 'kross-mcp-knowledge-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'app-mcp-knowledge-'));
     try {
-      const kross = join(homeDir, '.kross');
-      mkdirSync(kross, { recursive: true });
+      const appHome = join(homeDir, '.kross');
+      mkdirSync(appHome, { recursive: true });
       writeFileSync(
-        join(kross, 'mcp.json'),
+        join(appHome, 'mcp.json'),
         JSON.stringify({
           mcpServers: {
             knowledge: {
@@ -356,7 +356,7 @@ describe('connectAndRegisterMcpTools', () => {
               risk: 'read',
               authorization: {
                 type: 'bearer-env',
-                env: 'KROSS_AGENT_TOKEN'
+                env: 'APP_AGENT_TOKEN'
               }
             }
           }
@@ -366,7 +366,7 @@ describe('connectAndRegisterMcpTools', () => {
       const gateway = new ToolGateway();
       const manager = await connectAndRegisterMcpTools(gateway, {
         homeDir,
-        env: { KROSS_AGENT_TOKEN: 'agent-token' }
+        env: { APP_AGENT_TOKEN: 'agent-token' }
       });
       try {
         expect(manager.snapshot().results[0]?.error).toBeUndefined();

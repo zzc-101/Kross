@@ -10,7 +10,7 @@ import { createMoveTool } from './move';
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-mv-'));
+  root = await mkdtemp(join(tmpdir(), 'app-mv-'));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });

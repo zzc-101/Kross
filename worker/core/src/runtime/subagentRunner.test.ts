@@ -59,7 +59,7 @@ class ScriptedLlmClient implements LlmClient {
 
 describe('runSubagent', () => {
   it('returns a work-oriented result from an isolated explore task', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'app-subagent-'));
     try {
       const traceStore = new InMemoryTraceStore();
       const llm = new ScriptedLlmClient('整理出三个行动项');
@@ -112,7 +112,7 @@ describe('runSubagent', () => {
   });
 
   it('allows artifact tools only in general mode', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-general-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'app-subagent-general-'));
     try {
       const llm = new ScriptedLlmClient('产物已生成');
       await runSubagent(
@@ -139,7 +139,7 @@ describe('runSubagent', () => {
   });
 
   it('uses the explicitly selected model profile', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'kross-subagent-model-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'app-subagent-model-'));
     try {
       const inherited = new ScriptedLlmClient('inherited', 'main-model');
       const selected = new ScriptedLlmClient('selected', 'economy-model');

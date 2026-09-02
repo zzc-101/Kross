@@ -7,7 +7,7 @@ import type { AuthConfig, Me, Membership } from '../api/types';
 import { WorkspacePage } from '../workspace/WorkspacePage';
 import { AuthScreen, InvitePage, SuperAdminHint, WaitingForInvite } from './screens';
 
-const ORG_KEY = 'kross.organization-id';
+const ORG_KEY = 'app.organization-id';
 
 export function App() {
   const [config, setConfig] = useState<AuthConfig>();

@@ -29,7 +29,7 @@ import {
 
 export interface CreateAgentHostConfigOptions {
   homeDir?: string;
-  krossHome?: string;
+  appHome?: string;
 }
 
 export interface AgentHostTooling {
@@ -205,9 +205,9 @@ export async function bootstrapRuntimeTooling(
     workspaceRoot: cwd,
     env,
     homeDir: options.homeDir,
-    krossHome: options.krossHome,
+    appHome: options.appHome,
     onWarning: (message) => {
-      console.error(`[kross:mcp] ${message}`);
+      console.error(`[mcp] ${message}`);
     }
   });
   let closePromise: Promise<void> | undefined;
@@ -253,7 +253,7 @@ function createLocalTooling(
     defaultTimeoutMs: 120_000
   });
   const todoStore = new TodoStore();
-  const mutationCoordinator = new MutationCoordinator(resolveKrossHome(options));
+  const mutationCoordinator = new MutationCoordinator(resolveAppHome(options));
 
   const subagentDeps: SubagentRunDeps = {
     workspaceRoot: cwd,
@@ -296,8 +296,8 @@ function createLocalTooling(
   };
 }
 
-function resolveKrossHome(options: CreateAgentHostConfigOptions): string {
-  return options.krossHome ?? join(options.homeDir ?? homedir(), '.kross');
+function resolveAppHome(options: CreateAgentHostConfigOptions): string {
+  return options.appHome ?? join(options.homeDir ?? homedir(), '.kross');
 }
 
 /** AGENT_MAX_TOOL_ITERATIONS：正整数则采用，否则走 Runtime 默认（200，触顶软着陆）。 */

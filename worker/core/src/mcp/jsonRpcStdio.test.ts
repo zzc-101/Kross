@@ -9,7 +9,7 @@ describe('buildStdioProcessEnv', () => {
         PATH: '/bin',
         HOME: '/work',
         OPENAI_API_KEY: 'must-not-leak',
-        KROSS_AGENT_TOKEN: 'must-not-leak'
+        APP_AGENT_TOKEN: 'must-not-leak'
       },
       { MCP_TOKEN: 'explicit', HOME: '/custom-home' }
     )).toEqual({

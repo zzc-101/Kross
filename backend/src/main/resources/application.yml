@@ -6,13 +6,13 @@ server:
     session:
       timeout: 7d
       cookie:
-        name: KROSS_SESSION
+        name: APP_SESSION
         http-only: true
         same-site: lax
 
 spring:
   application:
-    name: kross-control-plane
+    name: control-plane
   threads:
     virtual:
       enabled: true
@@ -51,65 +51,65 @@ mybatis:
 
 logging:
   file:
-    name: ${KROSS_LOG_FILE:}
+    name: ${APP_LOG_FILE:}
   structured:
     format:
       console: logstash
       file: logstash
     json:
       add:
-        service: kross-control-plane
+        service: control-plane
   logback:
     rollingpolicy:
-      file-name-pattern: ${KROSS_LOG_FILE_PATTERN:/var/log/kross/server.%d{yyyy-MM-dd}.%i.log.gz}
-      max-file-size: ${KROSS_LOG_MAX_FILE_SIZE:50MB}
-      max-history: ${KROSS_LOG_MAX_HISTORY:14}
-      total-size-cap: ${KROSS_LOG_TOTAL_SIZE_CAP:1GB}
+      file-name-pattern: ${APP_LOG_FILE_PATTERN:/var/log/kross/server.%d{yyyy-MM-dd}.%i.log.gz}
+      max-file-size: ${APP_LOG_MAX_FILE_SIZE:50MB}
+      max-history: ${APP_LOG_MAX_HISTORY:14}
+      total-size-cap: ${APP_LOG_TOTAL_SIZE_CAP:1GB}
       clean-history-on-start: false
 
-kross:
-  dev-identity-enabled: ${KROSS_DEV_IDENTITY:false}
+app:
+  dev-identity-enabled: ${APP_DEV_IDENTITY:false}
   cache:
-    enabled: ${KROSS_CACHE_ENABLED:true}
-  public-base-url: ${KROSS_PUBLIC_BASE_URL:http://127.0.0.1:8787}
-  external-base-url: ${KROSS_EXTERNAL_BASE_URL:http://127.0.0.1:8787}
-  credential-master-key: ${KROSS_CREDENTIAL_MASTER_KEY:}
-  scheduler-owner: ${KROSS_SCHEDULER_OWNER:kross-server}
-  worker-image: ${KROSS_WORKER_IMAGE:kross-worker:local}
-  orchestrator-manager-id: ${KROSS_ORCHESTRATOR_MANAGER_ID:kross-saas}
-  control-plane-container: ${KROSS_CONTROL_PLANE_CONTAINER:}
-  object-store-container: ${KROSS_S3_CONTAINER:}
-  agent-network: ${KROSS_AGENT_NETWORK:}
-  worker-runtime: ${KROSS_WORKER_RUNTIME:local}
-  worker-storage: ${KROSS_WORKER_STORAGE:local}
-  juicefs-mount: ${KROSS_JUICEFS_MOUNT:}
+    enabled: ${APP_CACHE_ENABLED:true}
+  public-base-url: ${APP_PUBLIC_BASE_URL:http://127.0.0.1:8787}
+  external-base-url: ${APP_EXTERNAL_BASE_URL:http://127.0.0.1:8787}
+  credential-master-key: ${APP_CREDENTIAL_MASTER_KEY:}
+  scheduler-owner: ${APP_SCHEDULER_OWNER:kross-server}
+  worker-image: ${APP_WORKER_IMAGE:kross-worker:local}
+  orchestrator-manager-id: ${APP_ORCHESTRATOR_MANAGER_ID:kross-saas}
+  control-plane-container: ${APP_CONTROL_PLANE_CONTAINER:}
+  object-store-container: ${APP_S3_CONTAINER:}
+  agent-network: ${APP_AGENT_NETWORK:}
+  worker-runtime: ${APP_WORKER_RUNTIME:local}
+  worker-storage: ${APP_WORKER_STORAGE:local}
+  juicefs-mount: ${APP_JUICEFS_MOUNT:}
   kubernetes:
-    namespace: ${KROSS_KUBERNETES_NAMESPACE:}
-    storage-class: ${KROSS_KUBERNETES_STORAGE_CLASS:kross-juicefs}
-    workspace-size: ${KROSS_KUBERNETES_WORKSPACE_SIZE:10Gi}
+    namespace: ${APP_KUBERNETES_NAMESPACE:}
+    storage-class: ${APP_KUBERNETES_STORAGE_CLASS:kross-juicefs}
+    workspace-size: ${APP_KUBERNETES_WORKSPACE_SIZE:10Gi}
   api:
-    prefix: ${KROSS_API_PREFIX:/api/v2}
+    prefix: ${APP_API_PREFIX:/api/v2}
   scheduler:
-    poll-ms: ${KROSS_SCHEDULER_POLL_MS:5000}
+    poll-ms: ${APP_SCHEDULER_POLL_MS:5000}
   agent:
-    idle-ms: ${KROSS_AGENT_IDLE_MS:900000}
-    token-ttl-ms: ${KROSS_AGENT_TOKEN_TTL_MS:43200000}
-    heartbeat-interval-ms: ${KROSS_AGENT_HEARTBEAT_INTERVAL_MS:10000}
-    job-lease-ms: ${KROSS_AGENT_JOB_LEASE_MS:90000}
-    job-max-attempts: ${KROSS_AGENT_JOB_MAX_ATTEMPTS:2}
-    start-timeout-ms: ${KROSS_AGENT_START_TIMEOUT_MS:120000}
-    cpu-millis: ${KROSS_AGENT_CPU_MILLIS:2000}
-    memory-bytes: ${KROSS_AGENT_MEMORY_BYTES:1073741824}
-    max-pids: ${KROSS_AGENT_MAX_PIDS:512}
+    idle-ms: ${APP_AGENT_IDLE_MS:900000}
+    token-ttl-ms: ${APP_AGENT_TOKEN_TTL_MS:43200000}
+    heartbeat-interval-ms: ${APP_AGENT_HEARTBEAT_INTERVAL_MS:10000}
+    job-lease-ms: ${APP_AGENT_JOB_LEASE_MS:90000}
+    job-max-attempts: ${APP_AGENT_JOB_MAX_ATTEMPTS:2}
+    start-timeout-ms: ${APP_AGENT_START_TIMEOUT_MS:120000}
+    cpu-millis: ${APP_AGENT_CPU_MILLIS:2000}
+    memory-bytes: ${APP_AGENT_MEMORY_BYTES:1073741824}
+    max-pids: ${APP_AGENT_MAX_PIDS:512}
   knowledge:
-    base-url: ${KROSS_KNOWLEDGE_BASE_URL:}
-    internal-token: ${KROSS_KNOWLEDGE_INTERNAL_TOKEN:}
+    base-url: ${APP_KNOWLEDGE_BASE_URL:}
+    internal-token: ${APP_KNOWLEDGE_INTERNAL_TOKEN:}
   s3:
-    endpoint: ${KROSS_S3_ENDPOINT:http://127.0.0.1:9000}
-    public-endpoint: ${KROSS_S3_PUBLIC_ENDPOINT:http://127.0.0.1:9000}
-    region: ${KROSS_S3_REGION:us-east-1}
-    bucket: ${KROSS_S3_BUCKET:kross}
-    access-key: ${KROSS_S3_ACCESS_KEY:kross}
-    secret-key: ${KROSS_S3_SECRET_KEY:kross-minio-secret}
+    endpoint: ${APP_S3_ENDPOINT:http://127.0.0.1:9000}
+    public-endpoint: ${APP_S3_PUBLIC_ENDPOINT:http://127.0.0.1:9000}
+    region: ${APP_S3_REGION:us-east-1}
+    bucket: ${APP_S3_BUCKET:kross}
+    access-key: ${APP_S3_ACCESS_KEY:kross}
+    secret-key: ${APP_S3_SECRET_KEY:kross-minio-secret}
     path-style: true
     presign-ttl: PT15M

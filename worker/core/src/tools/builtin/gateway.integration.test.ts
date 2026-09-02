@@ -11,7 +11,7 @@ import { createSaasTools, saasToolNames } from './index';
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'kross-builtin-'));
+  root = await mkdtemp(join(tmpdir(), 'app-builtin-'));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -81,7 +81,7 @@ describe('SaaS tools integration', () => {
   });
 
   it('keeps paths workspace-scoped', async () => {
-    const outsideRoot = await mkdtemp(join(tmpdir(), 'kross-outside-'));
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'app-outside-'));
     const outsideFile = join(outsideRoot, 'outside.txt');
     await writeFile(outsideFile, 'outside');
     const gateway = makeGateway();

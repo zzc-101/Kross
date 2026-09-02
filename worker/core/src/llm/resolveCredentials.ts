@@ -43,7 +43,7 @@ export function resolveProviderCredentials(
       provider === 'anthropic' ? firstNonEmpty(env.ANTHROPIC_VERSION) : undefined,
     thinkingEffort: undefined,
     contextWindow: parsePositiveInt(
-      env.AGENT_CONTEXT_WINDOW ?? env.KROSS_CONTEXT_WINDOW
+      env.AGENT_CONTEXT_WINDOW ?? env.APP_CONTEXT_WINDOW
     )
   };
 }

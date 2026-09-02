@@ -3,7 +3,7 @@ package com.kross.agent;
 import com.kross.agent.entity.Agent;
 import com.kross.channel.AgentSocketHub;
 import com.kross.channel.WorkerOfferBus;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.identity.OrganizationAccess;
 import com.kross.identity.OrganizationAction;
 import com.kross.identity.OrganizationContext;
@@ -25,7 +25,7 @@ public class AgentLeaseService {
   private final AgentMapper agents;
   private final OrganizationAccess access;
   private final ContainerBackend containers;
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final AgentSocketHub sockets;
   private final WorkerOfferBus offers;
   private final AgentMemoryService memories;

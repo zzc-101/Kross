@@ -90,8 +90,8 @@ async function writeWorkspaceFile(
 export async function writeMcpConfig(root: string, servers: unknown): Promise<Record<string, unknown>> {
   const map = normalizeMcpServers(servers);
   const target = await resolveWritablePathWithinWorkspace(root, join('.kross', 'mcp.json'));
-  const krossHome = dirname(target);
-  await mkdir(krossHome, { recursive: true });
+  const appHome = dirname(target);
+  await mkdir(appHome, { recursive: true });
   await writeFile(
     target,
     `${JSON.stringify({ mcpServers: map }, null, 2)}\n`,

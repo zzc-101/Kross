@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.kross.agent.AgentTokenDirectory;
 import com.kross.agent.entity.AgentSession;
 import com.kross.api.ApiException;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.knowledge.dto.KnowledgeHitView;
 import com.kross.knowledge.dto.KnowledgeSearchView;
 import com.kross.support.Tokens;
@@ -33,7 +33,7 @@ import org.springframework.stereotype.Service;
 public class KnowledgeMcpService {
   public static final String SERVER_ID = "knowledge";
   public static final String TOOL_NAME = "knowledge_search";
-  public static final String AGENT_TOKEN_ENV = "KROSS_AGENT_TOKEN";
+  public static final String AGENT_TOKEN_ENV = "APP_AGENT_TOKEN";
   public static final String PROTOCOL_VERSION = "2025-11-25";
 
   private static final int PARSE_ERROR = -32700;
@@ -44,7 +44,7 @@ public class KnowledgeMcpService {
 
   private final KnowledgeService knowledge;
   private final AgentTokenDirectory tokenSessions;
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final ObjectMapper mapper;
 
   public Optional<Map<String, Object>> managedServer() {

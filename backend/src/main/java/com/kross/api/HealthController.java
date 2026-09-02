@@ -7,6 +7,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class HealthController {
   @GetMapping("/health")
   public HealthView health() {
-    return new HealthView("ok", "kross-control-plane");
+    return new HealthView("ok", "control-plane");
   }
 }

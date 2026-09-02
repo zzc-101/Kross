@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.kross.api.ApiException;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import io.fabric8.kubernetes.api.model.Node;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
@@ -21,13 +21,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class KubernetesContainerBackendTest {
-  private KrossProperties properties;
+  private AppProperties properties;
   private FakeKubernetesRuntimeClient runtime;
   private KubernetesContainerBackend backend;
 
   @BeforeEach
   void setUp() {
-    properties = new KrossProperties();
+    properties = new AppProperties();
     properties.setWorkerRuntime("kubernetes");
     properties.setWorkerStorage("juicefs");
     properties.setWorkerImage("kross-worker:local");

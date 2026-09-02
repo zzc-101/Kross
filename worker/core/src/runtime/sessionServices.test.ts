@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 function makeWorkspace(): string {
-  workspace = mkdtempSync(join(tmpdir(), 'kross-runtime-workspace-'));
+  workspace = mkdtempSync(join(tmpdir(), 'app-runtime-workspace-'));
   return workspace;
 }
 

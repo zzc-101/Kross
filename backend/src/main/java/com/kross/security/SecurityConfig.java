@@ -2,7 +2,7 @@ package com.kross.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kross.api.Res;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +19,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @RequiredArgsConstructor
 public class SecurityConfig {
-  private final KrossProperties properties;
+  private final AppProperties properties;
   private final ObjectMapper mapper;
 
   @Bean

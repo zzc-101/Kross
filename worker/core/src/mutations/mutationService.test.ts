@@ -17,21 +17,21 @@ afterEach(() => {
 });
 
 function setup() {
-  temp = mkdtempSync(join(tmpdir(), 'kross-mutations-'));
+  temp = mkdtempSync(join(tmpdir(), 'app-mutations-'));
   const workspace = join(temp, 'workspace');
-  const krossHome = join(temp, 'home');
+  const appHome = join(temp, 'home');
   mkdirSync(workspace);
-  return { workspace, krossHome };
+  return { workspace, appHome };
 }
 
 describe('MutationService', () => {
   it('journals and undoes mutations in an explicitly coordinated workspace', async () => {
-    const { workspace, krossHome } = setup();
+    const { workspace, appHome } = setup();
     const outside = join(temp, 'outside');
     mkdirSync(outside);
     const target = join(outside, 'a.txt');
     writeFileSync(target, 'before');
-    const coordinator = new MutationCoordinator(krossHome);
+    const coordinator = new MutationCoordinator(appHome);
     coordinator.forWorkspace(workspace);
 
     await coordinator.recordAbsolute({
@@ -47,9 +47,9 @@ describe('MutationService', () => {
   });
 
   it('records and undoes a file mutation', async () => {
-    const { workspace, krossHome } = setup();
+    const { workspace, appHome } = setup();
     writeFileSync(join(workspace, 'a.txt'), 'before');
-    const service = new MutationService(workspace, krossHome);
+    const service = new MutationService(workspace, appHome);
 
     await service.record({
       runId: 'run-1',
@@ -64,9 +64,9 @@ describe('MutationService', () => {
   });
 
   it('refuses undo after a conflicting external edit', async () => {
-    const { workspace, krossHome } = setup();
+    const { workspace, appHome } = setup();
     writeFileSync(join(workspace, 'a.txt'), 'before');
-    const service = new MutationService(workspace, krossHome);
+    const service = new MutationService(workspace, appHome);
     await service.record({
       runId: 'run-1',
       toolName: 'Edit',
@@ -80,9 +80,9 @@ describe('MutationService', () => {
   });
 
   it('undoes repeated writes to the same path within one run', async () => {
-    const { workspace, krossHome } = setup();
+    const { workspace, appHome } = setup();
     writeFileSync(join(workspace, 'a.txt'), 'before');
-    const service = new MutationService(workspace, krossHome);
+    const service = new MutationService(workspace, appHome);
 
     await service.record({
       runId: 'run-repeated',
@@ -106,14 +106,14 @@ describe('MutationService', () => {
   });
 
   it('composes overlapping parent and child post snapshots before undo', async () => {
-    const { workspace, krossHome } = setup();
+    const { workspace, appHome } = setup();
     mkdirSync(join(workspace, 'src'));
     mkdirSync(join(workspace, 'src', 'a'));
     writeFileSync(join(workspace, 'src', 'a', 'nested.txt'), 'before');
     // This sibling intentionally sorts before "a/" by raw full-path order.
     // It guards the snapshot's directory-walk ordering when roots are composed.
     writeFileSync(join(workspace, 'src', 'a.txt'), 'unchanged');
-    const service = new MutationService(workspace, krossHome);
+    const service = new MutationService(workspace, appHome);
 
     await service.record({
       runId: 'run-overlap',
@@ -136,11 +136,11 @@ describe('MutationService', () => {
   });
 
   it('still detects an external edit under an earlier overlapping parent root', async () => {
-    const { workspace, krossHome } = setup();
+    const { workspace, appHome } = setup();
     mkdirSync(join(workspace, 'src'));
     writeFileSync(join(workspace, 'src', 'a.txt'), 'before');
     writeFileSync(join(workspace, 'src', 'sibling.txt'), 'unchanged');
-    const service = new MutationService(workspace, krossHome);
+    const service = new MutationService(workspace, appHome);
 
     await service.record({
       runId: 'run-overlap',
@@ -162,9 +162,9 @@ describe('MutationService', () => {
   });
 
   it('rolls back the workspace when the mutation action fails', async () => {
-    const { workspace, krossHome } = setup();
+    const { workspace, appHome } = setup();
     writeFileSync(join(workspace, 'a.txt'), 'before');
-    const service = new MutationService(workspace, krossHome);
+    const service = new MutationService(workspace, appHome);
 
     await expect(
       service.record({
@@ -182,9 +182,9 @@ describe('MutationService', () => {
   });
 
   it('recovers an incomplete prepared transaction on restart', async () => {
-    const { workspace, krossHome } = setup();
+    const { workspace, appHome } = setup();
     writeFileSync(join(workspace, 'a.txt'), 'before');
-    const first = new MutationService(workspace, krossHome);
+    const first = new MutationService(workspace, appHome);
     await first.record({
       runId: 'seed',
       toolName: 'Write',
@@ -200,16 +200,16 @@ describe('MutationService', () => {
     first.journal.appendPrepared(incomplete);
     writeFileSync(join(workspace, 'a.txt'), 'partial crash output');
 
-    const recovered = new MutationService(workspace, krossHome);
+    const recovered = new MutationService(workspace, appHome);
 
     expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('before');
     expect(recovered.journal.listIncomplete()).toEqual([]);
   });
 
   it('writes versioned events, reads legacy events, and rejects future versions', async () => {
-    const { workspace, krossHome } = setup();
+    const { workspace, appHome } = setup();
     writeFileSync(join(workspace, 'a.txt'), 'before');
-    const first = new MutationService(workspace, krossHome);
+    const first = new MutationService(workspace, appHome);
     await first.record({
       runId: 'run-version',
       toolName: 'Write',
@@ -225,13 +225,13 @@ describe('MutationService', () => {
       journalPath,
       versioned.replaceAll('"schemaVersion":1,', '')
     );
-    expect(new MutationService(workspace, krossHome).listActive()).toHaveLength(1);
+    expect(new MutationService(workspace, appHome).listActive()).toHaveLength(1);
 
     writeFileSync(
       journalPath,
       versioned.replace('"schemaVersion":1', '"schemaVersion":2')
     );
-    expect(() => new MutationService(workspace, krossHome)).toThrow(
+    expect(() => new MutationService(workspace, appHome)).toThrow(
       'Mutation journal event 使用不受支持的数据版本 2'
     );
   });

@@ -30,8 +30,8 @@ public class ApiExceptionHandler {
 
   @ExceptionHandler(MissingRequestHeaderException.class)
   public ResponseEntity<Res<Void>> handleHeader(MissingRequestHeaderException error) {
-    if ("x-kross-organization-id".equalsIgnoreCase(error.getHeaderName())) {
-      return handleApi(new ApiException("organization_required", "x-kross-organization-id is required", 400));
+    if (ApiHeaders.ORGANIZATION_ID.equalsIgnoreCase(error.getHeaderName())) {
+      return handleApi(new ApiException("organization_required", ApiHeaders.ORGANIZATION_ID + " is required", 400));
     }
     return handleApi(ApiException.invalidRequest("Missing required header"));
   }

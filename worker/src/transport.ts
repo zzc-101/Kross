@@ -343,7 +343,7 @@ export class WsAgentControlTransport implements AgentControlTransport {
   private async connect(): Promise<void> {
     const socket = new this.webSocket(
       socketUrl(this.options.controlPlaneUrl),
-      [`kross.bearer.${this.options.agentToken}`]
+      [`app.bearer.${this.options.agentToken}`]
     );
     this.socket = socket;
     socket.addEventListener('message', (event) => this.onMessage(String((event as MessageEvent).data)));

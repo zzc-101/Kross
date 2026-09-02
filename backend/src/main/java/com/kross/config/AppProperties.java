@@ -6,8 +6,8 @@ import java.time.Duration;
 import java.util.Optional;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-@ConfigurationProperties(prefix = "kross")
-public class KrossProperties {
+@ConfigurationProperties(prefix = "app")
+public class AppProperties {
   private String devIdentityEnabled = "false";
   private String publicBaseUrl = "http://127.0.0.1:8787";
   private String externalBaseUrl = "http://127.0.0.1:8787";
@@ -440,7 +440,7 @@ public class KrossProperties {
 
     public String requireNamespace() {
       return resolveNamespace().orElseThrow(() -> new IllegalStateException(
-          "KROSS_WORKER_RUNTIME=kubernetes requires KROSS_KUBERNETES_NAMESPACE or an in-cluster ServiceAccount namespace"));
+          "APP_WORKER_RUNTIME=kubernetes requires APP_KUBERNETES_NAMESPACE or an in-cluster ServiceAccount namespace"));
     }
   }
 

@@ -7,7 +7,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.ServerHttpRequest;
 
 public final class WebSocketTokens {
-  public static final String BEARER_PROTOCOL_PREFIX = "kross.bearer.";
+  public static final String BEARER_PROTOCOL_PREFIX = "app.bearer.";
 
   private WebSocketTokens() {}
 

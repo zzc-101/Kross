@@ -34,9 +34,9 @@ def health() -> dict[str, object]:
 @app.post("/v1/ingest")
 def ingest(
     request: IngestRequest,
-    x_kross_knowledge_token: str | None = Header(default=None),
+    x_app_knowledge_token: str | None = Header(default=None),
 ):
-    _authorize(x_kross_knowledge_token)
+    _authorize(x_app_knowledge_token)
     _require_ready()
     return pipeline.ingest(request)
 
@@ -45,9 +45,9 @@ def ingest(
 def publish(
     document_id: str,
     body: PublishRequest | None = None,
-    x_kross_knowledge_token: str | None = Header(default=None),
+    x_app_knowledge_token: str | None = Header(default=None),
 ):
-    _authorize(x_kross_knowledge_token)
+    _authorize(x_app_knowledge_token)
     published = True if body is None else body.published
     return pipeline.publish(document_id, PublishRequest(published=published))
 
@@ -55,9 +55,9 @@ def publish(
 @app.post("/v1/search")
 def search(
     request: SearchRequest,
-    x_kross_knowledge_token: str | None = Header(default=None),
+    x_app_knowledge_token: str | None = Header(default=None),
 ):
-    _authorize(x_kross_knowledge_token)
+    _authorize(x_app_knowledge_token)
     _require_ready()
     query = (request.query or "").strip()
     if not query:
@@ -68,9 +68,9 @@ def search(
 @app.get("/v1/jobs/{job_id}")
 def job(
     job_id: str,
-    x_kross_knowledge_token: str | None = Header(default=None),
+    x_app_knowledge_token: str | None = Header(default=None),
 ):
-    _authorize(x_kross_knowledge_token)
+    _authorize(x_app_knowledge_token)
     found = pipeline.job(job_id)
     if found is None:
         raise HTTPException(status_code=404, detail="job not found")

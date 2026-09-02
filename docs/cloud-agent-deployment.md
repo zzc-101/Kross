@@ -27,7 +27,7 @@ Node.js `>= 22.19` 与 pnpm `10.14`；控制面需要 JDK 21（镜像内已包�
 ```
 
 脚本首次运行会从 `.env.example` 创建 `.env`，生成 PostgreSQL 密码、对象存储
-密钥和 `KROSS_CREDENTIAL_MASTER_KEY`，构建 Web、控制面、Worker 镜像并启动。
+密钥和 `APP_CREDENTIAL_MASTER_KEY`，构建 Web、控制面、Worker 镜像并启动。
 入口：
 
 - 工作台：`http://localhost:8787`
@@ -40,10 +40,10 @@ Node.js `>= 22.19` 与 pnpm `10.14`；控制面需要 JDK 21（镜像内已包�
 ./scripts/start-cloud.sh --stop
 ```
 
-默认走账号密码（`KROSS_DEV_IDENTITY=0`）。`KROSS_DEV_IDENTITY=1` 仅用于本机
+默认走账号密码（`APP_DEV_IDENTITY=0`）。`APP_DEV_IDENTITY=1` 仅用于本机
 冒烟跳过登录，任何共享或公网环境都必须关闭。
 
-单机默认 `KROSS_WORKER_RUNTIME=local`、`KROSS_WORKER_STORAGE=local`。多机见下文 k3s。
+单机默认 `APP_WORKER_RUNTIME=local`、`APP_WORKER_STORAGE=local`。多机见下文 k3s。
 
 ## 身份与 SSO
 
@@ -71,7 +71,7 @@ Secret。保存并启用时，控制面会请求
 https://你的域名/api/v2/auth/sso/callback
 ```
 
-回调地址固定由 `KROSS_EXTERNAL_BASE_URL` 生成，不采信请求 Host。工作台和管理中心
+回调地址固定由 `APP_EXTERNAL_BASE_URL` 生成，不采信请求 Host。工作台和管理中心
 共用这一条回调；生产启用 SSO 前必须把该变量设为浏览器实际访问的 HTTPS 地址。
 
 登录流：
@@ -83,32 +83,32 @@ https://你的域名/api/v2/auth/sso/callback
 3. 用 `issuer + sub` 绑定已有用户；若有已验证 email 则按 email 绑定本地账号；
    否则按 `preferred_username` 或邮箱本地部分 JIT 创建平台用户（不会仅凭用户名
    接管已有账号，`platform_role=user`，不自动加入组织）。
-4. 写入现有 `KROSS_SESSION` Cookie，后续与密码登录同一套会话。
+4. 写入现有 `APP_SESSION` Cookie，后续与密码登录同一套会话。
 
 启用 SSO 后，普通用户只能走企业账号；超级管理员仍可用密码应急，避免 IdP 故障
 锁死整站。JIT 用户进入工作台前，仍需组织管理员用其用户名登记到本组织。Client
-Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`，接口
+Secret 使用 `APP_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`，接口
 不会回显明文。
 
 ## 配置
 
 | 变量 | 用途 |
 |---|---|
-| `KROSS_PORT` | Web 对宿主机暴露的端口，默认 `8787`（仅 Compose 浏览器入口） |
-| `KROSS_POSTGRES_PASSWORD` | 本地 PostgreSQL 密码；脚本可自动生成 |
-| `KROSS_CREDENTIAL_MASTER_KEY` | 加密模型 API Key 与 SSO Client Secret，至少 32 字符 |
-| `KROSS_PUBLIC_BASE_URL` | Worker 用来连控制面的地址。单机用 `http://kross-server:8787`；集群用 Service DNS，例如 `http://server:8787` |
-| `KROSS_EXTERNAL_BASE_URL` | 浏览器访问控制面的公开地址，用于生成固定的 SSO 回调地址；生产环境应使用 HTTPS，例如 `https://kross.example.com` |
-| `KROSS_DEV_IDENTITY` | `1` 跳过登录；默认 `0`，生产必须为 `0` |
-| `KROSS_ORCHESTRATOR_MANAGER_ID` | Docker 资源归属标签，多实例必须唯一 |
-| `KROSS_WORKER_IMAGE` | Worker 镜像，Compose 默认 `kross-worker:local` |
-| `KROSS_WORKER_STORAGE` | `local`（默认，本机 Docker volume）或 `juicefs`（k3s 集群必填） |
-| `KROSS_WORKER_RUNTIME` | `local`（默认，控制面本机 Docker）或 `kubernetes`（k3s 上起 Worker Pod） |
-| `KROSS_KUBERNETES_NAMESPACE` | `kubernetes` 运行时创建 Pod/PVC 的命名空间；不设则读取 in-cluster ServiceAccount |
-| `KROSS_KUBERNETES_STORAGE_CLASS` | JuiceFS StorageClass 名，默认 `kross-juicefs` |
-| `KROSS_KUBERNETES_WORKSPACE_SIZE` | 每用户 PVC 申请值，默认 `10Gi`，local-path/CSI 不一定强制执行 |
-| `KROSS_S3_*` | MinIO / S3：产物与（集群）JuiceFS 底仓 |
-| `KROSS_CACHE_ENABLED` | 控制面 Redis 缓存开关，默认开启；设为 `false` 直连 PostgreSQL |
+| `APP_PORT` | Web 对宿主机暴露的端口，默认 `8787`（仅 Compose 浏览器入口） |
+| `APP_POSTGRES_PASSWORD` | 本地 PostgreSQL 密码；脚本可自动生成 |
+| `APP_CREDENTIAL_MASTER_KEY` | 加密模型 API Key 与 SSO Client Secret，至少 32 字符 |
+| `APP_PUBLIC_BASE_URL` | Worker 用来连控制面的地址。单机用 `http://kross-server:8787`；集群用 Service DNS，例如 `http://server:8787` |
+| `APP_EXTERNAL_BASE_URL` | 浏览器访问控制面的公开地址，用于生成固定的 SSO 回调地址；生产环境应使用 HTTPS，例如 `https://kross.example.com` |
+| `APP_DEV_IDENTITY` | `1` 跳过登录；默认 `0`，生产必须为 `0` |
+| `APP_ORCHESTRATOR_MANAGER_ID` | Docker 资源归属标签，多实例必须唯一 |
+| `APP_WORKER_IMAGE` | Worker 镜像，Compose 默认 `kross-worker:local` |
+| `APP_WORKER_STORAGE` | `local`（默认，本机 Docker volume）或 `juicefs`（k3s 集群必填） |
+| `APP_WORKER_RUNTIME` | `local`（默认，控制面本机 Docker）或 `kubernetes`（k3s 上起 Worker Pod） |
+| `APP_KUBERNETES_NAMESPACE` | `kubernetes` 运行时创建 Pod/PVC 的命名空间；不设则读取 in-cluster ServiceAccount |
+| `APP_KUBERNETES_STORAGE_CLASS` | JuiceFS StorageClass 名，默认 `kross-juicefs` |
+| `APP_KUBERNETES_WORKSPACE_SIZE` | 每用户 PVC 申请值，默认 `10Gi`，local-path/CSI 不一定强制执行 |
+| `APP_S3_*` | MinIO / S3：产物与（集群）JuiceFS 底仓 |
+| `APP_CACHE_ENABLED` | 控制面 Redis 缓存开关，默认开启；设为 `false` 直连 PostgreSQL |
 | `SPRING_DATA_REDIS_*` | 控制面连接 Redis 的地址 / 端口 / 密码（Compose 内默认 `redis:6379`） |
 | `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | 开发期注入 Worker 默认模型；生产请由超级管理员在管理中心登记平台模型 |
 
@@ -117,7 +117,7 @@ Secret 使用 `KROSS_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`�
 
 ## 工作区存储：单机与集群
 
-默认 `KROSS_WORKER_STORAGE=local`：每人一块本机 Docker volume，挂到容器 `/work`。
+默认 `APP_WORKER_STORAGE=local`：每人一块本机 Docker volume，挂到容器 `/work`。
 单机 Compose 不需要 JuiceFS。
 
 集群把 `/work` 放到 JuiceFS 上。对象数据在 MinIO bucket `kross-jfs`（与产物 bucket
@@ -146,7 +146,7 @@ helm upgrade --install kross deploy/cluster -n kross --create-namespace \
   --set ingress.host=kross.example.com
 ```
 
-`KROSS_PUBLIC_BASE_URL` 在 chart 里默认是 `http://server:8787`，给 Worker Pod 走
+`APP_PUBLIC_BASE_URL` 在 chart 里默认是 `http://server:8787`，给 Worker Pod 走
 集群 DNS。浏览器走 Ingress 到 `web`。不要把 `/internal/` 配进 Ingress。
 
 开发导入镜像：
@@ -183,7 +183,7 @@ ServiceAccount，不挂 Socket；公网入口不得暴露 Socket 或 `/internal/
 | 工作区文件 | 本机 Docker volume，或 JuiceFS（`agents/{agentId}`） | 必须 |
 | 产物对象 | MinIO bucket `kross` | 建议开版本 |
 | JuiceFS 底仓 | MinIO bucket `kross-jfs`（集群） | 与元数据 Postgres 一起备份 |
-| 模型密钥 / SSO Secret | PostgreSQL，由 `KROSS_CREDENTIAL_MASTER_KEY` 加密 | 备份库的同时保管主密钥 |
+| 模型密钥 / SSO Secret | PostgreSQL，由 `APP_CREDENTIAL_MASTER_KEY` 加密 | 备份库的同时保管主密钥 |
 | Runtime 会话 / trace / 个人 Skills | Worker 容器 `$HOME/.kross` | 默认不随 `/work` 持久化 |
 
 本地 `./scripts/start-cloud.sh --stop` 保留
@@ -198,9 +198,9 @@ cd ../backend && ./mvnw -B -DskipTests compile
 helm template kross deploy/cluster --namespace kross >/dev/null
 node scripts/check-version-consistency.mjs
 node scripts/check-doc-links.mjs
-KROSS_POSTGRES_PASSWORD=test-password \
-KROSS_CREDENTIAL_MASTER_KEY=abcdef0123456789abcdef0123456789 \
-KROSS_S3_SECRET_KEY=test-s3-secret \
+APP_POSTGRES_PASSWORD=test-password \
+APP_CREDENTIAL_MASTER_KEY=abcdef0123456789abcdef0123456789 \
+APP_S3_SECRET_KEY=test-s3-secret \
 docker compose --project-directory . -f deploy/local/docker-compose.yml config --quiet
 ```
 

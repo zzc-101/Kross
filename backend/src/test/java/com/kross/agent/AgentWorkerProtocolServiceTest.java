@@ -23,7 +23,7 @@ import com.kross.catalog.SkillCatalogService;
 import com.kross.channel.AgentSocketHub;
 import com.kross.channel.ChannelEvent;
 import com.kross.channel.WorkerOfferBus;
-import com.kross.config.KrossProperties;
+import com.kross.config.AppProperties;
 import com.kross.knowledge.KnowledgeMcpService;
 import com.kross.support.Tokens;
 import java.time.Instant;
@@ -63,7 +63,7 @@ class AgentWorkerProtocolServiceTest {
     service = new AgentWorkerProtocolService(
         mapper,
         mock(CredentialVault.class),
-        new KrossProperties(),
+        new AppProperties(),
         mock(AgentSocketHub.class),
         mock(WorkerOfferBus.class),
         objectMapper,

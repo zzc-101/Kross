@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: kross
       POSTGRES_USER: kross
-      POSTGRES_PASSWORD: ${KROSS_POSTGRES_PASSWORD:?请设置 KROSS_POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:?请设置 APP_POSTGRES_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kross -d kross"]
       interval: 5s
@@ -19,11 +19,11 @@ services:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      MINIO_ROOT_USER: ${KROSS_S3_ACCESS_KEY:-kross}
-      MINIO_ROOT_PASSWORD: ${KROSS_S3_SECRET_KEY:?请设置 KROSS_S3_SECRET_KEY}
-      MINIO_API_CORS_ALLOW_ORIGIN: ${KROSS_S3_CORS_ALLOW_ORIGIN:-http://localhost:8787}
+      MINIO_ROOT_USER: ${APP_S3_ACCESS_KEY:-kross}
+      MINIO_ROOT_PASSWORD: ${APP_S3_SECRET_KEY:?请设置 APP_S3_SECRET_KEY}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${APP_S3_CORS_ALLOW_ORIGIN:-http://localhost:8787}
     ports:
-      - "${KROSS_S3_PORT:-9000}:9000"
+      - "${APP_S3_PORT:-9000}:9000"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
       interval: 5s
@@ -66,33 +66,33 @@ services:
       PORT: 8787
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/kross
       SPRING_DATASOURCE_USERNAME: kross
-      SPRING_DATASOURCE_PASSWORD: ${KROSS_POSTGRES_PASSWORD:?请设置 KROSS_POSTGRES_PASSWORD}
-      KROSS_DEV_IDENTITY: ${KROSS_DEV_IDENTITY:-0}
-      KROSS_CREDENTIAL_MASTER_KEY: ${KROSS_CREDENTIAL_MASTER_KEY:?请设置 KROSS_CREDENTIAL_MASTER_KEY}
-      KROSS_PUBLIC_BASE_URL: ${KROSS_PUBLIC_BASE_URL:-http://kross-server:8787}
-      KROSS_EXTERNAL_BASE_URL: ${KROSS_EXTERNAL_BASE_URL:-http://localhost:8787}
-      KROSS_SCHEDULER_OWNER: ${KROSS_SCHEDULER_OWNER:-kross-server}
-      KROSS_WORKER_IMAGE: kross-worker:local
-      KROSS_WORKER_STORAGE: ${KROSS_WORKER_STORAGE:-local}
-      KROSS_JUICEFS_MOUNT: ${KROSS_JUICEFS_MOUNT:-}
-      KROSS_WORKER_RUNTIME: ${KROSS_WORKER_RUNTIME:-local}
-      KROSS_ORCHESTRATOR_MANAGER_ID: ${KROSS_ORCHESTRATOR_MANAGER_ID:-kross-saas}
-      KROSS_CONTROL_PLANE_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-server-1
-      KROSS_AGENT_NETWORK: ${COMPOSE_PROJECT_NAME:-agent}_kross-control
-      KROSS_S3_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-minio-1
-      KROSS_S3_ENDPOINT: http://minio:9000
-      KROSS_S3_PUBLIC_ENDPOINT: ${KROSS_S3_PUBLIC_ENDPOINT:-http://127.0.0.1:9000}
+      SPRING_DATASOURCE_PASSWORD: ${APP_POSTGRES_PASSWORD:?请设置 APP_POSTGRES_PASSWORD}
+      APP_DEV_IDENTITY: ${APP_DEV_IDENTITY:-0}
+      APP_CREDENTIAL_MASTER_KEY: ${APP_CREDENTIAL_MASTER_KEY:?请设置 APP_CREDENTIAL_MASTER_KEY}
+      APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL:-http://kross-server:8787}
+      APP_EXTERNAL_BASE_URL: ${APP_EXTERNAL_BASE_URL:-http://localhost:8787}
+      APP_SCHEDULER_OWNER: ${APP_SCHEDULER_OWNER:-kross-server}
+      APP_WORKER_IMAGE: kross-worker:local
+      APP_WORKER_STORAGE: ${APP_WORKER_STORAGE:-local}
+      APP_JUICEFS_MOUNT: ${APP_JUICEFS_MOUNT:-}
+      APP_WORKER_RUNTIME: ${APP_WORKER_RUNTIME:-local}
+      APP_ORCHESTRATOR_MANAGER_ID: ${APP_ORCHESTRATOR_MANAGER_ID:-kross-saas}
+      APP_CONTROL_PLANE_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-server-1
+      APP_AGENT_NETWORK: ${COMPOSE_PROJECT_NAME:-agent}_kross-control
+      APP_S3_CONTAINER: ${COMPOSE_PROJECT_NAME:-agent}-minio-1
+      APP_S3_ENDPOINT: http://minio:9000
+      APP_S3_PUBLIC_ENDPOINT: ${APP_S3_PUBLIC_ENDPOINT:-http://127.0.0.1:9000}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      KROSS_CACHE_ENABLED: ${KROSS_CACHE_ENABLED:-true}
-      KROSS_S3_BUCKET: ${KROSS_S3_BUCKET:-kross}
-      KROSS_S3_ACCESS_KEY: ${KROSS_S3_ACCESS_KEY:-kross}
-      KROSS_S3_SECRET_KEY: ${KROSS_S3_SECRET_KEY:?请设置 KROSS_S3_SECRET_KEY}
-      KROSS_LOG_FILE: /var/log/kross/server.log
-      KROSS_LOG_FILE_PATTERN: /var/log/kross/server.%d{yyyy-MM-dd}.%i.log.gz
-      KROSS_LOG_MAX_FILE_SIZE: ${KROSS_LOG_MAX_FILE_SIZE:-50MB}
-      KROSS_LOG_MAX_HISTORY: ${KROSS_LOG_MAX_HISTORY:-14}
-      KROSS_LOG_TOTAL_SIZE_CAP: ${KROSS_LOG_TOTAL_SIZE_CAP:-1GB}
+      APP_CACHE_ENABLED: ${APP_CACHE_ENABLED:-true}
+      APP_S3_BUCKET: ${APP_S3_BUCKET:-kross}
+      APP_S3_ACCESS_KEY: ${APP_S3_ACCESS_KEY:-kross}
+      APP_S3_SECRET_KEY: ${APP_S3_SECRET_KEY:?请设置 APP_S3_SECRET_KEY}
+      APP_LOG_FILE: /var/log/kross/server.log
+      APP_LOG_FILE_PATTERN: /var/log/kross/server.%d{yyyy-MM-dd}.%i.log.gz
+      APP_LOG_MAX_FILE_SIZE: ${APP_LOG_MAX_FILE_SIZE:-50MB}
+      APP_LOG_MAX_HISTORY: ${APP_LOG_MAX_HISTORY:-14}
+      APP_LOG_TOTAL_SIZE_CAP: ${APP_LOG_TOTAL_SIZE_CAP:-1GB}
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,7 +105,7 @@ services:
     expose: ["8787"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${KROSS_LOG_DIR:-./runs/logs/server}:/var/log/kross
+      - ${APP_LOG_DIR:-./runs/logs/server}:/var/log/kross
     logging:
       driver: json-file
       options:
@@ -131,7 +131,7 @@ services:
       server:
         condition: service_healthy
     ports:
-      - "${KROSS_PORT:-8787}:8787"
+      - "${APP_PORT:-8787}:8787"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8787/healthz"]
       interval: 5s
