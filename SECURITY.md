@@ -8,7 +8,7 @@ Kross 目前处于预发布阶段。安全修复优先合入 `main`，并在下�
 
 请使用 GitHub 仓库 Security 页面中的 **Report a vulnerability** 私密报告入口：
 
-https://github.com/zzc-101/Kross/security/advisories/new
+https://github.com/zzc-101/OpenWork/security/advisories/new
 
 请提供受影响版本、复现步骤、潜在影响，以及可行时的最小 PoC。请不要在公开 Issue 中披露尚未修复的漏洞、密钥或敏感数据。
 

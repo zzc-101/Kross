@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-[![CI](https://github.com/zzc-101/Kross-Work/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross-Work/actions/workflows/ci.yml)
+[![CI](https://github.com/zzc-101/OpenWork/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/OpenWork/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 Kross is a self-hosted **cloud computer agent** for organizations.

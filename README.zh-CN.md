@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-[![CI](https://github.com/zzc-101/Kross-Work/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/Kross-Work/actions/workflows/ci.yml)
+[![CI](https://github.com/zzc-101/OpenWork/actions/workflows/ci.yml/badge.svg)](https://github.com/zzc-101/OpenWork/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 Kross 是组织可自托管的**云端电脑 Agent**。
