@@ -109,6 +109,7 @@ Secret 使用 `APP_CREDENTIAL_MASTER_KEY` 加密后存入 `platform_settings`，
 | `APP_KUBERNETES_WORKSPACE_SIZE` | 每用户 PVC 申请值，默认 `10Gi`，local-path/CSI 不一定强制执行 |
 | `APP_S3_*` | MinIO / S3：产物与（集群）JuiceFS 底仓 |
 | `APP_CACHE_ENABLED` | 控制面 Redis 缓存开关，默认开启；设为 `false` 直连 PostgreSQL |
+| `APP_FEISHU_ENABLED` | 飞书渠道开关。为 `true` 且配置 App ID/Secret，以及 Verification Token 或 Encrypt Key 之一后，事件订阅 URL 为 `{APP_EXTERNAL_BASE_URL}/hooks/feishu` |
 | `SPRING_DATA_REDIS_*` | 控制面连接 Redis 的地址 / 端口 / 密码（Compose 内默认 `redis:6379`） |
 | `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` | 开发期注入 Worker 默认模型；生产请由超级管理员在管理中心登记平台模型 |
 

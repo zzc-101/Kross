@@ -104,6 +104,13 @@ app:
   knowledge:
     base-url: ${APP_KNOWLEDGE_BASE_URL:}
     internal-token: ${APP_KNOWLEDGE_INTERNAL_TOKEN:}
+  feishu:
+    enabled: ${APP_FEISHU_ENABLED:false}
+    app-id: ${APP_FEISHU_APP_ID:}
+    app-secret: ${APP_FEISHU_APP_SECRET:}
+    verification-token: ${APP_FEISHU_VERIFICATION_TOKEN:}
+    encrypt-key: ${APP_FEISHU_ENCRYPT_KEY:}
+    base-url: ${APP_FEISHU_BASE_URL:https://open.feishu.cn}
   s3:
     endpoint: ${APP_S3_ENDPOINT:http://127.0.0.1:9000}
     public-endpoint: ${APP_S3_PUBLIC_ENDPOINT:http://127.0.0.1:9000}

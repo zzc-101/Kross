@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type {
-  AgentMemory, AgentMessage, AgentModel, AuthConfig, Conversation, InvitePreview, KnowledgeHit, KnowledgeStatus, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing
+  AgentMemory, AgentMessage, AgentModel, AuthConfig, ConnectorBindCode, ConnectorStatus, Conversation, InvitePreview, KnowledgeHit, KnowledgeStatus, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing
 } from './types';
 import type { ChannelEvent } from './channelEvents';
 
@@ -183,6 +183,19 @@ const knowledgeHitSchema: z.ZodType<KnowledgeHit> = z.object({
   modality: z.enum(['text', 'image']).optional()
 });
 
+const connectorStatusSchema: z.ZodType<ConnectorStatus> = z.object({
+  channel: z.string().min(1),
+  enabled: z.boolean(),
+  bound: z.boolean(),
+  boundAt: instant.optional()
+});
+
+const connectorBindCodeSchema: z.ZodType<ConnectorBindCode> = z.object({
+  channel: z.string().min(1),
+  code: z.string().min(1),
+  expiresAt: instant
+});
+
 const envelopeSchema = z.object({
   code: z.number(),
   message: z.string(),
@@ -253,6 +266,20 @@ export class AgentApiClient {
 
   updateProfile(input: { displayName?: string; avatarUrl?: string; gender?: string; phone?: string }): Promise<Me> {
     return this.request('/api/v2/me', meSchema, { method: 'PATCH', organization: false, body: input });
+  }
+
+  listConnectors(): Promise<ConnectorStatus[]> {
+    return this.request('/api/v2/me/connectors', z.object({ items: z.array(connectorStatusSchema) }))
+      .then((result) => result.items);
+  }
+
+  createFeishuBindCode(): Promise<ConnectorBindCode> {
+    return this.request('/api/v2/me/connectors/feishu/bind-code', connectorBindCodeSchema, { method: 'POST' });
+  }
+
+  unbindFeishu(): Promise<void> {
+    return this.request('/api/v2/me/connectors/feishu', z.unknown().optional(), { method: 'DELETE' })
+      .then(() => undefined);
   }
 
   listModels(): Promise<AgentModel[]> {

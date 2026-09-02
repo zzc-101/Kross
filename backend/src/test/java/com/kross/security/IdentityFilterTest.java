@@ -2,6 +2,8 @@ package com.kross.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.kross.config.AppProperties;
@@ -53,6 +55,18 @@ class IdentityFilterTest {
 
     assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     assertThat(request.getSession(false)).isNull();
+  }
+
+  @Test
+  void skipsFeishuHookRequests() throws Exception {
+    IdentityDirectory directory = mock(IdentityDirectory.class);
+    IdentityFilter filter = filter(directory);
+    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/hooks/feishu");
+
+    filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+    verify(directory, never()).findUser(org.mockito.ArgumentMatchers.any());
+    assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
   }
 
   @Test

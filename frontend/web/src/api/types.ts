@@ -151,3 +151,16 @@ export interface KnowledgeHit {
   score: number;
   modality?: 'text' | 'image';
 }
+
+export interface ConnectorStatus {
+  channel: string;
+  enabled: boolean;
+  bound: boolean;
+  boundAt?: string;
+}
+
+export interface ConnectorBindCode {
+  channel: string;
+  code: string;
+  expiresAt: string;
+}

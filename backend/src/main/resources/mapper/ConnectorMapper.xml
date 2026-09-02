@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kross.connector.ConnectorMapper">
+  <select id="findBinding" resultType="com.kross.connector.entity.ConnectorBinding">
+    SELECT id, channel, tenant_id, external_user_id, user_id, organization_id, created_at, updated_at
+    FROM connector_bindings
+    WHERE channel = #{channel} AND tenant_id = #{tenantId} AND external_user_id = #{externalUserId}
+  </select>
+
+  <select id="findBindingByUser" resultType="com.kross.connector.entity.ConnectorBinding">
+    SELECT id, channel, tenant_id, external_user_id, user_id, organization_id, created_at, updated_at
+    FROM connector_bindings
+    WHERE channel = #{channel} AND user_id = #{userId} AND organization_id = #{organizationId}
+  </select>
+
+  <select id="findBindingById" resultType="com.kross.connector.entity.ConnectorBinding">
+    SELECT id, channel, tenant_id, external_user_id, user_id, organization_id, created_at, updated_at
+    FROM connector_bindings
+    WHERE id = #{id}
+  </select>
+
+  <insert id="insertBinding">
+    INSERT INTO connector_bindings (
+      id, channel, tenant_id, external_user_id, user_id, organization_id, created_at, updated_at
+    ) VALUES (
+      #{id}, #{channel}, #{tenantId}, #{externalUserId}, #{userId}, #{organizationId}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <update id="updateBinding">
+    UPDATE connector_bindings
+    SET tenant_id = #{tenantId},
+        external_user_id = #{externalUserId},
+        user_id = #{userId},
+        organization_id = #{organizationId},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+  </update>
+
+  <delete id="deleteBindingsByUser">
+    DELETE FROM connector_bindings
+    WHERE channel = #{channel} AND user_id = #{userId}
+  </delete>
+
+  <delete id="deleteBindingById">
+    DELETE FROM connector_bindings WHERE id = #{id}
+  </delete>
+
+  <select id="findThread" resultType="com.kross.connector.entity.ConnectorThread">
+    SELECT id, channel, external_chat_id, conversation_id, binding_id, created_at, updated_at
+    FROM connector_threads
+    WHERE channel = #{channel} AND external_chat_id = #{externalChatId}
+  </select>
+
+  <select id="findThreadByConversation" resultType="com.kross.connector.entity.ConnectorThread">
+    SELECT id, channel, external_chat_id, conversation_id, binding_id, created_at, updated_at
+    FROM connector_threads
+    WHERE conversation_id = #{conversationId}
+    LIMIT 1
+  </select>
+
+  <insert id="insertThread">
+    INSERT INTO connector_threads (
+      id, channel, external_chat_id, conversation_id, binding_id, created_at, updated_at
+    ) VALUES (
+      #{id}, #{channel}, #{externalChatId}, #{conversationId}, #{bindingId}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <update id="updateThreadConversation">
+    UPDATE connector_threads
+    SET conversation_id = #{conversationId},
+        binding_id = #{bindingId},
+        updated_at = now()
+    WHERE id = #{id}
+  </update>
+
+  <delete id="deleteThreadsByBinding">
+    DELETE FROM connector_threads WHERE binding_id = #{bindingId}
+  </delete>
+
+  <insert id="insertInbox">
+    INSERT INTO connector_inbox (
+      id, channel, event_id, payload, status, attempts, created_at, updated_at
+    ) VALUES (
+      #{id}, #{channel}, #{eventId}, #{payload}, 'pending', 0, #{createdAt}, #{updatedAt}
+    )
+    ON CONFLICT (channel, event_id) DO NOTHING
+  </insert>
+
+  <select id="findInbox" resultType="com.kross.connector.entity.ConnectorInbox">
+    SELECT id, channel, event_id, payload, status, attempts, last_error, next_attempt_at, created_at, updated_at
+    FROM connector_inbox
+    WHERE id = #{id}
+  </select>
+
+  <select id="claimInbox" resultType="com.kross.connector.entity.ConnectorInbox">
+    UPDATE connector_inbox
+    SET status = 'processing',
+        attempts = attempts + 1,
+        updated_at = now()
+    WHERE id = (
+      SELECT id FROM connector_inbox
+      WHERE attempts &lt; #{maxAttempts}
+        AND (
+          (status IN ('pending', 'failed') AND (next_attempt_at IS NULL OR next_attempt_at &lt;= now()))
+          OR (status = 'processing' AND updated_at &lt; now() - interval '2 minutes')
+        )
+      ORDER BY created_at ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    RETURNING id, channel, event_id, payload, status, attempts, last_error, next_attempt_at, created_at, updated_at
+  </select>
+
+  <update id="beginInbox">
+    UPDATE connector_inbox
+    SET status = 'processing',
+        attempts = attempts + 1,
+        updated_at = now()
+    WHERE id = #{id} AND status IN ('pending', 'failed')
+  </update>
+
+  <update id="markInboxDone">
+    UPDATE connector_inbox
+    SET status = 'done', last_error = NULL, next_attempt_at = NULL, updated_at = now()
+    WHERE id = #{id}
+  </update>
+
+  <update id="markInboxFailed">
+    UPDATE connector_inbox
+    SET status = 'failed', last_error = #{lastError}, next_attempt_at = #{nextAttemptAt}, updated_at = now()
+    WHERE id = #{id}
+  </update>
+</mapper>

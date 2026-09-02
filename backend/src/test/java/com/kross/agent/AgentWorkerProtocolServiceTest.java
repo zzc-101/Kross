@@ -24,6 +24,8 @@ import com.kross.channel.AgentSocketHub;
 import com.kross.channel.ChannelEvent;
 import com.kross.channel.WorkerOfferBus;
 import com.kross.config.AppProperties;
+import com.kross.connector.ConversationOutlet;
+import com.kross.connector.ConversationTurnEvent;
 import com.kross.knowledge.KnowledgeMcpService;
 import com.kross.support.Tokens;
 import java.time.Instant;
@@ -73,7 +75,8 @@ class AgentWorkerProtocolServiceTest {
         knowledgeMcp,
         runtime,
         new AgentTransactions(),
-        channels);
+        channels,
+        List.of());
   }
 
   @Test
@@ -133,7 +136,70 @@ class AgentWorkerProtocolServiceTest {
   }
 
   @Test
-  void postReplyPersistsFinalSnapshotAndIgnoresDuplicateDelivery() {
+  void postReplyNotifiesOutletOnDoneAndSkipsProcessingWithoutApproval() {
+    ConversationOutlet outlet = mock(ConversationOutlet.class);
+    service = new AgentWorkerProtocolService(
+        mapper,
+        mock(CredentialVault.class),
+        new AppProperties(),
+        mock(AgentSocketHub.class),
+        mock(WorkerOfferBus.class),
+        objectMapper,
+        memories,
+        mock(SkillCatalogService.class),
+        mock(ModelCatalog.class),
+        knowledgeMcp,
+        runtime,
+        new AgentTransactions(),
+        channels,
+        List.of(outlet));
+    Agent agent = new Agent();
+    agent.setId("agent-1");
+    agent.setUserId("user-1");
+    when(runtime.requireAgent("agent-1")).thenReturn(agent);
+    AgentMessage user = userMessage("msg-1", "conv-1");
+    AgentMessage reply = replyTo(user);
+    when(mapper.recordDelivery("delivery-1", "agent-1", "msg-1")).thenReturn(1);
+    when(mapper.findMessage("org-1", "msg-1")).thenReturn(Optional.of(user));
+    when(mapper.findMessage("org-1", reply.getId())).thenReturn(Optional.of(reply));
+    when(mapper.completeLeasedMessage("msg-1", "lease-1", "done", null)).thenReturn(1);
+
+    service.postReply("token-1", new AgentProtocol.ReplyRequest(
+        "agent.message",
+        "msg-1",
+        reply.getId(),
+        "final answer",
+        "done",
+        "delivery-1",
+        "lease-1",
+        null,
+        objectMapper.createArrayNode().addObject().put("type", "text").put("text", "final answer"),
+        null,
+        null));
+
+    verify(outlet).onTurn(org.mockito.ArgumentMatchers.argThat(event ->
+        event.kind() == ConversationTurnEvent.Kind.COMPLETED
+            && "conv-1".equals(event.conversationId())
+            && "user-1".equals(event.userId())));
+
+    org.mockito.Mockito.reset(outlet);
+    when(mapper.recordDelivery("delivery-2", "agent-1", "msg-1")).thenReturn(1);
+    when(mapper.completeLeasedMessage("msg-1", "lease-1", "processing", null)).thenReturn(1);
+    service.postReply("token-1", new AgentProtocol.ReplyRequest(
+        "agent.message",
+        "msg-1",
+        reply.getId(),
+        "partial",
+        "processing",
+        "delivery-2",
+        "lease-1",
+        null,
+        objectMapper.createArrayNode().addObject().put("type", "text").put("text", "partial"),
+        null,
+        null));
+
+    verify(outlet, never()).onTurn(any());
+  }
     AgentMessage user = userMessage("msg-1", "conv-1");
     AgentMessage reply = replyTo(user);
     when(mapper.recordDelivery("delivery-1", "agent-1", "msg-1")).thenReturn(1, 0);

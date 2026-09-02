@@ -80,3 +80,10 @@ knowledge:
   embeddingModelDir: ""
   embeddingHub: huggingface
   embeddingDevice: auto
+
+feishu:
+  enabled: false
+  appId: ""
+  appSecret: ""
+  verificationToken: ""
+  encryptKey: ""

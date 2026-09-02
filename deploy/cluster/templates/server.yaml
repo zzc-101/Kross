@@ -112,6 +112,18 @@ spec:
             - name: APP_KNOWLEDGE_INTERNAL_TOKEN
               value: {{ .Values.knowledge.internalToken | quote }}
             {{- end }}
+            {{- if .Values.feishu.enabled }}
+            - name: APP_FEISHU_ENABLED
+              value: "true"
+            - name: APP_FEISHU_APP_ID
+              value: {{ .Values.feishu.appId | quote }}
+            - name: APP_FEISHU_APP_SECRET
+              value: {{ .Values.feishu.appSecret | quote }}
+            - name: APP_FEISHU_VERIFICATION_TOKEN
+              value: {{ .Values.feishu.verificationToken | quote }}
+            - name: APP_FEISHU_ENCRYPT_KEY
+              value: {{ .Values.feishu.encryptKey | quote }}
+            {{- end }}
           ports:
             - containerPort: 8787
           readinessProbe:

@@ -27,6 +27,7 @@ public class AppProperties {
   private final S3 s3 = new S3();
   private final Kubernetes kubernetes = new Kubernetes();
   private final Knowledge knowledge = new Knowledge();
+  private final Feishu feishu = new Feishu();
 
   public boolean isDevIdentityEnabled() {
     return "1".equals(devIdentityEnabled) || Boolean.parseBoolean(devIdentityEnabled);
@@ -162,6 +163,10 @@ public class AppProperties {
 
   public Knowledge getKnowledge() {
     return knowledge;
+  }
+
+  public Feishu getFeishu() {
+    return feishu;
   }
 
   public static class Api {
@@ -466,6 +471,68 @@ public class AppProperties {
 
     public boolean isConfigured() {
       return getBaseUrl().isPresent();
+    }
+  }
+
+  public static class Feishu {
+    private boolean enabled = false;
+    private String appId = "";
+    private String appSecret = "";
+    private String verificationToken = "";
+    private String encryptKey = "";
+    private String baseUrl = "https://open.feishu.cn";
+
+    public boolean isEnabled() {
+      return enabled;
+    }
+
+    public boolean isReady() {
+      return enabled && !appId.isBlank() && !appSecret.isBlank()
+          && (!verificationToken.isBlank() || !encryptKey.isBlank());
+    }
+
+    public void setEnabled(boolean enabled) {
+      this.enabled = enabled;
+    }
+
+    public String getAppId() {
+      return appId;
+    }
+
+    public void setAppId(String appId) {
+      this.appId = Optional.ofNullable(appId).orElse("");
+    }
+
+    public String getAppSecret() {
+      return appSecret;
+    }
+
+    public void setAppSecret(String appSecret) {
+      this.appSecret = Optional.ofNullable(appSecret).orElse("");
+    }
+
+    public String getVerificationToken() {
+      return verificationToken;
+    }
+
+    public void setVerificationToken(String verificationToken) {
+      this.verificationToken = Optional.ofNullable(verificationToken).orElse("");
+    }
+
+    public String getEncryptKey() {
+      return encryptKey;
+    }
+
+    public void setEncryptKey(String encryptKey) {
+      this.encryptKey = Optional.ofNullable(encryptKey).orElse("");
+    }
+
+    public String getBaseUrl() {
+      return Optional.ofNullable(baseUrl).filter(value -> !value.isBlank()).orElse("https://open.feishu.cn");
+    }
+
+    public void setBaseUrl(String baseUrl) {
+      this.baseUrl = Optional.ofNullable(baseUrl).orElse("https://open.feishu.cn");
     }
   }
 }

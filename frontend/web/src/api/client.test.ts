@@ -104,3 +104,29 @@ describe('isUnauthorizedError', () => {
     expect(isUnauthorizedError(new Error('网络错误'))).toBe(false);
   });
 });
+
+describe('AgentApiClient.connectors', () => {
+  it('生成飞书绑定码', async () => {
+    let method: string | undefined;
+    const fetcher = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      method = init?.method;
+      return new Response(JSON.stringify({
+        code: 0,
+        message: 'ok',
+        data: { channel: 'feishu', code: '123456', expiresAt: '2026-09-02T00:10:00.000Z' }
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const api = new AgentApiClient({
+      baseUrl: 'http://localhost:8787',
+      fetch: fetcher as typeof fetch
+    });
+    api.selectOrganization('org-1');
+
+    await expect(api.createFeishuBindCode()).resolves.toEqual({
+      channel: 'feishu',
+      code: '123456',
+      expiresAt: '2026-09-02T00:10:00.000Z'
+    });
+    expect(method).toBe('POST');
+  });
+});

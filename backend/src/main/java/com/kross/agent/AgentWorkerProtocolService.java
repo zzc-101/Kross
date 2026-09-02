@@ -17,9 +17,12 @@ import com.kross.channel.ChannelEvent;
 import com.kross.channel.MessageParts;
 import com.kross.channel.WorkerOfferBus;
 import com.kross.config.AppProperties;
+import com.kross.connector.ConversationOutlet;
+import com.kross.connector.ConversationTurnEvent;
 import com.kross.knowledge.KnowledgeMcpService;
 import com.kross.observability.RequestLogContext;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +52,7 @@ public class AgentWorkerProtocolService {
   private final AgentRuntimeOps runtime;
   private final AgentTransactions transactions;
   private final AgentChannelPublisher channels;
+  private final List<ConversationOutlet> outlets;
 
   public AgentProtocol.WorkerSettings workerSettings(String token) {
     AgentSession session = runtime.authenticate(token);
@@ -241,7 +245,9 @@ public class AgentWorkerProtocolService {
     agents.touchConversation(conversationId);
     agents.touch(session.getAgentId());
     channels.emitUpsert(agents.findMessage(session.getOrganizationId(), userMessageId).orElse(userMessage));
-    channels.emitUpsert(agents.findMessage(session.getOrganizationId(), reply.getId()).orElse(reply));
+    AgentMessage published = agents.findMessage(session.getOrganizationId(), reply.getId()).orElse(reply);
+    channels.emitUpsert(published);
+    notifyOutlets(session, published, status);
     if ("processing".equals(status)) {
       return;
     }
@@ -337,5 +343,64 @@ public class AgentWorkerProtocolService {
 
   public AgentSession requireAgentSession(String token) {
     return runtime.authenticate(token);
+  }
+
+  private void notifyOutlets(AgentSession session, AgentMessage reply, String status) {
+    if (outlets == null || outlets.isEmpty()) {
+      return;
+    }
+    ConversationTurnEvent.Kind kind = switch (status) {
+      case "done" -> ConversationTurnEvent.Kind.COMPLETED;
+      case "failed" -> ConversationTurnEvent.Kind.FAILED;
+      case "processing" -> ConversationTurnEvent.Kind.APPROVAL_REQUIRED;
+      default -> null;
+    };
+    if (kind == null) {
+      return;
+    }
+    List<ConversationTurnEvent.Approval> approvals = pendingApprovals(reply.getParts());
+    if (kind == ConversationTurnEvent.Kind.APPROVAL_REQUIRED && approvals.isEmpty()) {
+      return;
+    }
+    Agent agent = runtime.requireAgent(session.getAgentId());
+    ConversationTurnEvent event = new ConversationTurnEvent(
+        reply.getConversationId(),
+        session.getOrganizationId(),
+        agent.getUserId(),
+        kind,
+        Optional.ofNullable(reply.getContent()).orElse(""),
+        reply.getErrorSummary(),
+        approvals);
+    transactions.afterCommit(() -> {
+      for (ConversationOutlet outlet : outlets) {
+        try {
+          outlet.onTurn(event);
+        } catch (Exception error) {
+          log.warn("Conversation outlet failed: {}", error.getMessage());
+        }
+      }
+    });
+  }
+
+  private static List<ConversationTurnEvent.Approval> pendingApprovals(JsonNode parts) {
+    if (parts == null || !parts.isArray()) {
+      return List.of();
+    }
+    List<ConversationTurnEvent.Approval> approvals = new ArrayList<>();
+    for (JsonNode part : parts) {
+      if (!"approval-required".equals(part.path("status").asText())) {
+        continue;
+      }
+      String id = part.path("approval").path("id").asText("").trim();
+      if (id.isEmpty()) {
+        continue;
+      }
+      approvals.add(new ConversationTurnEvent.Approval(
+          id,
+          part.path("name").asText(""),
+          part.path("approval").path("reason").asText(""),
+          part.path("approval").path("inputPreview").asText("")));
+    }
+    return List.copyOf(approvals);
   }
 }

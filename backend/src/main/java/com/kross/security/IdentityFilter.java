@@ -43,7 +43,8 @@ public class IdentityFilter extends OncePerRequestFilter {
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
     String path = request.getRequestURI();
-    return path.equals("/health") || path.startsWith("/internal/") || path.startsWith("/mcp/");
+    return path.equals("/health") || path.startsWith("/internal/") || path.startsWith("/mcp/")
+        || path.startsWith("/hooks/");
   }
 
   @Override

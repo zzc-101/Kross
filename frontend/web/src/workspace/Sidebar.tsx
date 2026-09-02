@@ -91,6 +91,9 @@ export function Sidebar({
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [knowledgeEnabled, setKnowledgeEnabled] = useState(false);
+  const [feishu, setFeishu] = useState<{ enabled: boolean; bound: boolean; code?: string }>({ enabled: false, bound: false });
+  const [feishuBusy, setFeishuBusy] = useState(false);
+  const [feishuError, setFeishuError] = useState('');
   const letter = (displayName.trim()[0] || username[0] || '?').toUpperCase();
   const visibleConversations = useMemo(
     () => conversations.filter((item) => item.title !== '新对话' || item.id === activeId),
@@ -108,6 +111,23 @@ export function Sidebar({
       })
       .catch(() => {
         if (!cancelled) setKnowledgeEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, organizationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.listConnectors()
+      .then((items) => {
+        if (cancelled) return;
+        const row = items.find((item) => item.channel === 'feishu');
+        setFeishu({ enabled: Boolean(row?.enabled), bound: Boolean(row?.bound), code: undefined });
+        setFeishuError('');
+      })
+      .catch(() => {
+        if (!cancelled) setFeishu({ enabled: false, bound: false });
       });
     return () => {
       cancelled = true;
@@ -197,6 +217,48 @@ export function Sidebar({
                     {memberships.map((item) => <option key={item.id} value={item.organizationId}>{item.organizationName} · {item.role === 'admin' ? '组织管理员' : '成员'}</option>)}
                   </select>
                 </label>
+                {feishu.enabled && (
+                  <div className="account-connector">
+                    <span>飞书</span>
+                    {feishu.bound ? (
+                      <p className="account-username">已绑定当前组织。在飞书私聊机器人发消息即可投递任务。</p>
+                    ) : (
+                      <p className="account-username">生成 6 位绑定码，发给飞书机器人完成绑定。</p>
+                    )}
+                    {feishu.code && <p className="account-bind-code">{feishu.code}</p>}
+                    {feishuError && <p className="account-username">{feishuError}</p>}
+                    <button
+                      type="button"
+                      disabled={feishuBusy}
+                      onClick={() => {
+                        setFeishuBusy(true);
+                        setFeishuError('');
+                        void api.createFeishuBindCode()
+                          .then((result) => setFeishu((current) => ({ ...current, code: result.code })))
+                          .catch((cause) => setFeishuError(cause instanceof Error ? cause.message : '无法生成绑定码'))
+                          .finally(() => setFeishuBusy(false));
+                      }}
+                    >
+                      {feishuBusy ? '生成中…' : feishu.bound ? '重新绑定' : '生成绑定码'}
+                    </button>
+                    {feishu.bound && (
+                      <button
+                        type="button"
+                        disabled={feishuBusy}
+                        onClick={() => {
+                          setFeishuBusy(true);
+                          setFeishuError('');
+                          void api.unbindFeishu()
+                            .then(() => setFeishu((current) => ({ ...current, bound: false, code: undefined })))
+                            .catch((cause) => setFeishuError(cause instanceof Error ? cause.message : '解绑失败'))
+                            .finally(() => setFeishuBusy(false));
+                        }}
+                      >
+                        解除绑定
+                      </button>
+                    )}
+                  </div>
+                )}
                 <button type="button" onClick={onLogout}>退出登录</button>
               </div>
             )}
