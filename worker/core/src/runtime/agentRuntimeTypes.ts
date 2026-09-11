@@ -3,7 +3,7 @@ import type {
   SessionContext
 } from '../context/sessionContext';
 import type { AgentResult, TraceEvent } from '../domain';
-import type { LlmClient } from '../llm/types';
+import type { LlmClient, LlmImagePart } from '../llm/types';
 import type { TodoStore } from '../todo/todoStore';
 import type { ToolGateway } from '../tools/toolGateway';
 import type { TraceStore } from '../trace/traceStore';
@@ -59,6 +59,7 @@ export interface AgentRuntimeOptions {
 
 export interface AgentRunInput {
   input: string;
+  images?: LlmImagePart[];
   /** 取消本次前台运行；取消是正常终态，不按失败处理。 */
   signal?: AbortSignal;
 }

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  capabilitiesForNativeAdapter,
-  capabilitiesForPiModel
-} from './providerCapabilities';
+import { capabilitiesForPiModel } from './providerCapabilities';
 import { createPiAiModels, resolvePiAiModel } from './piAiModels';
 
 describe('provider capabilities', () => {
@@ -16,8 +13,29 @@ describe('provider capabilities', () => {
       toolCalling: true,
       thinking: catalog.reasoning,
       structuredOutput: false,
-      multimodalRead: false
+      multimodalRead: catalog.input.includes('image')
     });
+  });
+
+  it('enables multimodalRead only when the catalog model accepts images', () => {
+    const models = createPiAiModels('openai');
+    const withImage = models.getModels('openai').find((model) =>
+      model.input.includes('image')
+    );
+    const textOnly = models.getModels('openai').find(
+      (model) => !model.input.includes('image')
+    );
+    if (withImage) {
+      expect(capabilitiesForPiModel(withImage, 'model-catalog').multimodalRead).toBe(
+        true
+      );
+    }
+    if (textOnly) {
+      expect(capabilitiesForPiModel(textOnly, 'model-catalog').multimodalRead).toBe(
+        false
+      );
+    }
+    expect(Boolean(withImage || textOnly)).toBe(true);
   });
 
   it('uses conservative adapter capabilities for custom models', () => {
@@ -25,17 +43,6 @@ describe('provider capabilities', () => {
     const custom = resolvePiAiModel(models, 'deepseek', 'private-model');
     expect(capabilitiesForPiModel(custom, 'adapter-default')).toEqual({
       version: 1,
-      source: 'adapter-default',
-      toolCalling: true,
-      thinking: true,
-      structuredOutput: false,
-      promptCaching: false,
-      multimodalRead: false
-    });
-  });
-
-  it('declares native protocol support at the adapter boundary', () => {
-    expect(capabilitiesForNativeAdapter('anthropic')).toMatchObject({
       source: 'adapter-default',
       toolCalling: true,
       thinking: true,

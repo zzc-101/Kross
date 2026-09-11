@@ -4,12 +4,10 @@ import {
   createLlmClient,
   createLlmClientFromEnv
 } from './createLlmClient';
-import { AnthropicProtocolClient } from './anthropicProtocolClient';
-import { OpenAiProtocolClient } from './openAiProtocolClient';
 import { PiAiLlmClient } from './piAiLlmClient';
 
 describe('createLlmClient', () => {
-  it('defaults to pi-backed clients', () => {
+  it('creates pi-backed clients', () => {
     const openai = createLlmClient({
       provider: 'openai',
       apiKey: 'key',
@@ -33,7 +31,7 @@ describe('createLlmClient', () => {
     expect(openrouter.provider).toBe('openrouter');
   });
 
-  it('uses native clients when fetch is injected', () => {
+  it('keeps pi-backed clients when fetch is injected', () => {
     const fetchImpl = async () => new Response('{}');
 
     const openai = createLlmClient({
@@ -42,16 +40,7 @@ describe('createLlmClient', () => {
       model: 'gpt-test',
       fetch: fetchImpl
     });
-    expect(openai).toBeInstanceOf(OpenAiProtocolClient);
-
-    const deepseek = createLlmClient({
-      provider: 'deepseek',
-      apiKey: 'key',
-      model: 'deepseek-chat',
-      fetch: fetchImpl
-    });
-    expect(deepseek).toBeInstanceOf(OpenAiProtocolClient);
-    expect(deepseek.provider).toBe('deepseek');
+    expect(openai).toBeInstanceOf(PiAiLlmClient);
 
     const anthropic = createLlmClient({
       provider: 'anthropic',
@@ -59,17 +48,7 @@ describe('createLlmClient', () => {
       model: 'claude-test',
       fetch: fetchImpl
     });
-    expect(anthropic).toBeInstanceOf(AnthropicProtocolClient);
-  });
-
-  it('allows forcing native backend', () => {
-    const client = createLlmClient({
-      provider: 'openai',
-      apiKey: 'key',
-      model: 'gpt-test',
-      backend: 'native'
-    });
-    expect(client).toBeInstanceOf(OpenAiProtocolClient);
+    expect(anthropic).toBeInstanceOf(PiAiLlmClient);
   });
 
   it('returns undefined when env does not configure an LLM provider', () => {
@@ -110,17 +89,6 @@ describe('createLlmClient', () => {
 
     expect(client).toBeInstanceOf(PiAiLlmClient);
     expect(client?.model).toBe('claude-test');
-  });
-
-  it('honors AGENT_LLM_BACKEND=native from env', () => {
-    const client = createLlmClientFromEnv({
-      AGENT_LLM_PROVIDER: 'openai',
-      OPENAI_API_KEY: 'key',
-      OPENAI_MODEL: 'gpt-test',
-      AGENT_LLM_BACKEND: 'native'
-    });
-
-    expect(client).toBeInstanceOf(OpenAiProtocolClient);
   });
 
   it('rejects unknown providers', () => {

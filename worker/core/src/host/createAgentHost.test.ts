@@ -4,7 +4,6 @@ import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { OpenAiProtocolClient } from '../llm/openAiProtocolClient';
 import { PiAiLlmClient } from '../llm/piAiLlmClient';
 import {
   bootstrapRuntimeTooling,

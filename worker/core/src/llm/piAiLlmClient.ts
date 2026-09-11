@@ -32,6 +32,7 @@ import {
 import type {
   LlmClient,
   LlmClientConfig,
+  LlmFetch,
   LlmRequest,
   LlmResponse,
   LlmStreamChunk,
@@ -39,9 +40,11 @@ import type {
 } from './types';
 import { LlmProviderError } from './types';
 import {
-  capabilitiesForPiModel,
-  type LlmCapabilities
-} from './providerCapabilities';
+  applyMultimodalReadPolicy,
+  dropRemoteUrlImages,
+  resolveRemoteImages
+} from './multimodal';
+import { capabilitiesForPiModel, type LlmCapabilities } from './providerCapabilities';
 import {
   LlmCallMetricsRecorder,
   type LlmCallMetrics
@@ -65,6 +68,7 @@ export class PiAiLlmClient implements LlmClient {
   private piModel: Model<Api>;
   private readonly apiKey?: string;
   private readonly authToken?: string;
+  private readonly fetchImpl: LlmFetch;
 
   constructor(private readonly config: LlmClientConfig) {
     this.provider = config.provider;
@@ -73,6 +77,8 @@ export class PiAiLlmClient implements LlmClient {
     this.apiKey = config.apiKey;
     this.authToken =
       this.provider === 'anthropic' ? config.authToken : undefined;
+    this.fetchImpl =
+      config.fetch ?? ((url, init) => globalThis.fetch(url, init));
 
     this.models = createPiAiModels(this.provider, {
       baseUrl: this.config.baseUrl,
@@ -131,8 +137,9 @@ export class PiAiLlmClient implements LlmClient {
   async complete(request: LlmRequest): Promise<LlmResponse> {
     const started = this.metrics.start();
     throwIfAborted(request.signal);
-    const model = this.modelForRequest(request);
-    const context = toPiContext(request.messages, request.tools, {
+    const forPi = await this.prepareForPi(request);
+    const model = this.modelForRequest(forPi);
+    const context = toPiContext(forPi.messages, forPi.tools, {
       provider: this.provider,
       model: model.id,
       api: model.api
@@ -145,7 +152,7 @@ export class PiAiLlmClient implements LlmClient {
         this.models.completeSimple(
           model,
           context,
-          this.simpleStreamOptions(request, model)
+          this.simpleStreamOptions(forPi, model)
         ),
         request.signal
       );
@@ -179,8 +186,9 @@ export class PiAiLlmClient implements LlmClient {
     const started = this.metrics.start();
     throwIfAborted(request.signal);
     this._lastUsage = undefined;
-    const model = this.modelForRequest(request);
-    const context = toPiContext(request.messages, request.tools, {
+    const forPi = await this.prepareForPi(request);
+    const model = this.modelForRequest(forPi);
+    const context = toPiContext(forPi.messages, forPi.tools, {
       provider: this.provider,
       model: model.id,
       api: model.api
@@ -189,7 +197,7 @@ export class PiAiLlmClient implements LlmClient {
     const stream = this.models.streamSimple(
       model,
       context,
-      this.simpleStreamOptions(request, model)
+      this.simpleStreamOptions(forPi, model)
     );
 
     try {
@@ -231,6 +239,19 @@ export class PiAiLlmClient implements LlmClient {
       }
       throw error;
     }
+  }
+
+  private async prepareForPi(request: LlmRequest): Promise<LlmRequest> {
+    const messages = applyMultimodalReadPolicy(
+      request.messages,
+      this.capabilities.multimodalRead
+    );
+    return {
+      ...request,
+      messages: dropRemoteUrlImages(
+        await resolveRemoteImages(messages, this.fetchImpl, request.signal)
+      )
+    };
   }
 
   private modelForRequest(request: LlmRequest): Model<Api> {

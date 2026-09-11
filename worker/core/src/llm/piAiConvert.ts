@@ -1,5 +1,6 @@
 import { Type, type Context, type Message, type Tool, type Usage } from '@earendil-works/pi-ai';
 
+import { toPiImageContent } from './multimodal';
 import type {
   LlmChatMessage,
   LlmMessage,
@@ -37,7 +38,7 @@ export function toPiContext(
     if (message.role === 'user') {
       piMessages.push({
         role: 'user',
-        content: message.content,
+        content: toPiUserContent(message),
         timestamp: now
       });
       continue;
@@ -183,6 +184,31 @@ export function mapPiStreamEvent(
     default:
       return undefined;
   }
+}
+
+function toPiUserContent(
+  message: LlmChatMessage
+): string | Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> {
+  if (!message.images?.length) {
+    return message.content;
+  }
+  const content: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; data: string; mimeType: string }
+  > = [];
+  if (message.content.trim()) {
+    content.push({ type: 'text', text: message.content });
+  }
+  for (const image of message.images) {
+    const converted = toPiImageContent(image);
+    if (converted) {
+      content.push(converted);
+    }
+  }
+  if (content.length === 0) {
+    return message.content;
+  }
+  return content;
 }
 
 function toPiAssistantMessage(

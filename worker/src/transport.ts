@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
+import type { ConversationHistoryTurn, LlmImagePart } from '../core/src/llm/types';
+import { parseImageParts } from '../core/src/llm/multimodal';
+
 export interface AgentControlTransport {
   register(): Promise<{ heartbeatIntervalMs: number; idleMs: number }>;
   heartbeat(activeJob?: { id: string; leaseId: string }): Promise<{
@@ -13,7 +16,8 @@ export interface AgentControlTransport {
     conversationId: string;
     agentMessageId: string;
     content: string;
-    history: Array<{ role: string; content: string }>;
+    history: ConversationHistoryTurn[];
+    images?: LlmImagePart[];
     modelId?: string;
     skill?: ActiveSkill;
   } | undefined>;
@@ -101,7 +105,8 @@ type Job = {
   conversationId: string;
   agentMessageId: string;
   content: string;
-  history: Array<{ role: string; content: string }>;
+  history: ConversationHistoryTurn[];
+  images?: LlmImagePart[];
   modelId?: string;
   skill?: ActiveSkill;
 };
@@ -122,6 +127,7 @@ type SocketMessage = {
   agentMessageId?: unknown;
   content?: unknown;
   history?: unknown;
+  images?: unknown;
   modelId?: unknown;
   skill?: unknown;
   commandId?: unknown;
@@ -597,6 +603,7 @@ function parseJob(value: SocketMessage): Job {
     throw new Error('Control plane returned an invalid job');
   }
   const skill = parseSkill(value.skill);
+  const images = parseImageParts(value.images);
   return {
     id: value.id,
     leaseId: value.leaseId,
@@ -604,6 +611,7 @@ function parseJob(value: SocketMessage): Job {
     agentMessageId: value.agentMessageId,
     content: value.content,
     history: parseHistory(value.history),
+    ...(images.length > 0 ? { images } : {}),
     ...(typeof value.modelId === 'string' && value.modelId.trim() ? { modelId: value.modelId } : {}),
     ...(skill ? { skill } : {})
   };
@@ -628,16 +636,26 @@ function parseSkill(value: unknown): ActiveSkill | undefined {
   };
 }
 
-function parseHistory(value: unknown): Array<{ role: string; content: string }> {
+function parseHistory(value: unknown): ConversationHistoryTurn[] {
   if (!Array.isArray(value)) return [];
-  const turns: Array<{ role: string; content: string }> = [];
+  const turns: ConversationHistoryTurn[] = [];
   for (const item of value) {
     if (!item || typeof item !== 'object') continue;
     const role = (item as { role?: unknown }).role;
     const content = (item as { content?: unknown }).content;
-    if (typeof role === 'string' && typeof content === 'string') {
-      turns.push({ role, content });
+    if (typeof role !== 'string' || typeof content !== 'string') {
+      continue;
     }
+    const normalized = role === 'agent' ? 'assistant' : role;
+    if (normalized !== 'user' && normalized !== 'assistant') {
+      continue;
+    }
+    const images = parseImageParts((item as { images?: unknown }).images);
+    turns.push({
+      role: normalized,
+      content,
+      ...(normalized === 'user' && images.length > 0 ? { images } : {})
+    });
   }
   return turns;
 }

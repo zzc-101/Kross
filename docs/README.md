@@ -23,6 +23,7 @@
 | 发布平台 Skill 或受管外部工具 | [扩展 Kross](extensions.md) |
 | 理解 Provider 能力与指标 | [Provider 能力](provider-capabilities.md)、[调用观测](provider-observability.md) |
 | 准备版本 | [发布指南](releasing.md) |
+| 查看当前实施顺序 | [实施方案](roadmap-2026-09-01.md) |
 
 ## 维护约定
 

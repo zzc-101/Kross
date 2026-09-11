@@ -1,4 +1,4 @@
-import type { LlmMessage, LlmToolCall } from '../llm/types';
+import type { LlmMessage, LlmImagePart, LlmToolCall, ConversationHistoryTurn } from '../llm/types';
 import { TokenEstimator, estimateMessageTokens } from './tokenEstimator';
 
 export type ThreadEntryKind =
@@ -101,7 +101,7 @@ export class ConversationThread {
     this.currentIteration = iteration;
   }
 
-  beginTurn(userInput: string): string {
+  beginTurn(userInput: string, images?: LlmImagePart[]): string {
     if (this.openTurnId) {
       throw new Error('Cannot begin turn while another turn is open');
     }
@@ -111,7 +111,11 @@ export class ConversationThread {
     this.appendEntry({
       turnId,
       kind: 'user',
-      message: { role: 'user', content: userInput }
+      message: {
+        role: 'user',
+        content: userInput,
+        ...(images && images.length > 0 ? { images } : {})
+      }
     });
     return turnId;
   }
@@ -439,7 +443,7 @@ export class ConversationThread {
    * 从 user/assistant 对恢复会话；旧 `[CONTEXT COMPACTION` marker 转为 compaction 条目。
    */
   restoreFromConversation(
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>
+    messages: ConversationHistoryTurn[]
   ): { restoredTurnCount: number; convertedCompaction: boolean } {
     this.clear();
     let restoredTurnCount = 0;
@@ -469,7 +473,13 @@ export class ConversationThread {
       this.appendEntry({
         turnId,
         kind: 'user',
-        message: { role: 'user', content: message.content }
+        message: {
+          role: 'user',
+          content: message.content,
+          ...(message.images && message.images.length > 0
+            ? { images: message.images }
+            : {})
+        }
       });
       index += 1;
       restoredTurnCount += 1;
@@ -559,6 +569,9 @@ function cloneMessage(message: LlmMessage): LlmMessage {
   return {
     role: message.role,
     content: message.content,
+    ...(message.images && message.images.length > 0
+      ? { images: message.images.map((image) => ({ ...image })) }
+      : {}),
     ...(message.toolCalls ? { toolCalls: [...message.toolCalls] } : {})
   };
 }

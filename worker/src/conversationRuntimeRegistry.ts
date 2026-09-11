@@ -1,9 +1,10 @@
+import type { ConversationHistoryTurn, LlmImagePart } from '../core/src/llm/types';
 import type { AgentHostHandle } from './coreRuntimeFactory';
 
 export interface ConversationRuntimeRequest {
   conversationId: string;
   signature: string;
-  history: Array<{ role: string; content: string }>;
+  history: Array<{ role: string; content: string; images?: LlmImagePart[] }>;
   create(): Promise<AgentHostHandle>;
 }
 
@@ -51,12 +52,19 @@ export class ConversationRuntimeRegistry {
 }
 
 function normalizeHistory(
-  history: Array<{ role: string; content: string }>
-): Array<{ role: 'user' | 'assistant'; content: string }> {
+  history: Array<{ role: string; content: string; images?: LlmImagePart[] }>
+): ConversationHistoryTurn[] {
   return history.flatMap((message) => {
     const role = message.role === 'agent' ? 'assistant' : message.role;
-    return role === 'user' || role === 'assistant'
-      ? [{ role, content: message.content }]
-      : [];
+    if (role !== 'user' && role !== 'assistant') {
+      return [];
+    }
+    return [{
+      role,
+      content: message.content,
+      ...(role === 'user' && message.images?.length
+        ? { images: message.images }
+        : {})
+    }];
   });
 }

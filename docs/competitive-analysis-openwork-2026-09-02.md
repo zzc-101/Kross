@@ -65,16 +65,11 @@ OpenWork 已在做 OpenWork Web 与 Cloud workers，说明他们也在往服务�
 
 ### 2. 补一条对外接入路径
 
-不必放弃自研 Runtime，但需要一个 MCP server 形态的出口，让第三方 Agent 客户端可以把任务投递到成员的云端 Worker，并取回 `artifacts` / `evidence` / `incompleteItems`。
-这与 `roadmap-2026-09-01.md` 阶段三的飞书渠道接入同源：本质都是"控制面对外暴露任务投递与结果回收接口"，可以共用协议层。先做 MCP 出口再做渠道，或者反过来，取决于目标客户已有的工具链。
+**2026-09-11 决定：不做。** 不提供把任务投递给 Codex / Claude Code / Cursor 的 MCP 出口。飞书渠道已按私聊 MVP 落地，不再为此预留共用协议层。
 
 ### 3. 降低试用门槛
 
-目前唯一入口是 `./scripts/start-cloud.sh`，需要 Docker Engine 与 Compose v2。建议：
-
-- 提供一个单容器 all-in-one 镜像（内嵌 PostgreSQL 与本地文件存储），用于个人评估与演示，明确标注非生产用途。
-- 提供可公开访问的只读演示环境，或录制的完整工作流演示。
-- 在 README 首屏给出"5 分钟内看到第一个产物"的路径。
+**2026-09-11 决定：不做。** 不提供 all-in-one 镜像或公开演示环境。入口维持 `./scripts/start-cloud.sh`。
 
 ### 4. Skill 与 MCP 的生态接入
 
@@ -87,7 +82,7 @@ OpenWork 已在做 OpenWork Web 与 Cloud workers，说明他们也在往服务�
 
 ### 6. 补齐文件交互
 
-浏览器附件上传协议、非文本文件预览、产物下载与分享是知识工作场景的高频动作，也是与 OpenWork "在本地文件上工作"体验差距最直观的地方。
+**2026-09-11：当前主线，见 `roadmap-2026-09-01.md` 阶段四。** 浏览器附件上传、文件面板管理（上传 / 下载 / 删除）和产物取回优先；公开分享链接与 Office 在线预览不纳入本阶段。
 
 ### 7. 技术标识中性化
 

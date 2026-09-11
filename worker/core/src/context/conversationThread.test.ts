@@ -94,6 +94,24 @@ describe('ConversationThread', () => {
     expect(thread.getTurnIdsInOrder()).toHaveLength(2);
   });
 
+  it('restores user images onto the thread message', () => {
+    const thread = new ConversationThread();
+    thread.restoreFromConversation([
+      {
+        role: 'user',
+        content: '看图',
+        images: [{ kind: 'url', url: 'https://cdn.example/a.png' }]
+      },
+      { role: 'assistant', content: 'ok' }
+    ]);
+    const user = thread.buildMessages()[0];
+    expect(user).toMatchObject({
+      role: 'user',
+      content: '看图',
+      images: [{ kind: 'url', url: 'https://cdn.example/a.png' }]
+    });
+  });
+
   it('replaces a historical prefix with a summary in chronological position', () => {
     const thread = new ConversationThread();
     thread.beginTurn('old');

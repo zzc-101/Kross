@@ -16,9 +16,21 @@ export type LlmRole = z.infer<typeof llmRoleSchema>;
 
 export type LlmMessage = LlmChatMessage | LlmToolMessage;
 
+export type LlmImagePart =
+  | { kind: 'url'; url: string; mimeType?: string }
+  | { kind: 'base64'; data: string; mimeType: string };
+
+export interface ConversationHistoryTurn {
+  role: 'user' | 'assistant';
+  content: string;
+  images?: LlmImagePart[];
+}
+
 export interface LlmChatMessage {
   role: Exclude<LlmRole, 'tool'>;
   content: string;
+  /** User-turn images only; assistant / system ignore this field. */
+  images?: LlmImagePart[];
   toolCalls?: LlmToolCall[];
 }
 
@@ -121,34 +133,19 @@ export interface LlmClient {
 export type LlmFetch = (url: string, init: RequestInit) => Promise<Response>;
 export type OpenAiWireApi = 'responses' | 'completions';
 
-export interface BaseLlmClientConfig {
+export interface LlmClientConfig {
+  provider: LlmProvider;
   apiKey?: string;
   authToken?: string;
   baseUrl?: string;
   model: string;
+  /** Used to download remote image URLs into base64 for pi-ai. */
   fetch?: LlmFetch;
   thinkingEffort?: ThinkingEffort;
   contextWindow?: number;
   /** Explicit protocol for custom OpenAI-compatible endpoints. */
   wireApi?: OpenAiWireApi;
 }
-
-export interface OpenAiFamilyClientConfig extends BaseLlmClientConfig {
-  /** Defaults to openai when omitted (native client convenience). */
-  provider?: 'openai' | 'openrouter' | 'deepseek' | 'xai';
-  apiKey: string;
-}
-
-export interface AnthropicProtocolClientConfig extends BaseLlmClientConfig {
-  provider?: 'anthropic';
-  anthropicVersion?: string;
-}
-
-export type LlmClientConfig =
-  | (OpenAiFamilyClientConfig & {
-      provider: 'openai' | 'openrouter' | 'deepseek' | 'xai';
-    })
-  | (AnthropicProtocolClientConfig & { provider: 'anthropic' });
 
 export class LlmProviderError extends Error {
   constructor(

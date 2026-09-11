@@ -16,14 +16,17 @@ Worker 和 Web 只读取统一声明，不通过模型名称字符串猜测功�
 `source` 为 `model-catalog` 时，声明来自 pi-ai 的具体模型元数据；未知或私有模型
 使用 `adapter-default`，只声明 Kross 协议 Adapter 能保守保证的能力。
 
-能力表示 Kross **端到端已经接通**的功能，而不是厂商宣传的全部上游能力。例如，
-模型目录可能声明图片输入，但当前 `LlmMessage` 仍是文本契约，因此
-`multimodalRead` 保持 `false`；structured output 尚无公共请求契约，也保持
-`false`。这可以避免 UI 或 Runtime 展示尚不可用的功能。
+能力表示 Kross **端到端已经接通**的功能，而不是厂商宣传的全部上游能力。
+`multimodalRead` 为 `true` 表示 Worker 已能把用户消息中的图片（URL 或 base64）发给该模型：
+只看 pi-ai 目录里该模型 `input` 是否包含 `image`。自定义模型与 `adapter-default` 为 false。
+pi-ai 只接受 base64：远程 http(s) URL 会先下载再编码，下载失败则丢掉该图并在文本末尾注明。
+模型不支持看图时，Worker 会丢掉 images 并在文本末尾注明忽略了附件。
+structured output 尚无公共请求契约，保持 `false`。这可以避免 UI 或 Runtime 展示尚不可用的功能。
 
 ## 消费规则
 
 - Runtime 在 `toolCalling: false` 时不会向模型发送工具定义。
+- Runtime 在 `multimodalRead: false` 时不会向模型发送图片块。
 - 非 `off` 的思考强度在 `thinking: false` 时会被拒绝。
 - Web 的模型设置会显示当前能力；不支持 thinking 时只保留 `off`。
 - Cloud Session Snapshot 携带同一份 capability；Web 模型菜单直接显示能力状态，

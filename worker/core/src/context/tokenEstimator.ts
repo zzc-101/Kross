@@ -1,7 +1,11 @@
+import { imageCount } from '../llm/multimodal';
 import type { LlmMessage } from '../llm/types';
 
 /** 每条消息的固定结构开销（角色、分隔符等） */
 export const MESSAGE_OVERHEAD_TOKENS = 4;
+
+/** 单张图的固定估算，不按 base64 字节计以免撑爆治理阈值。 */
+export const IMAGE_TOKENS = 1600;
 
 const CJK_REGEX =
   /[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]/;
@@ -37,6 +41,7 @@ export function estimateMessageTokens(message: LlmMessage): number {
   }
 
   tokens += estimateTextTokens(message.content);
+  tokens += imageCount(message) * IMAGE_TOKENS;
   if (message.toolCalls && message.toolCalls.length > 0) {
     tokens += estimateTextTokens(JSON.stringify(message.toolCalls));
   }

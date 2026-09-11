@@ -194,4 +194,34 @@ describe('piAiConvert', () => {
     ).toEqual({ type: 'error', message: 'boom' });
     expect(mapPiStreamEvent({ type: 'start' })).toBeUndefined();
   });
+
+  it('maps user images to pi-ai text and base64 image blocks', () => {
+    const context = toPiContext(
+      [
+        {
+          role: 'user',
+          content: '看图',
+          images: [
+            { kind: 'base64', data: 'abc', mimeType: 'image/png' },
+            { kind: 'url', url: 'data:image/jpeg;base64,xyz' }
+          ]
+        }
+      ],
+      undefined,
+      {
+        provider: 'openai',
+        model: 'gpt-test',
+        api: 'openai-completions'
+      }
+    );
+
+    expect(context.messages[0]).toMatchObject({
+      role: 'user',
+      content: [
+        { type: 'text', text: '看图' },
+        { type: 'image', data: 'abc', mimeType: 'image/png' },
+        { type: 'image', data: 'xyz', mimeType: 'image/jpeg' }
+      ]
+    });
+  });
 });

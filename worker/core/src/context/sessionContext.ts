@@ -1,4 +1,9 @@
-import type { LlmClient, LlmMessage } from '../llm/types';
+import type {
+  ConversationHistoryTurn,
+  LlmClient,
+  LlmImagePart,
+  LlmMessage
+} from '../llm/types';
 import { resolveModelContextWindow } from '../llm/modelContextWindows';
 import type { ToolMetadata } from '../tools/toolGateway';
 import { createContextPolicy, type ContextPolicy } from './contextPolicy';
@@ -207,8 +212,8 @@ export class SessionContext {
     return this.estimator;
   }
 
-  beginTurn(userInput: string): string {
-    return this.thread.beginTurn(userInput);
+  beginTurn(userInput: string, images?: LlmImagePart[]): string {
+    return this.thread.beginTurn(userInput, images);
   }
 
   commitTurn(): void {
@@ -266,7 +271,7 @@ export class SessionContext {
   }
 
   restoreConversation(
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>
+    messages: ConversationHistoryTurn[]
   ): ContextMaintenanceResult {
     const beforeTokens = this.thread
       .getEntries()

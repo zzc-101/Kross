@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import type { AgentResult } from '../core/src/domain';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
+import type { LlmImagePart } from '../core/src/llm/types';
 
 import { createPersistentAgentHost, type AgentHostHandle } from './coreRuntimeFactory';
 import { ConversationRuntimeRegistry } from './conversationRuntimeRegistry';
@@ -150,7 +151,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
           options.transport,
           job,
           job.content,
-          runSignal
+          runSignal,
+          job.images
         );
         await options.transport.postReply({
           userMessageId: job.id,
@@ -199,7 +201,8 @@ async function runTurn(
   transport: AgentControlTransport,
   job: { id: string; agentMessageId: string; leaseId: string },
   input: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  images?: LlmImagePart[]
 ): Promise<{
   content: string;
   status: 'done' | 'failed';
@@ -257,7 +260,11 @@ async function runTurn(
     return streamResult;
   };
 
-  let result = await consume(host.runtime.runStreaming({ input, signal }));
+  let result = await consume(host.runtime.runStreaming({
+    input,
+    ...(images && images.length > 0 ? { images } : {}),
+    signal
+  }));
   while (result?.status === 'approval-required') {
     const pending = result.pendingApproval;
     if (!pending) {

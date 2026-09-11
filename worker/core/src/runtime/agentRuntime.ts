@@ -23,6 +23,7 @@ import {
 import type { ThinkingEffort } from '../llm/thinkingEffort';
 import type { LlmCapabilities } from '../llm/providerCapabilities';
 import type { LlmCallMetrics } from '../llm/providerObservability';
+import type { ConversationHistoryTurn } from '../llm/types';
 import type { LlmClient, LlmToolCall } from '../llm/types';
 import {
   ToolGateway,
@@ -187,7 +188,7 @@ export class AgentRuntime extends EventEmitter {
   }
 
   restoreConversation(
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>
+    messages: ConversationHistoryTurn[]
   ): ContextMaintenanceResult {
     const maintenance = this.sessionContext.restoreConversation(messages);
     this.modelSession.getLlmClient()?.clearLastUsage?.();
@@ -338,7 +339,7 @@ export class AgentRuntime extends EventEmitter {
     runId: string
   ): AsyncIterable<AgentRunStreamEvent> {
     throwIfAborted(input.signal);
-    this.sessionContext.beginTurn(input.input);
+    this.sessionContext.beginTurn(input.input, input.images);
     const { buildContextInput, tools } = this.buildPlannerContext();
     const prepared = await this.sessionContext.prepareRequest(
       buildContextInput,

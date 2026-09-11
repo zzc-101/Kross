@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   TokenEstimator,
+  IMAGE_TOKENS,
   estimateMessageTokens,
   estimateTextTokens
 } from './tokenEstimator';
@@ -34,6 +35,16 @@ describe('TokenEstimator', () => {
       content: 'ok'
     }));
     expect(estimateMessageTokens(tool)).toBeGreaterThan(4);
+  });
+
+  it('adds a fixed token cost per image instead of counting bytes', () => {
+    const textOnly = estimateMessageTokens({ role: 'user', content: '看图' });
+    const withImage = estimateMessageTokens({
+      role: 'user',
+      content: '看图',
+      images: [{ kind: 'base64', data: 'a'.repeat(10_000), mimeType: 'image/png' }]
+    });
+    expect(withImage - textOnly).toBe(IMAGE_TOKENS);
   });
 
   it('calibrates with EMA and clamps factor', () => {

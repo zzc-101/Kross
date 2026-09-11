@@ -1,3 +1,4 @@
+import { imageCount } from '../llm/multimodal';
 import type { LlmClient, LlmMessage } from '../llm/types';
 import { isOperationAborted, throwIfAborted } from '../abort';
 import { renderPrompt } from '../prompts';
@@ -37,6 +38,10 @@ export function buildExtractiveTurnSummary(turns: SummarizeTurnInput[]): string 
         const text = clip(entry.message.content, 2_000);
         if (text) {
           parts.push(`用户: ${text}`);
+        }
+        const images = imageCount(entry.message);
+        if (images > 0) {
+          parts.push(`含 ${images} 张图`);
         }
       } else if (entry.kind === 'assistant') {
         const text = clip(entry.message.content, 4_000);

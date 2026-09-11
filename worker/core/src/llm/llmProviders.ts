@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-/** First-wave providers wired through pi-ai (and openai-family native fallback). */
+/** First-wave providers wired through pi-ai. */
 export const llmProviderSchema = z.enum([
   'openai',
   'anthropic',
@@ -26,8 +26,6 @@ export interface LlmProviderDefinition {
   exampleModel: string;
   /** Curated provider choices; metadata comes from pi-ai. */
   recommendedModels: readonly string[];
-  /** Native HTTP clients only implement openai + anthropic wire formats. */
-  supportsNative: boolean;
 }
 
 export const LLM_PROVIDER_DEFINITIONS: Record<
@@ -47,8 +45,7 @@ export const LLM_PROVIDER_DEFINITIONS: Record<
       'gpt-5.6-terra',
       'gpt-5.4-mini',
       'gpt-4.1-mini'
-    ],
-    supportsNative: true
+    ]
   },
   anthropic: {
     id: 'anthropic',
@@ -63,8 +60,7 @@ export const LLM_PROVIDER_DEFINITIONS: Record<
       'claude-sonnet-5',
       'claude-opus-4-8',
       'claude-haiku-4-5'
-    ],
-    supportsNative: true
+    ]
   },
   openrouter: {
     id: 'openrouter',
@@ -79,8 +75,7 @@ export const LLM_PROVIDER_DEFINITIONS: Record<
       'anthropic/claude-sonnet-4.6',
       'google/gemini-3.1-pro-preview',
       'deepseek/deepseek-v3.2'
-    ],
-    supportsNative: true
+    ]
   },
   deepseek: {
     id: 'deepseek',
@@ -90,8 +85,7 @@ export const LLM_PROVIDER_DEFINITIONS: Record<
     modelEnv: ['DEEPSEEK_MODEL', 'AGENT_LLM_MODEL'],
     baseUrlEnv: 'DEEPSEEK_BASE_URL',
     exampleModel: 'deepseek-v4-pro',
-    recommendedModels: ['deepseek-v4-pro', 'deepseek-v4-flash'],
-    supportsNative: true
+    recommendedModels: ['deepseek-v4-pro', 'deepseek-v4-flash']
   },
   xai: {
     id: 'xai',
@@ -100,9 +94,8 @@ export const LLM_PROVIDER_DEFINITIONS: Record<
     apiKeyEnv: ['XAI_API_KEY'],
     modelEnv: ['XAI_MODEL', 'AGENT_LLM_MODEL'],
     baseUrlEnv: 'XAI_BASE_URL',
-    exampleModel: 'grok-4.5',
-    recommendedModels: ['grok-4.5', 'grok-4.3', 'grok-build-0.1'],
-    supportsNative: true
+    exampleModel: 'grok-4.6',
+    recommendedModels: ['grok-4.6', 'grok-4.5', 'grok-4.3']
   }
 };
 

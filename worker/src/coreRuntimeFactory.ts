@@ -5,14 +5,13 @@ import { createAgentHost } from '../core/src/host/createAgentHost';
 import type { ContextSource } from '../core/src/context/sessionContext';
 import type { SaasActiveSkill } from '../core/src/runtime/saasRuntimePolicy';
 import type { AgentRunStreamEvent } from '../core/src/runtime/agentRuntimeTypes';
+import type { ConversationHistoryTurn, LlmImagePart } from '../core/src/llm/types';
 
 export interface AgentRuntimeHandle {
-  restoreConversation(messages: Array<{
-    role: 'user' | 'assistant';
-    content: string;
-  }>): unknown;
+  restoreConversation(messages: ConversationHistoryTurn[]): unknown;
   runStreaming(input: {
     input: string;
+    images?: LlmImagePart[];
     signal?: AbortSignal;
   }): AsyncIterable<AgentRunStreamEvent>;
   resolveToolApprovalStreaming(input: {

@@ -1,7 +1,5 @@
 import type { Api, Model } from '@earendil-works/pi-ai';
 
-import type { LlmProvider } from './llmProviders';
-
 export const LLM_CAPABILITIES_VERSION = 1;
 
 export interface LlmCapabilities {
@@ -32,24 +30,13 @@ export function capabilitiesForPiModel(
     promptCaching:
       model.api === 'anthropic-messages' ||
       model.api === 'openai-responses',
-    // Catalog input may contain image, but LlmMessage is text-only today.
-    multimodalRead: false
+    multimodalRead:
+      source === 'model-catalog' && modelSupportsImageInput(model)
   };
 }
 
-export function capabilitiesForNativeAdapter(
-  provider: LlmProvider
-): LlmCapabilities {
-  return {
-    version: LLM_CAPABILITIES_VERSION,
-    source: 'adapter-default',
-    toolCalling: true,
-    // Both native wire adapters parse provider reasoning/thinking streams.
-    thinking: true,
-    structuredOutput: false,
-    promptCaching: false,
-    multimodalRead: false
-  };
+function modelSupportsImageInput(model: Model<Api>): boolean {
+  return model.input.includes('image');
 }
 
 function supportsToolCalling(api: Api): boolean {
