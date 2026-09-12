@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,13 +9,21 @@ import { handleWorkspaceCommand } from './workspaceCommands';
 
 let root: string;
 let outside: string;
+let previousS3Endpoint: string | undefined;
 
 beforeEach(async () => {
+  previousS3Endpoint = process.env.APP_S3_ENDPOINT;
+  delete process.env.APP_S3_ENDPOINT;
   root = await mkdtemp(join(tmpdir(), 'app-workspace-command-'));
   outside = await mkdtemp(join(tmpdir(), 'app-workspace-outside-'));
 });
 
 afterEach(async () => {
+  if (previousS3Endpoint === undefined) {
+    delete process.env.APP_S3_ENDPOINT;
+  } else {
+    process.env.APP_S3_ENDPOINT = previousS3Endpoint;
+  }
   await Promise.all([
     rm(root, { recursive: true, force: true }),
     rm(outside, { recursive: true, force: true })
@@ -71,73 +79,25 @@ describe('workspace commands', () => {
     })).rejects.toThrow('workspace');
   });
 
-  it('puts binary chunks, renames collisions, and reads them back', async () => {
-    await command('workspace.write', { path: 'report.bin', content: 'old' });
-    const bytes = Buffer.from([0, 1, 2, 3, 4]);
-    const first = await command('workspace.put', {
-      path: 'report.bin',
-      offset: 0,
-      data: bytes.subarray(0, 3).toString('base64'),
-      eof: false,
-      totalSize: bytes.byteLength,
-      ifExists: 'rename'
-    });
-    expect(first.path).toBe('report (1).bin');
-    const done = await command('workspace.put', {
-      path: first.path,
-      offset: 3,
-      data: bytes.subarray(3).toString('base64'),
-      eof: true,
-      totalSize: bytes.byteLength
-    });
-    expect(done).toMatchObject({ path: 'report (1).bin', size: 5 });
-    expect(await readFile(join(root, 'report (1).bin'))).toEqual(bytes);
-    expect(await readFile(join(root, 'report.bin'), 'utf8')).toBe('old');
-
-    const chunk = await command('workspace.get', {
-      path: 'report (1).bin',
-      offset: 0,
-      length: 2
-    });
-    expect(chunk).toMatchObject({ size: 5, offset: 0, eof: false });
-    expect(Buffer.from(String(chunk.data), 'base64')).toEqual(Buffer.from([0, 1]));
-  });
-
   it('creates directories, deletes files and empty dirs, and rejects escape', async () => {
     await command('workspace.mkdir', { path: 'uploads/docs' });
-    await command('workspace.put', {
-      path: 'uploads/docs/note.bin',
-      offset: 0,
-      data: Buffer.from('ok').toString('base64'),
-      eof: true,
-      totalSize: 2
-    });
-    await command('workspace.delete', { path: 'uploads/docs/note.bin' });
+    await command('workspace.write', { path: 'uploads/docs/note.txt', content: 'ok' });
+    await command('workspace.delete', { path: 'uploads/docs/note.txt' });
     await command('workspace.delete', { path: 'uploads/docs' });
     const listing = await command('workspace.list', { path: 'uploads' });
     expect(listing.entries).toEqual([]);
 
     await mkdir(join(root, 'links'));
     await symlink(outside, join(root, 'links', 'escape'));
-    await expect(command('workspace.put', {
-      path: 'links/escape/secret.bin',
-      offset: 0,
-      data: Buffer.from('x').toString('base64'),
-      eof: true
+    await expect(command('workspace.write', {
+      path: 'links/escape/secret.txt',
+      content: 'blocked'
     })).rejects.toThrow('workspace');
     await expect(command('workspace.delete', { path: 'links/escape' })).rejects.toThrow('workspace');
   });
 
   it('hides in-progress upload staging files from listings', async () => {
-    await command('workspace.put', {
-      path: 'partial.bin',
-      offset: 0,
-      data: Buffer.from([1, 2]).toString('base64'),
-      eof: false,
-      totalSize: 4
-    });
-    const names = await readdir(root);
-    expect(names.some((name) => name.endsWith('.uploading'))).toBe(true);
+    await writeFile(join(root, '.partial.bin.uploading'), Buffer.from([1, 2]));
     const listing = await command('workspace.list', { path: '.' });
     expect(listing.entries).toEqual([]);
   });
@@ -165,16 +125,18 @@ describe('workspace commands', () => {
       response.end();
     });
     try {
+      await command('workspace.write', { path: 'from-s3.bin', content: 'old' });
       const pulled = await command('workspace.pull', {
         path: 'from-s3.bin',
         url,
         totalSize: payload.byteLength,
         ifExists: 'rename'
       });
-      expect(pulled).toMatchObject({ path: 'from-s3.bin', size: payload.byteLength });
-      expect(await readFile(join(root, 'from-s3.bin'))).toEqual(payload);
+      expect(pulled).toMatchObject({ path: 'from-s3 (1).bin', size: payload.byteLength });
+      expect(await readFile(join(root, 'from-s3.bin'), 'utf8')).toBe('old');
+      expect(await readFile(join(root, 'from-s3 (1).bin'))).toEqual(payload);
       await command('workspace.push', {
-        path: 'from-s3.bin',
+        path: 'from-s3 (1).bin',
         url,
         mimeType: 'application/octet-stream'
       });
@@ -184,12 +146,17 @@ describe('workspace commands', () => {
     }
   });
 
-  it('rejects non-http pull urls and path escape', async () => {
+  it('rejects non-http pull urls, foreign hosts, and path escape', async () => {
     await expect(command('workspace.pull', {
       path: 'bad.bin',
       url: 'file:///etc/passwd',
       totalSize: 1
     })).rejects.toThrow('url');
+    await expect(command('workspace.pull', {
+      path: 'remote.bin',
+      url: 'http://example.com/file.bin',
+      totalSize: 1
+    })).rejects.toThrow('host');
     await mkdir(join(root, 'links'));
     await symlink(outside, join(root, 'links', 'escape'));
     await expect(command('workspace.pull', {
@@ -197,5 +164,30 @@ describe('workspace commands', () => {
       url: 'http://127.0.0.1/file.bin',
       totalSize: 1
     })).rejects.toThrow('workspace');
+  });
+
+  it('allows pull only from APP_S3_ENDPOINT when it is set', async () => {
+    const payload = Buffer.from('pinned');
+    const { server, url } = await listen((request, response) => {
+      response.writeHead(200, { 'content-type': 'application/octet-stream' });
+      response.end(payload);
+    });
+    process.env.APP_S3_ENDPOINT = 'http://minio:9000';
+    try {
+      await expect(command('workspace.pull', {
+        path: 'denied.bin',
+        url,
+        totalSize: payload.byteLength
+      })).rejects.toThrow('host');
+      process.env.APP_S3_ENDPOINT = new URL(url).origin;
+      const pulled = await command('workspace.pull', {
+        path: 'allowed.bin',
+        url,
+        totalSize: payload.byteLength
+      });
+      expect(pulled).toMatchObject({ path: 'allowed.bin', size: payload.byteLength });
+    } finally {
+      await closeServer(server);
+    }
   });
 });

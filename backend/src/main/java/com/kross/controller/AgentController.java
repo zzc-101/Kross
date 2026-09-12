@@ -14,7 +14,6 @@ import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.dto.SkillView;
 import com.kross.agent.dto.WorkspaceDirectoryRequest;
-import com.kross.agent.dto.WorkspaceFileUrlView;
 import com.kross.agent.dto.WorkspaceFileView;
 import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.agent.dto.WorkspaceStoredFileView;
@@ -131,14 +130,6 @@ public class AgentController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestBody WorkspaceUploadCommitRequest request) {
     return Res.ok(agents.commitWorkspaceUpload(organizationId, request));
-  }
-
-  @GetMapping("/workspace/file/url")
-  public Res<WorkspaceFileUrlView> workspaceFileUrl(
-      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
-      @RequestParam String path,
-      @RequestParam Optional<Boolean> inline) {
-    return Res.ok(agents.workspaceFileUrl(organizationId, path, inline.orElse(false)));
   }
 
   @GetMapping("/workspace/file/content")

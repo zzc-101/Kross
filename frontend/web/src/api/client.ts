@@ -158,9 +158,7 @@ const workspaceStoredFileSchema: z.ZodType<WorkspaceStoredFile> = z.object({
   path: z.string().min(1),
   size: z.number(),
   mimeType: z.string(),
-  name: z.string().min(1),
-  url: z.string().min(1).nullish(),
-  urlExpiresAt: instant.nullish()
+  name: z.string().min(1)
 });
 
 const workspaceUploadSchema: z.ZodType<WorkspaceUpload> = z.object({

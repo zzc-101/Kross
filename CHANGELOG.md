@@ -14,7 +14,7 @@
 - 工作区文件面板支持目录浏览、文本预览和产物大小显示。
 - 本地工作区操作自动执行；只有受管外部工具需要用户确认。
 - 浏览器协议删除普通用户模型选择、MCP 配置、Git 状态和仓库克隆入口。
-- 成员工作区上传改为预签名写入对象存储，再同步到 Worker；下载与图片预览改为预签名 URL。
+- 成员工作区上传改为预签名写入对象存储，再同步到 Worker；下载与图片预览走同源 `file/content` 302（约 2 分钟短缓存），不再返回 JSON 预签名 URL。
 - 工作区文件不再自动加载为编程项目系统规则；平台 Skill、用户记忆和明确的用户请求构成可信工作上下文。
 
 ### Removed
@@ -26,6 +26,7 @@
 - 项目注册表、多工作区根和仓库路由字段。
 - 本地 Skill 发现、读取和增删改接口。
 - Runtime inspection、Trace 回放、上下文手动压缩和 Git Diff 门面。
+- `GET /api/v2/agent/workspace/file/url` 与 Worker `workspace.put` / `workspace.get`。
 
 ### Added
 
@@ -37,7 +38,7 @@
 
 ### Migration notes
 
-- 普通用户客户端必须停止调用 `/api/v2/agent/model`、`/models`、`/mcp` 和 `/workspace/git*`。
+- 普通用户客户端必须停止调用 `/api/v2/agent/model`、`/models`、`/mcp`、`/workspace/git*` 和 `/workspace/file/url`；下载与图片预览改用 `/workspace/file/content`。
 - 不再读取工作区中的本地 Skill 或编程项目规则；需要稳定行为时由管理员发布版本化 Skill。
 - 后端数据库迁移由 Flyway 自动执行；升级前仍应备份 PostgreSQL、对象存储和 `/work`。
 - `KROSS_WORKER_RUNTIME=cluster` 与 `kross-node` 已移除，多机改为 k3s Helm（`kubernetes` + JuiceFS CSI）。`worker_nodes` 表在 V25 删除。

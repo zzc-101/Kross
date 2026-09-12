@@ -18,7 +18,6 @@ import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.dto.SkillView;
 import com.kross.agent.dto.WorkspaceDirectoryRequest;
 import com.kross.agent.dto.WorkspaceFileRef;
-import com.kross.agent.dto.WorkspaceFileUrlView;
 import com.kross.agent.dto.WorkspaceFileView;
 import com.kross.agent.dto.WorkspaceListingView;
 import com.kross.agent.dto.WorkspaceStoredFileView;
@@ -86,6 +85,7 @@ public class AgentConversationService {
   private final AgentChannelPublisher channels;
   private final ObjectStorage storage;
   private final AppProperties properties;
+  private final WorkspaceFileUrlCache fileUrls;
 
   public List<AgentModelView> listModels(String organizationId) {
     access.require(organizationId, OrganizationAction.AGENT_READ);
@@ -349,39 +349,24 @@ public class AgentConversationService {
       storage.copy(key, finalKey);
       storage.delete(key);
     }
-    ObjectStorage.SignedUrl signed = publicFileUrl(finalKey, fileName(path), mimeType, false, expiresAt);
-    return new WorkspaceStoredFileView(path, size, mimeType, fileName(path), signed.url(), signed.expiresAt());
-  }
-
-  public WorkspaceFileUrlView workspaceFileUrl(String organizationId, String path, boolean inline) {
-    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
-    Agent agent = runtime.ensure(context);
-    String relative = requireRelativePath(path, false);
-    String filename = fileName(relative);
-    String mimeType = downloadContentType(filename);
-    String key = WorkspaceObjectKeys.objectKey(context.organizationId(), agent.getId(), relative);
-    Instant expiresAt = signedExpiry();
-    if (storage.head(key).isEmpty()) {
-      ObjectStorage.SignedUrl put = storage.presignPut(key, ObjectStorage.Audience.INTERNAL, mimeType, expiresAt);
-      runtime.runWorkspaceCommand(
-          agent,
-          "workspace.push",
-          Map.of(
-              "path", relative,
-              "url", put.url(),
-              "mimeType", mimeType),
-          WORKSPACE_TRANSFER_TIMEOUT);
-    }
-    ObjectStorage.SignedUrl signed = publicFileUrl(key, filename, mimeType, inline, expiresAt);
-    return new WorkspaceFileUrlView(relative, signed.url(), signed.expiresAt(), mimeType, filename, inline);
+    fileUrls.evict(context.organizationId(), agent.getId(), path);
+    return new WorkspaceStoredFileView(path, size, mimeType, fileName(path));
   }
 
   public void redirectWorkspaceFile(
       String organizationId, String path, boolean inline, HttpServletResponse response) {
-    WorkspaceFileUrlView signed = workspaceFileUrl(organizationId, path, inline);
-    response.setStatus(HttpServletResponse.SC_FOUND);
-    response.setHeader(HttpHeaders.LOCATION, signed.url());
-    response.setHeader(HttpHeaders.CACHE_CONTROL, "private, no-store");
+    OrganizationContext context = access.require(organizationId, OrganizationAction.AGENT_READ);
+    Agent agent = runtime.ensure(context);
+    String relative = requireRelativePath(path, false);
+    Optional<String> cached = fileUrls.lookup(context.organizationId(), agent.getId(), relative, inline);
+    if (cached.isPresent()) {
+      sendRedirect(response, cached.get());
+      return;
+    }
+    ObjectStorage.SignedUrl signed = signWorkspaceFile(context, agent, relative, inline);
+    fileUrls.store(
+        context.organizationId(), agent.getId(), relative, inline, signed.url(), signed.expiresAt());
+    sendRedirect(response, signed.url());
   }
 
   public WorkspaceStoredFileView deleteWorkspacePath(String organizationId, String path) {
@@ -395,6 +380,7 @@ public class AgentConversationService {
         WORKSPACE_COMMAND_TIMEOUT);
     String deleted = String.valueOf(payload.getOrDefault("path", relative));
     storage.delete(WorkspaceObjectKeys.objectKey(context.organizationId(), agent.getId(), deleted));
+    fileUrls.evict(context.organizationId(), agent.getId(), deleted);
     return new WorkspaceStoredFileView(deleted, 0, "", fileName(deleted));
   }
 
@@ -440,8 +426,34 @@ public class AgentConversationService {
     return rendered;
   }
 
+  private ObjectStorage.SignedUrl signWorkspaceFile(
+      OrganizationContext context, Agent agent, String relative, boolean inline) {
+    String filename = fileName(relative);
+    String mimeType = downloadContentType(filename);
+    String key = WorkspaceObjectKeys.objectKey(context.organizationId(), agent.getId(), relative);
+    Instant expiresAt = signedExpiry();
+    if (storage.head(key).isEmpty()) {
+      ObjectStorage.SignedUrl put = storage.presignPut(key, ObjectStorage.Audience.INTERNAL, mimeType, expiresAt);
+      runtime.runWorkspaceCommand(
+          agent,
+          "workspace.push",
+          Map.of(
+              "path", relative,
+              "url", put.url(),
+              "mimeType", mimeType),
+          WORKSPACE_TRANSFER_TIMEOUT);
+    }
+    return publicFileUrl(key, filename, mimeType, inline, expiresAt);
+  }
+
   private Instant signedExpiry() {
     return Instant.now().plus(properties.getS3().getPresignTtl());
+  }
+
+  private static void sendRedirect(HttpServletResponse response, String url) {
+    response.setStatus(HttpServletResponse.SC_FOUND);
+    response.setHeader(HttpHeaders.LOCATION, url);
+    response.setHeader(HttpHeaders.CACHE_CONTROL, "private, no-store");
   }
 
   private ObjectStorage.SignedUrl publicFileUrl(

@@ -120,8 +120,6 @@ export interface WorkspaceStoredFile {
   size: number;
   mimeType: string;
   name: string;
-  url?: string | null;
-  urlExpiresAt?: string | null;
 }
 
 export interface WorkspaceUpload {

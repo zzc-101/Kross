@@ -293,10 +293,17 @@ function Dropdown({
   );
 }
 
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith('image/')) {
+    return true;
+  }
+  return /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name);
+}
+
 function ComposerAttachChip({ file, onRemove }: { file: File; onRemove(): void }) {
   const [thumb, setThumb] = useState('');
   useEffect(() => {
-    if (!file.type.startsWith('image/')) {
+    if (!isImageFile(file)) {
       setThumb('');
       return;
     }

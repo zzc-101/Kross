@@ -59,7 +59,8 @@ class AgentConversationIsolationTest {
         new AgentTransactions(),
         mock(AgentChannelPublisher.class),
         mock(ObjectStorage.class),
-        new AppProperties());
+        new AppProperties(),
+        new WorkspaceFileUrlCache());
   }
 
   @AfterEach
@@ -102,8 +103,6 @@ class AgentConversationIsolationTest {
     ApiException mkdir = assertDenied(
         () -> service.createWorkspaceDirectory("org-b", new com.kross.agent.dto.WorkspaceDirectoryRequest("docs")));
     assertThat(mkdir.getCode()).isEqualTo("organization_access_denied");
-    ApiException download = assertDenied(() -> service.workspaceFileUrl("org-b", "a.txt", false));
-    assertThat(download.getCode()).isEqualTo("organization_access_denied");
     ApiException content = assertDenied(
         () -> service.redirectWorkspaceFile("org-b", "a.txt", true, mock(jakarta.servlet.http.HttpServletResponse.class)));
     assertThat(content.getCode()).isEqualTo("organization_access_denied");

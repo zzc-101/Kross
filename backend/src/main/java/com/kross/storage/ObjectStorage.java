@@ -197,8 +197,6 @@ public class ObjectStorage {
         .region(Region.of(properties.getRegion()))
         .credentialsProvider(StaticCredentialsProvider.create(credentials))
         .serviceConfiguration(s3Config)
-        .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
-        .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
         .build();
   }
 

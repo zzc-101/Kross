@@ -15,6 +15,7 @@ import io.fabric8.kubernetes.api.model.VolumeBuilder;
 import io.fabric8.kubernetes.api.model.VolumeMountBuilder;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -123,19 +124,7 @@ public class KubernetesContainerBackend implements ContainerBackend {
         .withName("worker")
         .withImage(properties.getWorkerImage())
         .withImagePullPolicy("IfNotPresent")
-        .withEnv(List.of(
-            new EnvVar("APP_AGENT_ID", agentId, null),
-            new EnvVar("APP_AGENT_TOKEN", request.agentToken(), null),
-            new EnvVar("APP_CONTROL_PLANE_URL", request.controlPlaneUrl(), null),
-            new EnvVar("APP_PHYSICAL_WORK_ROOT", "/work", null),
-            new io.fabric8.kubernetes.api.model.EnvVarBuilder()
-                .withName("APP_NODE_ID")
-                .withNewValueFrom()
-                .withNewFieldRef()
-                .withFieldPath("spec.nodeName")
-                .endFieldRef()
-                .endValueFrom()
-                .build()))
+        .withEnv(workerEnv(request))
         .withResources(new ResourceRequirementsBuilder()
             .withLimits(Map.of(
                 "cpu", new Quantity(limits.cpuMillis() + "m"),
@@ -232,6 +221,27 @@ public class KubernetesContainerBackend implements ContainerBackend {
 
   private String namespace() {
     return properties.getKubernetes().requireNamespace();
+  }
+
+  private List<EnvVar> workerEnv(StartRequest request) {
+    List<EnvVar> env = new ArrayList<>();
+    env.add(new EnvVar("APP_AGENT_ID", request.agentId(), null));
+    env.add(new EnvVar("APP_AGENT_TOKEN", request.agentToken(), null));
+    env.add(new EnvVar("APP_CONTROL_PLANE_URL", request.controlPlaneUrl(), null));
+    env.add(new EnvVar("APP_PHYSICAL_WORK_ROOT", "/work", null));
+    env.add(new io.fabric8.kubernetes.api.model.EnvVarBuilder()
+        .withName("APP_NODE_ID")
+        .withNewValueFrom()
+        .withNewFieldRef()
+        .withFieldPath("spec.nodeName")
+        .endFieldRef()
+        .endValueFrom()
+        .build());
+    Optional.ofNullable(properties.getS3().getEndpoint())
+        .map(String::trim)
+        .filter(value -> !value.isBlank())
+        .ifPresent(endpoint -> env.add(new EnvVar("APP_S3_ENDPOINT", endpoint, null)));
+    return env;
   }
 
   static boolean isUsable(Pod pod) {

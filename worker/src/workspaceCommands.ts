@@ -20,7 +20,6 @@ const MAX_LIST_ENTRIES = 400;
 const MAX_READ_BYTES = 256 * 1024;
 const MAX_WRITE_BYTES = 512 * 1024;
 export const MAX_PUT_BYTES = 10 * 1024 * 1024;
-export const MAX_CHUNK_BYTES = 256 * 1024;
 
 export type WorkerCommand = {
   commandId: string;
@@ -43,10 +42,6 @@ export async function handleWorkspaceCommand(
         stringField(command.payload.path, ''),
         stringField(command.payload.content, '')
       );
-    case 'workspace.put':
-      return putWorkspaceFile(workspaceRoot, command.payload);
-    case 'workspace.get':
-      return getWorkspaceFile(workspaceRoot, command.payload);
     case 'workspace.pull':
       return pullWorkspaceFile(workspaceRoot, command.payload);
     case 'workspace.push':
@@ -114,115 +109,6 @@ async function writeWorkspaceFile(
   return { path: toRelative(root, target) };
 }
 
-async function putWorkspaceFile(
-  root: string,
-  payload: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const requestedPath = stringField(payload.path, '');
-  if (!requestedPath.trim()) {
-    throw new Error('path is required');
-  }
-  const offset = integerField(payload.offset, 0);
-  const eof = payload.eof === true;
-  const totalSize = payload.totalSize === undefined
-    ? undefined
-    : integerField(payload.totalSize, 0);
-  const chunk = decodeChunk(payload.data);
-  if (offset < 0 || chunk.byteLength > MAX_CHUNK_BYTES) {
-    throw new Error('Invalid upload chunk');
-  }
-  if (offset + chunk.byteLength > MAX_PUT_BYTES) {
-    throw new Error('File is too large');
-  }
-  if (totalSize !== undefined && (totalSize < 0 || totalSize > MAX_PUT_BYTES)) {
-    throw new Error('File is too large');
-  }
-  if (totalSize !== undefined && offset + chunk.byteLength > totalSize) {
-    throw new Error('Upload chunk exceeds declared size');
-  }
-
-  let relativePath = requestedPath.replaceAll('\\', '/');
-  if (offset === 0 && payload.ifExists !== 'error') {
-    relativePath = await uniqueRelativePath(root, relativePath);
-  }
-  const target = await resolveWritablePathWithinWorkspace(root, relativePath);
-  const staging = join(dirname(target), stagingName(basename(target)));
-  await mkdir(dirname(target), { recursive: true });
-
-  if (offset === 0) {
-    const handle = await open(staging, 'w', 0o600);
-    try {
-      await handle.write(chunk, 0, chunk.byteLength, 0);
-    } finally {
-      await handle.close();
-    }
-  } else {
-    const info = await stat(staging).catch(() => undefined);
-    if (!info || !info.isFile()) {
-      throw new Error('Upload session is missing');
-    }
-    if (info.size !== offset) {
-      throw new Error('Upload chunk offset does not match');
-    }
-    const handle = await open(staging, 'r+', 0o600);
-    try {
-      await handle.write(chunk, 0, chunk.byteLength, offset);
-    } finally {
-      await handle.close();
-    }
-  }
-
-  const received = offset + chunk.byteLength;
-  if (!eof) {
-    return { path: toRelative(root, target), received };
-  }
-  if (totalSize !== undefined && received !== totalSize) {
-    throw new Error('Upload size mismatch');
-  }
-  await rename(staging, target);
-  const finalInfo = await stat(target);
-  return {
-    path: toRelative(root, target),
-    size: finalInfo.size,
-    received
-  };
-}
-
-async function getWorkspaceFile(
-  root: string,
-  payload: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const target = await resolveExistingPathWithinWorkspace(root, stringField(payload.path, ''));
-  const info = await stat(target);
-  if (!info.isFile()) {
-    throw new Error('Path is not a file');
-  }
-  const offset = integerField(payload.offset, 0);
-  const length = Math.min(
-    integerField(payload.length, MAX_CHUNK_BYTES),
-    MAX_CHUNK_BYTES,
-    Math.max(0, info.size - offset)
-  );
-  if (offset < 0 || offset > info.size) {
-    throw new Error('Invalid download offset');
-  }
-  const handle = await open(target, 'r');
-  try {
-    const buffer = Buffer.alloc(length);
-    const { bytesRead } = await handle.read(buffer, 0, length, offset);
-    const slice = buffer.subarray(0, bytesRead);
-    return {
-      path: toRelative(root, target),
-      size: info.size,
-      offset,
-      data: slice.toString('base64'),
-      eof: offset + bytesRead >= info.size
-    };
-  } finally {
-    await handle.close();
-  }
-}
-
 async function pullWorkspaceFile(
   root: string,
   payload: Record<string, unknown>
@@ -231,7 +117,7 @@ async function pullWorkspaceFile(
   if (!requestedPath.trim()) {
     throw new Error('path is required');
   }
-  const url = requireHttpUrl(payload.url);
+  const url = requireAllowedObjectUrl(payload.url);
   const totalSize = payload.totalSize === undefined
     ? undefined
     : integerField(payload.totalSize, 0);
@@ -307,7 +193,7 @@ async function pushWorkspaceFile(
   if (info.size > MAX_PUT_BYTES) {
     throw new Error('File is too large');
   }
-  const url = requireHttpUrl(payload.url);
+  const url = requireAllowedObjectUrl(payload.url);
   const mimeType = stringField(payload.mimeType, 'application/octet-stream') || 'application/octet-stream';
   const body = await readFile(target);
   const response = await fetch(url, {
@@ -326,7 +212,7 @@ async function pushWorkspaceFile(
   };
 }
 
-function requireHttpUrl(value: unknown): string {
+function requireAllowedObjectUrl(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error('url is required');
   }
@@ -339,7 +225,30 @@ function requireHttpUrl(value: unknown): string {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('Invalid download url');
   }
+  const allowed = allowedObjectHost();
+  if (allowed) {
+    if (parsed.host.toLowerCase() !== allowed) {
+      throw new Error('Download host is not allowed');
+    }
+    return value;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname !== '127.0.0.1' && hostname !== 'localhost') {
+    throw new Error('Download host is not allowed');
+  }
   return value;
+}
+
+function allowedObjectHost(): string | undefined {
+  const raw = process.env.APP_S3_ENDPOINT?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    return new URL(raw).host.toLowerCase();
+  } catch {
+    throw new Error('Invalid object storage endpoint');
+  }
 }
 
 async function deleteWorkspacePath(
@@ -426,17 +335,6 @@ async function pathExists(root: string, relativePath: string): Promise<boolean> 
   } catch {
     return false;
   }
-}
-
-function decodeChunk(value: unknown): Buffer {
-  if (typeof value !== 'string' || value.length === 0) {
-    return Buffer.alloc(0);
-  }
-  const chunk = Buffer.from(value, 'base64');
-  if (chunk.byteLength === 0 && value.replaceAll('=', '').length > 0) {
-    throw new Error('Invalid upload encoding');
-  }
-  return chunk;
 }
 
 function stagingName(fileName: string): string {

@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,11 +101,7 @@ public class DockerContainerBackend implements ContainerBackend {
     properties.getAgentNetwork().ifPresent(host::withNetworkMode);
     String containerId = docker.createContainerCmd(properties.getWorkerImage())
         .withName(names.containerName)
-        .withEnv(
-            "APP_AGENT_ID=" + request.agentId(),
-            "APP_AGENT_TOKEN=" + request.agentToken(),
-            "APP_CONTROL_PLANE_URL=" + request.controlPlaneUrl(),
-            "APP_PHYSICAL_WORK_ROOT=/work")
+        .withEnv(workerEnv(request))
         .withLabels(labels)
         .withWorkingDir("/work")
         .withStopTimeout(15)
@@ -171,6 +168,19 @@ public class DockerContainerBackend implements ContainerBackend {
     } catch (NotFoundException error) {
       return Optional.empty();
     }
+  }
+
+  private String[] workerEnv(StartRequest request) {
+    List<String> env = new ArrayList<>();
+    env.add("APP_AGENT_ID=" + request.agentId());
+    env.add("APP_AGENT_TOKEN=" + request.agentToken());
+    env.add("APP_CONTROL_PLANE_URL=" + request.controlPlaneUrl());
+    env.add("APP_PHYSICAL_WORK_ROOT=/work");
+    Optional.ofNullable(properties.getS3().getEndpoint())
+        .map(String::trim)
+        .filter(value -> !value.isBlank())
+        .ifPresent(endpoint -> env.add("APP_S3_ENDPOINT=" + endpoint));
+    return env.toArray(String[]::new);
   }
 
   private static Names names(String agentId) {

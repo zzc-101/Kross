@@ -28,6 +28,10 @@ secrets:
 app:
   externalBaseUrl: http://localhost
   publicBaseUrl: http://server:8787
+  # Browser-reachable MinIO/S3 URL used in presigned PUT/GET. ClusterIP
+  # http://minio:9000 is not usable from the browser. Local default assumes
+  # `kubectl port-forward svc/minio 9000:9000`.
+  s3PublicEndpoint: http://localhost:9000
   workerRuntime: kubernetes
   workerStorage: juicefs
   cacheEnabled: true
