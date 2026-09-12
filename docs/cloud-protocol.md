@@ -20,10 +20,14 @@
 - `POST /api/v2/agent/workspace/directory`（`{ path }`）
 - `GET /api/v2/agent/skills`
 - `GET/POST/PATCH/DELETE /api/v2/agent/memories...`
+- `GET/POST /api/v2/agent/schedules`
+- `PATCH/DELETE /api/v2/agent/schedules/{id}`
+- `POST /api/v2/agent/schedules/{id}/run`
+- `GET /api/v2/agent/schedules/{id}/runs`
 
 `POST /conversations/{id}/messages` 可带 `files: [{ path, mimeType, name }]`。控制面把附件写入已有 `parts` JSON，`content` 仍是用户原文；下发给 Worker 时再追加 `（附件：…）`。图片（png / jpeg / gif / webp）在 `agent.job` / history 里只传 `{ kind: "workspace", path, mimeType }`，由 Worker 读盘转 base64。
 
-列表与文本预览需要 `agent.read`；申请上传、提交上传、删除、建目录、发带附件的消息需要 `agent.chat`。content 跳转需要 `agent.read`。
+列表与文本预览需要 `agent.read`；申请上传、提交上传、删除、建目录、发带附件的消息需要 `agent.chat`。content 跳转需要 `agent.read`。自动任务列表和运行历史需要 `agent.read`；创建、编辑、删除和立即跑需要 `agent.chat`。到期后控制面用创建者身份 `appendMessage`，与用户发消息同一条路径（wake + Redis offer / SSE fanout）。不在 Worker 进程内跑 cron。重复间隔最短 1 小时；每成员每组织最多 10 条 `active`+`paused`。漏拍只补最近一次，下一拍按认领时的「现在」计算。
 
 普通 Agent API 不暴露模型选择、连接配置、仓库状态或命令执行入口。用户上传先入对象存储，再同步到成员 `/work`。对话 `parts` 只存工作区路径；历史图片用同源 `file/content` 加载，控制面 302 到短时预签名。字节不落 PostgreSQL。Agent 产物首次下载时由 Worker `workspace.push` 写入对象存储。
 

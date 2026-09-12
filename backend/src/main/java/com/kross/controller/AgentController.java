@@ -1,6 +1,7 @@
 package com.kross.controller;
 
 import com.kross.agent.AgentConversationService;
+import com.kross.agent.ScheduleService;
 import com.kross.agent.dto.AgentMessageView;
 import com.kross.agent.dto.AgentModelView;
 import com.kross.agent.dto.AppendAgentMessageRequest;
@@ -10,6 +11,9 @@ import com.kross.agent.dto.CreateMemoryRequest;
 import com.kross.agent.dto.MemoryView;
 import com.kross.agent.dto.PatchMemoryRequest;
 import com.kross.agent.dto.RememberMemoryRequest;
+import com.kross.agent.dto.ScheduleRequest;
+import com.kross.agent.dto.ScheduleRunView;
+import com.kross.agent.dto.ScheduleView;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.dto.SkillView;
@@ -47,6 +51,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/agent")
 public class AgentController {
   private final AgentConversationService agents;
+  private final ScheduleService schedules;
 
   @GetMapping("/models")
   public Res<ItemList<AgentModelView>> models(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
@@ -159,6 +164,49 @@ public class AgentController {
       @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
       @RequestBody WorkspaceDirectoryRequest request) {
     return Res.ok(agents.createWorkspaceDirectory(organizationId, request));
+  }
+
+  @GetMapping("/schedules")
+  public Res<ItemList<ScheduleView>> schedules(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
+    return Res.ok(new ItemList<>(schedules.list(organizationId)));
+  }
+
+  @PostMapping("/schedules")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<ScheduleView> createSchedule(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestBody ScheduleRequest request) {
+    return Res.ok(schedules.create(organizationId, request));
+  }
+
+  @PatchMapping("/schedules/{scheduleId}")
+  public Res<ScheduleView> patchSchedule(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String scheduleId,
+      @RequestBody ScheduleRequest request) {
+    return Res.ok(schedules.patch(organizationId, scheduleId, request));
+  }
+
+  @DeleteMapping("/schedules/{scheduleId}")
+  public Res<Void> deleteSchedule(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String scheduleId) {
+    schedules.delete(organizationId, scheduleId);
+    return Res.ok();
+  }
+
+  @PostMapping("/schedules/{scheduleId}/run")
+  public Res<ScheduleView> runSchedule(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String scheduleId) {
+    return Res.ok(schedules.runNow(organizationId, scheduleId));
+  }
+
+  @GetMapping("/schedules/{scheduleId}/runs")
+  public Res<ItemList<ScheduleRunView>> scheduleRuns(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @PathVariable String scheduleId) {
+    return Res.ok(new ItemList<>(schedules.listRuns(organizationId, scheduleId)));
   }
 
   @GetMapping("/skills")

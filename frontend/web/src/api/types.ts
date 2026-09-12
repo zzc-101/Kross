@@ -180,3 +180,37 @@ export interface ConnectorBindCode {
   code: string;
   expiresAt: string;
 }
+
+export type ScheduleKind = 'once' | 'cron';
+export type ScheduleStatus = 'active' | 'paused' | 'done' | 'error';
+export type ScheduleConversationMode = 'new_conversation' | 'pinned_conversation';
+
+export interface AgentSchedule {
+  id: string;
+  name: string;
+  prompt: string;
+  skillId?: string | null;
+  conversationMode: ScheduleConversationMode;
+  conversationId?: string | null;
+  timezone: string;
+  kind: ScheduleKind;
+  cronExpr?: string | null;
+  runAt?: string | null;
+  nextRunAt?: string | null;
+  lastRunAt?: string | null;
+  status: ScheduleStatus;
+  consecutiveFailures: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentScheduleRun {
+  id: string;
+  scheduleId: string;
+  conversationId?: string | null;
+  userMessageId?: string | null;
+  dueAt: string;
+  claimedAt: string;
+  status: 'started' | 'skipped' | 'failed';
+  error?: string | null;
+}

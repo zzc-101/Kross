@@ -150,6 +150,15 @@ helm upgrade --install kross deploy/cluster -n kross --create-namespace \
 `APP_PUBLIC_BASE_URL` 在 chart 里默认是 `http://server:8787`，给 Worker Pod 走
 集群 DNS。浏览器走 Ingress 到 `web`。不要把 `/internal/` 配进 Ingress。
 
+控制面可以水平扩副本。自动任务与租约回收共用 `AgentScheduler` tick（约 5s）：
+每个副本都会跑，正确性靠 Postgres `FOR UPDATE SKIP LOCKED` 认领到期行，并在
+同一条更新里写出下一墙钟（一次性任务标 `done`）。到期判断用库时钟
+`next_run_at <= now()`，不绑 pod，也不接 `APP_SCHEDULER_OWNER` 选主。投递走现有
+`appendMessage` → wake → Redis `WorkerOfferBus` / SSE fanout；不要让调度器自己
+做 workspace RPC。Redis 故障时与 job offer 相同：降级为本进程投递，其它副本上
+的 Worker 等到对账或重连后再 claim。不要把 cron 放进会空闲休眠的 Worker。
+单机 Compose（1 个 server）只是竞争者为 1 的特例，SQL 与扇出路径与集群相同。
+
 开发导入镜像：
 
 ```bash

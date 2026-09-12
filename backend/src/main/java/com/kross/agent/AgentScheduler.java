@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class AgentScheduler {
   private final AgentLeaseService agents;
+  private final ScheduleService schedules;
   private final AtomicBoolean running = new AtomicBoolean(false);
 
   @Scheduled(fixedDelayString = "${app.scheduler.poll-ms:5000}")
@@ -19,6 +20,13 @@ public class AgentScheduler {
       return;
     }
     try {
+      for (ScheduleService.ClaimedBeat beat : schedules.claimDue()) {
+        try {
+          schedules.fulfill(beat.schedule(), beat.run());
+        } catch (RuntimeException error) {
+          log.warn("Scheduled task {} dispatch crashed: {}", beat.schedule().getId(), error.getMessage());
+        }
+      }
       agents.recoverExpiredJobLeases();
       agents.reconcileRuntimeAgents();
       agents.sleepIdleAgents();

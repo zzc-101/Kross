@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kross.agent.AgentScheduleMapper">
+  <select id="listOwned" resultType="com.kross.agent.entity.AgentSchedule">
+    SELECT * FROM agent_schedules
+    WHERE organization_id = #{organizationId}
+      AND user_id = #{userId}
+    ORDER BY status ASC, next_run_at ASC NULLS LAST, updated_at DESC, id DESC
+  </select>
+
+  <select id="findOwned" resultType="com.kross.agent.entity.AgentSchedule">
+    SELECT * FROM agent_schedules
+    WHERE organization_id = #{organizationId}
+      AND user_id = #{userId}
+      AND id = #{id}
+  </select>
+
+  <select id="countOwnedOpen" resultType="int">
+    SELECT COUNT(*) FROM agent_schedules
+    WHERE organization_id = #{organizationId}
+      AND user_id = #{userId}
+      AND status IN ('active', 'paused')
+  </select>
+
+  <insert id="insert">
+    INSERT INTO agent_schedules
+      (id, organization_id, agent_id, user_id, name, prompt, skill_id, conversation_mode,
+       conversation_id, timezone, kind, cron_expr, run_at, next_run_at, last_run_at, status,
+       consecutive_failures, created_at, updated_at)
+    VALUES
+      (#{id}, #{organizationId}, #{agentId}, #{userId}, #{name}, #{prompt}, #{skillId},
+       #{conversationMode}, #{conversationId}, #{timezone}, #{kind}, #{cronExpr}, #{runAt},
+       #{nextRunAt}, #{lastRunAt}, #{status}, #{consecutiveFailures}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <update id="update">
+    UPDATE agent_schedules
+    SET name = #{name},
+        prompt = #{prompt},
+        skill_id = #{skillId},
+        conversation_mode = #{conversationMode},
+        conversation_id = #{conversationId},
+        timezone = #{timezone},
+        kind = #{kind},
+        cron_expr = #{cronExpr},
+        run_at = #{runAt},
+        next_run_at = #{nextRunAt},
+        last_run_at = #{lastRunAt},
+        status = #{status},
+        consecutive_failures = #{consecutiveFailures},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND organization_id = #{organizationId}
+      AND user_id = #{userId}
+  </update>
+
+  <delete id="deleteOwned">
+    DELETE FROM agent_schedules
+    WHERE organization_id = #{organizationId}
+      AND user_id = #{userId}
+      AND id = #{id}
+  </delete>
+
+  <select id="lockDue" resultType="com.kross.agent.entity.AgentSchedule">
+    SELECT * FROM agent_schedules
+    WHERE status = 'active'
+      AND next_run_at IS NOT NULL
+      AND next_run_at &lt;= now()
+    ORDER BY next_run_at ASC, id ASC
+    FOR UPDATE SKIP LOCKED
+    LIMIT #{limit}
+  </select>
+
+  <update id="applyClaim">
+    UPDATE agent_schedules
+    SET next_run_at = #{nextRunAt},
+        last_run_at = #{lastRunAt},
+        status = #{status},
+        consecutive_failures = #{consecutiveFailures},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND status = 'active'
+  </update>
+
+  <insert id="insertRun">
+    INSERT INTO agent_schedule_runs
+      (id, schedule_id, organization_id, conversation_id, user_message_id, due_at, claimed_at, status, error)
+    VALUES
+      (#{id}, #{scheduleId}, #{organizationId}, #{conversationId}, #{userMessageId},
+       #{dueAt}, #{claimedAt}, #{status}, #{error})
+  </insert>
+
+  <update id="finishRun">
+    UPDATE agent_schedule_runs
+    SET conversation_id = #{conversationId},
+        user_message_id = #{userMessageId},
+        status = #{status},
+        error = #{error}
+    WHERE id = #{id}
+  </update>
+
+  <select id="listRuns" resultType="com.kross.agent.entity.AgentScheduleRun">
+    SELECT * FROM agent_schedule_runs
+    WHERE organization_id = #{organizationId}
+      AND schedule_id = #{scheduleId}
+    ORDER BY claimed_at DESC, id DESC
+    LIMIT #{limit}
+  </select>
+
+  <select id="hasOpenDispatch" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1 FROM agent_schedule_runs
+      WHERE schedule_id = #{scheduleId}
+        AND id &lt;&gt; #{currentRunId}
+        AND status = 'started'
+        AND user_message_id IS NULL
+        AND claimed_at &gt; now() - interval '10 minutes'
+    )
+  </select>
+
+  <select id="latestRunMessageStatus" resultType="string">
+    SELECT m.status
+    FROM agent_schedule_runs r
+    INNER JOIN agent_messages m ON m.id = r.user_message_id
+    WHERE r.schedule_id = #{scheduleId}
+      AND r.user_message_id IS NOT NULL
+    ORDER BY r.claimed_at DESC, r.id DESC
+    LIMIT 1
+  </select>
+
+  <update id="resetFailures">
+    UPDATE agent_schedules
+    SET consecutive_failures = 0,
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND status = #{expectedStatus}
+  </update>
+
+  <update id="recordFailure">
+    UPDATE agent_schedules
+    SET status = #{status},
+        consecutive_failures = #{consecutiveFailures},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND status = #{expectedStatus}
+  </update>
+</mapper>

@@ -17,6 +17,7 @@ import com.kross.channel.WorkerOfferBus;
 import com.kross.config.AppProperties;
 import com.kross.identity.Identity;
 import com.kross.identity.IdentityDirectory;
+import com.kross.identity.IdentityMapper;
 import com.kross.identity.OrganizationAccess;
 import com.kross.storage.ObjectStorage;
 import java.util.Optional;
@@ -31,6 +32,7 @@ class AgentConversationIsolationTest {
   private AgentRuntimeOps runtime;
   private AgentMemoryService memories;
   private AgentConversationService service;
+  private ScheduleService schedules;
 
   @BeforeEach
   void setUp() {
@@ -61,6 +63,14 @@ class AgentConversationIsolationTest {
         mock(ObjectStorage.class),
         new AppProperties(),
         new WorkspaceFileUrlCache());
+    schedules = new ScheduleService(
+        new OrganizationAccess(directory),
+        runtime,
+        mock(AgentScheduleMapper.class),
+        mock(IdentityMapper.class),
+        directory,
+        mock(SkillCatalogService.class),
+        service);
   }
 
   @AfterEach
@@ -106,6 +116,25 @@ class AgentConversationIsolationTest {
     ApiException content = assertDenied(
         () -> service.redirectWorkspaceFile("org-b", "a.txt", true, mock(jakarta.servlet.http.HttpServletResponse.class)));
     assertThat(content.getCode()).isEqualTo("organization_access_denied");
+    verify(runtime, never()).ensure(any());
+  }
+
+  @Test
+  void rejectsCrossOrganizationScheduleAccess() {
+    ApiException list = assertDenied(() -> schedules.list("org-b"));
+    assertThat(list.getCode()).isEqualTo("organization_access_denied");
+    ApiException create = assertDenied(
+        () -> schedules.create("org-b", new com.kross.agent.dto.ScheduleRequest(
+            "daily", "hello", null, "new_conversation", null, "UTC", "cron", "0 9 * * *", null, null)));
+    assertThat(create.getCode()).isEqualTo("organization_access_denied");
+    ApiException patch = assertDenied(
+        () -> schedules.patch("org-b", "sched-1", new com.kross.agent.dto.ScheduleRequest(
+            "x", null, null, null, null, null, null, null, null, "paused")));
+    assertThat(patch.getCode()).isEqualTo("organization_access_denied");
+    ApiException delete = assertDenied(() -> schedules.delete("org-b", "sched-1"));
+    assertThat(delete.getCode()).isEqualTo("organization_access_denied");
+    ApiException run = assertDenied(() -> schedules.runNow("org-b", "sched-1"));
+    assertThat(run.getCode()).isEqualTo("organization_access_denied");
     verify(runtime, never()).ensure(any());
   }
 

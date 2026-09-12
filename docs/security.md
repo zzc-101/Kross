@@ -32,6 +32,17 @@ Kross 通过平台身份、每成员 Docker Worker、单工作区路径边界和
 - 文件面板预览 UTF-8 文本（256KB）以及 png / jpeg / gif / webp；其余类型只提供下载。删除仅允许文件或空目录，不做递归删除。
 - 单文件上限 10MB。
 
+## 自动任务
+
+- 以创建者身份执行：配额、模型、Skill、工作区都是该成员的，不做团队服务账号。
+- 只读写当前成员自己的 `agent_id`（与对话、记忆相同）；跨组织请求被 `OrganizationAccess` 拒绝。
+- 组织停用、成员停用或 Agent 删除后不再 wake。
+- 提示词当作普通用户消息，受现有 32KB 上限约束。
+- 到期比较用 Postgres `now()`。每个控制面副本都 tick，用 `FOR UPDATE SKIP LOCKED` 认领，并在同一事务推进 `next_run_at`（一次性任务标 `done`）。调度行不绑 pod / owner，不使用 `APP_SCHEDULER_OWNER` 选主。
+- 不在会休眠的 Worker 里跑 cron。投递复用 `appendMessage` → `WorkerOfferBus`（本机试一次，再经 Redis 叫醒持有该 Worker WebSocket 的副本）。
+- 外部 MCP 仍走现有审批；对话停在「等待确认」不算调度失败，避免把任务打进 `error`。
+- 上一轮消息仍为 `queued` / `processing` 时跳过本拍；连续投递失败 3 次后暂停为 `error`。
+
 ## 外部操作确认
 
 普通用户不选择权限档位。固定策略是：

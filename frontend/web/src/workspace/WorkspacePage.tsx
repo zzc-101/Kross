@@ -39,6 +39,7 @@ export function WorkspacePage({
   const [draftSkill, setDraftSkill] = useState<Skill>();
   const [draftModelId, setDraftModelId] = useState<string>();
   const [draftVersion, setDraftVersion] = useState(0);
+  const [scheduleDraft, setScheduleDraft] = useState<string>();
 
   const refreshConversations = useCallback(async () => {
     const items = await api.listConversations();
@@ -170,6 +171,14 @@ export function WorkspacePage({
             api={api}
             section={section}
             onSection={setSection}
+            skills={skills}
+            scheduleDraft={scheduleDraft}
+            onConsumedScheduleDraft={() => setScheduleDraft(undefined)}
+            onOpenScheduleConversation={(id) => {
+              selectConversation(id);
+              setSection('conversations');
+              setSidebarOpen(false);
+            }}
           />
           <main className="stage">
             <TopBar
@@ -183,6 +192,11 @@ export function WorkspacePage({
               models={models}
               skill={activeSkill}
               onCancelSkill={draftSkill ? () => setDraftSkill(undefined) : undefined}
+              onSchedulePrompt={(prompt) => {
+                setScheduleDraft(prompt);
+                setSection('schedules');
+                setSidebarOpen(true);
+              }}
               onModelChange={(next) => {
                 if (conversationId) void patchConversation({ modelId: next.id });
                 else setDraftModelId(next.id);

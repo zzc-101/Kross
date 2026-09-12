@@ -14,6 +14,7 @@ import {
   ArrowDown,
   ArrowUp,
   BarChart3,
+  CalendarClock,
   Check,
   ChevronDown,
   Copy,
@@ -42,6 +43,7 @@ export function Thread({
   models,
   skill,
   onCancelSkill,
+  onSchedulePrompt,
   onModelChange
 }: {
   api: AgentApiClient;
@@ -50,6 +52,7 @@ export function Thread({
   models: AgentModel[];
   skill?: Skill;
   onCancelSkill?: () => void;
+  onSchedulePrompt?(prompt: string): void;
   onModelChange(model: AgentModel): void;
 }) {
   return (
@@ -64,6 +67,7 @@ export function Thread({
                 models={models}
                 skill={skill}
                 onCancelSkill={onCancelSkill}
+                onSchedulePrompt={onSchedulePrompt}
                 onModelChange={onModelChange}
                 landing
               />
@@ -91,6 +95,7 @@ export function Thread({
                 models={models}
                 skill={skill}
                 onCancelSkill={onCancelSkill}
+                onSchedulePrompt={onSchedulePrompt}
                 onModelChange={onModelChange}
               />
               <Footer />
@@ -117,6 +122,7 @@ function Composer({
   models,
   skill,
   onCancelSkill,
+  onSchedulePrompt,
   onModelChange,
   landing = false
 }: {
@@ -124,6 +130,7 @@ function Composer({
   models: AgentModel[];
   skill?: Skill;
   onCancelSkill?: () => void;
+  onSchedulePrompt?(prompt: string): void;
   onModelChange(model: AgentModel): void;
   landing?: boolean;
 }) {
@@ -171,6 +178,16 @@ function Composer({
         <div className="composer-toolbar">
           <div className="composer-tools">
             <AttachButton />
+            {onSchedulePrompt && (
+              <button
+                type="button"
+                aria-label="设为自动任务"
+                title="设为自动任务"
+                onClick={() => onSchedulePrompt(composer.text?.replace(/\u200b/g, '').trim() ?? '')}
+              >
+                <CalendarClock />
+              </button>
+            )}
             <ModelMenu model={model} models={models} onChange={onModelChange} />
           </div>
           <div className="composer-tools right">

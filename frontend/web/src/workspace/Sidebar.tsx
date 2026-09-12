@@ -5,6 +5,7 @@ import {
   Archive,
   BookOpen,
   BrainCircuit,
+  CalendarClock,
   ChevronDown,
   ChevronRight,
   MessagesSquare,
@@ -16,17 +17,19 @@ import {
   UserRound
 } from 'lucide-react';
 
-import type { Conversation, Membership } from '../api/types';
+import type { Conversation, Membership, Skill } from '../api/types';
 import type { AgentApiClient } from '../api/client';
 import { FilesPanel } from './FilesPanel';
 import { KnowledgePanel } from './KnowledgePanel';
 import { MemoryPanel } from './MemoryPanel';
+import { SchedulesPanel } from './SchedulesPanel';
 import { SkillsPanel } from './SkillsPanel';
 
 export type SidebarSection =
   | 'conversations'
   | 'skills'
   | 'memory'
+  | 'schedules'
   | 'files'
   | 'knowledge';
 
@@ -34,6 +37,7 @@ const RAIL: Array<{ id: SidebarSection; label: string; icon: typeof MessagesSqua
   { id: 'conversations', label: '对话', icon: MessagesSquare },
   { id: 'skills', label: '技能', icon: Sparkles },
   { id: 'memory', label: '记忆', icon: BrainCircuit },
+  { id: 'schedules', label: '自动任务', icon: CalendarClock },
   { id: 'files', label: '文件与产物', icon: Paperclip }
 ];
 
@@ -59,7 +63,11 @@ export function Sidebar({
   onApplySkill,
   api,
   section,
-  onSection
+  onSection,
+  skills,
+  scheduleDraft,
+  onConsumedScheduleDraft,
+  onOpenScheduleConversation
 }: {
   conversations: Conversation[];
   activeId?: string;
@@ -83,6 +91,10 @@ export function Sidebar({
   api: AgentApiClient;
   section: SidebarSection;
   onSection(section: SidebarSection): void;
+  skills: Skill[];
+  scheduleDraft?: string;
+  onConsumedScheduleDraft(): void;
+  onOpenScheduleConversation(id: string): void;
 }) {
   const [conversationsOpen, setConversationsOpen] = useState(true);
   const [editingId, setEditingId] = useState<string>();
@@ -272,6 +284,15 @@ export function Sidebar({
             <SkillsPanel api={api} onApply={onApplySkill} />
           ) : section === 'memory' ? (
             <MemoryPanel api={api} />
+          ) : section === 'schedules' ? (
+            <SchedulesPanel
+              api={api}
+              conversations={conversations}
+              skills={skills}
+              draftPrompt={scheduleDraft}
+              onOpenConversation={onOpenScheduleConversation}
+              onConsumedDraft={onConsumedScheduleDraft}
+            />
           ) : section === 'knowledge' ? (
             <KnowledgePanel api={api} />
           ) : (

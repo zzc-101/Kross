@@ -1,0 +1,10 @@
+.schedules-panel { gap: 10px; }
+.schedule-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; border-radius: 8px; padding: 8px; }
+.schedule-row:hover, .schedule-row.selected { background: #ececec; }
+.schedule-main { display: grid; gap: 2px; min-width: 0; flex: 1; border: 0; background: transparent; text-align: left; padding: 0; cursor: pointer; }
+.schedule-main strong { font-size: 13px; }
+.schedule-main small { color: #777; font-size: 11px; }
+.schedule-main p { margin: 0; color: #444; font-size: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.schedule-runs { display: grid; gap: 6px; }
+.schedule-run { display: grid; gap: 2px; }
+.schedule-link { border: 0; background: transparent; color: #1f6feb; padding: 0; text-align: left; font-size: 12px; cursor: pointer; }

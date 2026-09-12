@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type {
-  AgentMemory, AgentMessage, AgentModel, AuthConfig, ConnectorBindCode, ConnectorStatus, Conversation, InvitePreview, KnowledgeHit, KnowledgeStatus, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing, WorkspaceStoredFile, WorkspaceUpload
+  AgentMemory, AgentMessage, AgentModel, AgentSchedule, AgentScheduleRun, AuthConfig, ConnectorBindCode, ConnectorStatus, Conversation, InvitePreview, KnowledgeHit, KnowledgeStatus, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing, WorkspaceStoredFile, WorkspaceUpload
 } from './types';
 import type { ChannelEvent } from './channelEvents';
 
@@ -187,6 +187,36 @@ const memorySchema: z.ZodType<AgentMemory> = z.object({
   content: z.string().min(1),
   createdAt: instant,
   updatedAt: instant
+});
+
+const scheduleSchema: z.ZodType<AgentSchedule> = z.object({
+  id,
+  name: z.string().min(1),
+  prompt: z.string().min(1),
+  skillId: z.string().min(1).nullish(),
+  conversationMode: z.enum(['new_conversation', 'pinned_conversation']),
+  conversationId: z.string().min(1).nullish(),
+  timezone: z.string().min(1),
+  kind: z.enum(['once', 'cron']),
+  cronExpr: z.string().min(1).nullish(),
+  runAt: instant.nullish(),
+  nextRunAt: instant.nullish(),
+  lastRunAt: instant.nullish(),
+  status: z.enum(['active', 'paused', 'done', 'error']),
+  consecutiveFailures: z.number().int().nonnegative(),
+  createdAt: instant,
+  updatedAt: instant
+});
+
+const scheduleRunSchema: z.ZodType<AgentScheduleRun> = z.object({
+  id,
+  scheduleId: id,
+  conversationId: z.string().min(1).nullish(),
+  userMessageId: z.string().min(1).nullish(),
+  dueAt: instant,
+  claimedAt: instant,
+  status: z.enum(['started', 'skipped', 'failed']),
+  error: z.string().nullish()
 });
 
 const knowledgeStatusSchema: z.ZodType<KnowledgeStatus> = z.object({
@@ -457,6 +487,62 @@ export class AgentApiClient {
     kind?: AgentMemory['kind'];
   }): Promise<AgentMemory> {
     return this.request('/api/v2/agent/memories/remember', memorySchema, { method: 'POST', body: input });
+  }
+
+  listSchedules(): Promise<AgentSchedule[]> {
+    return this.request('/api/v2/agent/schedules', z.object({ items: z.array(scheduleSchema) }))
+      .then((page) => page.items);
+  }
+
+  createSchedule(input: {
+    name: string;
+    prompt: string;
+    skillId?: string;
+    conversationMode: AgentSchedule['conversationMode'];
+    conversationId?: string;
+    timezone: string;
+    kind: AgentSchedule['kind'];
+    cronExpr?: string;
+    runAt?: string;
+  }): Promise<AgentSchedule> {
+    return this.request('/api/v2/agent/schedules', scheduleSchema, { method: 'POST', body: input });
+  }
+
+  patchSchedule(scheduleId: string, input: {
+    name?: string;
+    prompt?: string;
+    skillId?: string;
+    conversationMode?: AgentSchedule['conversationMode'];
+    conversationId?: string;
+    timezone?: string;
+    kind?: AgentSchedule['kind'];
+    cronExpr?: string;
+    runAt?: string;
+    status?: 'active' | 'paused';
+  }): Promise<AgentSchedule> {
+    return this.request(`/api/v2/agent/schedules/${encodeURIComponent(scheduleId)}`, scheduleSchema, {
+      method: 'PATCH',
+      body: input
+    });
+  }
+
+  deleteSchedule(scheduleId: string): Promise<void> {
+    return this.request(`/api/v2/agent/schedules/${encodeURIComponent(scheduleId)}`, z.unknown().optional(), {
+      method: 'DELETE'
+    }).then(() => undefined);
+  }
+
+  runSchedule(scheduleId: string): Promise<AgentSchedule> {
+    return this.request(`/api/v2/agent/schedules/${encodeURIComponent(scheduleId)}/run`, scheduleSchema, {
+      method: 'POST'
+    });
+  }
+
+  listScheduleRuns(scheduleId: string): Promise<AgentScheduleRun[]> {
+    return this.request(
+      `/api/v2/agent/schedules/${encodeURIComponent(scheduleId)}/runs`,
+      z.object({ items: z.array(scheduleRunSchema) })
+    ).then((page) => page.items);
   }
 
   knowledgeStatus(): Promise<KnowledgeStatus> {
