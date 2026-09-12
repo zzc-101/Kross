@@ -17,6 +17,11 @@ import type {
   AgentTokenUsage
 } from './transport';
 import { handleWorkspaceCommand, writeMcpConfig } from './workspaceCommands';
+import {
+  appendImageNote,
+  materializeHistoryImages,
+  materializeWorkspaceImageParts
+} from './workspaceImages';
 
 const TOOL_CLIP_CHARS = 8_000;
 
@@ -75,8 +80,6 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
-  const minted = await options.transport.mintModelEnvironment();
-  modelEnv = { ...options.processEnv, ...minted };
   let currentModelId = '';
   const delay = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   let sleeping = false;
@@ -112,6 +115,14 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
     }
   })();
   try {
+    try {
+      const minted = await options.transport.mintModelEnvironment();
+      modelEnv = { ...options.processEnv, ...minted };
+    } catch (error) {
+      log.warn('Default model environment unavailable', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
     while (!options.shouldStop?.() && !sleeping) {
       const job = await options.transport.claimJob();
       if (!job) {
@@ -137,7 +148,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
         const host = await runtimes.acquire({
           conversationId: job.conversationId,
           signature,
-          history: job.history,
+          history: await materializeHistoryImages(options.workspaceRoot, job.history),
           create: () =>
             createPersistentAgentHost({
               workspaceRoot: options.workspaceRoot,
@@ -146,13 +157,20 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<void> {
               memoryContextSources: loadMemoryContextSources(options.workspaceRoot)
             })
         });
+        const materialized = await materializeWorkspaceImageParts(
+          options.workspaceRoot,
+          job.images
+        );
+        const input = materialized.dropped > 0
+          ? appendImageNote(job.content, materialized.dropped)
+          : job.content;
         const reply = await runTurn(
           host,
           options.transport,
           job,
-          job.content,
+          input,
           runSignal,
-          job.images
+          materialized.images
         );
         await options.transport.postReply({
           userMessageId: job.id,

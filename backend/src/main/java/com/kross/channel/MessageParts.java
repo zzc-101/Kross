@@ -91,6 +91,14 @@ public final class MessageParts {
     }
   }
 
+  public static void appendFile(ArrayNode parts, String path, String mimeType, String name) {
+    ObjectNode part = parts.addObject();
+    part.put("type", "file");
+    part.put("path", path);
+    part.put("mimeType", Optional.ofNullable(mimeType).orElse("application/octet-stream"));
+    part.put("name", Optional.ofNullable(name).filter(value -> !value.isBlank()).orElse(path));
+  }
+
   public static String textSnapshot(JsonNode parts) {
     if (parts == null || !parts.isArray()) {
       return "";

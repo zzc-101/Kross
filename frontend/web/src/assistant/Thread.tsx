@@ -30,7 +30,7 @@ import {
 import { messagePartComponents } from './MessageParts';
 import { AgentApiClient } from '../api/client';
 import type { AgentModel, Skill } from '../api/types';
-import { AgentContextUsageContext } from './AgentRuntimeProvider';
+import { AgentContextUsageContext, ComposerAttachmentsContext } from './AgentRuntimeProvider';
 import { ContextUsageRing } from './ContextUsageRing';
 
 function modelLabel(model?: AgentModel | null): string {
@@ -38,8 +38,6 @@ function modelLabel(model?: AgentModel | null): string {
 }
 
 export function Thread({
-  api,
-  conversationId,
   model,
   models,
   skill,
@@ -130,6 +128,8 @@ function Composer({
   landing?: boolean;
 }) {
   const latestContextUsage = useContext(AgentContextUsageContext);
+  const attachments = useContext(ComposerAttachmentsContext);
+  const composer = unstable_useComposerInput() as { text?: string; setText?: (text: string) => void };
   const contextWindow = latestContextUsage?.contextWindow ?? model?.contextWindow ?? 256_000;
   const usedTokens = latestContextUsage?.usedTokens ?? 0;
 
@@ -145,6 +145,22 @@ function Composer({
             )}
           </div>
         )}
+        {attachments.files.length > 0 && (
+          <div className="composer-attach-chips">
+            {attachments.files.map((file, index) => (
+              <ComposerAttachChip
+                key={`${file.name}-${file.size}-${index}`}
+                file={file}
+                onRemove={() => {
+                  attachments.remove(index);
+                  if (attachments.files.length <= 1 && !composer.text?.replace(/\u200b/g, '').trim()) {
+                    composer.setText?.('');
+                  }
+                }}
+              />
+            ))}
+          </div>
+        )}
         <ComposerPrimitive.Input
           className="composer-input"
           placeholder={skill?.starterPrompt || '发送消息…'}
@@ -154,9 +170,7 @@ function Composer({
         />
         <div className="composer-toolbar">
           <div className="composer-tools">
-            <button type="button" aria-label="从本地上传文件（即将支持）" title="本地文件上传即将支持" disabled>
-              <Plus />
-            </button>
+            <AttachButton />
             <ModelMenu model={model} models={models} onChange={onModelChange} />
           </div>
           <div className="composer-tools right">
@@ -170,6 +184,40 @@ function Composer({
       </ComposerPrimitive.Root>
       {landing && <QuickActions />}
     </div>
+  );
+}
+
+function AttachButton() {
+  const attachments = useContext(ComposerAttachmentsContext);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const composer = unstable_useComposerInput() as { text?: string; setText?: (text: string) => void };
+  return (
+    <>
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        hidden
+        onChange={(event) => {
+          const files = event.target.files ? Array.from(event.target.files) : [];
+          if (files.length > 0) {
+            attachments.add(files);
+            if (!composer.text?.replace(/\u200b/g, '').trim()) {
+              composer.setText?.('\u200b');
+            }
+          }
+          event.target.value = '';
+        }}
+      />
+      <button
+        type="button"
+        aria-label="上传文件"
+        title="上传到工作区 uploads/"
+        onClick={() => fileInput.current?.click()}
+      >
+        <Plus />
+      </button>
+    </>
   );
 }
 
@@ -242,6 +290,28 @@ function Dropdown({
         </div>
       )}
     </div>
+  );
+}
+
+function ComposerAttachChip({ file, onRemove }: { file: File; onRemove(): void }) {
+  const [thumb, setThumb] = useState('');
+  useEffect(() => {
+    if (!file.type.startsWith('image/')) {
+      setThumb('');
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setThumb(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  return (
+    <span className={`composer-attach-chip${thumb ? ' is-image' : ''}`}>
+      {thumb ? <img src={thumb} alt="" /> : <FileText />}
+      <span>{file.name}</span>
+      <button type="button" aria-label={`移除 ${file.name}`} onClick={onRemove}>
+        <X />
+      </button>
+    </span>
   );
 }
 

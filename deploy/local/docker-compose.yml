@@ -21,7 +21,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${APP_S3_ACCESS_KEY:-kross}
       MINIO_ROOT_PASSWORD: ${APP_S3_SECRET_KEY:?请设置 APP_S3_SECRET_KEY}
-      MINIO_API_CORS_ALLOW_ORIGIN: ${APP_S3_CORS_ALLOW_ORIGIN:-http://localhost:8787}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${APP_S3_CORS_ALLOW_ORIGIN:-*}
     ports:
       - "${APP_S3_PORT:-9000}:9000"
     healthcheck:

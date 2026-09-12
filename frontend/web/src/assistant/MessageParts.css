@@ -20,7 +20,8 @@
 .approval-reject:hover { background: #f5f1eb; }
 .approval-allow { border-color: #202020 !important; background: #202020; color: #fff; }
 .approval-allow:hover { background: #000; }
-.file-part { display: flex; max-width: 360px; align-items: center; gap: 9px; margin: 8px 0; border: 1px solid #e1e1e1; border-radius: 11px; padding: 10px 12px; }
+.file-part { display: flex; max-width: 360px; align-items: center; gap: 9px; margin: 8px 0; border: 1px solid #e1e1e1; border-radius: 11px; background: #fff; padding: 10px 12px; text-align: left; cursor: pointer; }
+.file-part:disabled { cursor: default; }
 .file-part svg { width: 19px; height: 19px; }
 .file-part small { margin-left: auto; color: #888; }
 .image-part { max-width: 520px; margin: 10px 0; }

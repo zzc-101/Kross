@@ -27,7 +27,10 @@ Kross 通过平台身份、每成员 Docker Worker、单工作区路径边界和
 - 路径经过 canonical realpath 校验，阻止 `..` 和 symlink 逃逸。
 - Write、Edit、Delete、Move 记录 mutation pre/post image。
 - 撤销只在当前内容仍匹配 post hash 时执行，避免覆盖后续人工修改。
-- 文件面板只预览工作区内、大小受限的 UTF-8 文本文件。
+- 浏览器不直连 Worker。用户上传先预签名写入对象存储，控制面再让 Worker `workspace.pull` 同步到 `/work`。图片与下载走同源 `file/content`（登录 cookie + 组织 ID query），控制面鉴权后 302 到短时预签名 GET。字节不落控制面磁盘或 PostgreSQL。
+- 列表、文本预览、取下载 URL、content 跳转需要 `agent.read`；申请/提交上传、删除、建目录需要 `agent.chat`。
+- 文件面板预览 UTF-8 文本（256KB）以及 png / jpeg / gif / webp；其余类型只提供下载。删除仅允许文件或空目录，不做递归删除。
+- 单文件上限 10MB。
 
 ## 外部操作确认
 

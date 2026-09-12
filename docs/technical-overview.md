@@ -83,11 +83,11 @@ sequenceDiagram
     W-->>C: final message snapshot
 ```
 
-对话与最终 `parts` 在 PostgreSQL；Token delta 只做内存扇出。工作区文件位于 `/work`。单机使用 Docker volume，多机使用 JuiceFS CSI。
+对话与最终 `parts` 在 PostgreSQL；Token delta 只做内存扇出。用户文件在对象存储；Agent 工作副本位于 `/work`。单机 `/work` 使用 Docker volume，多机使用 JuiceFS CSI。
 
 ## 当前边界
 
 - Worker Core 仍是内部源码，不是稳定 SDK。
 - 受管外部工具尚不支持所有交互式 OAuth 流程。
-- 浏览器附件上传仍需独立协议；当前文件面板提供目录浏览和文本预览。
+- 用户上传的文件先入对象存储，再同步到成员 `/work`。浏览器预签名上传；预览与下载走同源 `file/content`（cookie 鉴权后 302 到短时预签名）。单文件 10MB。文件面板可上传、下载、删除空目录；对话附件写入 `uploads/`。UTF-8 文本预览上限 256KB；png / jpeg / gif / webp 可内联；其余类型只下载。对话 `parts` 只存工作区路径。看图由 Worker 从工作区读成 base64。Agent 产物首次下载时从 `/work` 回写对象存储。
 - 生产环境仍需在真实 TLS、弱网、移动端和备份恢复场景验收。

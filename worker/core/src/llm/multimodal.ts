@@ -39,6 +39,22 @@ export function parseImageParts(value: unknown): LlmImagePart[] {
         data: part.data.trim(),
         mimeType: part.mimeType.trim()
       });
+      continue;
+    }
+    if (
+      part.kind === 'workspace' &&
+      typeof part.path === 'string' &&
+      part.path.trim()
+    ) {
+      const mimeType =
+        typeof part.mimeType === 'string' && part.mimeType.trim()
+          ? part.mimeType.trim()
+          : undefined;
+      images.push({
+        kind: 'workspace',
+        path: part.path.trim(),
+        ...(mimeType ? { mimeType } : {})
+      });
     }
   }
   return images;

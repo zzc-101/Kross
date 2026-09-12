@@ -139,7 +139,10 @@ public class AgentWorkerProtocolService {
       List<AgentProtocol.HistoryTurn> history = conversationId.isBlank()
           ? List.of()
           : agents.listHistory(session.getOrganizationId(), conversationId, row.getId(), HISTORY_LIMIT).stream()
-              .map(item -> new AgentProtocol.HistoryTurn(item.getRole(), item.getContent()))
+              .map(item -> new AgentProtocol.HistoryTurn(
+                  item.getRole(),
+                  WorkspaceAttachments.withAttachmentLine(item.getContent(), item.getParts()),
+                  WorkspaceAttachments.visionImages(item.getParts())))
               .toList();
       AgentMessage reply = agents.findReplyTo(session.getOrganizationId(), row.getId())
           .filter(existing -> session.getAgentId().equals(existing.getAgentId()))
@@ -164,8 +167,16 @@ public class AgentWorkerProtocolService {
               skill.getId(), skill.getName(), skill.getDescription(), skill.getContent(), skill.getRevision()))
           .orElse(null);
       return new AgentProtocol.Job(
-          row.getId(), conversationId, reply.getId(), row.getContent(), history, row.getCreatedAt(), modelId,
-          row.getLeaseId(), activeSkill);
+          row.getId(),
+          conversationId,
+          reply.getId(),
+          WorkspaceAttachments.withAttachmentLine(row.getContent(), row.getParts()),
+          history,
+          row.getCreatedAt(),
+          modelId,
+          row.getLeaseId(),
+          activeSkill,
+          WorkspaceAttachments.visionImages(row.getParts()));
     });
   }
 

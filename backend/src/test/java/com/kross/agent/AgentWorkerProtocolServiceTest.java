@@ -200,6 +200,9 @@ class AgentWorkerProtocolServiceTest {
 
     verify(outlet, never()).onTurn(any());
   }
+
+  @Test
+  void postReplyIsIdempotentForDuplicateDelivery() {
     AgentMessage user = userMessage("msg-1", "conv-1");
     AgentMessage reply = replyTo(user);
     when(mapper.recordDelivery("delivery-1", "agent-1", "msg-1")).thenReturn(1, 0);

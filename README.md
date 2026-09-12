@@ -83,7 +83,7 @@ flowchart TB
     R --> EXT["Managed external tools"]
 ```
 
-- Conversations live in PostgreSQL; files live under `/work` (a local volume, or JuiceFS in a cluster).
+- Conversations live in PostgreSQL; user files live in object storage, with an Agent working copy under `/work`.
 - Preferences and facts sync into `USER.md` and `MEMORY.md`.
 - The browser sends HTTP and receives SSE. The Worker keeps a WebSocket only behind the control plane.
 

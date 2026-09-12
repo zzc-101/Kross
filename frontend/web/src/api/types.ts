@@ -79,7 +79,8 @@ export type MessagePart =
         inputPreview?: string;
         approved?: boolean;
       };
-    };
+    }
+  | { type: 'file'; path: string; mimeType: string; name: string };
 
 export interface AgentMessage {
   id: string;
@@ -112,6 +113,23 @@ export interface WorkspaceListing {
 export interface WorkspaceFile {
   path: string;
   content: string;
+}
+
+export interface WorkspaceStoredFile {
+  path: string;
+  size: number;
+  mimeType: string;
+  name: string;
+  url?: string | null;
+  urlExpiresAt?: string | null;
+}
+
+export interface WorkspaceUpload {
+  key: string;
+  method: string;
+  url: string;
+  expiresAt: string;
+  mimeType: string;
 }
 
 export interface Skill {

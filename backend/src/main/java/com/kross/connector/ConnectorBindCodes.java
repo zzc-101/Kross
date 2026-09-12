@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class ConnectorBindCodes {
-  static final Duration TTL = Duration.ofMinutes(10);
+  public static final Duration TTL = Duration.ofMinutes(10);
   private static final SecureRandom RANDOM = new SecureRandom();
 
   private final StringRedisTemplate redis;

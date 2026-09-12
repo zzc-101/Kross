@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -23,6 +24,7 @@ public class FeishuClient {
   private final HttpClient http;
   private volatile Token token;
 
+  @Autowired
   public FeishuClient(AppProperties properties, ObjectMapper mapper) {
     this.properties = properties;
     this.mapper = mapper;

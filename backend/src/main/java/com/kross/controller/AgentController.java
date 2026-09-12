@@ -13,8 +13,15 @@ import com.kross.agent.dto.RememberMemoryRequest;
 import com.kross.agent.dto.PatchConversationRequest;
 import com.kross.agent.dto.ResolveToolApprovalRequest;
 import com.kross.agent.dto.SkillView;
+import com.kross.agent.dto.WorkspaceDirectoryRequest;
+import com.kross.agent.dto.WorkspaceFileUrlView;
 import com.kross.agent.dto.WorkspaceFileView;
 import com.kross.agent.dto.WorkspaceListingView;
+import com.kross.agent.dto.WorkspaceStoredFileView;
+import com.kross.agent.dto.WorkspaceUploadCommitRequest;
+import com.kross.agent.dto.WorkspaceUploadRequest;
+import com.kross.agent.dto.WorkspaceUploadView;
+import com.kross.api.ApiException;
 import com.kross.api.ApiHeaders;
 import com.kross.api.ItemList;
 import com.kross.api.Res;
@@ -111,6 +118,58 @@ public class AgentController {
     return Res.ok(agents.readWorkspaceFile(organizationId, path));
   }
 
+  @PostMapping("/workspace/file/upload")
+  public Res<WorkspaceUploadView> prepareWorkspaceUpload(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestBody WorkspaceUploadRequest request) {
+    return Res.ok(agents.prepareWorkspaceUpload(organizationId, request));
+  }
+
+  @PostMapping("/workspace/file/commit")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<WorkspaceStoredFileView> commitWorkspaceUpload(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestBody WorkspaceUploadCommitRequest request) {
+    return Res.ok(agents.commitWorkspaceUpload(organizationId, request));
+  }
+
+  @GetMapping("/workspace/file/url")
+  public Res<WorkspaceFileUrlView> workspaceFileUrl(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestParam String path,
+      @RequestParam Optional<Boolean> inline) {
+    return Res.ok(agents.workspaceFileUrl(organizationId, path, inline.orElse(false)));
+  }
+
+  @GetMapping("/workspace/file/content")
+  public void workspaceFileContent(
+      @RequestHeader(value = ApiHeaders.ORGANIZATION_ID, required = false) Optional<String> organizationHeader,
+      @RequestParam Optional<String> organizationId,
+      @RequestParam String path,
+      @RequestParam Optional<Boolean> inline,
+      HttpServletResponse response) {
+    agents.redirectWorkspaceFile(
+        requireOrganizationId(organizationHeader, organizationId),
+        path,
+        inline.orElse(true),
+        response);
+  }
+
+  @DeleteMapping("/workspace/file")
+  public Res<WorkspaceStoredFileView> deleteWorkspaceFile(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestParam String path) {
+    return Res.ok(agents.deleteWorkspacePath(organizationId, path));
+  }
+
+  @PostMapping("/workspace/directory")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Res<WorkspaceStoredFileView> createWorkspaceDirectory(
+      @RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId,
+      @RequestBody WorkspaceDirectoryRequest request) {
+    return Res.ok(agents.createWorkspaceDirectory(organizationId, request));
+  }
+
   @GetMapping("/skills")
   public Res<ItemList<SkillView>> skills(@RequestHeader(ApiHeaders.ORGANIZATION_ID) String organizationId) {
     return Res.ok(new ItemList<>(agents.listSkills(organizationId)));
@@ -162,6 +221,12 @@ public class AgentController {
     response.setHeader("X-Accel-Buffering", "no");
     response.setHeader("Connection", "keep-alive");
     return agents.subscribe(organizationId, conversationId);
+  }
+
+  private static String requireOrganizationId(Optional<String> header, Optional<String> query) {
+    return header.map(String::trim).filter(value -> !value.isBlank())
+        .or(() -> query.map(String::trim).filter(value -> !value.isBlank()))
+        .orElseThrow(() -> ApiException.invalidRequest("organization is required"));
   }
 
 }

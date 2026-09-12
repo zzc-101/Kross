@@ -36,7 +36,21 @@ public final class AgentProtocol {
       boolean leaseValid,
       int heartbeatIntervalMs) {}
 
-  public record HistoryTurn(String role, String content) {}
+  public record HistoryTurn(String role, String content, List<WorkspaceImage> images) {
+    public HistoryTurn(String role, String content) {
+      this(role, content, List.of());
+    }
+
+    public HistoryTurn {
+      images = images == null ? List.of() : images;
+    }
+  }
+
+  public record WorkspaceImage(String kind, String path, String mimeType) {
+    public WorkspaceImage(String path, String mimeType) {
+      this("workspace", path, mimeType);
+    }
+  }
 
   public record ActiveSkill(
       String id,
@@ -55,7 +69,8 @@ public final class AgentProtocol {
       Instant createdAt,
       String modelId,
       String leaseId,
-      ActiveSkill skill) {
+      ActiveSkill skill,
+      List<WorkspaceImage> images) {
     public Job(
         String id,
         String conversationId,
@@ -66,7 +81,43 @@ public final class AgentProtocol {
         String modelId,
         String leaseId,
         ActiveSkill skill) {
-      this("agent.job", id, conversationId, agentMessageId, content, history, createdAt, modelId, leaseId, skill);
+      this(
+          "agent.job",
+          id,
+          conversationId,
+          agentMessageId,
+          content,
+          history,
+          createdAt,
+          modelId,
+          leaseId,
+          skill,
+          List.of());
+    }
+
+    public Job(
+        String id,
+        String conversationId,
+        String agentMessageId,
+        String content,
+        List<HistoryTurn> history,
+        Instant createdAt,
+        String modelId,
+        String leaseId,
+        ActiveSkill skill,
+        List<WorkspaceImage> images) {
+      this(
+          "agent.job",
+          id,
+          conversationId,
+          agentMessageId,
+          content,
+          history,
+          createdAt,
+          modelId,
+          leaseId,
+          skill,
+          images == null ? List.of() : images);
     }
   }
 

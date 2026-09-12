@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type {
-  AgentMemory, AgentMessage, AgentModel, AuthConfig, ConnectorBindCode, ConnectorStatus, Conversation, InvitePreview, KnowledgeHit, KnowledgeStatus, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing
+  AgentMemory, AgentMessage, AgentModel, AuthConfig, ConnectorBindCode, ConnectorStatus, Conversation, InvitePreview, KnowledgeHit, KnowledgeStatus, Me, MessagePart, Skill, WorkspaceFile, WorkspaceListing, WorkspaceStoredFile, WorkspaceUpload
 } from './types';
 import type { ChannelEvent } from './channelEvents';
 
@@ -99,6 +99,12 @@ const partSchema: z.ZodType<MessagePart> = z.union([
       inputPreview: z.string().optional(),
       approved: z.boolean().optional()
     }).optional()
+  }),
+  z.object({
+    type: z.literal('file'),
+    path: z.string().min(1),
+    mimeType: z.string().min(1),
+    name: z.string().min(1)
   })
 ]);
 
@@ -146,6 +152,23 @@ const workspaceListingSchema: z.ZodType<WorkspaceListing> = z.object({
 const workspaceFileSchema: z.ZodType<WorkspaceFile> = z.object({
   path: z.string().min(1),
   content: z.string()
+});
+
+const workspaceStoredFileSchema: z.ZodType<WorkspaceStoredFile> = z.object({
+  path: z.string().min(1),
+  size: z.number(),
+  mimeType: z.string(),
+  name: z.string().min(1),
+  url: z.string().min(1).nullish(),
+  urlExpiresAt: instant.nullish()
+});
+
+const workspaceUploadSchema: z.ZodType<WorkspaceUpload> = z.object({
+  key: z.string().min(1),
+  method: z.string().min(1),
+  url: z.string().min(1),
+  expiresAt: instant,
+  mimeType: z.string().min(1)
 });
 
 const skillSchema: z.ZodType<Skill> = z.object({
@@ -318,11 +341,15 @@ export class AgentApiClient {
     ).then((page) => page.items);
   }
 
-  appendMessage(conversationId: string, content: string): Promise<AgentMessage> {
+  appendMessage(
+    conversationId: string,
+    content: string,
+    files: Array<{ path: string; mimeType: string; name: string }> = []
+  ): Promise<AgentMessage> {
     return this.request(
       `/api/v2/agent/conversations/${encodeURIComponent(conversationId)}/messages`,
       messageSchema,
-      { method: 'POST', body: { content } }
+      { method: 'POST', body: { content, files } }
     );
   }
 
@@ -349,6 +376,52 @@ export class AgentApiClient {
     return this.request(
       `/api/v2/agent/workspace/file?path=${encodeURIComponent(path)}`,
       workspaceFileSchema
+    );
+  }
+
+  async uploadWorkspaceFile(directory: string, file: File): Promise<WorkspaceStoredFile> {
+    const mimeType = file.type || 'application/octet-stream';
+    const prepared = await this.request('/api/v2/agent/workspace/file/upload', workspaceUploadSchema, {
+      method: 'POST',
+      body: { directory, name: file.name, mimeType, size: file.size }
+    });
+    const uploaded = await fetch(prepared.url, {
+      method: prepared.method,
+      headers: { 'content-type': prepared.mimeType },
+      body: file
+    });
+    if (!uploaded.ok) {
+      throw new ApiError(uploaded.status, 'UPLOAD_FAILED', `无法上传文件 (${uploaded.status})`);
+    }
+    return this.request('/api/v2/agent/workspace/file/commit', workspaceStoredFileSchema, {
+      method: 'POST',
+      body: { key: prepared.key, directory, name: file.name, mimeType, size: file.size }
+    });
+  }
+
+  workspaceFileContentUrl(path: string, inline = true): string {
+    const url = new URL('/api/v2/agent/workspace/file/content', this.options.baseUrl ?? location.origin);
+    url.searchParams.set('path', path);
+    url.searchParams.set('inline', inline ? 'true' : 'false');
+    if (this.organizationId) {
+      url.searchParams.set('organizationId', this.organizationId);
+    }
+    return url.toString();
+  }
+
+  deleteWorkspacePath(path: string): Promise<WorkspaceStoredFile> {
+    return this.request(
+      `/api/v2/agent/workspace/file?path=${encodeURIComponent(path)}`,
+      workspaceStoredFileSchema,
+      { method: 'DELETE' }
+    );
+  }
+
+  createWorkspaceDirectory(path: string): Promise<WorkspaceStoredFile> {
+    return this.request(
+      '/api/v2/agent/workspace/directory',
+      workspaceStoredFileSchema,
+      { method: 'POST', body: { path } }
     );
   }
 

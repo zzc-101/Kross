@@ -16,15 +16,17 @@ describe('multimodal helpers', () => {
       parseImageParts([
         { kind: 'url', url: ' https://cdn.example/a.png ', mimeType: 'image/png' },
         { kind: 'base64', data: 'abc', mimeType: 'image/jpeg' },
+        { kind: 'workspace', path: ' uploads/shot.png ', mimeType: 'image/png' },
         { kind: 'url', url: '' },
         { kind: 'file', path: 'x' },
         null
       ])
     ).toEqual([
       { kind: 'url', url: 'https://cdn.example/a.png', mimeType: 'image/png' },
-      { kind: 'base64', data: 'abc', mimeType: 'image/jpeg' }
+      { kind: 'base64', data: 'abc', mimeType: 'image/jpeg' },
+      { kind: 'workspace', path: 'uploads/shot.png', mimeType: 'image/png' }
     ]);
-  });
+    });
 
   it('strips images and appends a notice when multimodalRead is false', () => {
     const [message] = applyMultimodalReadPolicy(

@@ -18,7 +18,8 @@ export type LlmMessage = LlmChatMessage | LlmToolMessage;
 
 export type LlmImagePart =
   | { kind: 'url'; url: string; mimeType?: string }
-  | { kind: 'base64'; data: string; mimeType: string };
+  | { kind: 'base64'; data: string; mimeType: string }
+  | { kind: 'workspace'; path: string; mimeType?: string };
 
 export interface ConversationHistoryTurn {
   role: 'user' | 'assistant';

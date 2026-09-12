@@ -5,11 +5,12 @@ import type {
   ToolCallMessagePartComponent
 } from '@assistant-ui/react';
 import { CheckCircle2, ChevronDown, CircleAlert, FileText, LoaderCircle, ShieldAlert } from 'lucide-react';
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 
 import './MessageParts.css';
 
 import { CopyButton, MarkdownText } from './MarkdownText';
+import { WorkspaceApiContext } from './AgentRuntimeProvider';
 
 export const ReasoningPart: ReasoningMessagePartComponent = ({ text, status }) => {
   const [open, setOpen] = useState(status?.type === 'running');
@@ -68,13 +69,48 @@ function friendlyToolLabel(toolName: string): string {
   return '使用连接服务';
 }
 
-export const FilePart: FileMessagePartComponent = ({ filename, mimeType }) => (
-  <div className="file-part"><FileText /><span>{filename || '文件'}</span><small>{mimeType}</small></div>
-);
+export const FilePart: FileMessagePartComponent = ({ filename, mimeType, ...rest }) => {
+  const api = useContext(WorkspaceApiContext);
+  const data = 'data' in rest && typeof rest.data === 'string' ? rest.data : '';
+  const workspacePath = data.startsWith('workspace:') ? data.slice('workspace:'.length) : '';
 
-export const ImagePart: ImageMessagePartComponent = ({ image, filename }) => (
-  <figure className="image-part"><img src={image} alt={filename || '对话图片'} />{filename && <figcaption>{filename}</figcaption>}</figure>
-);
+  const download = () => {
+    if (!api || !workspacePath) return;
+    const link = document.createElement('a');
+    link.href = api.workspaceFileContentUrl(workspacePath, false);
+    link.rel = 'noopener';
+    link.target = '_blank';
+    link.click();
+  };
+
+  return (
+    <button type="button" className="file-part" onClick={download} disabled={!workspacePath}>
+      <FileText /><span>{filename || '文件'}</span><small>{mimeType}</small>
+    </button>
+  );
+};
+
+export const ImagePart: ImageMessagePartComponent = ({ image, filename }) => {
+  const api = useContext(WorkspaceApiContext);
+  const [failedSrc, setFailedSrc] = useState('');
+  const src = image.startsWith('workspace:')
+    ? api?.workspaceFileContentUrl(image.slice('workspace:'.length), true)
+    : image;
+
+  if (!src || failedSrc === src) {
+    return filename ? <div className="file-part"><FileText /><span>{filename}</span></div> : null;
+  }
+  return (
+    <figure className="image-part">
+      <img
+        src={src}
+        alt={filename || '对话图片'}
+        onError={() => setFailedSrc(src)}
+      />
+      {filename && <figcaption>{filename}</figcaption>}
+    </figure>
+  );
+};
 
 export const messagePartComponents = {
   Text: MarkdownText,

@@ -14,3 +14,16 @@
 .file-preview header button:hover { background: #eee; }
 .file-preview header svg { width: 14px; height: 14px; }
 .file-preview pre { min-height: 0; margin: 0; overflow: auto; padding: 10px; font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+.files-toolbar-actions { display: flex; align-items: center; gap: 2px; }
+.files-panel.drag-over { outline: 1px dashed #bbb; outline-offset: -6px; }
+.files-mkdir { display: flex; gap: 6px; align-items: center; }
+.files-mkdir input { flex: 1; border: 1px solid #ddd; border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.files-mkdir button { border: 0; border-radius: 7px; background: #eee; padding: 6px 8px; font-size: 12px; }
+.file-row-wrap { display: flex; align-items: center; gap: 2px; }
+.file-row-wrap .file-row { flex: 1; }
+.file-row-actions { display: flex; }
+.file-row-actions button { display: grid; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #888; }
+.file-row-actions button:hover { background: #ececec; color: #222; }
+.file-preview header span { display: inline-flex; align-items: center; gap: 2px; }
+.file-preview-image { min-height: 0; overflow: auto; padding: 10px; }
+.file-preview-image img { display: block; max-width: 100%; border-radius: 8px; }

@@ -14,9 +14,11 @@ import com.kross.catalog.SkillCatalogService;
 import com.kross.channel.AgentSocketHub;
 import com.kross.channel.ChannelEventBus;
 import com.kross.channel.WorkerOfferBus;
+import com.kross.config.AppProperties;
 import com.kross.identity.Identity;
 import com.kross.identity.IdentityDirectory;
 import com.kross.identity.OrganizationAccess;
+import com.kross.storage.ObjectStorage;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +57,9 @@ class AgentConversationIsolationTest {
         mock(ModelCatalog.class),
         runtime,
         new AgentTransactions(),
-        mock(AgentChannelPublisher.class));
+        mock(AgentChannelPublisher.class),
+        mock(ObjectStorage.class),
+        new AppProperties());
   }
 
   @AfterEach
@@ -83,6 +87,27 @@ class AgentConversationIsolationTest {
     assertThat(error.getCode()).isEqualTo("organization_access_denied");
     verify(runtime, never()).ensure(any());
     verify(runtime, never()).runWorkspaceCommand(any(), any(), any(), any());
+  }
+
+  @Test
+  void rejectsCrossOrganizationWorkspaceMutation() {
+    ApiException upload = assertDenied(
+        () -> service.prepareWorkspaceUpload("org-b", new com.kross.agent.dto.WorkspaceUploadRequest(".", "a.txt", "text/plain", 1)));
+    assertThat(upload.getCode()).isEqualTo("organization_access_denied");
+    ApiException commit = assertDenied(
+        () -> service.commitWorkspaceUpload("org-b", new com.kross.agent.dto.WorkspaceUploadCommitRequest("k", ".", "a.txt", "text/plain", 1)));
+    assertThat(commit.getCode()).isEqualTo("organization_access_denied");
+    ApiException delete = assertDenied(() -> service.deleteWorkspacePath("org-b", "a.txt"));
+    assertThat(delete.getCode()).isEqualTo("organization_access_denied");
+    ApiException mkdir = assertDenied(
+        () -> service.createWorkspaceDirectory("org-b", new com.kross.agent.dto.WorkspaceDirectoryRequest("docs")));
+    assertThat(mkdir.getCode()).isEqualTo("organization_access_denied");
+    ApiException download = assertDenied(() -> service.workspaceFileUrl("org-b", "a.txt", false));
+    assertThat(download.getCode()).isEqualTo("organization_access_denied");
+    ApiException content = assertDenied(
+        () -> service.redirectWorkspaceFile("org-b", "a.txt", true, mock(jakarta.servlet.http.HttpServletResponse.class)));
+    assertThat(content.getCode()).isEqualTo("organization_access_denied");
+    verify(runtime, never()).ensure(any());
   }
 
   @Test

@@ -10,6 +10,8 @@ import java.util.Optional;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
+import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -50,6 +52,8 @@ public class ObjectStorage {
         .region(Region.of(this.properties.getRegion()))
         .credentialsProvider(StaticCredentialsProvider.create(credentials))
         .serviceConfiguration(s3Config)
+        .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
+        .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
         .build();
     this.internalPresigner = presigner(this.properties.getEndpoint(), credentials, s3Config);
     this.publicPresigner = presigner(this.properties.getPublicEndpoint(), credentials, s3Config);
@@ -94,10 +98,19 @@ public class ObjectStorage {
   }
 
   public SignedUrl presignGet(String key, Audience audience, Instant expiresAt) {
-    GetObjectRequest get = GetObjectRequest.builder().bucket(properties.getBucket()).key(key).build();
+    return presignGet(key, audience, expiresAt, null, null);
+  }
+
+  public SignedUrl presignGet(
+      String key, Audience audience, Instant expiresAt, String contentType, String contentDisposition) {
+    GetObjectRequest.Builder get = GetObjectRequest.builder().bucket(properties.getBucket()).key(key);
+    Optional.ofNullable(contentType).map(String::trim).filter(value -> !value.isBlank())
+        .ifPresent(get::responseContentType);
+    Optional.ofNullable(contentDisposition).map(String::trim).filter(value -> !value.isBlank())
+        .ifPresent(get::responseContentDisposition);
     String url = presigner(audience).presignGetObject(GetObjectPresignRequest.builder()
         .signatureDuration(ttl(expiresAt))
-        .getObjectRequest(get)
+        .getObjectRequest(get.build())
         .build()).url().toString();
     return new SignedUrl("GET", url, expiresAt);
   }
@@ -184,6 +197,8 @@ public class ObjectStorage {
         .region(Region.of(properties.getRegion()))
         .credentialsProvider(StaticCredentialsProvider.create(credentials))
         .serviceConfiguration(s3Config)
+        .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
+        .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
         .build();
   }
 
